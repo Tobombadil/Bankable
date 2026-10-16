@@ -7,6 +7,13 @@ name: basemap
 # already use in that environment (docs/60-deployment.md §11 item 5) — no separate secret set for
 # this workflow.
 #
+# Since 2026-10-15 it also runs from the values the GitHub Actions beta deploy reads
+# (.github/workflows/deploy-beta.yml, docs/64 §2): the account id from the variable
+# CLOUDFLARE_ACCOUNT_ID (or R2_ACCOUNT_ID), and the tiles bucket from the variable R2_TILES_BUCKET or,
+# without one, the name that deploy creates (infra/ci/beta.sh BUCKET_PREFIX + "-tiles-production").
+# The older secrets R2_ACCOUNT_ID and R2_TILES_BUCKET still win when set. Until that bucket exists
+# the job stops green with a warning, as it does without credentials.
+#
 # `infra/scripts/build_basemap.sh` uploads to a dated key first and only then copies that key to
 # the canonical `basemap.pmtiles` name (a fast, server-side R2 copy, not a re-upload) — so a
 # build that fails partway through never leaves the live tile file half-written. If this job fails,
@@ -35,11 +42,17 @@ jobs:
       - name: R2 credentials present?
         id: creds
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
         run: |
-          if [[ -z "${R2_ACCOUNT_ID}" || -z "${R2_TILES_BUCKET}" ]]; then
-            echo "::warning::R2_ACCOUNT_ID or R2_TILES_BUCKET is not set in the 'production' environment; basemap not refreshed."
+          if [[ -z "${R2_ACCOUNT_ID}" || -z "${R2_ACCESS_KEY_ID}" || -z "${R2_SECRET_ACCESS_KEY}" ]]; then
+            echo "::warning::the R2 account id or token is not set in the 'production' environment; basemap not refreshed."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif ! aws s3api list-objects-v2 --bucket "${R2_TILES_BUCKET}" --max-keys 1 --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" >/dev/null 2>&1; then
+            echo "::warning::the tiles bucket ${R2_TILES_BUCKET} does not exist yet (deploy-beta creates it); basemap not refreshed."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -53,22 +66,33 @@ jobs:
       - name: build and upload (infra/scripts/build_basemap.sh)
         if: steps.creds.outputs.ready == 'true'
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           # tofu output tiles_bucket_name (infra/terraform/outputs.tf) — the tiles bucket is
           # separate from R2_BUCKET (raw snapshots/exports, infra/compose/.env.example), so this
-          # is its own secret rather than reusing that name.
-          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET }}
+          # is its own value rather than reusing that name.
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: infra/scripts/build_basemap.sh
       - name: verify the canonical key is reachable and range-request capable
         if: steps.creds.outputs.ready == 'true'
         env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          DOMAIN: ${{ vars.DOMAIN }}
         run: |
-          curl -fsSI "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${R2_TILES_BUCKET}/basemap.pmtiles" \
-            | tee /dev/stderr | grep -qi "accept-ranges: bytes"
-          # Checks the R2 S3-compatible endpoint directly, not the tiles.infraque.com custom domain —
-          # that domain is a manual one-time dashboard step (infra/terraform/storage.tf's comment
-          # block) this workflow cannot assume exists yet in every environment that runs it.
+          # The S3 endpoint answers signed requests only (an unsigned HEAD there is refused), so the
+          # object is checked through the API; then, when DOMAIN is set, as browsers read it: a range
+          # request through tiles.<DOMAIN>, the custom domain deploy-beta connects.
+          aws s3api head-object --bucket "${R2_TILES_BUCKET}" --key basemap.pmtiles \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          if [[ -n "${DOMAIN}" ]]; then
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -r 0-15 "https://tiles.${DOMAIN}/basemap.pmtiles" || true)"
+            [[ "${code}" == 206 ]] || echo "::warning::https://tiles.${DOMAIN}/basemap.pmtiles answered ${code} to a range request, not 206"
+          fi

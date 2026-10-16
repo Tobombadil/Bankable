@@ -1075,7 +1075,7 @@ name, source URL, retrieved_at, note). `load_parents` matches each pattern (a ca
 expression) against every organisation's canonical name and aliases, creates the parent organisation if no
 existing organisation normalises to its name, and sets `organization.parent_org_id` plus
 `parent_source_id = curated.organization_parents` — a source registered in `data/sources.yaml` §K with
-reuse `open`, publication `raw_ok` and the licence text "curated by Infraque from the companies' own
+reuse `open`, publication `raw_ok` and the licence text "curated by Inframation from the companies' own
 published statements; each row cites its URL", so the provenance rule (every stored fact names its source)
 holds for a fact a human read off a company page. A child that is itself the parent is skipped; a rule that
 matches nothing is reported, not silently accepted.
@@ -1098,6 +1098,10 @@ Level 2 record — which is the general case for operating subsidiaries, so the 
 mechanism rather than a placeholder. Where GLEIF does have a record it overwrites the curated link, and
 `load_parents` refuses to overwrite a GLEIF one, so the two are order-independent. Nothing in the curated file asserts a share, a legal form or an ownership chain beyond one parent
 hop, and none of it is inferred from a name alone — each row is a statement the company itself published.
+
+The developer and utility groups the queues sponsor have their own companion file under the same source,
+`data/vendored/organizations/developer_parents.yaml`, with an evidence rule written for project companies
+(Exhibit 21, GLEIF or the parent's own document, and the parent's name in the child's): §24.
 
 
 ### 15.3 EIA-860 Schedule 4 owner shares (2026-09-19)
@@ -3058,3 +3062,145 @@ component, so this is a probable recall loss of one pair, accepted because the c
 (Rosamond South, Barton/Bee) hold no labelled pair (RES-10: the set has no multi-plant or completed-against-planned
 labels), so the labels cannot see them either way; P/R is unchanged.
 
+
+## 24. Developer and utility group parents (2026-10-16)
+
+The beta's first job is checking a developer's or owner's pipeline (docs/65 §(a) Task 1), and the parent model
+the owner decided on 2026-10-10 already reads a group (`scope=children|all`). What it lacked was the edges.
+Measured on the full local store on 2026-10-11 (10,635 live proposals, 8,535 organisations): 11 organisations had
+a parent, all of them Tallgrass (§15.2); NextEra was 13 or more unlinked records, so
+`/organizations/nextera-energy-inc` showed 25 owned plants and "No proposals sponsored by this company".
+
+### 24.1 The file and its evidence rule
+
+`data/vendored/organizations/developer_parents.yaml`: one entry per group (`parent`, `parent_country`,
+`parent_names`, `children`), one child per organisation record the queues created, each with `evidence`,
+`source_url`, `retrieved_at` and, where the document names the child, the `quote`. It writes under
+`curated.organization_parents`, the source and licence `parents.yaml` already uses, so every edge carries the
+quartet: `source_id` and `licence` from that registry entry, `source_url` and `retrieved_at` from its row. The
+file's header states the rule in full; in short:
+
+1. **Name.** The child's registered name carries one of the parent's own names as whole words.
+2. **The parent's own evidence.** Its latest 10-K Exhibit 21 on EDGAR (or a 20-F's Exhibit 8), a GLEIF Level 2
+   record, or its own published document: an annual report's subsidiary list, or a page naming the child's
+   project. A child named in an Exhibit 21 row passes even when its name does not carry the parent's
+   (Xcel's Public Service Company of Colorado, Vistra's Luminant).
+3. **Complete lists are binding.** Where the parent publishes every subsidiary (AES and NRG Exhibit 21, SSE's
+   annual report A3.1.1, RWE's list of shareholdings under HGB §313), a name missing from the list is declined:
+   sold, renamed or dissolved.
+4. **Project companies need a document.** A group operating, holding or development company may rest on a
+   parent's statement about the group (NextEra's Exhibit 21: Energy Resources "includes 2,323 subsidiaries that
+   operate in the United States"). A project company may not: developers sell projects with their companies.
+
+Rules 1 and 2 are the precision guard. `read_group_rules` refuses a file in which any row fails it, so a wrong
+edge cannot load, and `services/ingest/test_group_parents.py` states it again independently. Rules 3 and 4 are
+the curator's; each declined edge is recorded in its group's `note`.
+
+Retrieval: EDGAR with a declared User-Agent (SEC fair access, under one request per second), GLEIF's public API,
+and the companies' own sites with robots.txt honoured. No private aggregator was read; sites behind a bot
+challenge were not read.
+
+### 24.2 Where it loads, and why there
+
+`services/ingest/organizations.py::load_group_parents` (`python -m services.ingest.organizations groups`), from
+`services/ingest/context_layers.py::load_organization_graph`, after the GLEIF parents, the aliases and the
+merges, so each edge lands on the surviving row. That step runs on every context load whether or not a midstream
+file is present (`load_parents` runs only when one is), so a store holding only the queue registers still gets
+its groups. The file ships in every image (`COPY data/vendored`; `infra/test_image_data.py` finds the path
+constant). A seeded server therefore loads it at the seed's context load (`seed_single_host.sh` step 4, after the
+loads), and again on every monthly `context_load`. On the no-data-root path (`bootstrap fetch`, then
+`bootstrap context --build`, docs/64 §3) a queue whose load finishes after the context load has its sponsors
+linked at the next context load; running `bootstrap context` once the loads have finished closes that gap
+(open item, §24.5).
+
+Behaviour: children are matched by `org_key` over names and aliases; the parent reuses the organisation its name
+keys to and is created, with the file's country, only once a child has matched; a GLEIF Level 2 link is never
+overwritten (`children_deferred_to_gleif`); no `as_of`, no share. A re-run changes nothing.
+
+### 24.3 What the company page does with it
+
+The page already read the whole descent by default (`scope=all`) and the pipeline block already said "sponsored by
+this company and its subsidiaries". The Proposals list decided "group" from `GroupView.is_group`, which counts
+companies that hold assets; a developer's parent and its queue subsidiaries usually hold none, so NextEra's or
+RWE's list would not have said which subsidiary filed each row. It now decides from the scope the list was read at
+(`web/organizations.py::_proposals_span_group`), prints "Including subsidiaries: sponsored by this company or a
+company it owns", and names each row's filer with a link to its page.
+
+### 24.4 Measured before and after
+
+On a copy of the 2026-10-11 full store (`shots.db`), the loader run once: 24 groups, 117 edges, 117 linked, 5
+parents created (SSE plc, RWE Aktiengesellschaft, Statkraft AS, Lightsource BP Renewable Energy Investments
+Limited, Berkshire Hathaway Energy Company), 19 reused; a re-run linked 0 and left 117 unchanged. Organisations
+with a parent: 11 → 128. Evidence: 53 Exhibit 21 (44 quoting the row that names the child), 2 GLEIF, 62 the
+parents' own documents (46 quoting the passage); 99 children carry a parent name, 18 pass only on their quoted
+Exhibit 21 row.
+
+Each parent's page, read the way the page reads it (`GET /v1/organizations/{id}/pipeline?scope=all`): proposals,
+then those in the active pipeline and their MW. "No page" means no organisation existed to look up.
+
+| Parent | Before | After (companies in scope) |
+|---|---|---|
+| Fermi America | 157 / 157 / 11,679 MW | 161 / 161 / 16,147 MW (2) |
+| RWE Aktiengesellschaft | no page | 93 / 61 / 16,425 MW (17) |
+| Entergy Corporation | 0 | 50 / 48 / 17,893 MW (7) |
+| Lightsource BP Renewable Energy Investments Limited | no page | 38 / 38 / 8,900 MW (5) |
+| SSE plc | no page | 68 / 33 / 14,359 MW (19) |
+| NextEra Energy, Inc. | 0 | 73 / 33 / 7,139 MW (9) |
+| Invenergy LLC | 0 | 62 / 32 / 7,805 MW (14) |
+| The AES Corporation | 1 / 0 | 32 / 27 / 2,737 MW (5) |
+| Duke Energy Corporation | 0 | 21 / 21 / 999 MW (4) |
+| Clenera, LLC | 1 / 1 / 301 MW | 19 / 19 / 4,817 MW (2) |
+| ENGIE North America | 5 / 4 / 679 MW | 18 / 17 / 2,721 MW (3) |
+| Xcel Energy Inc. | 0 | 14 / 14 / 3,224 MW (4) |
+| Statkraft AS | no page | 15 / 14 / 2,608 MW (6) |
+| DTE Energy Company | 0 | 14 / 14 / 1,828 MW (2) |
+| Zenobe Energy Limited | 9 / 9 / 2,480 MW | 15 / 12 / 3,180 MW (6) |
+| Black Hills Corporation | 0 | 10 / 10 / 270 MW (3) |
+| Avangrid, Inc. | 5 / 0 | 18 / 9 / 842 MW (4) |
+| American Electric Power Company, Inc. | 1 / 0 | 7 / 6 / 1,823 MW (3) |
+| Berkshire Hathaway Energy Company | no page | 5 / 5 / 811 MW (4) |
+| The Southern Company | 0 | 6 / 4 / 1,506 MW (4) |
+| NiSource Inc. | 0 | 4 / 4 / 448 MW (2) |
+| NRG Energy, Inc. | 6 / 0 | 11 / 3 / 2,872 MW (6) |
+| Constellation Energy Corporation | 0 | 14 / 2 / 1,337 MW (7) |
+| Vistra Corp. | 0 | 2 / 1 / 223 MW (3) |
+| **24 groups** | **185 / 171 / 15,140 MW** | **770 / 588 / 120,914 MW** |
+
+Fermi America is the existing organisation that already held its campus's 157 records; the edge adds Fermi
+Nuclear's four. Zenobe's after count of active records is lower than its proposals count because three of its
+sites are built.
+
+**Declined, with the reason** (each also in its group's note): NextEra Energy Partners LP (GLEIF: non-consolidating),
+FPL Energy, LLC (NextEra Energy Resources' former name, not a subsidiary); Entergy Power Gen. Corp.; AES DE
+DEVCO NC, AES Keystone Wind, AES Long Island, AES NY Wind, AES Somerset and Somerset 2; NRG Astoria Storage, NRG
+Arthur Kill Storage; RWE Renewables Development, LLC, RWE COGEN UK (HYTHE); SSE Utility Solutions (all absent from
+complete lists); Duke Energy Renewables Solar (sold 2023); Calpine Corp (not on Constellation's list);
+Dominion Renewable Energy (not on Dominion's Exhibit 21 and its name does not carry "Dominion Energy"; Dominion
+is therefore not a group here); the bare "DTE" on two EPA Class VI wells; AEP Resources Service Corp.; Iberdrola
+USA (Avangrid's own former name); Lightsource Renewable Energy Asset Management and Lightsource Renewable
+Energy Development (US; bp's 20-F moved certain US assets into a joint venture and nothing read separates them),
+LIGHTSOURCE SPV 204 (its projects are not on Lightsource bp's page); ZENOBE STALYBRIDGE and ZENOBE WISHAW; ENGIE
+Solidago Solar. Coincidences the token test alone would have passed or nearly passed: HIGH CONSTELLATION
+WINDFARM LIMITED, SIERRA PACIFIC INDUSTRIES, DENGIE MARSHES WIND FARM, Excelsior Energy Center, Clearway Energy
+Group LLC (the sponsor *of* Clearway Energy, Inc., not its subsidiary). Groups not made: EDF and Pivot Power, and
+Ørsted (their documents sit behind bot challenges: the EDF registration document returned 403, orsted.com a
+JavaScript challenge, and Pivot Power's name carries no EDF token); Hecate Energy (develop-to-sell project
+companies, and its project list is rendered by script, so no project could be confirmed); Iberdrola above
+ScottishPower and Avangrid (GLEIF names Iberdrola, but neither child's name carries Iberdrola's); Enso (17 "ENSO
+GREEN HOLDINGS" companies, 42 active records, but no Enso document naming them was read); Bluestone, Leeward and
+Qair (their own pages already hold nearly all their records); EDP and Enel (one or two queue records, nothing
+active).
+
+### 24.5 Assumptions and open items
+
+- A-22-24a: a group parent is one hop above every child, as in `parents.yaml`; an Exhibit 21 lists its
+  subsidiaries flat, so the intermediate holding companies are neither known nor created.
+- A-22-24b: an Exhibit 21 dated 31 December 2025 still describes the group in October 2026. The edges carry no
+  `as_of`; the page says "no date stated by the source".
+- Open: the scheduler's resolve pass does not reload the file, so a queue loaded after the context load waits for
+  the next one (§24.2). Calling `load_group_parents` from `infra/scheduler/jobs.py::default_resolve` would close it;
+  that file is outside this lane.
+- Open: `data/sources.yaml`'s `curated.organization_parents` entry still names only `parents.yaml` and
+  `jurisdiction: US`; this file adds GB, DE and NO parents under it.
+- Open: the GLEIF loader, when an operator runs it, links a child to its *direct* parent and wins over this file;
+  six RWE companies hold Level 2 records, so after such a run they would hang under their direct RWE parents.

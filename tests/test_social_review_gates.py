@@ -55,7 +55,7 @@ def _eia_event(**overrides: object) -> SocialEvent:
         "source_url": "https://www.eia.gov/electricity/data/eia860m/",
         "retrieved_at": RETRIEVED_AT,
         "reuse_class": "open",
-        "page_url": "https://infraque.com/proposals/marici-f2a8zc",
+        "page_url": "https://inframation.io/proposals/marici-f2a8zc",
         "proposal_name": "Marici",
         "technology": "storage",
         "capacity_mw": 400.0,

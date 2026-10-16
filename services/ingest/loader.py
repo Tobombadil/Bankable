@@ -2310,7 +2310,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - thin CLI o
 
     from services.db.session import get_engine, get_sessionmaker, session_scope
 
-    parser = argparse.ArgumentParser(description="Infraque loader maintenance")
+    parser = argparse.ArgumentParser(description="Inframation loader maintenance")
     parser.add_argument(
         "--refresh-credits", action="store_true", help="refresh licence credits from the manifest"
     )

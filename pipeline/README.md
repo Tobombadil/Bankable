@@ -165,8 +165,8 @@ keeps its snapshot, writes its records to `data/held/`, emits no events and reco
 
 ## Politeness
 
-One browser-like User-Agent that names the platform and a contact URL (`infraque.com` until the owner
-names the product; set `BANKABLE_DOMAIN` to replace it). Per-host token bucket from the registry
+One browser-like User-Agent that names the platform and a contact URL on `BANKABLE_DOMAIN` (Compose sets it
+from `DOMAIN`, inframation.io in staging and production; unset, a `.invalid` placeholder). Per-host token bucket from the registry
 (`rate_limit_rps`, a limit quoted in the entry's notes, or the `docs/02` §7 defaults — ERCOT and
 FERC 0.5 rps, GDELT one per 5 s, PJM 6/min). Retries with exponential backoff and jitter on 5xx,
 429 and connection errors, honouring `Retry-After`. `robots.txt` is honoured for site fetches; JSON

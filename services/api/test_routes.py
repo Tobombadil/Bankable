@@ -76,7 +76,7 @@ def test_get_proposal_detail_and_404_for_hidden(client, db):
     assert resp404.status_code == 404
     body = resp404.json()
     assert body["code"] == "not_found"
-    assert body["type"].startswith("https://api.infraque.com/errors/")
+    assert body["type"].startswith("https://api.inframation.io/errors/")
 
 
 def test_source_gate_refusal_hides_records_from_public_api(client, db):
@@ -355,11 +355,11 @@ def test_every_feed_item_carries_its_attribution(client, db):
     resp = client.get("/feeds/proposals.rss")
     assert resp.status_code == 200
     root = ET.fromstring(resp.text)  # noqa: S314 -- our own output, parsed to prove it is well-formed
-    ns = {"infraque": PROVENANCE_NS, "dc": "http://purl.org/dc/elements/1.1/"}
+    ns = {"inframation": PROVENANCE_NS, "dc": "http://purl.org/dc/elements/1.1/"}
     items = root.findall("./channel/item")
     assert len(items) == 1
     item = items[0]
-    rows = item.findall("infraque:provenance", ns)
+    rows = item.findall("inframation:provenance", ns)
     assert len(rows) == 1
     fields = {child.tag.split("}")[1]: child.text for child in rows[0]}
     assert fields["source_id"] == "us.test.public_source"
@@ -402,7 +402,7 @@ def test_feed_renderer_escapes_and_skips_absent_provenance():
         "retrieved_at": "2026-09-27T00:00:00Z",
         "licence_id": "l",
         "reuse_class": "open",
-        "attribution_text": "</infraque:attribution><script>",
+        "attribution_text": "</inframation:attribution><script>",
     }
     xml = render_rss(
         resource="Events",
@@ -418,9 +418,10 @@ def test_feed_renderer_escapes_and_skips_absent_provenance():
     assert first.findtext("description") == "d — the platform"
     assert "provenance" not in ET.tostring(first, encoding="unicode")
     assert "<script>" not in xml
-    ns = {"infraque": "https://infraque.com/ns/feed-provenance/1"}
+    ns = {"inframation": "https://inframation.io/ns/feed-provenance/1"}
     assert (
-        second.find("infraque:provenance/infraque:attribution", ns).text == "</infraque:attribution><script>"
+        second.find("inframation:provenance/inframation:attribution", ns).text
+        == "</inframation:attribution><script>"
     )
 
 

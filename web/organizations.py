@@ -476,7 +476,7 @@ def organizations_list(request: Request) -> HTMLResponse:
                 name="Companies",
                 description=(
                     "Owners and operators of the assets, proposals and opportunities in the "
-                    "Infraque register."
+                    "Inframation register."
                 ),
                 path=canonical_path,
                 rows=[(r["name"], r["href"]) for r in records if r.get("name")],
@@ -564,7 +564,7 @@ def _organization_fetch(api: ApiClient, request: Request, entity: dict[str, Any]
     # list section prints the first `ORG_PROPOSALS_LISTED` of the most recently changed.
     fetch.pipeline = fetch_pipeline(api, public_id, api_params) if public_id else None
     fetch.proposal_pages = fetch_proposals(api, public_id, api_params) if public_id else ProposalPages()
-    fetch.proposals = [flatten_proposal(e) for e in fetch.proposal_pages.rows[:ORG_PROPOSALS_LISTED]]
+    fetch.proposals = [_org_proposal_row(e) for e in fetch.proposal_pages.rows[:ORG_PROPOSALS_LISTED]]
     try:
         opportunities_env = api.get(
             f"/v1/organizations/{public_id}/opportunities",
@@ -580,6 +580,33 @@ def _organization_fetch(api: ApiClient, request: Request, entity: dict[str, Any]
     except (ApiError, KeyError, TypeError):
         fetch.technology_vocabulary = []
     return fetch
+
+
+def _org_proposal_row(entity: Mapping[str, Any]) -> dict[str, Any]:
+    """One row of the Proposals section: the list's flattened proposal plus the sponsor's own page,
+    so a group's list can name, and link, the company in it that filed each record."""
+    row = flatten_proposal(dict(entity))
+    sponsor = entity.get("sponsor")
+    sponsor = sponsor if isinstance(sponsor, Mapping) else {}
+    row["sponsor_public_id"] = sponsor.get("public_id")
+    row["sponsor_slug"] = sponsor.get("slug")
+    return row
+
+
+def _proposals_span_group(fetch: _OrgFetch) -> bool:
+    """Whether the Proposals section reads more than this one organisation: the scope is wider than
+    `self` and the walk reached a subsidiary. Read from the pipeline aggregate's own `scope` block
+    (the proposals and the aggregate are read at one scope), else from the assets call's.
+
+    Not `GroupView.is_group`, which counts the companies that *hold assets*: a developer's parent
+    usually holds none and its subsidiaries hold none either -- the queue positions are all they
+    have -- so that test called NextEra's or RWE's group a single company and the rows did not say
+    which subsidiary filed them."""
+    if fetch.scope == "self":
+        return False
+    scope = (fetch.pipeline or {}).get("scope")
+    meta = scope if isinstance(scope, Mapping) else fetch.scope_meta
+    return _count_or(meta.get("organizations") if isinstance(meta, Mapping) else None, 1) > 1
 
 
 def _pipeline_total(fetch: _OrgFetch) -> int:
@@ -840,6 +867,8 @@ def _organization_render(
             "nearby_technologies": fetch.technology_vocabulary,
             "nearby_param": NEARBY_TECHNOLOGY_PARAM,
             "proposals": fetch.proposals,
+            # The list covers the subsidiaries too: say so, and name the filer on every row.
+            "proposals_group": _proposals_span_group(fetch),
             # The company's pipeline by status, technology and ISO, each count a link to the list
             # (owner, 2026-10-10: "show me their pipeline"); `None` when it sponsors nothing here.
             "pipeline": pipeline_summary(fetch.pipeline),

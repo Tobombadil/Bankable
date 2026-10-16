@@ -11,8 +11,9 @@ variables); `infra/compose/.env.example`.
 **Scope:** what ships at launch, what the owner must still create, the exact deploy sequence, the release
 gate, day-one operations, and the gaps this runbook does not paper over.
 
-Placeholders `Infraque` and `infraque.com` stand for the product name and domain until `docs/00-PLAN.md`
-decision S3-5 is closed; "Infraque" is the working placeholder name, not yet permanent.
+The product is **Inframation** at `inframation.io` (owner, 2026-10-16; `docs/12` §12). It stays the working name
+until the trademark checks in §2.1 are answered. `infraque` survives only as an internal codename in host paths,
+environment variables and database names.
 
 ---
 
@@ -29,7 +30,7 @@ bot challenge. Ordered by what each item unblocks. Times are estimates, not meas
 | D1 | ~~"Open the PR"~~ **Done 2026-09-15 evening:** PR #1 open, 13/13 CI jobs green after seven runs, mergeable; remaining decision is merge | `ci.yml` runs only on pushes to `main` and PRs against `main`, so real CI has never run on this branch; every red mark you saw was a misfiled worker script, now moved (`infra/cloudflare/README.md`). The coordinator opens the PR only on your word and then watches CI | Yes, open it; merge after CI is green |
 | D2 | ~~Cost ceiling~~ **Done:** US$2 per accepted permit event, escalation to $5 only by owner ask for the county pilot (`docs/00-PLAN.md` 2026-09-15 "Permits are stages", item 3) | The kill criterion is half a criterion without a number | Pick a dollar figure per extracted permit event; the pilot reports measured cost against it |
 | D3 | ~~D-13 budget~~ **Done:** re-based to 350 KB gzipped (docs/04 D-13) | MapLibre GL 5.24 alone is 276 KB gzipped; measured, pre-existing, recorded 2026-09-15 | Re-base; a renderer swap costs a sprint for no user-visible gain |
-| D4 | ~~Product name~~ **Done 2026-09-15 evening: Infraque at infraque.com** (docs/12 §11). Still yours this morning: register infraque.com and infraqueue.com; book counsel's knock-out search | Domain registration, Stripe product names, Attio workspace name and the wordmark all wait on it | Decide before creating any account below, or every account gets renamed later |
+| D4 | ~~Product name~~ **Done 2026-10-16: Inframation at inframation.io** (owner; docs/12 §12). Still yours: register inframation.io; have a lawyer check UKIPO and EUIPO for ION's INFRAMATION registrations and ION's rebrand date before brand spend (§2.1) | Domain registration, Stripe product names, Attio workspace name and the wordmark all wait on it | Decide before creating any account below, or every account gets renamed later |
 
 ### 0.2 See it yourself (15 minutes, at your desk)
 
@@ -141,8 +142,8 @@ human (`docs/32` §2 preamble). "Done-check" is a concrete, checkable fact, not 
 | MISO terms retrieved and read | Owner or counsel | `misoenergy.org/meet-miso/legal-and-privacy/` saved as PDF; operative clauses quoted into `docs/13` §7 item 2; `data/sources.yaml` classification set |
 | SPP / NYISO / ISO-NE terms confirmed in `data/sources.yaml` | legal-compliance | `docs/04` §10 conflict row 6: `data/sources.yaml` `reuse` updated from `unknown` to match `docs/13` §6 (`restricted` / `attribution-restricted`) |
 | Counsel brief on the remaining 22 items in `docs/13` §7 | Owner + counsel | Each of the 12 numbered items in `docs/13` §7 has a written answer or an explicit "not yet" with a date |
-| Domain registration: `infraque.com`, `infrafeed.com` | Owner | WHOIS shows registrant; both registered per `docs/00-PLAN.md` S3-5 default |
-| Name made permanent (Infraque vs Infrafeed) | Owner | Decision logged in `docs/00-PLAN.md`; `infraque.com`/`Infraque` placeholders scheduled for replacement |
+| Domain registration: `inframation.io` (plus the typo variants counsel suggests) | Owner | RDAP/WHOIS shows the owner as registrant |
+| Name cleared before brand spend (Inframation) | Owner + counsel | UKIPO and EUIPO checked for ION's INFRAMATION registrations; the date ION stopped using the name (US non-use presumption: 3 years); the live US mark INFRAMATION, Reg. No. 2553306 (infrared-thermography conferences), assessed; answer recorded in `docs/12` §12 |
 
 ### 2.2 CRM — Attio (`docs/34` §6)
 
@@ -150,7 +151,7 @@ human (`docs/32` §2 preamble). "Done-check" is a concrete, checkable fact, not 
 |---|---|---|---|
 | Workspace + two custom objects (Lead Signals, Subscriptions), five lists | — | Owner | Objects and lists visible in the Attio workspace with the exact slugs `services/crm/attio.py` expects (`lead_signals`, `subscriptions`, `unmatched_signals`) |
 | API key (read/write on records, lists, webhooks) | `ATTIO_API_KEY` | Owner | `build_crm_port()` (`services/crm/README.md` D-1) returns the real adapter (`sor_kind = "attio"`), not the in-memory fake (`sor_kind = "attio_fake"`) |
-| Two outbound webhooks → `https://api.infraque.com/webhooks/attio` | — | Owner | Attio's webhook admin page shows both registered and enabled |
+| Two outbound webhooks → `https://api.inframation.io/webhooks/attio` | — | Owner | Attio's webhook admin page shows both registered and enabled |
 | Webhook signing secret | `ATTIO_WEBHOOK_SECRET` | Owner | A test delivery from Attio verifies (`hmac.compare_digest` match, no `WebhookRejected`, `services/crm/README.md` "Webhook verification") |
 | Object-id → slug map | `ATTIO_OBJECT_IDS` (JSON) | Owner, after objects exist | A logged `company.updated`/`lead_signal.updated` event resolves to its real slug, not the `"unknown"` sentinel (`services/crm/README.md` A-34-1) |
 | Curated RFP-issuer list + 20 discovery targets imported as Companies | Owner | Companies exist with `segment` set (`docs/34` §6 step 5) |
@@ -189,7 +190,7 @@ human (`docs/32` §2 preamble). "Done-check" is a concrete, checkable fact, not 
 | Item | Environment variable | Who creates | Done-check |
 |---|---|---|---|
 | Hetzner Cloud project | `HCLOUD_TOKEN` | Owner | `tofu plan -var-file=terraform.tfvars` runs against real infrastructure |
-| Cloudflare account/zone | `CLOUDFLARE_API_TOKEN` | Owner | Zone visible in the Cloudflare dashboard for `infraque.com` |
+| Cloudflare account/zone | `CLOUDFLARE_API_TOKEN` | Owner | Zone visible in the Cloudflare dashboard for `inframation.io` |
 | Managed Postgres (Neon or Crunchy Bridge, ADR 0003) with `postgis`/`pg_trgm`/`btree_gin`/`pgcrypto` | `DATABASE_URL` | Owner | `alembic -c services/db/migrations/alembic.ini upgrade head` succeeds against it (never run against real Postgres before this — `docs/60` §11 item 2) |
 | Per-environment SOPS age keys | `SOPS_AGE_KEY` (held by deploy operator, not committed) | Owner/devops | `infra/scripts/bootstrap_age_key.sh <env>` run; `.sops.yaml`'s `REPLACE_WITH_*` filled in; `sops -d` decrypts the real `secrets.<env>.enc.yaml` |
 | Object storage (R2) | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Owner | `infra/scripts/restore_drill.sh` downloads a real backup and restores it |
@@ -215,7 +216,7 @@ do not exist yet (`docs/60` §11 item 3). Creating that file is itself a first-d
 ### 2.7 Map basemap tiles (found while the owner tested the prototype, 2026-09-14; decided 2026-09-15)
 
 **Decided** (`docs/00-PLAN.md` 2026-09-14/15; `docs/adr/0007-basemap-protomaps-on-r2.md`): Protomaps
-PMTiles, self-hosted on Cloudflare R2, served at `https://tiles.infraque.com/basemap.pmtiles`. This
+PMTiles, self-hosted on Cloudflare R2, served at `https://tiles.inframation.io/basemap.pmtiles`. This
 replaces the prototype's `tile.openstreetmap.org` raster load, whose usage policy forbids
 production apps and rate-limits or blocks them (when blocked, the map is a beige outline with
 clusters on it and zooming looks like it does nothing). The two hosted-provider options
@@ -224,10 +225,10 @@ clusters on it and zooming looks like it does nothing). The two hosted-provider 
 | Item | Environment variable | Who creates | Done-check |
 |---|---|---|---|
 | Apply the Terraform: the tiles R2 bucket (`infra/terraform/storage.tf`'s `cloudflare_r2_bucket.tiles`) | — | Owner (`tofu apply`, part of §3 step 1's normal `tofu apply`) | `tofu output tiles_bucket_name` returns a real bucket name |
-| Connect the custom domain — a manual dashboard step; the pinned Cloudflare provider does not support `cloudflare_r2_custom_domain` (`infra/terraform/storage.tf`'s comment block has the exact steps) | — | Owner | Cloudflare dashboard shows `tiles.infraque.com` connected and enabled on the tiles bucket |
+| Connect the custom domain — a manual dashboard step; the pinned Cloudflare provider does not support `cloudflare_r2_custom_domain` (`infra/terraform/storage.tf`'s comment block has the exact steps) | — | Owner | Cloudflare dashboard shows `tiles.inframation.io` connected and enabled on the tiles bucket |
 | Set the bucket's CORS policy (`GET, HEAD` with `Range`, from the site origin) — also manual, same reason (`storage.tf`'s comment block has the exact `curl` call) | — | Owner | The `curl` call in `storage.tf` returns 200; a browser map load does not fail cross-origin |
 | Run the refresh workflow once (`.github/workflows/basemap.yml`, `workflow_dispatch`) to populate `basemap.pmtiles` for the first time | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_TILES_BUCKET` (GitHub Actions `production` environment secrets — the first three already exist per §2.6; `R2_TILES_BUCKET` is new, set to `tofu output tiles_bucket_name`) | Owner (triggers the run) | The workflow's own verification step passes (`accept-ranges: bytes` on the uploaded object); `infra/scripts/build_basemap.sh`'s log names the build date used |
-| Set `MAP_TILE_URL=https://tiles.infraque.com/basemap.pmtiles` in the environment's secrets/config | `MAP_TILE_URL` | Owner | frontend-developer's `web/` change (out of this task's scope) reads it and renders the map |
+| Set `MAP_TILE_URL=https://tiles.inframation.io/basemap.pmtiles` in the environment's secrets/config | `MAP_TILE_URL` | Owner | frontend-developer's `web/` change (out of this task's scope) reads it and renders the map |
 
 **Done-check for the whole item:** street-level detail renders at zoom 10 on the deployed site; the
 attribution line names Protomaps/OpenStreetMap (`docs/adr/0007`'s licence note: "© OpenStreetMap
@@ -311,7 +312,7 @@ which only makes sense once 1–6 exist.
    appends a row to `infra/deploy-log.md`. The nightly backup timer (`docs/60` §8) starts working after this
    first deploy ships `backup.sh` and the secrets file to the app VM. All of this except SSH to real hosts
    was run on a local Compose stack on 2026-09-27 (`docs/60` §11 item 10).
-   **Verify:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200, and
+   **Verify:** `curl https://inframation.io/health` and `curl https://inframation.io/v1/health` return 200, and
    `/v1/health`'s `build.commit` and the page footer show the deployed commit, not "unknown". On each worker host,
    `docker compose ps` shows `worker`/`browser-worker`/`scheduler` up with no restarts; `deploy.sh` does not
    check them, because they have no healthcheck. The E-10 Playwright smoke suite passes: it passed 19/19 on

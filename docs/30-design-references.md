@@ -5,7 +5,7 @@
 derives its typefaces, scales and layout from it and cites it.
 **Inputs:** `CLAUDE.md`, `.claude/agents/product-designer.md` (design mandate), `docs/04-standards.md` §2 (D-1…D-36),
 `docs/10-prd-mvp.md` §2 (segments) and US-104 (map).
-**Product name used in this doc:** Infraqueue (placeholder, `docs/12-naming-shortlist.md`).
+**Product name used in this doc:** Inframation (owner, 2026-10-16; `docs/12-naming-shortlist.md` §12; the study was written under an earlier placeholder name).
 
 ## 0. Method and an honesty note
 
@@ -34,7 +34,7 @@ doc and is the reason D-2 reads the way it does.
 **Takes:** the "rev N" document-identity convention for record and export headers; hover-to-reveal sourcing as one
 concrete implementation of D-2's provenance affordance; dividers instead of card chrome as the default separator.
 **Avoids:** the page's own density is intentionally sparse — right for a one-page proposal, wrong for a list of
-hundreds of records (D-1). Infraqueue borrows the idiom, not the whitespace budget.
+hundreds of records (D-1). Inframation borrows the idiom, not the whitespace budget.
 
 ## 2. Product studies
 
@@ -47,7 +47,7 @@ continuous scale from dark green (low gCO₂eq/kWh) to red (high, up to ~1500), 
 a zone opens a breakdown panel with production/consumption mix and import/export flows; a timeline slider moves
 between historical and near-term forecast states. It is built on MapLibre.
 
-**Takes:** click-a-region-to-open-a-breakdown-panel is the same shape as Infraqueue's D-12 drawer, just triggered
+**Takes:** click-a-region-to-open-a-breakdown-panel is the same shape as Inframation's D-12 drawer, just triggered
 by a filled polygon instead of a marker; a timeline control as a pattern worth considering for "as of" browsing
 inside Pro, distinct from the tier-gated lag itself. **Rejects:** the green→red continuous choropleth is a scale
 for one continuous physical quantity (carbon intensity). Lifecycle state is a discrete, unordered-ish categorical
@@ -64,7 +64,7 @@ dashboards with toggleable series — that a customer assembles rather than one 
 shareable by role within an org.
 
 **Takes:** a small named component library (map, latest-value tile, table) reused across every ISO page is the
-right model for Infraqueue's shared filter/tier/URL grammar (D-4, D-19) — one map component and one table
+right model for Inframation's shared filter/tier/URL grammar (D-4, D-19) — one map component and one table
 component, parameterised by filter, not sixteen bespoke pages. **Rejects/uncertain:** the live app did not load,
 so no claim is made about its typography, colour palette or density; this is a documented gap, not a rejection.
 
@@ -79,12 +79,12 @@ deeper CSV/Snowflake access. Visual design is deliberately plain — text links 
 all of the hierarchy, with very little colour.
 
 **Takes:** a fixed, always-visible freshness/provenance line near the top of every list and map page is exactly
-D-3's requirement, just running the opposite direction (this site claims "live," Infraqueue's public tier must
+D-3's requirement, just running the opposite direction (this site claims "live," Inframation's public tier must
 say "delayed"); the county/state toggle is close to D-8's placement-precedence ladder and validates that fallback
 as a real, shipped pattern, not a theoretical one; the filter taxonomy (region/state/market/type/status) maps
 closely onto US-102's filter list. **Rejects:** near-zero colour differentiation between states works for
 Interconnection.fyi's audience (people who already know the vocabulary and are scanning link lists), but
-Infraqueue's map and list need D-25's status chips precisely because lifecycle state is the thing being scanned
+Inframation's map and list need D-25's status chips precisely because lifecycle state is the thing being scanned
 for — text alone would regress the one advantage a fused, chip-coded record has over a raw queue export.
 
 ### 2.4 Felt — felt.com
@@ -96,11 +96,11 @@ time-series charts, categorical filters and histograms as first-class panels bes
 page. Sharing is "zero-click" — a link with view/comment/edit permissions, no export step.
 
 **Takes:** the map-plus-stat-panel layout, where a histogram or filter list sits directly beside (not below or
-behind) the canvas, is the model for how Infraqueue's map page should present the "in view" counts and the
+behind) the canvas, is the model for how Inframation's map page should present the "in view" counts and the
 filter rail together (D-4, D-14's synchronised results list); automatic-legend generation is the right instinct
 for D-10's cluster glyph — the legend should be computed from what's on screen, not hand-authored per screen.
 **Rejects:** the marketing site's decorative "island-like" organic shapes are ornamental illustration adjacent to
-the stock-illustration ban (D-7); Infraqueue's utility-filing idiom has no use for them.
+the stock-illustration ban (D-7); Inframation's utility-filing idiom has no use for them.
 
 ### 2.5 Kepler.gl — kepler.gl / docs.kepler.gl
 
@@ -112,10 +112,10 @@ build a view; the panel and its colours are themeable via a JS theme object (`si
 
 **Takes:** the deck.gl/MapLibre GL WebGL-with-runtime-aggregation architecture is direct evidence that D-13's
 budget (20,000+ records, canvas/WebGL, never one DOM node per marker above 500) is achievable at far larger scale
-elsewhere — Kepler.gl's own headline use case is an order of magnitude past Infraqueue's target; a themeable
+elsewhere — Kepler.gl's own headline use case is an order of magnitude past Inframation's target; a themeable
 side-panel shell (one component, swappable tokens) is the right shape for a shared filter rail (D-19). **Rejects:**
 Kepler.gl's panel is a configuration surface for an analyst building a view (pick a field, pick a colour ramp,
-pick an aggregation) — Infraqueue's public and Pro map users are reading a curated view, not building one; that
+pick an aggregation) — Inframation's public and Pro map users are reading a curated view, not building one; that
 configuration surface, however elegant, is the wrong job for a reader and must not appear on non-admin surfaces.
 
 ### 2.6 Observable — observablehq.com
@@ -130,10 +130,10 @@ CSS sets type, colour and spacing once for the whole document.
 
 **Takes:** one small, fixed set of interaction primitives reused everywhere (their Inputs) is the same discipline
 D-19 asks for (tokens are the only way to reference colour/type/space) applied to interactive controls, not just
-static styling — Infraqueue should have one filter-chip, one date-range, one multi-select, not a bespoke control
+static styling — Inframation should have one filter-chip, one date-range, one multi-select, not a bespoke control
 per screen. **Rejects/uncertain:** no claim is made about Observable's live typography or colour palette, since
 the live app did not load either time; the one thing safe to reject on principle regardless is a notebook's
-code-cell-and-run-button surface leaking into a reader-facing product — Infraqueue's detail pages are
+code-cell-and-run-button surface leaking into a reader-facing product — Inframation's detail pages are
 server-rendered per D-18, not executed client-side documents.
 
 ### 2.7 FT visual and data journalism — ft.com / ig.ft.com
@@ -161,7 +161,7 @@ The homepage self-describes as long-form, data-driven visual essays, browsable b
 input") with titles that imply scrollytelling and mapping techniques ("mapping," "tracking," "similes").
 
 **Takes:** format-as-a-facet (video/audio/interactive) is a reasonable secondary filter dimension in principle,
-though not one Infraqueue's filter grammar needs (API-3 already fixes the facets). **Rejects:** no firsthand claim
+though not one Inframation's filter grammar needs (API-3 already fixes the facets). **Rejects:** no firsthand claim
 is made about The Pudding's actual typography or motion, since only a thin homepage loaded — but the pattern that
 must be rejected on principle regardless of what loaded is scrollytelling itself: step-triggered reveal-on-scroll
 animation is built for one-time narrative consumption of a single essay, and D-15 already bans anything on
@@ -192,10 +192,10 @@ pair a left category nav with centre prose and a right-hand pinned code sample p
 strictly for code/identifiers.
 
 **Takes:** monospace exclusively for identifiers and code, never for prose, is exactly D-21/D-24's Plex Mono
-rule; a flat, named top-level category list (not a deep tree) is the model for Infraqueue's own primary nav
+rule; a flat, named top-level category list (not a deep tree) is the model for Inframation's own primary nav
 (D-16 caps depth at 3 to any record) — Stripe's category page is the thing to copy, not its full nested reference
 tree. **Rejects:** Stripe's complete documentation set is many hundreds of pages deep in places; copied literally
-for Infraqueue's public site nav, that depth would breach D-16's 3-click rule. The flat top level is the takeaway;
+for Inframation's public site nav, that depth would breach D-16's 3-click rule. The flat top level is the takeaway;
 the long tail underneath it is not a model to reproduce.
 
 ### 2.11 Ember — ember-energy.org
@@ -219,11 +219,11 @@ overexplain… instead letting the user click, follow, zoom, pan, filter, and wa
 map."
 
 **Takes:** consolidating many real-world subtypes into a small, deliberately shared icon set is the direct model
-for D-10's technology glyphs — Infraqueue should not attempt one unique icon per fine-grained technology value,
+for D-10's technology glyphs — Inframation should not attempt one unique icon per fine-grained technology value,
 only per broad category, with the fine value in the tooltip/drawer; the WebGL-at-extreme-marker-count evidence
 reinforces that D-13's 20k-record budget is conservative, not aspirational, relative to what this category of
 product already ships. **Rejects:** the "no overexplaining, learn by touching" onboarding philosophy fits a
-hobbyist, exploratory audience with no accessibility mandate stated; Infraqueue's map serves due-diligence and
+hobbyist, exploratory audience with no accessibility mandate stated; Inframation's map serves due-diligence and
 compliance workflows under D-14, where every control must be a named, discoverable, keyboard-operable button —
 implicit discovery-by-clicking is not an acceptable substitute for that.
 
@@ -238,8 +238,8 @@ those specifics.
 
 **Takes:** an unambiguous, plainly worded attribution statement, on the page itself rather than buried in a
 footer link, is the exact standard D-13's basemap-attribution clause and D-27's provenance panel are asking for —
-and it is the same OSM/ODbL licence Infraqueue's own basemap must credit, so this is a working example of the
-compliance obligation Infraqueue already has, not just an aesthetic borrow. **Rejects/uncertain:** no claim is
+and it is the same OSM/ODbL licence Inframation's own basemap must credit, so this is a working example of the
+compliance obligation Inframation already has, not just an aesthetic borrow. **Rejects/uncertain:** no claim is
 made about its legend or colour system, since the about page didn't describe it and the live map's rendered
 legend was not separately verified; a gap, not a finding.
 
@@ -247,7 +247,7 @@ legend was not separately verified; a gap, not a finding.
 
 Loaded (2026-09-12, the Global Integrated Power Tracker project page). GEM tracks 182,400+ facilities across 200
 areas (August 2026 release, per the page) with unit-level metadata — capacity, status, ownership, fuel type,
-start year, retirement date, geolocation — that maps almost field-for-field onto Infraqueue's own provenance
+start year, retirement date, geolocation — that maps almost field-for-field onto Inframation's own provenance
 quartet plus canonical fields. The page offers both a map ("Open Tracker map") and a dashboard/spreadsheet view
 ("Open Dashboard," summary tables by technology and status) as two views of the same underlying dataset, plus a
 methodology section addressing coverage and accuracy limits. A FAQ entry, "What do the colored dots mean on the
@@ -256,10 +256,10 @@ surfaced where the map is.
 
 **Takes:** map-or-table as two interchangeable views of one dataset, with an explicit written methodology section
 disclosing coverage and accuracy limits, is the direct precedent for D-4 (one mental model across search, map,
-feed) and for how Infraqueue should write up D-9's restricted-precision fallback in plain language rather than
+feed) and for how Inframation should write up D-9's restricted-precision fallback in plain language rather than
 leaving it to a drawer footnote. **Rejects:** a legend whose meaning lives in an FAQ answer rather than on the map
 itself is precisely the failure D-10 is trying to prevent — a cluster or dot whose colour code isn't visible where
-the colour is used forces the reader to go hunting; Infraqueue's legend must render with the map, always.
+the colour is used forces the reader to go hunting; Inframation's legend must render with the map, always.
 
 ### 2.15 Vercel dashboard surfaces — vercel.com/products/observability (found independently)
 
@@ -274,13 +274,13 @@ validated precedent for D-25's status-chip system — a 2xx/4xx/5xx-style three-
 hue per fine-grained value; separating a data-dense screen into a handful of named sections (rather than one
 giant table) is the right layout instinct for the admin source-health screen (US-904). **Rejects:** the observed
 marketing copy around the screenshots ("Proactive Anomaly Detection and Alerting") is the generic, adjective-first
-SaaS voice D-33 already bans in Infraqueue's own copy; the layout is worth borrowing, the copy register is not.
+SaaS voice D-33 already bans in Inframation's own copy; the layout is worth borrowing, the copy register is not.
 
 ## 3. Synthesis — borrow, adapt, reject
 
 | Pattern | Source(s) | Disposition | Rule |
 |---|---|---|---|
-| Fixed, always-visible freshness/provenance line at the top of every list/map/detail page | Interconnection.fyi | Borrow (inverted: Infraqueue's says "delayed," not "live") | D-3 |
+| Fixed, always-visible freshness/provenance line at the top of every list/map/detail page | Interconnection.fyi | Borrow (inverted: Inframation's says "delayed," not "live") | D-3 |
 | Detail drawer opened from a marker/polygon/zone, never a page navigation | Electricity Maps, Felt | Borrow | D-12 |
 | WebGL/canvas rendering with server- or runtime-side aggregation, never one DOM node per marker | Kepler.gl, Flightradar24 | Borrow | D-13 |
 | Small, shared icon set covering many real-world subtypes (not one glyph per fine value) | Flightradar24 | Borrow | D-10 |

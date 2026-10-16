@@ -11,9 +11,9 @@
 {%- macro error(name, fid) -%}
 {%- if f.errors.get(name) %}<p class="field__error" id="{{ fid }}-error"><span class="visually-hidden">Error: </span>{{ f.errors[name] }}</p>{% endif -%}
 {%- endmacro -%}
-{% block title %}{% if f.sent %}Feedback sent{% elif f.problem %}Check your feedback{% else %}Tell us what you were trying to do{% endif %} — Infraque{% endblock %}
+{% block title %}{% if f.sent %}Feedback sent{% elif f.problem %}Check your feedback{% else %}Tell us what you were trying to do{% endif %} — Inframation{% endblock %}
 {% block robots %}noindex, nofollow{% endblock %}
-{% block meta_description %}Private beta feedback: tell the Infraque team what you were trying to do, and what happened.{% endblock %}
+{% block meta_description %}Private beta feedback: tell the Inframation team what you were trying to do, and what happened.{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>Tell us what you were trying to do</h1>

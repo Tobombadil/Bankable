@@ -426,7 +426,7 @@ def test_every_public_page_carries_open_graph_twitter_and_canonical(
     assert description and len(description) > 20
     assert _meta(body, "property", "og:title") == title.group(1)
     assert _meta(body, "property", "og:description") == description
-    assert _meta(body, "property", "og:site_name") == "Infraque"
+    assert _meta(body, "property", "og:site_name") == "Inframation"
     assert _meta(body, "property", "og:type") == "website"
     assert _meta(body, "property", "og:url") == f"http://testserver{path}"
     assert _meta(body, "name", "twitter:card") == "summary_large_image"

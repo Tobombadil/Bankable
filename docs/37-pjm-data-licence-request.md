@@ -106,7 +106,7 @@ the inbox that routes internally. It stays one request.
 > derived fields from PJM's interconnection queue. Could you pass this to whoever handles data licensing? I'm
 > also sending it by post to the General Counsel, as your Legal & Privacy notice asks.
 >
-> [Organisation] runs [Site name] ([Site URL]), an attributed public-records aggregator: a free, noncommercial
+> [Organisation] runs Inframation (inframation.io), an attributed public-records aggregator: a free, noncommercial
 > website and API that maps proposed energy and infrastructure projects. Its readers are energy and
 > infrastructure analysts, including analysts at investment firms. It is in private beta, and no PJM queue record
 > is published on it.
@@ -137,7 +137,7 @@ the inbox that routes internally. It stays one request.
 > [Postal address]
 <!-- body-end -->
 
-(321 words with the placeholders and signature, counted with `wc -w`. For the posted copy, change the third sentence of the first paragraph to "I have sent the same
+(319 words with the placeholders and signature, counted with `wc -w` on the body without its `> ` markers. For the posted copy, change the third sentence of the first paragraph to "I have sent the same
 request to custsvc@pjm.com.")
 
 **Attachments**

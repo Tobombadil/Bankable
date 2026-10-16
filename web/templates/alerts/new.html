@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Save an alert — Infraque{% endblock %}
+{% block title %}Save an alert — Inframation{% endblock %}
 {% block robots %}noindex, nofollow{% endblock %}
-{% block meta_description %}Save an Infraque search as an email alert.{% endblock %}
+{% block meta_description %}Save an Inframation search as an email alert.{% endblock %}
 {% block content %}
 <div class="page-header">
   <h1>Save this search as an alert</h1>
@@ -66,7 +66,7 @@
     {%- if error and error.field_errors and error.field_errors.delivery_mode %}<p class="field__error">{{ error.field_errors.delivery_mode }}</p>{% endif %}
   </fieldset>
   {%- if free %}
-  <p class="field-hint">Free while Infraque operates as a noncommercial service: up to <span class="tnum">{{ limit }}</span> alerts, <span class="tnum">{{ used }}</span> used.</p>
+  <p class="field-hint">Free while Inframation operates as a noncommercial service: up to <span class="tnum">{{ limit }}</span> alerts, <span class="tnum">{{ used }}</span> used.</p>
   {%- endif %}
   <div class="form-actions">
     <button type="submit">Save alert</button>

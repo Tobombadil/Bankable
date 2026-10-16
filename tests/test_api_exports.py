@@ -110,7 +110,7 @@ def test_create_export_writes_a_csv_with_the_licence_block_and_provenance_on_eve
     assert download.headers["content-type"].startswith("text/csv")
     assert download.headers["cache-control"] == "private, no-store"
     text = download.text
-    assert text.startswith("# Infraque CSV export ")
+    assert text.startswith("# Inframation CSV export ")
     assert "· licences=open-lic ·" in text.splitlines()[0]
     header, rows = _read_csv(text)
     assert any(line.startswith("# Sources: Test Public Source") for line in header)

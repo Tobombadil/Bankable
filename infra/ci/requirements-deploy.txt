@@ -1,0 +1,11 @@
+# What infra/ci/beta.py `render-env` imports on the GitHub runner (.github/workflows/deploy-beta.yml):
+# bcrypt, for the beta gate's SITE_ACCESS_HASH. Installed with `pip install --require-hashes
+# --only-binary=:all:`; the hashes are PyPI's for the x86_64 glibc abi3 wheels of 5.0.0
+# (https://pypi.org/project/bcrypt/5.0.0/#files, retrieved 2026-10-15).
+bcrypt==5.0.0 \
+    --hash=sha256:0c8e093ea2532601a6f686edbc2c6b2ec24131ff5c52f7610dd64fa4553b5464 \
+    --hash=sha256:89042e61b5e808b67daf24a434d89bab164d4de1746b37a8d173b6b14f3db9ff \
+    --hash=sha256:560ddb6ec730386e7b3b26b8b4c88197aaed924430e7b74666a586ac997249ef \
+    --hash=sha256:f8429e1c410b4073944f03bd778a9e066e7fad723564a52ff91841d278dfc822 \
+    --hash=sha256:611f0a17aa4a25a69362dcc299fda5c8a3d4f160e2abb3831041feb77393a14a \
+    --hash=sha256:7aeef54b60ceddb6f30ee3db090351ecf0d40ec6e2abf41430997407a46d2254

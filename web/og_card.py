@@ -31,7 +31,7 @@ OG_CARD_URL_PATH = "static/img/og-card.png"
 WIDTH, HEIGHT = 1200, 630
 #: Mirrors `og:image:alt` / `twitter:image:alt` in `base.html` (pinned by `web/test_og_card.py`).
 OG_CARD_ALT = (
-    "Infraque: energy and infrastructure proposals and opportunities, one record per project, "
+    "Inframation: energy and infrastructure proposals and opportunities, one record per project, "
     "traced from announced to built."
 )
 #: Budget for the committed file. Platforms accept far more; a small card loads fast in a feed.
@@ -140,13 +140,13 @@ def render() -> Image.Image:
 
     # Masthead line, as the site header sets it: mono, upper case, tracked.
     mono_medium = _font("IBMPlexMono-Medium-Latin1.woff2", 21)
-    _tracked(draw, (_MARGIN, 66), "INFRAQUE REGISTER · PUBLIC EDITION", mono_medium, COPPER_TINT, 2.2)
+    _tracked(draw, (_MARGIN, 66), "INFRAMATION REGISTER · PUBLIC EDITION", mono_medium, COPPER_TINT, 2.2)
     draw.line([(_s(_MARGIN), _s(108)), (_s(right), _s(108))], fill=RULE, width=_s(1))
 
     # Wordmark and the one sentence the site's default meta description leads with.
     draw.text(
         (_s(_MARGIN - 6), _s(132)),
-        "Infraque",
+        "Inframation",
         font=_font("IBMPlexSans-SemiBold-Latin1.woff2", 128),
         fill=PAPER,
     )

@@ -130,33 +130,34 @@ Register the same handle everywhere; fallbacks in order.
 | Bluesky | `bankablehq.com` (domain handle) | `feed.bankablehq.com`, `@bankablehq.bsky.social` | Domain handle needs a `_atproto` TXT record; that is the verification |
 | LinkedIn | existing Bankable Company Page | — | Confirm the page is the one linked from bankablehq.com; do not create a second page |
 | X | `@bankablehq` | `@bankable_feed`, `@bankableproposals` | Separate from the owner's personal account; the personal account is the "managed by" link |
-| Email | `alerts@bankablehq.com` (from), `hello@bankablehq.com` (reply-to) | — | SPF, DKIM, DMARC on the domain before the first send |
-| RSS | `https://bankablehq.com/feeds/...` | — | No account; served by the app |
+| Email | `alerts@inframation.io` (from), `hello@inframation.io` (reply-to) | — | Fixed in code (`services/api/common.py` `DOMAIN`, 2026-10-16). SPF, DKIM, DMARC on the domain before the first send |
+| RSS | `https://inframation.io/feeds/...` | — | No account; served by the app |
 
 ### 2.2 Bios and disclosure text
 
 Use verbatim; agents may not change these without the owner's approval. The operator named is the
-product, **Infraque** (2026-09-18 audit: the shipped disclosure still named Bankable; corrected in
+product, **Inframation** (2026-09-18 audit: the shipped disclosure still named Bankable; corrected in
 `services/social/editorial.py`, which reads `PRODUCT_NAME` / `PRODUCT_URL` / `PRODUCT_CONTACT_EMAIL`
-with these as defaults — docs/13 §6.5). Handles and account names elsewhere in this document still
-carry the old name pending the owner's naming decision (docs/12).
+with these as defaults — docs/13 §6.5). The product name and domain are decided (Inframation,
+inframation.io; owner, 2026-10-16, docs/12 §12). The social handles and app names elsewhere in this document still
+carry the owner's company name (Bankable) until the owner picks and checks Inframation handles.
 
 **Bluesky (256-char bio limit; keep under):**
-> Public energy & infrastructure proposals and opportunities, from official filings. Automated feed run by Infraque; a human reviews. Sources cited on every item. Contact: hello@infraque.com
+> Public energy & infrastructure proposals and opportunities, from official filings. Automated feed run by Inframation; a human reviews. Sources cited on every item. Contact: hello@inframation.io
 
 **X (160 chars; "Automated" label ON):**
-> Automated account operated by Infraque (@{owner_handle}). Posts derived from public filings, sources linked. Not advice. hello@infraque.com
+> Automated account operated by Inframation (@{owner_handle}). Posts derived from public filings, sources linked. Not advice. hello@inframation.io
 
 **LinkedIn About (add one paragraph):**
-> Infraque publishes change events from public energy and infrastructure registers. Posts on this page are generated from structured public data by Infraque's pipeline and reviewed by {owner name} before publication. Every post cites its source. Nothing here is investment advice.
+> Inframation publishes change events from public energy and infrastructure registers. Posts on this page are generated from structured public data by Inframation's pipeline and reviewed by {owner name} before publication. Every post cites its source. Nothing here is investment advice.
 
 **Per-post disclosure (X, Bluesky; carried as `PostDraft.disclosure_text` and `post.disclosure_label`).**
 The middle sentence follows the platform posture (`PLATFORM_POSTURE`, docs/26 §1; docs/13 §6.5), so the
 account never contradicts what `/v1/health`, `/about` and `/pricing` say (2026-10-07, content audit F6,
 legal L-9):
-> *noncommercial (current):* Automated feed run by Infraque (infraque.com). Posts are generated from public records; the platform operates under a noncommercial posture. Not monitored for replies — contact: hello@infraque.com.
+> *noncommercial (current):* Automated feed run by Inframation (inframation.io). Posts are generated from public records; the platform operates under a noncommercial posture. Not monitored for replies — contact: hello@inframation.io.
 >
-> *commercial:* Automated feed run by Infraque (infraque.com). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: hello@infraque.com.
+> *commercial:* Automated feed run by Inframation (inframation.io). Posts are generated from public records and are commercial in nature. Not monitored for replies — contact: hello@inframation.io.
 
 **Per-item line on anything published without human review** (docs/13 §6.5, the EU AI Act Art. 50(4)
 route; appended to the body by the drafting worker):
@@ -164,7 +165,7 @@ route; appended to the body by the drafting worker):
 
 **Email footer (every send; rendered by `services/alerts/evaluate.py`, identity from
 `SENDER_LEGAL_NAME` / `SENDER_POSTAL_ADDRESS`, no send in production while either is unset):**
-> You are receiving this because you subscribed at infraque.com. Data derived from public sources cited above; see each item's source and licence. {delayed-data notice for the reader's tier} · Unsubscribe: {one-click link} · Manage alerts: {link} · Sent by Infraque <alerts@infraque.com> on behalf of {SENDER_LEGAL_NAME}, {SENDER_POSTAL_ADDRESS}.
+> You are receiving this because you subscribed at inframation.io. Data derived from public sources cited above; see each item's source and licence. {delayed-data notice for the reader's tier} · Unsubscribe: {one-click link} · Manage alerts: {link} · Sent by Inframation <alerts@inframation.io> on behalf of {SENDER_LEGAL_NAME}, {SENDER_POSTAL_ADDRESS}.
 
 Every send also carries `List-Unsubscribe` (mailto and https targets) and `List-Unsubscribe-Post:
 List-Unsubscribe=One-Click` (RFC 8058), and the recipient is checked against the suppression store

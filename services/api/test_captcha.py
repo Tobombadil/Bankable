@@ -50,7 +50,7 @@ def _form(request: httpx.Request) -> dict[str, str]:
 
 def test_success_posts_secret_token_and_ip_as_form_fields():
     seen: list[httpx.Request] = []
-    client = _fake_client({"success": True, "hostname": "infraque.com"}, seen=seen)
+    client = _fake_client({"success": True, "hostname": "inframation.io"}, seen=seen)
     assert captcha.verify("tok-1", "203.0.113.9", client=client, secret=SECRET) is True
     assert len(seen) == 1
     assert str(seen[0].url) == captcha.SITEVERIFY_URL

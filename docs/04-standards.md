@@ -17,8 +17,11 @@
 4. **Precedence:** `CLAUDE.md` guardrails > `docs/00-PLAN.md` decisions log > this document > phase docs > code
    comments. A rule change is logged in `docs/00-PLAN.md` first, then edited here with a `docs/CHANGELOG.md` line.
 5. Rationale is one line per rule, marked *Why*. If it stops being true, the rule is up for review.
-6. **Naming.** "Bankable" is the repo codename, not the product name. Prose says "the platform"; where a
-   literal name or hostname is unavoidable, `Infraque` and `infraque.com` stand in until the owner names it.
+6. **Naming.** "Bankable" is the repo codename, not the product name. The product is **Inframation**, at
+   `inframation.io` (owner, 2026-10-16; `docs/12` §12). Prose says "the platform"; where a literal name or hostname
+   is unavoidable, it is `Inframation` / `inframation.io`. `infraque`, the earlier placeholder, survives only as an
+   internal codename where renaming would break a deploy or a store (environment variables, host paths, database,
+   bucket and Compose project names).
 
 ## 1. Product and specification
 
@@ -171,7 +174,7 @@ instant. *Why:* WCAG 2.2 SC 2.3.3; a moving table is unreadable.
 
 ### 2.3 Information architecture
 
-**D-16 Three surfaces, one URL scheme.** Public (`infraque.com`), Pro (same host, entitlement-gated routes),
+**D-16 Three surfaces, one URL scheme.** Public (`inframation.io`), Pro (same host, entitlement-gated routes),
 Admin (`admin.` host, `docs/20` §7). Canonical routes: `/proposals`, `/proposals/{slug}`, `/opportunities`,
 `/opportunities/{slug}`, `/organizations/{slug}`, `/map`, `/search`, `/feeds/*`, `/alerts`, `/account`,
 `/docs/api`; slugs per `docs/21` §3.1; merged slugs 301 to the survivor (US-201 AC3). Primary nav is identical on

@@ -33,6 +33,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from services.api.common import WEB_HOST
 from services.social import editorial
 from services.social import queue as queue_mod
 from services.social.models import REJECT_REASONS
@@ -65,9 +66,7 @@ def _load_source_meta() -> dict[str, dict[str, Any]]:
 def _page_url_for(row: dict[str, Any]) -> str:
     subject_type = editorial.infer_subject_type(str(row["source_id"]))
     kind = "opportunities" if subject_type == "opportunity" else "proposals"
-    # "infraque.com" is a literal placeholder (repo convention, CLAUDE.md/task brief), not an
-    # f-string substitution -- kept out of the f-string itself so the double braces survive.
-    return "https://infraque.com" + f"/{kind}/{row['record_id']}"
+    return f"{WEB_HOST}/{kind}/{row['record_id']}"
 
 
 def _lag_days_for(row: dict[str, Any]) -> int | None:

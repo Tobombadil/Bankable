@@ -180,11 +180,11 @@ CHANNEL_LIMITS: dict[str, int] = {"bluesky": 300, "linkedin": 3000, "x": 280}
 #: re-derivation of docs/13.
 #:
 #: The operator identity in the text is read from the environment at call time — `PRODUCT_NAME`,
-#: `PRODUCT_URL`, `PRODUCT_CONTACT_EMAIL` — with defaults naming the product (Infraque, the site
+#: `PRODUCT_URL`, `PRODUCT_CONTACT_EMAIL` — with defaults naming the product (Inframation, the site
 #: host `services.api.common.WEB_HOST`, `hello@` on its domain). The previous constant named the
 #: old company (docs/50-audit-2026-09-18.md §3.2), and a disclosure that names the wrong operator
 #: is a false statement about who runs the account (docs/13 §6.1 FTC; §6.3 B.O.T. Act).
-DEFAULT_PRODUCT_NAME = "Infraque"
+DEFAULT_PRODUCT_NAME = "Inframation"
 DEFAULT_PRODUCT_URL = WEB_HOST
 DEFAULT_PRODUCT_CONTACT_EMAIL = f"hello@{DOMAIN}"
 

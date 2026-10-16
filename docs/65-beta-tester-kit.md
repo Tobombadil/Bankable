@@ -1,6 +1,6 @@
 # Private beta tester kit
 
-Written 2026-10-11 for the private beta that opens Wednesday 14 October 2026 (`docs/64`): 8–12 people on deal and
+Written 2026-10-11 for the private beta (`docs/64`). It was planned to open on 14 October 2026; the date moved because nothing was deployed yet, and the new date is set once the site is live. 8–12 people on deal and
 portfolio teams at infrastructure investors, sharing one login, for two weeks. Four parts, each meant to be about a
 page:
 
@@ -16,8 +16,9 @@ a record, which catches a wrong record but not "I couldn't find what I was looki
 link on every page, **Tell us what you were trying to do** (`/feedback`). It shows only while the shared login is on
 (`SITE_ACCESS=basic`), and what it sends lands in the same admin queue as record reports (§(d)).
 
-**Product name.** "Infraque" is a placeholder codename (`docs/12`). The site says so on its privacy page. The draft
-below calls it "the beta" so the email survives a rename.
+**Product name.** Inframation, at inframation.io (owner, 2026-10-16; `docs/12` §12). It is the working name until
+counsel's trademark checks are answered, and the privacy page says so. The draft below calls it "the beta" so the
+email survives a further rename.
 
 ---
 
@@ -61,9 +62,15 @@ do what you need, that is the most useful thing you can tell us.
 - **Look for:** a count you cannot reconcile with the company's own disclosures; a subsidiary missing from the group
   view; a project you know of that is not there (check the limits above first).
 - **Limits:**
-  - sponsor names are as each register prints them, so one company can appear under two spellings;
-  - parent companies from the global LEI register are not loaded in the beta, so group views rest on EIA and EPA
-    ownership data only (`docs/64` §7).
+  - sponsor names are as each register prints them. For 24 of the most active developer and utility groups
+    (among them NextEra, RWE, SSE, Entergy, Invenergy and Lightsource bp) the parent's page gathers the proposals
+    of its subsidiaries, each linked from the parent's own filing, annual report, LEI record or site, and names the
+    subsidiary that filed each one (`docs/22` §24);
+  - outside those groups one company can still appear under two spellings, and inside them a project company
+    whose name does not carry its owner's (a "Flat Hill Solar LLC") stays unlinked unless a filing names it. A
+    group's count can therefore be short; it is never padded with a guess;
+  - parent companies from the global LEI register are not loaded in the beta, so other group views rest on EIA and
+    EPA ownership data (`docs/64` §7).
 
 ### Task 2. Find where large load can connect
 
@@ -131,7 +138,7 @@ I'm building a tool that tracks energy and infrastructure projects from public r
 queues, EIA's plant surveys, permits and procurement notices. It joins them into one record per project, with the
 source for every figure. I'd value your eye on it, because it's meant for people doing exactly what your team does.
 
-**What it is:** a private beta for 8–12 people at infrastructure investors, from Wednesday 14 October for two weeks.
+**What it is:** a private beta for 8–12 people at infrastructure investors, from [start date] for two weeks.
 I'd like to see whether it helps with four things:
 - checking a developer's or owner's pipeline;
 - finding where large load can connect;
@@ -167,7 +174,7 @@ notes on our calls and keep them myself. Tell me any time and I'll delete them.
 **Saying no or stopping:** just reply "no thanks", or ignore this. If you join and want to stop, reply "stop" and I'll
 take you off the list and delete my notes. No hard feelings either way.
 
-Would you be up for it? If so, reply with two 20-minute slots in the week of 14 October that suit you.
+Would you be up for it? If so, reply with two 20-minute slots in the week of [start date] that suit you.
 
 Thanks,
 [owner's name]
@@ -225,7 +232,7 @@ Asked to delete notes? y/n
 ## (d) What the owner looks at each week
 
 About 30 minutes, the same day each week, during the beta. Admin is on its own host, behind the shared beta login
-and then the operator sign-in (`docs/64` §1). `{DOMAIN}` is the deployed domain.
+and then the operator sign-in (`docs/64` §1). `{DOMAIN}` is the deployed domain, `inframation.io`.
 
 1. **Engagement** (`https://admin.{DOMAIN}/admin/engagement?weeks=2`).
    - **Page views by type,** per ISO week: proposal, company, asset, grid point and site pages. Use them as a rough

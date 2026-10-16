@@ -24,5 +24,15 @@ terraform {
       source  = "cloudflare/cloudflare"
       version = "~> 4.36"
     }
+    # generated.tf only (the GitHub Actions beta deploy, docs/64 §2); nothing is planned with them
+    # unless `generate_secrets = true`.
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 }

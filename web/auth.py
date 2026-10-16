@@ -294,9 +294,9 @@ def account_resend(request: Request) -> Response:
     resend_body = dict(resend_result.body)
     dev_url = resend_body.get("dev_verification_url")
     if dev_url:
-        # The API's `dev_verification_url` is built from `services.api.common.WEB_HOST`, still the
-        # literal `infraque.com` placeholder (docs/00-PLAN.md) -- not a navigable link on whatever
-        # host this site is actually served from. `web_relative_url` is the same fix
+        # The API's `dev_verification_url` is built from `services.api.common.WEB_HOST`, the fixed
+        # product host -- not a navigable link on whatever host this site is served from in
+        # development or on staging. `web_relative_url` is the same fix
         # `web/viewmodels.py` already applies to every API-supplied `url` field the map renders.
         resend_body["dev_verification_url"] = web_relative_url(dev_url)
     context = {

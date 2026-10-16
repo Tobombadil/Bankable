@@ -101,9 +101,8 @@ labels.install(templates.env)
 
 SESSION_COOKIE_NAME = "session"
 
-#: `infraque.com` is still the placeholder token `services/api/common.py` documents, so these two
-#: addresses are placeholders too — rendered through template variables, never written into the
-#: markup, so replacing the domain is one edit.
+#: On the product domain `services/api/common.py` `DOMAIN` names — rendered through template
+#: variables, never written into the markup, so changing the domain stays one edit.
 SALES_EMAIL = f"sales@{DOMAIN}"
 SUPPORT_EMAIL = f"support@{DOMAIN}"
 

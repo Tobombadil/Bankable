@@ -19,9 +19,15 @@ apt:
       source: "deb https://apt.postgresql.org/pub/repos/apt $RELEASE-pgdg main"
       keyid: B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
       keyserver: keyserver.ubuntu.com
+#
+# The AWS CLI is not an apt package here. The `docker-ce` image is Ubuntu 24.04
+# (https://docs.hetzner.com/cloud/apps/list/docker-ce/), which has no `awscli` package
+# (https://packages.ubuntu.com/noble/awscli: "Package not available in this suite", checked
+# 2026-10-15), and one unknown package fails the whole install, pg_dump included: every deploy's
+# pre-migration dump would then fail. runcmd installs a pinned AWS CLI v1 from PyPI into its own venv.
 packages:
   - postgresql-client-16
-  - awscli
+  - python3-venv
 
 write_files:
   - path: /etc/systemd/system/infraque-backup.service
@@ -40,6 +46,9 @@ write_files:
       Type=oneshot
       EnvironmentFile=/opt/infraque/secrets/.env
       Environment=BACKUP_DIR=/opt/infraque/backups
+      # R2 (https://developers.cloudflare.com/r2/examples/aws/aws-cli/): region `auto`, and checksums
+      # only where the S3 API requires them.
+      Environment=AWS_DEFAULT_REGION=auto AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
       ExecStart=/opt/infraque/scripts/backup.sh
       Nice=10
       IOSchedulingClass=idle
@@ -61,5 +70,6 @@ write_files:
 runcmd:
   - mkdir -p /opt/infraque/compose /opt/infraque/secrets /opt/infraque/scripts /opt/infraque/backups
   - timedatectl set-timezone UTC
+  - python3 -m venv /opt/awscli && /opt/awscli/bin/pip install --no-cache-dir --quiet awscli==1.46.1 && ln -sf /opt/awscli/bin/aws /usr/local/bin/aws
   - systemctl daemon-reload
   - systemctl enable --now infraque-backup.timer

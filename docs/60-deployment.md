@@ -99,8 +99,9 @@ sends every other path to the API. It had no DNS record and no Caddy block, but 
 `api/openapi.yaml`, the Attio webhook target (`docs/34` §6), and the host of export download links,
 unsubscribe links and every problem `type` URI (`services/api/common.py` `API_HOST`; QA audit QA-2). Both
 now exist (`infra/terraform/dns.tf` `cloudflare_record.api`). The apex keeps serving `/v1/*`, `/feeds/*` and
-`/webhooks/*`, so either base URL works for the public API. `API_HOST` itself is still the hard-coded `api.infraque.com` placeholder
-(`docs/04` §0.6), not derived from `DOMAIN`; it changes when the product is named. The web admin
+`/webhooks/*`, so either base URL works for the public API. `API_HOST` is `https://api.inframation.io`, built from the
+code constant `services/api/common.py` `DOMAIN` (`docs/04` §0.6), not from the `DOMAIN` setting; preflight check 10
+fails a deployment where the two differ. The web admin
 pages call the API server-side with the operator's cookie (`web/admin/shell.py`), so the browser never needs
 the API on that host.
 
@@ -698,6 +699,10 @@ CI has passed (audit OPS-3: `e38062d` became `latest` while its `ci` run was red
   name on tags. It pushes with the workflow's `GITHUB_TOKEN` (`packages: write`, plus `actions: read` for
   the check).
 
+`.github/workflows/deploy-beta.yml` (2026-10-15, manual dispatch only) deploys the one-server beta from a
+GitHub-hosted runner: OpenTofu with its state and generated secrets in the R2 bucket `beta-tfstate`, then
+`deploy.sh` with `DEPLOY_ENV_FILE` instead of sops. The owner's inputs are in `docs/64` §2, "One-click route".
+
 The image names are the exact names `infra/compose/docker-compose.yml` references (`IMAGE_REGISTRY`/`IMAGE_TAG`, default
 `latest`) and `deploy.sh` pulls (`infra/test_compose.py` checks the two agree). `.github/workflows/
 connectors-nightly.yml` runs the fixture-only connector suite daily (`docs/04` O-3's E2E/E-12 intent,
@@ -826,7 +831,7 @@ value is wrong (§5; before any host is touched), and appends `ENVIRONMENT=<envi
    restarts what was stopped and exits (step 3); a failure before that (sync, pull) just exits, nothing has
    changed.
 5. It appends a row to `infra/deploy-log.md` (timestamp, environment, tag, deployer, commit).
-**Verification:** `curl https://infraque.com/health` and `curl https://infraque.com/v1/health` return 200; the
+**Verification:** `curl https://inframation.io/health` and `curl https://inframation.io/v1/health` return 200; the
 E-10 Playwright smoke suite passes against the environment; `infra/deploy-log.md`'s new row looks right;
 `systemctl list-timers infraque-backup.timer` on the app VM shows the next run.
 **Rollback:** see 10.2.
@@ -1134,7 +1139,7 @@ In the order the owner needs to act, per the task brief:
      alone leaves the page at 200 with "Platform status unavailable" in place of the posture sentence;
      the page's own logic then assumes `commercial`. `deploy.sh` refuses an empty token before touching
      any host.
-   - **Feeds**: every RSS item now carries an `<infraque:provenance>` element (`source_id`, `source_url`,
+   - **Feeds**: every RSS item now carries an `<inframation:provenance>` element (`source_id`, `source_url`,
      `retrieved_at`, `licence`, `reuse_class`, `attribution`) and a `dc:source`, and the JSON Feed's
      `_platform.provenance` is filled; live, 50 of 50 items on `/feeds/opportunities.rss` and
      `/feeds/proposals.json`.

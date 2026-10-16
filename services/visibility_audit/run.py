@@ -915,7 +915,7 @@ def _audit_organizations(
     clean_p = aliased(ProposalSource)
     clean_o = aliased(OpportunitySource)
     visible = or_(
-        # A spelling a clean source states, or Infraque's own curated statement, is evidence of
+        # A spelling a clean source states, or Inframation's own curated statement, is evidence of
         # the organisation's existence that discloses nothing of a gated register (2026-10-06).
         Organization.is_curated_issuer.is_(True),
         exists(

@@ -36,7 +36,7 @@
   </select>
 </div>
 {%- endmacro -%}
-{% block title %}{% if s.sent %}Submission received{% elif s.error_rows %}Check your answers: submit a project{% else %}Submit a project{% endif %} — Infraque{% endblock %}
+{% block title %}{% if s.sent %}Submission received{% elif s.error_rows %}Check your answers: submit a project{% else %}Submit a project{% endif %} — Inframation{% endblock %}
 {% block robots %}{% if s.sent or s.problem %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 {% block meta_description %}Tell the register about an energy or infrastructure project it does not list yet. An editor reviews every submission before anything is published.{% endblock %}
 {% block content %}
@@ -145,7 +145,7 @@
     </div>
     <div class="check">
       <input id="{{ s.ids['consent'] }}" name="consent" type="checkbox" value="true" required{% if s.typed.get('consent') == 'true' %} checked{% endif %}{{ described('consent') }}>
-      <label for="{{ s.ids['consent'] }}">I agree to the <a href="/privacy">privacy notice</a>: Infraque keeps these details to review this submission and to contact me about it.</label>
+      <label for="{{ s.ids['consent'] }}">I agree to the <a href="/privacy">privacy notice</a>: Inframation keeps these details to review this submission and to contact me about it.</label>
       {{ error('consent') }}
     </div>
   </fieldset>

@@ -1,9 +1,11 @@
-"""Small shared helpers: the `infraque.com` placeholder, request ids, ISO timestamps.
+"""Small shared helpers: the product domain, request ids, ISO timestamps.
 
-`api/openapi.yaml` keeps the literal `infraque.com` token everywhere a hostname is unavoidable —
-even inside the `Problem.type` regex — because the product name is not yet chosen
-(`docs/00-PLAN.md`; `docs/04-standards.md` §0.6). This service does the same rather than inventing
-a placeholder of its own, so responses validate against the committed contract byte-for-byte.
+The product is Inframation at `inframation.io` (owner, 2026-10-16; `docs/12-naming-shortlist.md`
+§12; `docs/04-standards.md` §0.6). `api/openapi.yaml` writes the literal `inframation.io` everywhere
+a hostname is unavoidable — even inside the `Problem.type` regex — and this service builds every
+host from the one `DOMAIN` below, so responses validate against the committed contract
+byte-for-byte. `infra/scheduler/preflight.py` check 10 fails a deployment whose `DOMAIN` setting
+differs from it.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import secrets
 from contextvars import ContextVar
 from urllib.parse import urlparse
 
-DOMAIN = "infraque.com"
+DOMAIN = "inframation.io"
 API_HOST = f"https://api.{DOMAIN}"
 WEB_HOST = f"https://{DOMAIN}"
 #: `meta.terms_url`, the CSV `# terms=` line and the bulk meta. Until counsel approves customer

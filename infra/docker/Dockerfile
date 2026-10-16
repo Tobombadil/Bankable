@@ -71,7 +71,7 @@ COPY infra/scheduler ./infra/scheduler
 ARG GIT_SHA=""
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    BANKABLE_DOMAIN=example-infraque.test \
+    BANKABLE_DOMAIN=example-inframation.test \
     GIT_SHA=${GIT_SHA}
 
 # Connector output (snapshots, normalised parquet, events, run records; pipeline/connectors/

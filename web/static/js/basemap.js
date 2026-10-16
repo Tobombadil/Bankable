@@ -3,6 +3,7 @@
  * (asset_map.js) draw exactly the same three `MAP_TILE_URL` modes and the same same-origin
  * fallback outline as the home map, instead of a second, drifting copy. Loaded before map.js /
  * asset_map.js; exposes one global, `window.InfraqueBasemap`.
+ * infraque: internal codename, not the product name (2026-10-16); the global is never shown.
  */
 (function () {
   "use strict";

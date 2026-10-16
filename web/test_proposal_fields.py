@@ -339,7 +339,7 @@ def test_a_name_filed_in_capitals_is_readable_in_the_heading_and_title_and_shown
     _install([_solar() | {"name_canonical": "SUNSETTER BESS SOLAR"}])
     body = web_client.get("/proposals/solar-one").text
     assert "<h1>Sunsetter BESS Solar</h1>" in body
-    assert "<title>Sunsetter BESS Solar — Infraque</title>" in body
+    assert "<title>Sunsetter BESS Solar — Inframation</title>" in body
     assert re.search(r'<nav class="breadcrumbs"[^>]*>.*/ Sunsetter BESS Solar</nav>', body)
     assert (
         body.count(

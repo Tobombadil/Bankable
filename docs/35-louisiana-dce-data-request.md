@@ -41,7 +41,7 @@ one worth a direct ask rather than a browser workaround.
 
 > Hello,
 >
-> My name is [OWNER NAME], and I run Infraque (infraque.com), a public, noncommercial platform that maps
+> My name is [OWNER NAME], and I run Inframation (inframation.io), a public, noncommercial platform that maps
 > announced and permitted energy and infrastructure projects across the US, including Class VI
 > carbon-storage wells, from public agency records.
 >
@@ -81,7 +81,7 @@ one worth a direct ask rather than a browser workaround.
       outbound mail already carries — Compass International Trading Group LLC, 1029 E 8th Ave, Suite 806,
       Denver, CO 80216 (`docs/00-PLAN.md` decisions log, 2026-09-18 row (5)) — if you decide to name the LLC
       (next item).
-- [ ] **Decide whether to name the LLC.** The draft above signs as "Infraque" in the first person; DCE may
+- [ ] **Decide whether to name the LLC.** The draft above signs as "Inframation" in the first person; DCE may
       reasonably ask who legally operates it. Naming Compass International Trading Group LLC is the more
       transparent version and matches the address rule above; leaving it as a personal/product introduction
       is lighter-weight for a first ask. Either is consistent with `CLAUDE.md`'s no-impersonation rule as

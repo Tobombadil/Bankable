@@ -400,7 +400,7 @@ def _header_block(export: Export, licence_summary: dict[str, Any], *, row_count:
     now = utcnow()
     licence_ids = sorted({s["licence_id"] for s in licence_summary["sources"]})
     lines = [
-        f"# Infraque CSV export {export.public_id} · entity={export.entity} · tier={export.tier} "
+        f"# Inframation CSV export {export.public_id} · entity={export.entity} · tier={export.tier} "
         f"· licences={','.join(licence_ids) or 'none'} "
         f"· generated_at={iso(now)} · data_as_of={iso(now)} · rows={row_count} "
         f"· row_cap={export.row_cap} · truncated={'true' if export.truncated else 'false'}",

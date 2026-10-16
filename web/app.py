@@ -141,7 +141,7 @@ logger = logging.getLogger("web.app")
 # security policy refuses (docs/60 §2). Development only. `app.openapi()` itself still works.
 _FRAMEWORK_DOCS = is_dev_environment()
 app = FastAPI(
-    title="Infraque -- public site",
+    title="Inframation -- public site",
     docs_url="/docs" if _FRAMEWORK_DOCS else None,
     redoc_url="/redoc" if _FRAMEWORK_DOCS else None,
     openapi_url="/openapi.json" if _FRAMEWORK_DOCS else None,
@@ -288,7 +288,7 @@ app.include_router(admin_sites_router)
 #: docs/50 §3.2 web bullet ("no Open Graph or structured data") and docs/00-PLAN.md 2026-09-19
 #: item 4: every public page needs a title, canonical URL and JSON-LD, which is why `SITE_NAME`
 #: and the canonical/JSON-LD helpers moved to `web/page.py` -- shared with `web/organizations.py`.
-SITE_NAME = "Infraque"
+SITE_NAME = "Inframation"
 
 
 def delayed_notice(request: Request, kind: str) -> dict[str, Any]:

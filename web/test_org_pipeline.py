@@ -408,7 +408,7 @@ def test_a_capitalised_company_name_reads_in_a_readable_case(client: TestClient)
     _install((200, {"data": AGGREGATE}), (200, {"data": [_proposal(1)]}))
     body = client.get("/organizations/cypress-creek").text
     assert "<h1>Cypress Creek Renewables LLC</h1>" in body
-    assert "<title>Cypress Creek Renewables LLC — Infraque</title>" in body
+    assert "<title>Cypress Creek Renewables LLC — Inframation</title>" in body
     assert body.count('As filed: <span class="as-filed__name">CYPRESS CREEK RENEWABLES LLC</span>') == 1
 
 
@@ -436,3 +436,57 @@ def test_an_unreadable_aggregate_leaves_the_section_out_and_the_list_in(client: 
     body = client.get("/organizations/cypress-creek").text
     assert 'id="pipeline"' not in body
     assert '<a href="/proposals/p-1">' in body
+
+
+# -------------------------------------------------------------------- a parent's group proposals
+def _group_proposal(n: int, sponsor_id: str, sponsor_slug: str, sponsor_name: str) -> dict[str, Any]:
+    row = _proposal(n)
+    row["sponsor"] = {"public_id": sponsor_id, "slug": sponsor_slug, "name_canonical": sponsor_name}
+    return row
+
+
+def test_a_parents_proposals_are_its_groups_and_each_row_names_the_filer(client: TestClient) -> None:
+    """A developer's parent holds no asset and neither do its subsidiaries, so the asset-holder count
+    (`GroupView.is_group`) calls it one company; the list must still say it covers the subsidiaries
+    and name, with a link, the company that filed each row (docs/22 §24). The scope comes from the
+    pipeline aggregate the list is read beside."""
+    aggregate = {
+        **AGGREGATE,
+        "scope": {"scope": "all", "organizations": 3},
+        "list_query": {"sponsor_id": ORG_ID, "sponsor_scope": "all"},
+    }
+    rows = [
+        _group_proposal(
+            1, "org_01ERCOT", "nextera-energy-resources-ercot", "NextEra Energy Resources - ERCOT"
+        ),
+        _group_proposal(2, "org_01FPL", "florida-power-light-co", "Florida Power & Light Co"),
+        _group_proposal(3, ORG_ID, "cypress-creek", "Cypress Creek"),
+    ]
+    _install((200, {"data": aggregate}), (200, {"data": rows, "page": {"has_more": False}}))
+    body = client.get("/organizations/cypress-creek").text
+    section = body.split('<section aria-label="Proposals">', 1)[1].split("</section>", 1)[0]
+    label = re.search(r'<p class="attribution-line" id="proposals-group">(.*?)</p>', section, re.S)
+    assert label is not None and _text(label.group(1)).startswith("Including subsidiaries:")
+    assert (
+        '<a href="/organizations/nextera-energy-resources-ercot">NextEra Energy Resources - ERCOT</a>'
+        in section
+    )
+    assert '<a href="/organizations/florida-power-light-co">Florida Power &amp; Light Co</a>' in section
+    # The company's own rows name it too, without a link back to the page the reader is on.
+    assert '<span class="proposal-filer">Cypress Creek</span>' in section
+    assert 'href="/organizations/cypress-creek"' not in section
+    assert "this company and its subsidiaries" in _text(body.split('id="pipeline"', 1)[1])
+
+
+def test_a_single_company_list_names_no_filer(client: TestClient) -> None:
+    _install((200, {"data": AGGREGATE}), (200, {"data": [_proposal(1)], "page": {"has_more": False}}))
+    body = client.get("/organizations/cypress-creek").text
+    section = body.split('<section aria-label="Proposals">', 1)[1].split("</section>", 1)[0]
+    assert 'id="proposals-group"' not in section and "proposal-filer" not in section
+
+
+def test_a_group_with_no_proposals_says_so_for_the_group(client: TestClient) -> None:
+    empty = {**AGGREGATE, "scope": {"scope": "all", "organizations": 4}, "totals": _t(0)}
+    _install((200, {"data": empty}), (200, {"data": []}))
+    body = client.get("/organizations/cypress-creek").text
+    assert "No proposals sponsored by this company or a company it owns." in body

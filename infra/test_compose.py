@@ -14,6 +14,8 @@ from typing import Any
 import pytest
 import yaml
 
+from services.api.common import DOMAIN
+
 COMPOSE_DIR = pathlib.Path(__file__).resolve().parent / "compose"
 BASE = COMPOSE_DIR / "docker-compose.yml"
 PROD = COMPOSE_DIR / "compose.prod.yml"
@@ -251,7 +253,7 @@ def test_the_documented_keys_render_a_complete_config(tmp_path: pathlib.Path, en
     expect(result.returncode == 0, result.stderr)
     services = yaml.safe_load(result.stdout)["services"]
     domain = services["caddy"]["environment"]["DOMAIN"]
-    expect(domain == "example.com", f"caddy DOMAIN: {domain!r}")
+    expect(domain == DOMAIN, f"caddy DOMAIN: {domain!r}")  # the template names the code's domain
     expect(services["caddy"]["environment"]["ENVIRONMENT"] == environment, services["caddy"]["environment"])
     for name in APP_SERVICES:
         env = services[name]["environment"]
