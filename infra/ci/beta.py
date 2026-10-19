@@ -282,30 +282,22 @@ def tfvars(env: Mapping[str, str], *, server_type: str, bucket_prefix: str) -> d
     }
 
 
-def pick_server_type(
-    server_types: Mapping[str, Any], datacenters: Mapping[str, Any], *, location: str
-) -> tuple[str, str]:
+def pick_server_type(server_types: Mapping[str, Any], *, location: str) -> tuple[str, str]:
     """`(name, why)`: the cheapest shared-vCPU x86 type with at least MIN_CORES and MIN_MEMORY_GB
-    that a datacenter in `location` has available now (Hetzner API `GET /server_types`,
-    `GET /datacenters`). Dedicated vCPUs only when no shared type qualifies. The default cx32
-    (variables.tf) is no longer sold: Hetzner stopped orders on 1 January 2026
-    (https://docs.hetzner.cloud/changelog), and US locations sold only CPX and CCX before that."""
-    available: set[int] = set()
-    for dc in datacenters.get("datacenters", []):
-        if (dc.get("location") or {}).get("name") == location:
-            available.update(int(i) for i in (dc.get("server_types") or {}).get("available", []))
-    if not available:
-        raise InputError(f"no datacenter in location {location!r} lists available server types")
+    that `location` has available now (Hetzner API `GET /server_types`). Availability and deprecation
+    are per location (`server_types[].locations[]`): `GET /datacenters` answers 410 Gone since
+    1 October 2026, and the top-level `deprecation` gave way to the per-location one
+    (https://docs.hetzner.cloud/changelog). Dedicated vCPUs only when no shared type qualifies. The
+    default cx32 (variables.tf) is no longer sold: Hetzner stopped orders on 1 January 2026, and US
+    locations sold only CPX and CCX before that."""
     candidates: list[tuple[int, float, str]] = []
     for st in server_types.get("server_types", []):
-        if int(st.get("id", -1)) not in available or st.get("deprecation") or st.get("deprecated"):
-            continue
         if st.get("architecture", "x86") != "x86":
             continue
         if int(st.get("cores", 0)) < MIN_CORES or float(st.get("memory", 0)) < MIN_MEMORY_GB:
             continue
-        here = [loc for loc in st.get("locations", []) if loc.get("name") == location]
-        if here and here[0].get("deprecation"):
+        here = next((loc for loc in st.get("locations") or [] if loc.get("name") == location), None)
+        if here is None or here.get("available") is not True or here.get("deprecation"):
             continue
         price = next(
             (p for p in st.get("prices", []) if p.get("location") == location),
@@ -561,7 +553,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--bucket-prefix", required=True)
     p = sub.add_parser("pick-server-type")
     p.add_argument("server_types")
-    p.add_argument("datacenters")
     p.add_argument("--location", default="ash")
     p = sub.add_parser("plan-guard")
     p.add_argument("plan")
@@ -617,9 +608,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         if args.command == "pick-server-type":
-            name, why = pick_server_type(
-                _load_json(args.server_types), _load_json(args.datacenters), location=args.location
-            )
+            name, why = pick_server_type(_load_json(args.server_types), location=args.location)
             sys.stderr.write(why + "\n")
             out.write(name + "\n")
             return 0
