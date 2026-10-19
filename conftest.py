@@ -97,6 +97,21 @@ _PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_pr
 _ALLOW_NETWORK_ENV = "PYTEST_ALLOW_NETWORK"
 _real_connect = socket.socket.connect
 _real_connect_ex = socket.socket.connect_ex
+#: The instant every test's rate limiter reads. `services/api/ratelimit.py` counts fixed windows that
+#: start on the hour, so a test that fills a bucket in real time could straddle a window boundary and
+#: see its count reset: main's CI failed that way on 2026-10-16 at 21:00 UTC
+#: (`web/test_api_client_internal.py`, 21 logins across the hour). This is the middle of an hour; a
+#: test that needs another instant sets `default_limiter.clock` itself, as the window tests do.
+LIMITER_INSTANT = 1_800_001_800.0
+
+
+@pytest.fixture(autouse=True)
+def _limiter_clock_off_the_hour(monkeypatch: pytest.MonkeyPatch) -> None:
+    from services.api.ratelimit import default_limiter
+
+    monkeypatch.setattr(default_limiter, "clock", lambda: LIMITER_INSTANT)
+
+
 _network_allowed = False
 
 
