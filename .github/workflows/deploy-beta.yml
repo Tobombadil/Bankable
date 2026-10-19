@@ -34,7 +34,7 @@ on:
         default: status
         required: true
       tag:
-        description: "Image tag: sha-<7-character sha> or a v* tag. Empty: sha-<7> of the commit this run uses."
+        description: "Image tag: sha-<7-character sha> or a v* tag. Empty: the newest build of this run's commit or an earlier one."
         type: string
         default: ""
         required: false
@@ -42,6 +42,7 @@ on:
 permissions:
   contents: read
   packages: read # GHCR: the deploy checks the tag's images and logs the server in with this run's token
+  actions: read # an empty tag resolves to the newest commit release-images built (beta.sh default_tag)
 
 concurrency:
   group: deploy-beta-production # one run at a time against the one server and its state
@@ -76,6 +77,7 @@ jobs:
         name: check every secret and variable in the production Environment
         env:
           INPUT_TAG: ${{ inputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

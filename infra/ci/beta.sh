@@ -92,9 +92,29 @@ cf_errors() { jq -r '[.errors[]? | "\(.code): \(.message)"] | join("; ")' "$work
 hcloud_get() { curl -fsS --retry 3 --max-time 60 -H "Authorization: Bearer ${HCLOUD_TOKEN}" "https://api.hetzner.cloud/v1/$1"; }
 
 # ------------------------------------------------------------------------------------- inputs job
+default_tag() { # sha-<7> of the newest commit in this run's history that release-images built, else of this run's
+  # commit. A run started right after a merge then deploys the previous build instead of failing on images that
+  # release-images publishes only once ci passes on the new commit (about 12 minutes).
+  local sha
+  if [[ -n "${GITHUB_TOKEN:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+    for sha in $(curl -fsS --retry 3 --max-time 30 -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?branch=main&status=success&per_page=30" \
+      | jq -r '.workflow_runs[]?.head_sha' 2>/dev/null || true); do
+      if [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+        [[ "${sha:0:7}" == "${GITHUB_SHA:0:7}" ]] \
+          || log "no images for ${GITHUB_SHA:0:7} yet: deploying sha-${sha:0:7}, the newest build in this run's history" >&2
+        echo "sha-${sha:0:7}"
+        return
+      fi
+    done
+  fi
+  echo "sha-${GITHUB_SHA:0:7}"
+}
+
 cmd_check_inputs() {
   local tag="${INPUT_TAG:-}" ref="" commit=""
-  [[ -n "$tag" ]] || tag="sha-${GITHUB_SHA:0:7}"
+  [[ -n "$tag" ]] || tag="$(default_tag)"
   if [[ "$tag" =~ ^sha-([0-9a-f]{7})$ ]]; then
     ref="${BASH_REMATCH[1]}"
   elif [[ "$tag" =~ ^v[0-9A-Za-z._-]+$ ]]; then

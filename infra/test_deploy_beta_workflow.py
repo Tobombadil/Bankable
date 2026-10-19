@@ -68,7 +68,10 @@ def test_dispatch_only_with_the_four_actions_and_a_tag() -> None:
 
 def test_one_run_at_a_time_with_minimal_permissions_in_the_production_environment() -> None:
     doc = workflow()
-    expect(doc["permissions"] == {"contents": "read", "packages": "read"}, doc["permissions"])
+    # actions: read lists release-images runs: an empty tag resolves to the newest build (default_tag).
+    expect(
+        doc["permissions"] == {"contents": "read", "packages": "read", "actions": "read"}, doc["permissions"]
+    )
     expect(
         doc["concurrency"]["cancel-in-progress"] is False and doc["concurrency"]["group"], doc["concurrency"]
     )
