@@ -277,3 +277,21 @@ def test_context_only_loads_the_layers_into_database_url_and_starts_nothing(
     root = tmp_path / "root"
     assert dev_up.main(["--context-only", "--data-dir", str(root)]) == 0
     assert order == ["context:root", "matches", "analyze"]
+
+
+# ------------------------------------------------------------- waiting for a slow first answer
+def test_wait_for_keeps_waiting_through_a_slow_first_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A server that accepts the connection but answers after the 1 s read timeout raises
+    `TimeoutError`, which is not a `URLError`. `_wait_for` must treat it as "not up yet" and retry,
+    not crash: CI's axe job died that way on 2026-10-19 while the API was answering 200."""
+    answers: list[Exception | None] = [TimeoutError("timed out"), ConnectionRefusedError(), None]
+
+    def fake_urlopen(url: str, timeout: float) -> None:
+        outcome = answers.pop(0)
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(dev_up.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(dev_up.time, "sleep", lambda _s: None)
+    dev_up._wait_for("http://127.0.0.1:1/health", timeout_s=5.0)
+    assert answers == []
