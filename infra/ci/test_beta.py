@@ -14,6 +14,7 @@ import shutil
 import stat
 import subprocess
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -201,6 +202,26 @@ def test_the_server_type_is_the_cheapest_available_x86_with_4_vcpu_and_8_gb() ->
     expect(beta.pick_server_type(types, location="ash")[0] == "ccx23", "dedicated only as a fallback")
     with pytest.raises(beta.InputError):
         beta.pick_server_type(types, location="fsn1")
+
+
+def test_a_deprecated_type_is_orderable_until_its_date_and_a_refusal_lists_every_reason() -> None:
+    now = datetime(2026, 10, 19, tzinfo=UTC)
+    types = _server_types()
+    for st in types["server_types"]:
+        here = st["locations"][0]
+        here["deprecation"] = {
+            "announced": "2026-06-01T00:00:00+00:00",
+            "unavailable_after": "2027-01-01T00:00:00+00:00",
+        }
+        here["available"] = st["name"] in ("cpx31", "ccx23")
+    name, why = beta.pick_server_type(types, location="ash", now=now)
+    expect(name == "cpx31" and "deprecated" in why, f"orderable until 2027, shared before dedicated: {why}")
+    for st in types["server_types"]:
+        st["locations"][0]["deprecation"]["unavailable_after"] = "2026-10-01T00:00:00+00:00"
+    with pytest.raises(beta.InputError) as refused:
+        beta.pick_server_type(types, location="ash", now=now)
+    message = str(refused.value)
+    expect("cpx31: retired in ash" in message and "cpx32: out of stock in ash" in message, message)
 
 
 def _plan(*changes: tuple[str, str, list[str]]) -> dict[str, Any]:
@@ -435,6 +456,7 @@ case "$*" in
       || body='{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}' ;;
   *"api.cloudflare.com"*) body='{"success":true,"result":{}}' ;;
   *"api.hetzner.cloud/v1/server_types"*) body="${FAKE_HCLOUD_SERVER_TYPES:-}" ;;
+  *"api.github.com"*"/actions/workflows/release.yml/runs"*) body="${FAKE_RELEASE_RUNS:-}" ;;
   *) body="${FAKE_DOWNLOAD:-}" ;;
 esac
 if [[ -n "$out" ]]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
@@ -567,6 +589,38 @@ def _tofu_shim(env: dict[str, str], *, state: str, plan: str) -> None:
         f'[[ "$*" == *"show -json"*"plan.bin"* ]] && {{ echo \'{plan}\'; exit 0; }}\n'
         f'[[ "$*" == *"show -json"* ]] && echo \'{state}\'\nexit 0\n'
     )
+
+
+def test_an_empty_tag_resolves_to_the_newest_build_in_the_runs_history(
+    sh: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    log, env = sh
+    git = shutil.which("git") or "git"
+    head = subprocess.run(  # noqa: S603 -- fixed argv, no shell
+        [git, "rev-parse", "HEAD"], capture_output=True, text=True, cwd=ROOT, check=True
+    ).stdout.strip()
+    code_domain = beta.code_constant((ROOT / "services" / "api" / "common.py").read_text(), "DOMAIN") or ""
+    # release-images' successful runs, newest first: one for a commit outside this history, then HEAD's.
+    runs = {"workflow_runs": [{"head_sha": "e" * 40}, {"head_sha": head}]}
+    good = (
+        env
+        | GOOD_ENV
+        | {
+            "DOMAIN": code_domain,
+            "PYTHON": "python3",
+            "GITHUB_SHA": "f" * 40,  # a merge whose images do not exist yet
+            "GITHUB_TOKEN": "fake-github-token",
+            "GITHUB_REPOSITORY": "example/repo",
+            "FAKE_RELEASE_RUNS": json.dumps(runs),
+        }
+    )
+    result = beta_sh("check-inputs", env=good)
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    output = pathlib.Path(env["GITHUB_OUTPUT"]).read_text()
+    expect(f"tag=sha-{head[:7]}" in output, output)
+    expect(f"deploying sha-{head[:7]}" in result.stderr, result.stderr)
+    calls = lines_of(log)
+    expect(len(calls) == 1 and "/actions/workflows/release.yml/runs?" in calls[0], calls)
 
 
 def test_tofu_apply_reuses_the_states_server_type_and_never_applies_a_refused_plan(

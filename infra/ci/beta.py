@@ -33,6 +33,7 @@ import re
 import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -282,45 +283,82 @@ def tfvars(env: Mapping[str, str], *, server_type: str, bucket_prefix: str) -> d
     }
 
 
-def pick_server_type(server_types: Mapping[str, Any], *, location: str) -> tuple[str, str]:
-    """`(name, why)`: the cheapest shared-vCPU x86 type with at least MIN_CORES and MIN_MEMORY_GB
-    that `location` has available now (Hetzner API `GET /server_types`). Availability and deprecation
+def _is_past(timestamp: object, now: datetime) -> bool:
+    try:
+        return datetime.fromisoformat(str(timestamp)) <= now
+    except ValueError:
+        return False
+
+
+def server_type_verdicts(
+    server_types: Mapping[str, Any], *, location: str, now: datetime
+) -> list[tuple[str, tuple[int, int, float, str] | None, str]]:
+    """`(name, sort key or None, why)` for every x86 type with at least MIN_CORES and MIN_MEMORY_GB.
+    A key means it can be ordered in `location` now; None says why not. Availability and deprecation
     are per location (`server_types[].locations[]`): `GET /datacenters` answers 410 Gone since
     1 October 2026, and the top-level `deprecation` gave way to the per-location one
-    (https://docs.hetzner.cloud/changelog). Dedicated vCPUs only when no shared type qualifies. The
-    default cx32 (variables.tf) is no longer sold: Hetzner stopped orders on 1 January 2026, and US
-    locations sold only CPX and CCX before that."""
-    candidates: list[tuple[int, float, str]] = []
+    (https://docs.hetzner.cloud/changelog). A deprecated type stays orderable until its
+    `unavailable_after`; it ranks after every current type of the same CPU kind."""
+    rows: list[tuple[str, tuple[int, int, float, str] | None, str]] = []
     for st in server_types.get("server_types", []):
         if st.get("architecture", "x86") != "x86":
             continue
         if int(st.get("cores", 0)) < MIN_CORES or float(st.get("memory", 0)) < MIN_MEMORY_GB:
             continue
+        name = str(st.get("name"))
         here = next((loc for loc in st.get("locations") or [] if loc.get("name") == location), None)
-        if here is None or here.get("available") is not True or here.get("deprecation"):
+        if here is None:
+            rows.append((name, None, f"not sold in {location}"))
             continue
-        price = next(
-            (p for p in st.get("prices", []) if p.get("location") == location),
-            None,
-        )
+        if here.get("available") is not True:
+            rows.append((name, None, f"out of stock in {location} (available={here.get('available')!r})"))
+            continue
+        deprecation = here.get("deprecation") or {}
+        if deprecation and _is_past(deprecation.get("unavailable_after"), now):
+            rows.append((name, None, f"retired in {location} since {deprecation.get('unavailable_after')}"))
+            continue
+        price = next((p for p in st.get("prices", []) if p.get("location") == location), None)
         if price is None:
+            rows.append((name, None, f"no price for {location}"))
             continue
         monthly = float((price.get("price_monthly") or {}).get("gross", "inf"))
         if monthly > MAX_MONTHLY_PRICE:
+            rows.append((name, None, f"{monthly:.2f} a month, over {MAX_MONTHLY_PRICE:g}"))
             continue
         dedicated = 1 if st.get("cpu_type") == "dedicated" else 0
-        candidates.append((dedicated, monthly, str(st["name"])))
+        kind = "dedicated" if dedicated else "shared"
+        note = f", deprecated (orderable until {deprecation.get('unavailable_after')})" if deprecation else ""
+        rows.append(
+            (
+                name,
+                (dedicated, 1 if deprecation else 0, monthly, name),
+                f"{kind}, {monthly:.2f} a month{note}",
+            )
+        )
+    return rows
+
+
+def pick_server_type(
+    server_types: Mapping[str, Any], *, location: str, now: datetime | None = None
+) -> tuple[str, str]:
+    """`(name, why)`: the cheapest current shared-vCPU x86 type with at least MIN_CORES and
+    MIN_MEMORY_GB that `location` can sell now (Hetzner API `GET /server_types`); then a deprecated
+    but still orderable one; dedicated vCPUs only when no shared type qualifies. The default cx32
+    (variables.tf) is no longer sold: Hetzner stopped orders on 1 January 2026, and US locations sold
+    only CPX and CCX before that. The error lists every candidate and why it was refused."""
+    rows = server_type_verdicts(server_types, location=location, now=now or datetime.now(UTC))
+    candidates = [(key, name, why) for name, key, why in rows if key is not None]
     if not candidates:
+        refused = "; ".join(f"{name}: {why}" for name, _, why in rows) or "Hetzner lists none"
         raise InputError(
             f"no x86 server type with >= {MIN_CORES} vCPU and >= {MIN_MEMORY_GB:g} GB under "
-            f"{MAX_MONTHLY_PRICE:g} a month is available in {location!r}"
+            f"{MAX_MONTHLY_PRICE:g} a month is available in {location!r} ({refused})"
         )
-    dedicated, monthly, name = min(candidates)
-    kind = "dedicated" if dedicated else "shared"
+    _, name, why = min(candidates)
     return (
         name,
-        f"{name}: cheapest available {kind}-vCPU type in {location} with >= {MIN_CORES} vCPU / "
-        f"{MIN_MEMORY_GB:g} GB ({monthly:.2f} a month gross)",
+        f"{name}: cheapest orderable type in {location} with >= {MIN_CORES} vCPU / "
+        f"{MIN_MEMORY_GB:g} GB ({why})",
     )
 
 
@@ -608,7 +646,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         if args.command == "pick-server-type":
-            name, why = pick_server_type(_load_json(args.server_types), location=args.location)
+            types = _load_json(args.server_types)
+            for row_name, rank, row_why in server_type_verdicts(
+                types, location=args.location, now=datetime.now(UTC)
+            ):
+                sys.stderr.write(f"  {row_name}: {'ok' if rank else 'refused'}, {row_why}\n")
+            name, why = pick_server_type(types, location=args.location)
             sys.stderr.write(why + "\n")
             out.write(name + "\n")
             return 0
