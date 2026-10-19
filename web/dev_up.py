@@ -217,7 +217,10 @@ def _wait_for(url: str, timeout_s: float = 20.0) -> None:
         try:
             urllib.request.urlopen(url, timeout=1.0)  # noqa: S310 -- localhost only
             return
-        except (urllib.error.URLError, ConnectionError) as exc:
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as exc:
+            # A server still warming up can accept the connection and then answer slower than the
+            # 1 s read timeout; that `TimeoutError` is not a `URLError`, and letting it escape shut
+            # both servers down in CI's axe job on 2026-10-19 while the API was answering 200.
             last_error = exc
             time.sleep(0.3)
     raise RuntimeError(f"{url} did not come up in time: {last_error}")
