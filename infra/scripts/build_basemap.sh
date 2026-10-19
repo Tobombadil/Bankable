@@ -96,9 +96,11 @@ AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_K
   --endpoint-url "$r2_endpoint" --content-type application/vnd.pmtiles
 
 log "promoting ${dated_key} -> ${canonical_key} (server-side copy, no re-upload)"
+# --copy-props none: by default the CLI copies the source's tags too, and R2 answers GetObjectTagging
+# with NotImplemented (deploy-beta #12). The content type is set explicitly instead.
 AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
   aws s3 cp "s3://${R2_TILES_BUCKET}/${dated_key}" "s3://${R2_TILES_BUCKET}/${canonical_key}" \
-  --endpoint-url "$r2_endpoint" --content-type application/vnd.pmtiles
+  --endpoint-url "$r2_endpoint" --copy-props none --content-type application/vnd.pmtiles
 
 log "done: ${canonical_key} now serves the ${BUILD_DATE} build. Verify with:"
 log "  curl -sI https://tiles.\${DOMAIN}/${canonical_key} | grep -i 'accept-ranges\|content-length'"

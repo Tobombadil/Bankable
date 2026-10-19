@@ -531,6 +531,16 @@ def test_every_script_the_deploy_runs_is_executable() -> None:
         expect(os.access(path, os.X_OK), f"{path.relative_to(ROOT)}: git update-index --chmod=+x")
 
 
+def test_the_basemap_promotion_copies_no_tags_r2_cannot_read() -> None:
+    # deploy-beta #12 uploaded the 3.7 GiB basemap, then failed promoting it: the CLI's default
+    # --copy-props reads the source's tags, and R2 answers GetObjectTagging with NotImplemented.
+    script = (ROOT / "infra" / "scripts" / "build_basemap.sh").read_text()
+    copies = [ln for ln in script.splitlines() if 'aws s3 cp "s3://' in ln]
+    expect(len(copies) == 1, copies)
+    tail = script.split(copies[0], 1)[1].split("\n\n", 1)[0]
+    expect("--copy-props none" in tail and "--content-type application/vnd.pmtiles" in tail, tail)
+
+
 def test_a_download_whose_checksum_differs_is_never_unpacked(sh: tuple[pathlib.Path, dict[str, str]]) -> None:
     log, env = sh
     result = beta_sh("install-tofu", env=env | {"FAKE_DOWNLOAD": "not the release"})
