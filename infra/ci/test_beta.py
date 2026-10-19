@@ -420,7 +420,12 @@ case "$*" in
   *"/v1/health"*) body='{"status":"ok","checks":{"database":true,"queue":true}}' ;;
   *"/health"*) body='ok' ;;
   *"-X GET"*"/domains/custom"*) body='{"success":true,"result":{"domains":[]}}' ;;
+  *"/r2/buckets?per_page=1"*) body='{"success":true,"result":{}}'
+    [[ -z "${FAKE_CF_R2_DENIED:-}" ]] \
+      || body='{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}' ;;
   *"api.cloudflare.com"*) body='{"success":true,"result":{}}' ;;
+  *"api.hetzner.cloud/v1/datacenters"*) body="${FAKE_HCLOUD_DATACENTERS:-}" ;;
+  *"api.hetzner.cloud/v1/server_types"*) body="${FAKE_HCLOUD_SERVER_TYPES:-}" ;;
   *) body="${FAKE_DOWNLOAD:-}" ;;
 esac
 if [[ -n "$out" ]]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
@@ -525,19 +530,45 @@ def test_check_inputs_reads_the_domain_from_the_tags_commit(sh: tuple[pathlib.Pa
     expect(lines_of(log) == [], "no network call")
 
 
+# OpenTofu 1.12's `tofu output` on a state without outputs: this warning on stdout, exit 0.
+NO_OUTPUTS_WARNING = "\x1b[33m╷\x1b[0m\n\x1b[33m│\x1b[0m Warning: No outputs found\n\x1b[33m╵\x1b[0m"
+
+
+def _state_with_server(server_type: str) -> str:
+    return json.dumps(
+        {
+            "format_version": "1.0",
+            "values": {
+                "root_module": {
+                    "resources": [
+                        {"address": "hcloud_network.app", "values": {"name": "net"}},
+                        {"address": "hcloud_server.app", "values": {"server_type": server_type}},
+                    ]
+                }
+            },
+        }
+    )
+
+
+def _tofu_shim(env: dict[str, str], *, state: str, plan: str) -> None:
+    tofu = pathlib.Path(env["PATH"].split(":")[0]) / "tofu"
+    tofu.write_text(
+        '#!/usr/bin/env bash\nprintf \'tofu %s\\n\' "$*" >> "$FAKE_LOG"\n'
+        f'[[ "$*" == *"output"* ]] && printf \'%s\\n\' {json.dumps(NO_OUTPUTS_WARNING)}\n'
+        f'[[ "$*" == *"show -json"*"plan.bin"* ]] && {{ echo \'{plan}\'; exit 0; }}\n'
+        f'[[ "$*" == *"show -json"* ]] && echo \'{state}\'\nexit 0\n'
+    )
+
+
 def test_tofu_apply_reuses_the_states_server_type_and_never_applies_a_refused_plan(
     sh: tuple[pathlib.Path, dict[str, str]], tmp_path: pathlib.Path
 ) -> None:
     log, env = sh
-    env = env | GOOD_ENV | {"FAKE_TOFU_OUTPUT": "cpx31"}
-    # `tofu show -json` prints the plan the guard reads: a replaced server.
+    env = env | GOOD_ENV
+    # `tofu show -json` prints the state (a cpx31 server) or, given the plan file, the plan the guard reads:
+    # a replaced server.
     plan = json.dumps(_plan(("hcloud_server.app", "hcloud_server", ["delete", "create"])))
-    tofu = pathlib.Path(env["PATH"].split(":")[0]) / "tofu"
-    tofu.write_text(
-        '#!/usr/bin/env bash\nprintf \'tofu %s\\n\' "$*" >> "$FAKE_LOG"\n'
-        '[[ "$*" == *"output -raw app_server_type"* ]] && echo cpx31\n'
-        f'[[ "$*" == *"show -json"* ]] && echo \'{plan}\'\nexit 0\n'
-    )
+    _tofu_shim(env, state=_state_with_server("cpx31"), plan=plan)
     result = beta_sh("tofu-apply", env=env)
     calls = lines_of(log)
     expect(result.returncode == 1 and "hcloud_server.app" in result.stdout, result.stdout + result.stderr)
@@ -547,6 +578,44 @@ def test_tofu_apply_reuses_the_states_server_type_and_never_applies_a_refused_pl
     tfvars = json.loads((pathlib.Path(env["RUNNER_TEMP"]) / "deploy-beta" / "beta.tfvars.json").read_text())
     expect(tfvars["app_server_type"] == "cpx31" and "-var-file=" in plan_line, (tfvars, plan_line))
     expect(not (pathlib.Path(env["RUNNER_TEMP"]) / "deploy-beta" / "plan.json").exists(), "plan.json removed")
+
+
+def test_a_first_apply_picks_the_type_from_hetzner_not_the_empty_states_warning(
+    sh: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    log, env = sh
+    types, dcs = _server_types()
+    env = (
+        env
+        | GOOD_ENV
+        | {
+            "FAKE_HCLOUD_SERVER_TYPES": json.dumps(types),
+            "FAKE_HCLOUD_DATACENTERS": json.dumps(dcs),
+        }
+    )
+    _tofu_shim(env, state='{"format_version":"1.0"}', plan=json.dumps(_plan()))
+    result = beta_sh("tofu-apply", env=env)
+    calls = lines_of(log)
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    tfvars = json.loads((pathlib.Path(env["RUNNER_TEMP"]) / "deploy-beta" / "beta.tfvars.json").read_text())
+    picked = tfvars["app_server_type"]
+    expect(picked == "cpx31", f"Hetzner's pick, not the warning: {picked!r}")
+    expect(any("api.hetzner.cloud/v1/server_types" in ln for ln in calls), calls)
+    expect(any(" apply " in ln for ln in calls), f"the plan is applied: {calls}")
+
+
+def test_a_cloudflare_token_without_r2_stops_before_anything_is_planned(
+    sh: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    log, env = sh
+    env = env | GOOD_ENV | {"FAKE_CF_R2_DENIED": "1"}
+    _tofu_shim(env, state='{"format_version":"1.0"}', plan=json.dumps(_plan()))
+    result = beta_sh("tofu-apply", env=env)
+    calls = lines_of(log)
+    expect(result.returncode == 1, result.stdout + result.stderr)
+    expect("Workers R2 Storage" in result.stdout, result.stdout)
+    expect("10000: Authentication error" in result.stdout, "Cloudflare's own error is shown")
+    expect(not any(ln.startswith("tofu ") for ln in calls), f"no plan, no apply: {calls}")
 
 
 def test_status_only_reads(sh: tuple[pathlib.Path, dict[str, str]]) -> None:

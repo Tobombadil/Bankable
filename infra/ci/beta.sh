@@ -147,7 +147,17 @@ cmd_tofu_init() {
 cmd_tofu_apply() {
   need DOMAIN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID HCLOUD_TOKEN CLOUDFLARE_API_TOKEN R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
   local server_type rc=0
-  server_type="$(with_r2 tofu -chdir="$tofu_dir" output -raw app_server_type 2>/dev/null || true)"
+  # The token's two scopes, before anything is created: a missing one stops here, not halfway through the apply.
+  cf GET "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/dns_records?per_page=1" \
+    || fail "CLOUDFLARE_API_TOKEN cannot read the DNS records of zone ${CLOUDFLARE_ZONE_ID} ($(cf_errors)): give it Zone · DNS · Edit on ${DOMAIN} (docs/64 §2 step D)"
+  cf GET "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets?per_page=1" \
+    || fail "CLOUDFLARE_API_TOKEN cannot use R2 in account ${CLOUDFLARE_ACCOUNT_ID} ($(cf_errors)): give it Account · Workers R2 Storage · Edit, with Account Resources including that account (docs/64 §2 step D)"
+  # The type of the server the state already holds; empty before the first one exists. Not `output -raw`:
+  # on a state without outputs it prints its "No outputs found" warning on stdout and exits 0.
+  server_type="$(with_r2 tofu -chdir="$tofu_dir" show -json -no-color 2>/dev/null \
+    | jq -r '[.values.root_module.resources[]? | select(.address == "hcloud_server.app") | .values.server_type][0] // empty' \
+    || true)"
+  [[ -z "$server_type" || "$server_type" =~ ^[a-z0-9-]+$ ]] || fail "the state's server type is not a Hetzner type name: ${server_type:0:80}"
   if [[ -n "$server_type" ]]; then
     log "server type ${server_type}, from the state: a later run never changes it"
   else
