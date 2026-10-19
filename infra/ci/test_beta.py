@@ -523,6 +523,14 @@ def lines_of(log: pathlib.Path) -> list[str]:
     return log.read_text().splitlines()
 
 
+def test_every_script_the_deploy_runs_is_executable() -> None:
+    # deploy-beta #11's basemap job died on "build_basemap.sh: Permission denied": it was committed 0644.
+    scripts = sorted([*(ROOT / "infra" / "scripts").glob("*.sh"), *(ROOT / "infra" / "ci").glob("*.sh")])
+    expect(bool(scripts), "found the scripts")
+    for path in scripts:
+        expect(os.access(path, os.X_OK), f"{path.relative_to(ROOT)}: git update-index --chmod=+x")
+
+
 def test_a_download_whose_checksum_differs_is_never_unpacked(sh: tuple[pathlib.Path, dict[str, str]]) -> None:
     log, env = sh
     result = beta_sh("install-tofu", env=env | {"FAKE_DOWNLOAD": "not the release"})
