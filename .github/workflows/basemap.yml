@@ -31,7 +31,7 @@ permissions:
 jobs:
   refresh-basemap:
     name: build and upload basemap.pmtiles
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned like deploy-beta: ubuntu-latest moves to 26 from 2026-10-19
     environment: production
     timeout-minutes: 60
     steps:
@@ -46,6 +46,10 @@ jobs:
           R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # This step calls the AWS CLI itself, which reads only AWS_*: without these it ran unsigned and
+          # reported an existing bucket as missing (2026-10-19).
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
         run: |
           if [[ -z "${R2_ACCOUNT_ID}" || -z "${R2_ACCESS_KEY_ID}" || -z "${R2_SECRET_ACCESS_KEY}" ]]; then
@@ -84,6 +88,8 @@ jobs:
           R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           DOMAIN: ${{ vars.DOMAIN }}
         run: |
