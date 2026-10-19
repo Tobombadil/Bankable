@@ -161,9 +161,8 @@ cmd_tofu_apply() {
   if [[ -n "$server_type" ]]; then
     log "server type ${server_type}, from the state: a later run never changes it"
   else
-    hcloud_get datacenters > "$work/datacenters.json"
     hcloud_get "server_types?per_page=50" > "$work/server_types.json"
-    server_type="$("$python" infra/ci/beta.py pick-server-type "$work/server_types.json" "$work/datacenters.json" --location "$HCLOUD_LOCATION")" \
+    server_type="$("$python" infra/ci/beta.py pick-server-type "$work/server_types.json" --location "$HCLOUD_LOCATION")" \
       || { echo "$server_type"; exit 1; } # its ::error:: line, not swallowed by $(...)
   fi
   (umask 077 && "$python" infra/ci/beta.py tfvars --server-type "$server_type" --bucket-prefix "$BUCKET_PREFIX" > "$work/beta.tfvars.json")

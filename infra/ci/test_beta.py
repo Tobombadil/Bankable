@@ -153,8 +153,18 @@ def test_tfvars_are_the_single_host_beta_with_dns_from_the_domain_variable() -> 
         expect(f'variable "{name}"' in variables, f"{name} is not an OpenTofu variable")
 
 
-def _server_types() -> tuple[dict[str, Any], dict[str, Any]]:
+def _server_types() -> dict[str, Any]:
+    """`GET /server_types` as Hetzner answers it since `GET /datacenters` went (1 October 2026):
+    availability and deprecation per location, under `locations`."""
+
     def st(i: int, name: str, cores: int, memory: float, price: str, **extra: Any) -> dict[str, Any]:
+        here = {
+            "id": 4,
+            "name": "ash",
+            "deprecation": extra.pop("deprecation", None),
+            "recommended": False,
+            "available": extra.pop("available", True),
+        }
         return {
             "id": i,
             "name": name,
@@ -162,9 +172,9 @@ def _server_types() -> tuple[dict[str, Any], dict[str, Any]]:
             "memory": memory,
             "cpu_type": extra.pop("cpu_type", "shared"),
             "architecture": extra.pop("architecture", "x86"),
-            "deprecation": extra.pop("deprecation", None),
+            "deprecation": None,
             "prices": [{"location": "ash", "price_monthly": {"net": price, "gross": price}}],
-            "locations": [{"name": "ash", "deprecation": None}],
+            "locations": [here],
             **extra,
         }
 
@@ -173,24 +183,24 @@ def _server_types() -> tuple[dict[str, Any], dict[str, Any]]:
             st(1, "cx32", 4, 8.0, "7.0", deprecation={"announced": "2025-10-16"}),
             st(2, "cpx21", 3, 4.0, "8.0"),
             st(3, "cpx31", 4, 8.0, "16.0"),
-            st(4, "cpx32", 4, 8.0, "14.0"),
+            st(4, "cpx32", 4, 8.0, "14.0", available=False),
             st(5, "cax21", 4, 8.0, "6.0", architecture="arm"),
             st(6, "ccx23", 4, 16.0, "30.0", cpu_type="dedicated"),
             st(7, "cpx41", 8, 16.0, "30.0"),
         ]
     }
-    dcs = {"datacenters": [{"location": {"name": "ash"}, "server_types": {"available": [1, 2, 3, 5, 6, 7]}}]}
-    return types, dcs
+    return types
 
 
 def test_the_server_type_is_the_cheapest_available_x86_with_4_vcpu_and_8_gb() -> None:
-    types, dcs = _server_types()
-    name, why = beta.pick_server_type(types, dcs, location="ash")
+    types = _server_types()
+    name, why = beta.pick_server_type(types, location="ash")
     expect(name == "cpx31", f"{name}: cx32 is deprecated, cpx32 unavailable here, cax21 is arm ({why})")
-    dcs["datacenters"][0]["server_types"]["available"] = [6]
-    expect(beta.pick_server_type(types, dcs, location="ash")[0] == "ccx23", "dedicated only as a fallback")
+    for st in types["server_types"]:
+        st["locations"][0]["available"] = st["name"] == "ccx23"
+    expect(beta.pick_server_type(types, location="ash")[0] == "ccx23", "dedicated only as a fallback")
     with pytest.raises(beta.InputError):
-        beta.pick_server_type(types, dcs, location="fsn1")
+        beta.pick_server_type(types, location="fsn1")
 
 
 def _plan(*changes: tuple[str, str, list[str]]) -> dict[str, Any]:
@@ -424,7 +434,6 @@ case "$*" in
     [[ -z "${FAKE_CF_R2_DENIED:-}" ]] \
       || body='{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}' ;;
   *"api.cloudflare.com"*) body='{"success":true,"result":{}}' ;;
-  *"api.hetzner.cloud/v1/datacenters"*) body="${FAKE_HCLOUD_DATACENTERS:-}" ;;
   *"api.hetzner.cloud/v1/server_types"*) body="${FAKE_HCLOUD_SERVER_TYPES:-}" ;;
   *) body="${FAKE_DOWNLOAD:-}" ;;
 esac
@@ -584,15 +593,7 @@ def test_a_first_apply_picks_the_type_from_hetzner_not_the_empty_states_warning(
     sh: tuple[pathlib.Path, dict[str, str]],
 ) -> None:
     log, env = sh
-    types, dcs = _server_types()
-    env = (
-        env
-        | GOOD_ENV
-        | {
-            "FAKE_HCLOUD_SERVER_TYPES": json.dumps(types),
-            "FAKE_HCLOUD_DATACENTERS": json.dumps(dcs),
-        }
-    )
+    env = env | GOOD_ENV | {"FAKE_HCLOUD_SERVER_TYPES": json.dumps(_server_types())}
     _tofu_shim(env, state='{"format_version":"1.0"}', plan=json.dumps(_plan()))
     result = beta_sh("tofu-apply", env=env)
     calls = lines_of(log)
@@ -601,6 +602,7 @@ def test_a_first_apply_picks_the_type_from_hetzner_not_the_empty_states_warning(
     picked = tfvars["app_server_type"]
     expect(picked == "cpx31", f"Hetzner's pick, not the warning: {picked!r}")
     expect(any("api.hetzner.cloud/v1/server_types" in ln for ln in calls), calls)
+    expect(not any("/v1/datacenters" in ln for ln in calls), f"GET /datacenters answers 410 Gone: {calls}")
     expect(any(" apply " in ln for ln in calls), f"the plan is applied: {calls}")
 
 
