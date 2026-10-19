@@ -143,6 +143,7 @@ def test_tfvars_are_the_single_host_beta_with_dns_from_the_domain_variable() -> 
     tfvars = beta.tfvars(GOOD_ENV, server_type="cpx31", bucket_prefix="beta-object-storage")
     expect(tfvars["domain"] == DOMAIN and tfvars["environment"] == "production", tfvars)
     expect(tfvars["single_host"] is True and tfvars["generate_secrets"] is True, tfvars)
+    expect(tfvars["vm_backups"] is False, "no Hetzner VM backups: the nightly pg_dump is the copy (owner)")
     expect(tfvars["dns_proxied"] is False, "records point straight at the VM for now (docs/64 §2)")
     expect(
         not any(k in json.dumps(tfvars) for k in ("fake-r2-secret", "fake-hcloud-token")),

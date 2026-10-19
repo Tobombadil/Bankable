@@ -98,9 +98,15 @@ variable "vm_count_workers" {
 }
 
 variable "single_host" {
-  description = "One VM runs every service and its own Postgres (the private beta: infra/compose/compose.single.yml, docs/64). No worker or browser-worker VM is created, and the app VM gets Hetzner's daily backups as a second copy beside the nightly pg_dump to R2. Deploy with SINGLE_HOST=1 infra/scripts/deploy.sh."
+  description = "One VM runs every service and its own Postgres (the private beta: infra/compose/compose.single.yml, docs/64). No worker or browser-worker VM is created, and the app VM gets Hetzner's daily backups (vm_backups) as a second copy beside the nightly pg_dump to R2. Deploy with SINGLE_HOST=1 infra/scripts/deploy.sh."
   type        = bool
   default     = false
+}
+
+variable "vm_backups" {
+  description = "Hetzner's daily backups of the single-host app VM (+20 % of the server price). The GitHub Actions beta deploy turns them off (owner, 2026-10-19): the nightly pg_dump to R2 is the database's copy, and connector data can be fetched again from its sources."
+  type        = bool
+  default     = true
 }
 
 variable "r2_bucket_name" {

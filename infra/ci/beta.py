@@ -63,7 +63,8 @@ GENERATED_KEYS = ("POSTGRES_PASSWORD", "SESSION_SECRET", "API_INTERNAL_TOKEN", "
 #: and its database, the buckets, the generated secrets and the key the VM accepts).
 REPLACEABLE_TYPES = frozenset({"cloudflare_record"})
 #: The beta's VM: compose limits sum to 4.25 GB (docs/64 §1); the docs size it at 4 vCPU / 8 GB.
-MIN_CORES, MIN_MEMORY_GB, MAX_MONTHLY_PRICE = 4, 8.0, 60.0
+#: The cap admits cpx31 in ash at 73.49 a month gross (Hetzner API, 2026-10-19; owner approved).
+MIN_CORES, MIN_MEMORY_GB, MAX_MONTHLY_PRICE = 4, 8.0, 80.0
 
 HOSTNAME = re.compile(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}")
 HEX32 = re.compile(r"[0-9a-f]{32}")
@@ -275,6 +276,7 @@ def tfvars(env: Mapping[str, str], *, server_type: str, bucket_prefix: str) -> d
         "cloudflare_zone_id": env["CLOUDFLARE_ZONE_ID"],
         "cloudflare_account_id": env["CLOUDFLARE_ACCOUNT_ID"],
         "single_host": True,
+        "vm_backups": False,  # owner, 2026-10-19: the nightly pg_dump to R2 is the database's copy
         "generate_secrets": True,
         "dns_proxied": False,
         "ssh_public_key": "",

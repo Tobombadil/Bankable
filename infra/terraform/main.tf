@@ -116,9 +116,9 @@ resource "hcloud_server" "app" {
   ssh_keys     = [hcloud_ssh_key.operator.id]
   firewall_ids = [hcloud_firewall.web.id]
   labels       = merge(local.common_labels, { role = "app" })
-  # The single host keeps the database on this VM's disk (docs/64): Hetzner's daily backups are the
-  # second copy beside the nightly pg_dump to R2 (+20 % of the server price).
-  backups = var.single_host
+  # The single host keeps the database on this VM's disk (docs/64): Hetzner's daily backups are an
+  # optional second copy beside the nightly pg_dump to R2 (+20 % of the server price; vm_backups).
+  backups = var.single_host && var.vm_backups
 
   network {
     network_id = hcloud_network.app.id
