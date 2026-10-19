@@ -14,7 +14,7 @@ and stays the path once the beta outgrows one host (`deploy.sh` without `SINGLE_
 | Replicas | api ×2, worker ×2, browser-worker ×1 | api ×1, worker ×1, no browser-worker |
 | Connector data | `SNAPSHOT_STORE=s3` (R2) | `local` on the `connector_data` volume, or `s3` |
 | Access | open | `SITE_ACCESS=basic`: one shared login on every host |
-| Backups | nightly `pg_dump` to R2 | the same, plus Hetzner's daily VM backups |
+| Backups | nightly `pg_dump` to R2 | the same; Hetzner's daily VM backups off in the Actions deploy (owner, 2026-10-19; `vm_backups`) |
 
 `ENVIRONMENT` is `production`: every fail-closed configuration check applies (session secret,
 platform posture, internal token). The beta runs on the production host names, so opening it to
@@ -41,6 +41,9 @@ worker 1, Caddy 0.25). The measured api peak is 606–638 MB (`docs/60` §2). Th
 
 **Cost** (inferred from `docs/60` §4's table, prices retrieved 2026-09-13, not re-verified): one `cx32`
 at 7.69 USD plus 20 % for Hetzner backups, R2 at 3–6 USD, no managed Postgres (35–55 USD saved).
+**Superseded 2026-10-19:** cx32 is no longer sold, and Hetzner's API priced the cheapest qualifying type in
+`ash`, cpx31, at 73.49 EUR a month gross. With VM backups off, the beta costs about 75 EUR a month plus R2
+(decisions log, 2026-10-19). Hetzner bills by the hour up to that cap.
 That is about 15–35 USD a month before email, against 80–170 USD for the three-VM core.
 
 ## 2. Owner actions, in order
@@ -248,7 +251,7 @@ names what to create and where its value goes:
 ## 3. Deploy and seed
 
 ```bash
-cd infra/terraform && tofu apply -var single_host=true       # one VM, Hetzner backups on
+cd infra/terraform && tofu apply -var single_host=true       # one VM; Hetzner backups on unless -var vm_backups=false
 SINGLE_HOST=1 APP_HOST=<ip> SOPS_AGE_KEY="$(cat <key>)" \
   GHCR_USER=<user> GHCR_READ_TOKEN=<token> \
   infra/scripts/deploy.sh production sha-<commit>             # docs/60 §10.1, one host
