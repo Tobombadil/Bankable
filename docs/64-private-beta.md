@@ -96,6 +96,7 @@ GitHub's secret fields: never into chat, an email or the repository.
   | `CLOUDFLARE_ACCOUNT_ID` | variable | step A, Account ID |
   | `CLOUDFLARE_ZONE_ID` | variable | step A, Zone ID |
   | `SITE_ACCESS_USER` | variable | the shared user name: letters, digits, `.`, `_`, `@` or `-` |
+  | `SITE_ACCESS` | variable, optional | `basic` (the default: the shared login) or `open` (public, no login; §6) |
   | `SENDER_POSTAL_ADDRESS` | variable | the legal sender's real postal address, on one line (manual step 9 says why) |
   | `SENDER_LEGAL_NAME` | variable, optional | default: Compass International Trading Group LLC (decided 2026-09-18) |
   | `PRODUCT_CONTACT_EMAIL` | variable, optional | default: `hello@<your domain>` |
@@ -467,9 +468,12 @@ Rehearse once against the real VM with the gate on before inviting anyone.
 
 ## 6. Opening it to the public
 
-Set `SITE_ACCESS=open` (or remove the three keys) and redeploy the same tag. The header's beta feedback
+With the GitHub Actions deploy: set the Environment variable `SITE_ACCESS` to `open` and run `deploy`;
+`basic` (or deleting the variable) and another `deploy` put the login back. By hand: set `SITE_ACCESS=open`
+(or remove the three keys) and redeploy the same tag. The header's beta feedback
 link and `/feedback` go with the gate (`web/beta.py`). Before that, the
-launch checklist in `docs/40` applies unchanged, counsel items included. Moving to three VMs later
+launch checklist in `docs/40` applies unchanged, counsel items included. The owner opened the beta on
+2026-10-20 with that checklist still open (decisions log). Moving to three VMs later
 needs:
 - `pg_dump` from the single host, restored into the managed database (`docs/60` §10.3);
 - `SNAPSHOT_STORE=s3`;

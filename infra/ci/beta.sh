@@ -341,15 +341,24 @@ cmd_health() {
   log "1/3 at the server itself, whatever DNS caches say (Caddy fetches its certificates first)"
   wait_for "$site" "$APP_HOST" ""
   wait_for "$api" "$APP_HOST" '"status":"ok"'
-  log "2/3 the beta gate asks for the login"
+  local access="${SITE_ACCESS:-basic}" site_row
+  access="${access,,}"
   code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --resolve "${DOMAIN}:443:${APP_HOST}" "https://${DOMAIN}/" || true)"
-  [[ "$code" == 401 ]] || fail "https://${DOMAIN}/ answered ${code} without the login: the gate (SITE_ACCESS=basic) must answer 401"
+  if [[ "$access" == open ]]; then
+    log "2/3 the site answers without a login (SITE_ACCESS=open)"
+    [[ "$code" == 200 ]] || fail "https://${DOMAIN}/ answered ${code}: with SITE_ACCESS=open it must answer 200 without a login"
+    site_row="| Site (public, no login) | https://${DOMAIN}/ |"
+  else
+    log "2/3 the beta gate asks for the login"
+    [[ "$code" == 401 ]] || fail "https://${DOMAIN}/ answered ${code} without the login: the gate (SITE_ACCESS=basic) must answer 401"
+    site_row="| Site (shared login \`${SITE_ACCESS_USER:-}\`) | https://${DOMAIN}/ |"
+  fi
   log "3/3 through public DNS, as testers reach it"
   wait_for "$site" "" ""
   wait_for "$api" "" '"status":"ok"'
   md "### Deployed ${TAG:-} to ${DOMAIN}" "" \
     "| | |" "|---|---|" \
-    "| Site (shared login \`${SITE_ACCESS_USER:-}\`) | https://${DOMAIN}/ |" \
+    "$site_row" \
     "| Admin | https://admin.${DOMAIN}/admin |" \
     "| API health (no login) | ${api} |" \
     "| Site health (no login) | ${site} |" \
