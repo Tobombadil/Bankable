@@ -440,13 +440,16 @@ def _check_desktop_and_narrow(browser: object) -> None:
     )
     page.screenshot(path=str(SCREENSHOT_DIR / "home-desktop.png"), full_page=True)
 
-    # ---- desktop: existing-plants context layer toggle (task item 2) ----
+    # ---- desktop: the existing-asset and retired layers, on by default (owner, 2026-10-20) ----
     plants_checkbox = page.locator("#mf-layer-plants")
     assert plants_checkbox.count() == 1, "existing-plants layer checkbox missing"
-    plants_checkbox.check()
+    assert plants_checkbox.is_checked(), "the existing-assets layer is on when the link names no layers="
+    assert page.locator("#mf-layer-retired").is_checked(), "the retired layer is on by default"
     page.wait_for_function("() => window.__map.getLayoutProperty('plant-points', 'visibility') === 'visible'")
-    assert "layers=plants" in page.url
+    assert "layers=" not in page.url, "the default writes no layers= to the URL"
     plants_checkbox.uncheck()
+    assert "layers=retired" in page.url, "turning one layer off keeps the other in the URL"
+    plants_checkbox.check()
 
     # ---- desktop: proposals list, attribution rendered ----
     page.goto(BASE_URL + "/proposals")
@@ -1124,6 +1127,12 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
                 " return [b.width, b.height]; })()"
             )
             compact_on = "() => document.getElementById('map-key').classList.contains('map-key--compact')"
+            # Both layers are on when a link names none (owner, 2026-10-20), so the key arrives
+            # compact; the no-layer baseline is the explicit `layers=` (none).
+            wide.wait_for_function(compact_on)
+            wide.goto(BASE_URL + "/?layers=")
+            wide.wait_for_selector("#map canvas", timeout=10000)
+            wide.wait_for_function(f"() => !({compact_on})()")
             no_layer_w, _ = wide.evaluate(panel_box)
             assert wide.get_attribute(".map-key__panel", "tabindex") is None
             wide.check("#mf-layer-retired")
