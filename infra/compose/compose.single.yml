@@ -15,6 +15,7 @@
 #   limits below fit a 4 vCPU / 8 GB VM with headroom: 1 + 1 + 0.75 + 0.25 + 1 + 0.25 GB = 4.25 GB.
 # - No browser-worker: no implemented source fetches through a browser (data/sources.yaml
 #   `egress: browser` appears only on gated or unimplemented entries). `--profile browser` starts it.
+#   The worker takes its `fetch_browser` queue instead (below).
 # - The connector data root stays the `connector_data` volume: fetch and load run on this host, so
 #   SNAPSHOT_STORE may be `local` (deploy.sh allows it only here).
 #
@@ -53,6 +54,12 @@ services:
         condition: service_healthy
     deploy:
       replicas: 1
+    # The base file's queues plus `fetch_browser`. The schedule routes `access: js_app` sources there
+    # (infra/scheduler/cadence.py queue_for_source), and with no browser-worker nothing consumed them:
+    # on 2026-10-20 the 03:07 daily tick's ISO-NE and BLM ePlanning jobs waited for hours, and
+    # /v1/health queue_age_seconds climbed with them. None of those sources has a connector yet, so
+    # each run fails at once and is recorded like any other unimplemented source.
+    command: ["python", "-m", "infra.entrypoint", "worker", "--queues", "fetch,diff,normalise,resolve,alert,post_draft,publish_post,sor_sync,webhook,audit,fetch_browser"]
 
   browser-worker:
     profiles: ["browser"]
