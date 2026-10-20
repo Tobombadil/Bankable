@@ -317,6 +317,27 @@ def test_single_host_renders_its_own_database_one_replica_each_and_no_browser(tm
     expect((caddy["SITE_ACCESS"], caddy["SITE_ACCESS_USER"]) == ("basic", "beta"), "the gate reaches Caddy")
 
 
+def _queues(command: list[str]) -> set[str]:
+    return set(command[command.index("--queues") + 1].split(","))
+
+
+def test_the_single_hosts_worker_takes_every_queue_jobs_are_deferred_to(tmp_path: pathlib.Path) -> None:
+    """With no browser-worker, the worker must also take `fetch_browser`, or the jobs the schedule
+    routes there wait forever (2026-10-20: ISO-NE and BLM ePlanning, queue_age_seconds climbing)."""
+    _needs_compose()
+    env_file = _documented_env(
+        tmp_path, "production", POSTGRES_PASSWORD=SINGLE_DB_PASSWORD, SNAPSHOT_STORE="local"
+    )
+    result = _render(env_file, SINGLE)
+    expect(result.returncode == 0, result.stderr)
+    services = yaml.safe_load(result.stdout)["services"]
+    base = yaml.safe_load(BASE.read_text())["services"]
+    wanted = _queues(base["worker"]["command"]) | _queues(base["browser-worker"]["command"])
+    expect("browser-worker" not in services, "no browser-worker on the single host")
+    missing = wanted - _queues(services["worker"]["command"])
+    expect(not missing, f"queues nothing consumes on the single host: {sorted(missing)}")
+
+
 def test_single_host_refuses_to_render_without_a_database_password(tmp_path: pathlib.Path) -> None:
     _needs_compose()
     for value in (None, ""):

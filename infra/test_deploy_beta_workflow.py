@@ -197,6 +197,24 @@ def test_the_state_backend_is_r2_and_only_the_workflow_copies_it_in() -> None:
     expect('STATE_BUCKET="beta-tfstate"' in BETA_SH.read_text(), "the bucket the owner creates")
 
 
+def test_basemap_yml_steps_that_call_the_aws_cli_pass_it_the_r2_key() -> None:
+    # The CLI reads only AWS_*; basemap.yml's bucket check ran unsigned and called an existing bucket
+    # missing (2026-10-19). build_basemap.sh maps R2_* to AWS_* itself.
+    doc: dict[Any, Any] = yaml.safe_load(BASEMAP.read_text())
+    calls = 0
+    for job in doc["jobs"].values():
+        for step in job["steps"]:
+            if "aws s3" in str(step.get("run", "")):
+                calls += 1
+                env = step.get("env") or {}
+                expect(
+                    env.get("AWS_ACCESS_KEY_ID") == "${{ secrets.R2_ACCESS_KEY_ID }}"
+                    and env.get("AWS_SECRET_ACCESS_KEY") == "${{ secrets.R2_SECRET_ACCESS_KEY }}",
+                    f"{step.get('name')}: {sorted(env)}",
+                )
+    expect(calls == 2, f"the bucket check and the verification: {calls}")
+
+
 def test_basemap_yml_reads_the_same_environment_values() -> None:
     text = BASEMAP.read_text()
     expect(
