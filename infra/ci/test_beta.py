@@ -367,6 +367,24 @@ def test_the_env_file_derives_everything_from_the_domain_and_the_state() -> None
         beta.render_env(env, outputs(generated_secrets={"sensitive": True, "value": {}}), site_hash="x")
 
 
+def test_site_access_open_leaves_the_login_out_of_the_env_file() -> None:
+    env = GOOD_ENV | {"PRODUCT_NAME": "Example Product"}
+    gated = dict(beta.render_env(env, outputs(), site_hash="aGFzaA=="))
+    expect(
+        gated["SITE_ACCESS"] == "basic" and gated["SITE_ACCESS_HASH"] == "aGFzaA==",
+        "the default is the login",
+    )
+    public = dict(beta.render_env(env | {"SITE_ACCESS": "Open"}, outputs(), site_hash="aGFzaA=="))
+    expect(public["SITE_ACCESS"] == "open", public["SITE_ACCESS"])
+    expect("SITE_ACCESS_USER" not in public and "SITE_ACCESS_HASH" not in public, "no stale login when open")
+
+
+def test_site_access_accepts_only_basic_or_open() -> None:
+    expect(not check(GOOD_ENV | {"SITE_ACCESS": "open"}), "open is valid")
+    problems = check(GOOD_ENV | {"SITE_ACCESS": "public"})
+    expect([r.name for r in problems] == ["SITE_ACCESS"], problems)
+
+
 def test_no_domain_or_product_name_is_hard_coded() -> None:
     """The domain comes from the DOMAIN variable and the product name from the code (coordinator,
     2026-10-15): neither may be written into the workflow, its scripts or its backend."""
@@ -462,7 +480,8 @@ case "$*" in
 esac
 if [[ -n "$out" ]]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
 case "$*" in
-  *"-w %{http_code}"*"https://${FAKE_DOMAIN:-none}/"|*"--resolve"*"-w %{http_code}"*) printf '401' ;;
+  *"-w %{http_code}"*"https://${FAKE_DOMAIN:-none}/"|*"--resolve"*"-w %{http_code}"*)
+    printf '%s' "${FAKE_ROOT_CODE:-401}" ;;
   *"-w %{http_code}"*) printf '200' ;;
 esac
 exit 0
@@ -763,6 +782,20 @@ def test_preflight_runs_the_documented_command_and_tolerates_no_go(
         call,
     )
     expect("### Preflight: NO-GO" in pathlib.Path(env["GITHUB_STEP_SUMMARY"]).read_text(), "summary table")
+
+
+def test_health_with_site_access_open_wants_200_and_says_public(
+    sh: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    _log, env = sh
+    gated = beta_sh("health", env=env | {"TAG": "sha-abc1234", "SITE_ACCESS": "open"})
+    expect(gated.returncode == 1 and "must answer 200" in gated.stdout, gated.stdout + gated.stderr)
+    result = beta_sh(
+        "health", env=env | {"TAG": "sha-abc1234", "SITE_ACCESS": "open", "FAKE_ROOT_CODE": "200"}
+    )
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    summary = pathlib.Path(env["GITHUB_STEP_SUMMARY"]).read_text()
+    expect("Site (public, no login)" in summary and "shared login" not in summary, summary)
 
 
 def test_health_pins_the_server_first_then_checks_the_gate_then_public_dns(

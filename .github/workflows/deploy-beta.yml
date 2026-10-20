@@ -91,6 +91,7 @@ jobs:
           SENDER_LEGAL_NAME: ${{ vars.SENDER_LEGAL_NAME }}
           PRODUCT_CONTACT_EMAIL: ${{ vars.PRODUCT_CONTACT_EMAIL }}
           PRODUCT_NAME: ${{ vars.PRODUCT_NAME }}
+          SITE_ACCESS: ${{ vars.SITE_ACCESS }}
         run: infra/ci/beta.sh check-inputs
 
   infra:
@@ -213,6 +214,7 @@ jobs:
           SENDER_LEGAL_NAME: ${{ vars.SENDER_LEGAL_NAME }}
           PRODUCT_CONTACT_EMAIL: ${{ vars.PRODUCT_CONTACT_EMAIL }}
           PRODUCT_NAME: ${{ needs.inputs.outputs.product_name }}
+          SITE_ACCESS: ${{ vars.SITE_ACCESS }}
         run: infra/ci/beta.sh render-env
       - name: deploy (infra/scripts/deploy.sh production, SINGLE_HOST=1)
         if: inputs.action == 'deploy'
@@ -224,6 +226,7 @@ jobs:
         if: inputs.action == 'deploy'
         env:
           SITE_ACCESS_USER: ${{ vars.SITE_ACCESS_USER }}
+          SITE_ACCESS: ${{ vars.SITE_ACCESS }}
         run: infra/ci/beta.sh health
 
       - name: seed (queue the fetches; the context build follows on the host)

@@ -52,7 +52,9 @@ VARIABLES = (
     "SITE_ACCESS_USER",
     "SENDER_POSTAL_ADDRESS",
 )
-OPTIONAL_VARIABLES = ("SENDER_LEGAL_NAME", "PRODUCT_CONTACT_EMAIL", "PRODUCT_NAME")
+OPTIONAL_VARIABLES = ("SENDER_LEGAL_NAME", "PRODUCT_CONTACT_EMAIL", "PRODUCT_NAME", "SITE_ACCESS")
+#: `SITE_ACCESS`: `basic` (the shared login, the default) or `open` (public; owner, 2026-10-20).
+SITE_ACCESS_VALUES = ("basic", "open")
 #: docs/00-PLAN.md decisions log, 2026-09-18.
 DEFAULT_SENDER_LEGAL_NAME = "Compass International Trading Group LLC"
 #: Cost of the gate's bcrypt hash: `caddy hash-password`'s default, which docs/64 documents.
@@ -190,6 +192,17 @@ def check_inputs(
             "variable, optional",
             product_problem,
             "set" if product else f"default from the code: {code_product_name}",
+        )
+    )
+    access = env.get("SITE_ACCESS", "").strip().lower()
+    rows.append(
+        row(
+            "SITE_ACCESS",
+            "variable, optional",
+            f"{access!r} is not one of {', '.join(SITE_ACCESS_VALUES)}"
+            if access and access not in SITE_ACCESS_VALUES
+            else None,
+            access if access else "default: basic (the shared login)",
         )
     )
 
@@ -459,6 +472,18 @@ def site_access_hash(password: str, seed: str, hashpw: Callable[[bytes, bytes], 
     return base64.b64encode(hashed).decode("ascii")
 
 
+def site_access_pairs(env: Mapping[str, str], site_hash: str) -> list[tuple[str, str]]:
+    """The gate's keys: the shared login unless the Environment variable SITE_ACCESS is `open`
+    (owner, 2026-10-20: the site is public), when no login reaches the env file at all."""
+    if env.get("SITE_ACCESS", "").strip().lower() == "open":
+        return [("SITE_ACCESS", "open")]
+    return [
+        ("SITE_ACCESS", "basic"),
+        ("SITE_ACCESS_USER", env["SITE_ACCESS_USER"]),
+        ("SITE_ACCESS_HASH", site_hash),
+    ]
+
+
 def render_env(
     env: Mapping[str, str], outputs: Mapping[str, Any], *, site_hash: str
 ) -> list[tuple[str, str]]:
@@ -488,9 +513,7 @@ def render_env(
         ("PRODUCT_CONTACT_EMAIL", env.get("PRODUCT_CONTACT_EMAIL", "").strip() or f"hello@{domain}"),
         ("SENDER_LEGAL_NAME", env.get("SENDER_LEGAL_NAME", "").strip() or DEFAULT_SENDER_LEGAL_NAME),
         ("SENDER_POSTAL_ADDRESS", env["SENDER_POSTAL_ADDRESS"].strip()),
-        ("SITE_ACCESS", "basic"),
-        ("SITE_ACCESS_USER", env["SITE_ACCESS_USER"]),
-        ("SITE_ACCESS_HASH", site_hash),
+        *site_access_pairs(env, site_hash),
         ("CSP_MODE", "report"),
         ("SESSION_SECRET", generated["SESSION_SECRET"]),
         ("API_INTERNAL_TOKEN", generated["API_INTERNAL_TOKEN"]),

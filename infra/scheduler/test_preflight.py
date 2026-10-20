@@ -804,8 +804,8 @@ def test_monitoring_and_the_gate_configured_pass(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("change", "status", "phrase"),
     [
-        ({"SITE_ACCESS": "open"}, FAIL, "the site is open"),
-        ({"SITE_ACCESS": ""}, FAIL, "the site is open"),
+        ({"SITE_ACCESS": "open"}, WARN, "public by the owner's decision"),  # deliberate (2026-10-20)
+        ({"SITE_ACCESS": ""}, FAIL, "the site is open"),  # unset: open by accident
         ({"SITE_ACCESS_HASH": ""}, FAIL, "needs SITE_ACCESS_USER and SITE_ACCESS_HASH"),
         ({"SITE_ACCESS_HASH": "$2a$14$" + "x" * 53}, FAIL, "not a base64-encoded bcrypt hash"),
         ({"CSP_MODE": "enfroce"}, FAIL, "Caddy refuses"),

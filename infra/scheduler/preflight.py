@@ -1062,7 +1062,14 @@ def check_monitoring(ctx: Context) -> Outcome:
     }
     fails: list[str] = []
     warns: list[str] = []
-    if access != "basic":
+    explicit = (env.get("SITE_ACCESS") or "").strip().lower()
+    if explicit == "open":
+        warns.append(
+            "SITE_ACCESS=open: the site is public by the owner's decision (docs/00-PLAN.md, 2026-10-20), "
+            "with the docs/40 §2.1 legal items and the hand-check still open; the GitHub Environment "
+            "variable SITE_ACCESS=basic and a deploy put the login back"
+        )
+    elif access != "basic":
         fails.append(
             f"SITE_ACCESS is {access}: the site is open to anyone during the private beta; set "
             "SITE_ACCESS=basic with SITE_ACCESS_USER and SITE_ACCESS_HASH (docs/64 §2 step 6) and "
