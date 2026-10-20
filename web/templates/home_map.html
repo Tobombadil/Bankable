@@ -46,7 +46,7 @@
   {{ m.status_filter("mf", status_choices, unlisted_toggle) }}
   <div class="filter-field filter-field--checkbox">
     <label for="mf-layer-plants">
-      <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1">
+      <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1" data-default="checked">
       Existing assets
     </label>
   </div>
@@ -54,7 +54,7 @@
      layer and its own styling (hollow rings, by status), never drawn as an operating plant. #}
   <div class="filter-field filter-field--checkbox">
     <label for="mf-layer-retired">
-      <input id="mf-layer-retired" type="checkbox" name="layer_retired" value="1">
+      <input id="mf-layer-retired" type="checkbox" name="layer_retired" value="1" data-default="checked">
       Retired &amp; retiring plants
     </label>
   </div>
@@ -62,6 +62,12 @@
      pipelines, plants, ethanol and RNG can be drawn together; a type listed without data behind
      it yet would be disabled "(coming)", never silently absent. map.js reads/writes `asset_type=`
      as a csv and shows this fieldset only while the layer is on. #}
+  {#- Owner, 2026-10-20: the asset layers are on by default, so their type and plant-type controls sit
+      in a closed disclosure, like Location precision below: open, they pushed the map from under
+      450px to 528px at 1440x900. map.js hides the whole disclosure while the layer is off. -#}
+  <details class="filter-more" id="mf-assets-more" hidden>
+  <summary>Asset types</summary>
+  <div class="filter-more__body">
   <fieldset class="filter-field filter-field--asset-types" id="mf-asset-types" hidden>
     <legend>Asset types</legend>
     {% for value, label, live in asset_types %}
@@ -78,6 +84,8 @@
       {% for value, label in plant_families %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
     </select>
   </div>
+  </div>
+  </details>
   {#- Placement changes which grades are drawn, not which proposals match, and is rarely changed:
       a closed disclosure, so the bar stays short and the map starts higher (designer D-3). It opens
       on arrival when the link set a non-default placement. -#}

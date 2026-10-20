@@ -444,6 +444,10 @@
   // resolve_proposal_lifecycle_param); since UX-1 the Status control sets it. Anything else is not
   // forwarded.
   var FORM_CONTROLLED_FILTERS = ["technology", "kind", "jurisdiction", "placement"];
+  // Owner, 2026-10-20 ("make all the data render immediately"): the existing-asset and the retired
+  // layers are on when a link names no `layers=`. The lifecycle default stays active proposals:
+  // withdrawn ones are most of any queue and would bury what is live.
+  var DEFAULT_LAYERS = ["plants", "retired"];
   var PASSTHROUGH_FILTERS = (document.getElementById("map-filters").getAttribute("data-passthrough") || "")
     .split(",").map(function (s) { return s.trim(); }).filter(Boolean);
   var URL_ONLY_FILTERS = PASSTHROUGH_FILTERS.filter(function (name) {
@@ -572,7 +576,7 @@
       statuses: readStatuses(params),
       unlisted: readUnlisted(params),
       url_only: readUrlOnlyFilters(params),
-      layers: layersParam ? layersParam.split(",").filter(Boolean) : [],
+      layers: params.has("layers") ? layersParam.split(",").filter(Boolean) : DEFAULT_LAYERS.slice(),
       region: params.get("region") || "",
       plant_technology: PLANT_FAMILY_CLASSES[params.get("plant_technology") || ""] ? params.get("plant_technology") : "",
       asset_types: readAssetTypes(params),
@@ -586,7 +590,9 @@
   function writeFilters(filters) {
     var params = new URLSearchParams();
     appendProposalFilters(params, filters);
-    if (filters.layers && filters.layers.length) params.set("layers", filters.layers.join(","));
+    // Written only when it differs from the default, so a plain link keeps every layer on and a
+    // view with a layer turned off round-trips (`layers=` alone: none of them).
+    if (!sameSet(filters.layers || [], DEFAULT_LAYERS)) params.set("layers", (filters.layers || []).join(","));
     if (filters.region) params.set("region", filters.region);
     if (filters.plant_technology) params.set("plant_technology", filters.plant_technology);
     // Written whenever the assets layer is on (same round-trip reasoning as `placement` below).
@@ -804,8 +810,10 @@
     var picked = assetTypeBoxes.filter(function (box) { return box.checked && !box.disabled; }).map(function (box) { return box.value; });
     return picked.filter(function (t) { return ASSET_TYPES_LIVE.indexOf(t) !== -1; });
   }
+  var assetsMore = document.getElementById("mf-assets-more");
   function syncAssetControls() {
     var on = plantsToggle.checked;
+    assetsMore.hidden = !on;
     assetTypesField.hidden = !on;
     plantTypeField.hidden = !on || filters.asset_types.indexOf("power_plant") === -1;
   }
@@ -1346,10 +1354,15 @@
 
   function render() {
     var totals = latestCollection.totals || {};
-    // The in-view list says when the view is clustered; this line stays one short sentence.
-    countEl.textContent =
-      (totals.records || 0) + " proposal" + (totals.records === 1 ? "" : "s") + " match these filters.";
-    countEl.removeAttribute("aria-hidden");
+    // The in-view list says when the view is clustered; this line stays one short sentence. Only
+    // once proposals have loaded: an asset layer (on by default since 2026-10-20) that arrives
+    // first, or after a failed proposals fetch, would otherwise say "0 proposals match" over
+    // "Loading proposals..." or "Proposals could not be loaded."
+    if (hasLoadedOnce) {
+      countEl.textContent =
+        (totals.records || 0) + " proposal" + (totals.records === 1 ? "" : "s") + " match these filters.";
+      countEl.removeAttribute("aria-hidden");
+    }
 
     var individual = latestCollection.features.filter(function (f) {
       return f.properties.feature_kind !== "cluster" && f.properties.feature_kind !== "region";
