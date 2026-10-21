@@ -210,15 +210,16 @@ def test_the_table_names_real_kinds_and_real_rows() -> None:
     assert set(PROPOSAL_ID_LABELS) <= set(PROPOSAL_KIND_VALUES)
     for kind, rows in PROPOSAL_FIELDS_NOT_APPLICABLE.items():
         assert rows <= set(PROPOSAL_FIELD_ROWS), kind
-        # Kind, technology, place and sponsor apply to every record.
-        assert not rows & {"kind", "technology", "jurisdiction", "county", "sponsor"}, kind
+        # Kind, technology and place apply to every record (the sponsor is the header's company
+        # line, docs/16 U-2, not a grid row).
+        assert not rows & {"kind", "technology", "jurisdiction", "county"}, kind
 
 
 def test_a_class_vi_well_has_no_grid_or_generator_rows() -> None:
     record = flatten_proposal(_class_vi())
     rows = proposal_field_rows(record)
     assert not rows & {"capacity_mw", "storage_mwh", "iso", "connects_at", "eia_ids"}
-    assert {"jurisdiction", "county", "sponsor", "queue_ids"} <= rows
+    assert {"jurisdiction", "county", "queue_ids"} <= rows
     assert record["queue_id_label"] == "Permit project ID"
     assert record["technology_label"] == "CO2 geologic sequestration"
 
@@ -272,7 +273,9 @@ def test_the_class_vi_page_leaves_out_rows_that_cannot_apply(web_client: TestCli
     assert "Co2 geologic" not in resp.text
     assert '<dt>Permit project ID</dt><dd class="mono">R05-IN-0001</dd>' in grid
     assert "Queue ID" not in grid
-    assert "<dt>Sponsor</dt><dd>Wabash Carbon Services</dd>" in grid
+    # The sponsor is the header's company line now (docs/16 U-2), not a grid row.
+    assert "<dt>Sponsor</dt>" not in grid
+    assert 'id="record-company"' in resp.text and "Wabash Carbon Services" in resp.text
 
 
 def test_the_data_centre_page_keeps_capacity_and_iso_as_unstated(web_client: TestClient) -> None:

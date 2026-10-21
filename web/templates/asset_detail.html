@@ -12,6 +12,31 @@
   <span class="reuse-badge">{{ record.type_label }}{% if record.technology_label %} &middot; {{ record.technology_label }}{% endif %}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status_label %} &middot; {{ record.status_label }}{% endif %}</span>
 </div>
 {{ m.as_filed(record.name) }}
+{#- docs/16 U-20: who runs and who owns the asset, on its first lines, each linked to its company
+    page where the register's name resolved to one. One name per company (an owner can hold two
+    edges, one per source), largest stated share first and owners with no stated share after, in
+    the API's order; the first three, then a link to the table, which keeps each edge's role,
+    share, date and source. A natural person named in a register keeps their page's `noindex`
+    (`nofollow`). -#}
+{% set owner_edges = record.owners | selectattr('role', 'equalto', 'owner') | selectattr('name') | list %}
+{% set ranked = (owner_edges | selectattr('share_pct', 'number') | sort(attribute='share_pct', reverse=True) | list) + (owner_edges | rejectattr('share_pct', 'number') | list) %}
+{% set holders = namespace(owners=[], seen=[]) %}
+{% for o in ranked %}{% set key = o.public_id or o.name %}{% if key not in holders.seen %}{% set holders.seen = holders.seen + [key] %}{% set holders.owners = holders.owners + [o] %}{% endif %}{% endfor %}
+{% set op = record.operator %}
+{% set op_key = op.public_id or op.name %}
+{% set sole = holders.owners | length == 1 and op.name and (holders.owners[0].public_id or holders.owners[0].name) == op_key %}
+{% macro holder_link(o) -%}
+{%- set ident = o.slug or o.public_id -%}
+{%- if ident %}<a href="/organizations/{{ ident }}"{% if o.public_id in (record.personal_holder_ids or []) %} rel="nofollow"{% endif %}>{{ o.name | readable_name }}</a>{% else %}{{ o.name | readable_name }}{% endif -%}
+{%- endmacro %}
+{% if op.name or holders.owners %}
+<p class="record-company" id="record-company">
+{%- if sole %}<span class="record-company__label">Owned and operated by</span> {{ holder_link(holders.owners[0]) }}
+{%- else %}
+{%- if op.name %}<span class="record-company__label">Operated by</span> {{ holder_link(op) }}{% endif %}
+{%- if holders.owners %}{% if op.name %} <span class="record-company__sep">&middot;</span> {% endif %}<span class="record-company__label">Owned by</span> {% for o in holders.owners[:3] %}{{ holder_link(o) }}{{ ', ' if not loop.last }}{% endfor %}{% if holders.owners | length > 3 %} and <a href="#owners">{{ holders.owners | length - 3 }} more</a>{% endif %}{% endif %}
+{%- endif %}</p>
+{% endif %}
 
 {# Every row is conditional on its value (blockers-sprint "None" gate): an absent field is not a
    row, never "None" or "—". Pipeline rows (length, diameter, states, interstate/intrastate) and
@@ -22,7 +47,7 @@
   <div><dt>Type</dt><dd>{{ record.type_label }}</dd></div>
   {% if record.status_label %}<div><dt>Status</dt><dd>{{ record.status_label }}</dd></div>{% endif %}
   {% if record.operator.name %}
-  <div><dt>Operator</dt><dd>{% if record.operator.public_id %}<a class="row-link" href="/organizations/{{ record.operator.slug or record.operator.public_id }}">{{ record.operator.name }}</a>{% else %}{{ record.operator.name }}{% endif %}</dd></div>
+  <div><dt>Operator</dt><dd>{% if record.operator.public_id %}<a class="row-link" href="/organizations/{{ record.operator.slug or record.operator.public_id }}"{% if record.operator.public_id in (record.personal_holder_ids or []) %} rel="nofollow"{% endif %}>{{ record.operator.name }}</a>{% else %}{{ record.operator.name }}{% endif %}</dd></div>
   {% endif %}
   {% if record.line_class %}<div><dt>Pipeline class</dt><dd>{{ record.line_class }}</dd></div>{% endif %}
   {% if record.length_miles is not none %}<div><dt>Mapped route length (miles)</dt><dd class="tnum">{{ '{:,.0f}'.format(record.length_miles) }}</dd></div>{% endif %}
@@ -161,7 +186,7 @@
 
 {% set sec.n = sec.n + 1 %}
 <section aria-label="Owners and operators">
-  {{ m.section_heading(sec.n ~ ".", "Owners and operators") }}
+  {{ m.section_heading(sec.n ~ ".", "Owners and operators", id="owners") }}
   {% if record.owners %}
   <div class="table-scroll">
   <table class="record-table">

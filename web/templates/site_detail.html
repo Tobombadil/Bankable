@@ -8,6 +8,13 @@
   <h1>{{ site.name | readable_name }}</h1>
   <span class="reuse-badge">Site of {{ site.member_count }} records</span>
 </div>
+{#- docs/16 U-2: the companies behind the site's records, on its first lines, each linked, with how
+    many of the records each filed. A natural person named in a register keeps their page's
+    `noindex` (`nofollow`), and a line that names one says "Sponsor", not "Company". -#}
+{% set people = site.sponsors | selectattr('personal_data') | list %}
+<p class="record-company" id="record-company"><span class="record-company__label">{% if site.sponsors | length > 1 %}{{ 'Sponsors' if people else 'Companies' }}{% else %}{{ 'Sponsor' if people else 'Company' }}{% endif %}</span>
+{%- for o in site.sponsors %} <a href="{{ o.href }}"{% if o.personal_data %} rel="nofollow"{% endif %}>{{ o.name_canonical | readable_name }}</a>{% if site.sponsors | length > 1 %} <span class="record-company__count tnum">({{ o.member_count }})</span>{% endif %}{% if not loop.last %} &middot;{% endif %}
+{%- else %} <span class="record-company__none">not recorded</span>{% endfor %}</p>
 <p class="attribution-line">A site groups records that share an identifier: the same EIA plant, the same exact location with the same developer or project name, or the same grid connection point with the same developer or project name. County-level locations group nothing. It is headed by its largest active filing; the units of one EIA plant are listed under that plant; every record keeps its own page. Totals count only the records listed below.</p>
 
 <dl class="field-grid">
@@ -18,7 +25,6 @@
   <div><dt>Withdrawn or cancelled (MW)</dt><dd class="tnum">{{ site.withdrawn_mw_label }} <span class="attribution-line">across {{ site.totals.withdrawn_count }}</span></dd></div>
   <div><dt>EIA plant ID</dt><dd class="mono">{{ site.eia_plant_ids | join(', ') if site.eia_plant_ids else '—' }}</dd></div>
   <div><dt>Connects at</dt><dd>{% for p in site.points %}<a href="{{ p.href }}">{{ p.name }}</a>{{ '; ' if not loop.last }}{% else %}—{% endfor %}</dd></div>
-  <div><dt>Sponsors</dt><dd>{% for o in site.sponsors %}<a href="{{ o.href }}">{{ o.name_canonical }}</a> <span class="attribution-line tnum">({{ o.member_count }})</span>{{ '; ' if not loop.last }}{% else %}—{% endfor %}</dd></div>
   <div><dt>Operating plant</dt><dd>{% for a in site.assets %}<a href="{{ a.href }}">{{ a.name }}</a>{% if a.owners %} <span class="attribution-line">owned by {% for o in a.owners %}{% if o.href %}<a href="{{ o.href }}">{{ o.name }}</a>{% else %}{{ o.name }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}{{ '; ' if not loop.last }}{% else %}—{% endfor %}</dd></div>
 </dl>
 
@@ -28,8 +34,8 @@
   {% if site.members_truncated %}<p class="attribution-line">Showing the first {{ site.members | length }} of {{ site.member_count }} records; the totals above cover all of them.</p>{% endif %}
   <div class="table-scroll">
   <table class="record-table">
-    <caption class="visually-hidden">Records at this site: the lead first; each EIA plant's units follow its first unit; every other record with its relationship to the lead, its confidence, technology, capacity, status and sponsor.</caption>
-    <thead><tr><th scope="col">Relationship</th><th scope="col">Confidence</th><th scope="col">Name</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th><th scope="col">Sponsor</th></tr></thead>
+    <caption class="visually-hidden">Records at this site: the lead first; each EIA plant's units follow its first unit; every other record with its relationship to the lead, its confidence, technology, capacity, status and company.</caption>
+    <thead><tr><th scope="col">Relationship</th><th scope="col">Confidence</th><th scope="col">Name</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th><th scope="col">Company</th></tr></thead>
     <tbody>
       {% for mbr in site.members %}
       <tr{% if mbr.is_unit %} class="site-row--unit"{% endif %}>
@@ -39,7 +45,7 @@
         <td data-label="Technology">{{ (mbr.technology | technology_label) or '—' }}</td>
         <td data-label="MW" class="num tnum">{{ mbr.mw_label }}</td>
         <td data-label="Status">{{ m.status_chip(mbr.lifecycle_state, mbr.lifecycle_family) }}</td>
-        <td data-label="Sponsor">{% if mbr.sponsor %}<a href="{{ mbr.sponsor_href }}">{{ mbr.sponsor.name_canonical }}</a>{% else %}—{% endif %}</td>
+        <td data-label="Company">{% if mbr.sponsor %}<a href="{{ mbr.sponsor_href }}"{% if mbr.sponsor.personal_data %} rel="nofollow"{% endif %}>{{ mbr.sponsor.name_canonical | readable_name }}</a>{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -56,12 +62,13 @@
     <p class="attribution-line">From another or no named developer: they share the connection, not the site.</p>
     <div class="table-scroll">
     <table class="record-table">
-      <caption class="visually-hidden">Other requests at this site's grid connection points, active first, each by capacity.</caption>
-      <thead><tr><th scope="col">Name</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th><th scope="col">Connects at</th></tr></thead>
+      <caption class="visually-hidden">Other requests at this site's grid connection points, active first, each by capacity, with the company that filed it.</caption>
+      <thead><tr><th scope="col">Name</th><th scope="col">Company</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th><th scope="col">Connects at</th></tr></thead>
       <tbody>
         {% for n in site.neighbours %}
         <tr>
           <td data-label="Name"><a class="row-link" href="{{ n.href }}">{{ n.name }}</a></td>
+          <td data-label="Company">{% if n.sponsor and n.sponsor_href %}<a href="{{ n.sponsor_href }}"{% if n.sponsor.personal_data %} rel="nofollow"{% endif %}>{{ n.sponsor.name_canonical | readable_name }}</a>{% elif n.sponsor %}{{ n.sponsor.name_canonical | readable_name }}{% else %}—{% endif %}</td>
           <td data-label="Technology">{{ (n.technology | technology_label) or '—' }}</td>
           <td data-label="MW" class="num tnum">{{ n.mw_label }}</td>
           <td data-label="Status">{{ m.status_chip(n.lifecycle_state, n.lifecycle_family) }}</td>

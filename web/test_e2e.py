@@ -475,6 +475,23 @@ def _check_desktop_and_narrow(browser: object) -> None:
     assert page.locator(".attribution-line").count() > 0
     page.screenshot(path=str(SCREENSHOT_DIR / "detail-desktop.png"), full_page=True)
 
+    # ---- desktop: list -> record -> company, one company linked at each step (docs/16 U-2) ----
+    page.goto(BASE_URL + "/proposals")
+    page.wait_for_selector(".record-table tbody tr")
+    assert page.locator(".record-table thead th", has_text="Company").count() == 1
+    company_cell = "td[data-label='Company'] a"
+    row = page.locator(".record-table tbody tr", has=page.locator(company_cell)).first
+    company_href = row.locator(company_cell).get_attribute("href")
+    assert company_href and company_href.startswith("/organizations/")
+    row.locator("a.row-link").click()
+    page.wait_for_selector("#record-company")
+    header_link = page.locator("#record-company a").first
+    assert header_link.get_attribute("href") == company_href
+    assert page.locator(".provenance-panel").count() == 1, "the record keeps its sources"
+    header_link.click()
+    page.wait_for_selector("h1")
+    assert urlsplit(page.url).path == company_href
+
     # ---- 400px: home, list, detail ----
     narrow = browser.new_page(viewport=NARROW_VIEWPORT)  # type: ignore[attr-defined]
     _install_offline_routes(narrow)

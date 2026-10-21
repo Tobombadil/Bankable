@@ -983,6 +983,13 @@ a.button-secondary:visited { color: var(--link); }
 /* The register's own spelling of a name set in capitals, once, under the readable H1 (review
    2026-10-10 §2.6 item 7). */
 .as-filed { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-1) 0 0; }
+/* The company line under a record's name (docs/16 U-2, U-20): who is behind the record, linked
+   to its company page, on the record's first lines. Text on the paper, no chip or card (D-7). */
+.record-company { margin: var(--space-2) 0 0; overflow-wrap: anywhere; }
+.record-company__label { font-size: var(--text-1); color: var(--text-muted); margin-inline-end: var(--space-1); }
+.record-company__none, .record-company__sep, .record-company__count { color: var(--text-muted); }
+.record-company .mono { font-family: var(--font-mono); }
+.record-company + .record-company__claim { margin-block-start: var(--space-1); }
 .field-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-6);
   margin: var(--space-5) 0; border-top: 1px solid var(--border);

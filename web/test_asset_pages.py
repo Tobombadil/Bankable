@@ -1017,8 +1017,10 @@ def test_organization_detail_renders_parent_and_subsidiaries(web_client: TestCli
 
     assert 'href="/organizations/blackstone-infrastructure"' in body
     assert "Blackstone Infrastructure Partners" in body
-    assert "Subsidiaries" in body
-    assert 'href="/organizations/rockies-express-pipeline-llc"' in body
+    # Portfolio and subsidiaries are one Group table (docs/16 U-21).
+    group = body[body.index('id="group-table"') :].split("</table>")[0]
+    assert 'href="/organizations/rockies-express-pipeline-llc"' in group
+    assert "Subsidiary" in group
 
 
 def test_organization_detail_embeds_asset_geojson_for_the_map(web_client: TestClient) -> None:

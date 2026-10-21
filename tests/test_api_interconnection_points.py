@@ -11,6 +11,7 @@ tier. Each test below builds the smallest store that could break one half of tha
 from __future__ import annotations
 
 import datetime as dt
+import json
 import pathlib
 from typing import Any
 
@@ -21,10 +22,25 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from services.api.conftest import make_attribution_licence, make_event, make_open_licence, make_public_source
+from services.api.conftest import (
+    make_attribution_licence,
+    make_event,
+    make_open_licence,
+    make_org,
+    make_public_source,
+)
 from services.api.ratelimit import default_limiter
 from services.api.visibility import interconnection_point_visible
-from services.db.models import Event, InterconnectionPoint, Licence, Proposal, ProposalSource, Source
+from services.db.models import (
+    Event,
+    InterconnectionPoint,
+    Licence,
+    Organization,
+    OrganizationAlias,
+    Proposal,
+    ProposalSource,
+    Source,
+)
 from services.ids import public_id, slugify
 from services.ingest.interconnection import KEY_RULE_VERSION, link_all_points, link_source_points
 from tests.conftest import login, make_account, make_user
@@ -471,6 +487,77 @@ def test_detail_lists_visible_proposals_and_404s_hidden_points(
         assert resp.status_code == 404
         assert resp.json()["code"] == unknown.json()["code"] == "not_found"
     assert _get(client, f"/v1/interconnection-points/{bearkat.public_id}", include="count").status_code == 400
+
+
+def _sponsor_alias(org: Organization, src: Source) -> OrganizationAlias:
+    """A filing spelling of `org` from `src`: the evidence `organization_visible` reads."""
+    return OrganizationAlias(
+        organization_id=org.id,
+        alias=org.name_canonical,
+        alias_normalised=org.name_canonical.lower(),
+        kind="filing_spelling",
+        source_id=src.id,
+        source_url=src.url,
+        retrieved_at=NOW,
+        licence_id=src.licence_id,
+        confidence=1.0,
+        created_by="pipeline",
+    )
+
+
+def test_detail_rows_name_the_sponsor_gated_as_a_sites_rows_are(
+    client: TestClient, db: Session, world: dict[str, Any]
+) -> None:
+    """docs/16 U-2: the grid-point page's Company column reads `proposals[].sponsor`, served under
+    `services/api/sites.py::_proposal_row`'s rule -- the proposal's served view, so a sponsor the
+    tier may not see is `null`, never named, and a natural person is flagged."""
+    props = world["props"]
+    ercot, _caiso, staged, pjm = world["sources"]
+    company = make_org(db, "Bearkat Solar Developer LLC")
+    db.add(_sponsor_alias(company, ercot))
+    person = make_org(db, "Jordan Example")
+    person.personal_data = True
+    taken_down = make_org(db, "Withdrawn Holdings LLC")
+    taken_down.publish_state = "unpublished"
+    restricted_only = make_org(db, "Restricted Register Co")  # named only by a restricted register
+    db.add(_sponsor_alias(restricted_only, pjm))
+    staged_only = make_org(db, "Staged Register Co")  # named only by an API-only register
+    db.add(_sponsor_alias(staged_only, staged))
+    sponsors = {"b1": company, "b2": person, "b4": taken_down, "b7": restricted_only, "b3": staged_only}
+    for key, org in sponsors.items():
+        props[key].sponsor_org_id = org.id
+    db.commit()
+    bearkat = _point(db, props["b1"])
+
+    body = _get(client, f"/v1/interconnection-points/{bearkat.public_id}").json()
+    assert_valid("InterconnectionPointDetailResponse", body)
+    # Every key the spec documents and no other: the web tests' fake row (web/test_record_company.py
+    # `_point_row`) is held to the same set, so the page is tested against what the API sends.
+    documented = set(SPEC["components"]["schemas"]["InterconnectionPointProposal"]["properties"])
+    assert all(set(row) == documented for row in body["data"]["proposals"])
+    by_id = {row["public_id"]: row["sponsor"] for row in body["data"]["proposals"]}
+    assert by_id[props["b1"].public_id] == {
+        "public_id": company.public_id,
+        "slug": company.slug,
+        "name_canonical": "Bearkat Solar Developer LLC",
+        "type": "developer",
+        "url": f"https://inframation.io/organizations/{company.slug}",
+        "personal_data": False,
+    }
+    assert by_id[props["b2"].public_id]["personal_data"] is True
+    for key in ("b4", "b7", "b3"):
+        assert by_id[props[key].public_id] is None, key
+    text = json.dumps(body)
+    for hidden in ("Withdrawn Holdings", "Restricted Register Co", "Staged Register Co"):
+        assert hidden not in text
+
+    # The same rows as a site serves them: a sponsor is read through the served view at the tier.
+    account = make_account(db, entitlement="pro", name="Pro Sponsors")
+    login(client, db, make_user(db, account, email="pro-sponsors@example.com"))
+    pro = _get(client, f"/v1/interconnection-points/{bearkat.public_id}").json()
+    pro_by_id = {row["public_id"]: row["sponsor"] for row in pro["data"]["proposals"]}
+    assert pro_by_id[props["b3"].public_id]["name_canonical"] == "Staged Register Co"
+    assert pro_by_id[props["b4"].public_id] is None and pro_by_id[props["b7"].public_id] is None
 
 
 def test_the_detail_caps_its_proposal_list(

@@ -409,7 +409,7 @@ def test_scope_self_asks_the_api_for_nothing_because_self_is_its_default(
 def test_a_group_page_lists_its_portfolio_of_companies(web_client: TestClient) -> None:
     _install(_transport())
     body = web_client.get("/organizations/trailblazer-pipeline-co").text
-    assert 'id="portfolio-table"' in body
+    assert 'id="group-table"' in body
     assert "Portfolio Co 0" in body and "Portfolio Co 1" in body
     assert "2 assets held by 2 companies in a group of 3" in body
 
@@ -421,4 +421,4 @@ def test_a_fund_sized_group_drops_the_map_and_prints_the_reason(web_client: Test
     body = web_client.get("/organizations/trailblazer-pipeline-co").text
     assert "mini-map" not in body
     assert "No map:" in body and "40 companies" in body
-    assert 'id="portfolio-table"' in body
+    assert 'id="group-table"' in body

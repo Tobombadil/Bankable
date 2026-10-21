@@ -57,6 +57,7 @@ from services.api.serialize import (
     licence_summary_row,
     provenance_quartet,
     serialize_event,
+    serialize_organization_summary,
 )
 from services.api.visibility import (
     event_visibility_filter,
@@ -447,18 +448,26 @@ def list_interconnection_points(
 
 
 # ---------------------------------------------------------------------------------------- detail
-def _proposal_row(p: Proposal) -> dict[str, Any]:
+def _proposal_row(p: Proposal, entitlement: str) -> dict[str, Any]:
+    """One row of a point's `proposals[]`, read from the proposal's served view. `sponsor` follows
+    `services/api/sites.py::_proposal_row`: the view's sponsor is `None` unless
+    `organization_visible` admits it at `entitlement` (its state and its evidence), so a sponsor
+    known only from a source the tier may not read is dropped, never named; a natural person
+    comes through flagged `personal_data` for the page's own handling."""
+    view = gated_record(p, entitlement)
+    sponsor = view.sponsor
     return {
-        "public_id": p.public_id,
-        "slug": p.slug,
-        "url": f"{WEB_HOST}/proposals/{p.slug}",
-        "name_canonical": p.name_canonical,
-        "technology": p.technology,
-        "capacity_mw": float(p.capacity_mw) if p.capacity_mw is not None else None,
-        "lifecycle_state": p.lifecycle_state,
-        "lifecycle_bucket": bucket_of(p.lifecycle_state),
-        "jurisdiction": p.jurisdiction,
-        "proposed_online_date": iso(p.proposed_online_date),
+        "public_id": view.public_id,
+        "slug": view.slug,
+        "url": f"{WEB_HOST}/proposals/{view.slug}",
+        "name_canonical": view.name_canonical,
+        "technology": view.technology,
+        "capacity_mw": float(view.capacity_mw) if view.capacity_mw is not None else None,
+        "lifecycle_state": view.lifecycle_state,
+        "lifecycle_bucket": bucket_of(view.lifecycle_state),
+        "jurisdiction": view.jurisdiction,
+        "proposed_online_date": iso(view.proposed_online_date),
+        "sponsor": serialize_organization_summary(sponsor) if sponsor is not None else None,
     }
 
 
@@ -564,7 +573,7 @@ def get_interconnection_point(
     proposals = proposals[:DETAIL_PROPOSAL_CAP]
     data = serialize_point(point, totals, ctx.entitlement)
     # Each row is the proposal's served view: no value from a source the tier may not read.
-    data["proposals"] = [_proposal_row(gated_record(p, ctx.entitlement)) for p in proposals]
+    data["proposals"] = [_proposal_row(p, ctx.entitlement) for p in proposals]
     data["proposals_truncated"] = truncated
     changes = recent_point_changes(db, [point.id], ctx.entitlement)[point.id]
     data["recent_changes"] = serialize_recent_changes(db, changes, ctx.entitlement)

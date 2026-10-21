@@ -526,15 +526,18 @@ ISO_DISPLAY_LABELS: dict[str, str] = {"ISONE": "ISO-NE"}
 
 
 def iso_label(token: str | None) -> str | None:
-    """The reader-facing label for an ISO token; any token without a mapping reads as itself."""
+    """The reader-facing label for an ISO token, or for the EIA balancing-authority code an
+    EIA-860M plant outside the ISO markets carries ("Duke Energy Carolinas (DUK)", docs/16 U-14;
+    `labels.BALANCING_AUTHORITY_NAMES`); any token without a mapping reads as itself."""
     if not token:
         return token
-    return ISO_DISPLAY_LABELS.get(token, token)
+    return ISO_DISPLAY_LABELS.get(token) or labels.balancing_authority_label(token) or token
 
 
 #: The rows of a proposal's field grid (`proposal_detail.html`), in page order. `kind` and
 #: `technology` are always shown (one row when they repeat each other); the rest go through
-#: `proposal_field_rows`.
+#: `proposal_field_rows`. The sponsor is not a row: it is the record header's company line
+#: (docs/16 U-2), and the grid does not repeat what the header shows.
 PROPOSAL_FIELD_ROWS: tuple[str, ...] = (
     "kind",
     "technology",
@@ -544,7 +547,6 @@ PROPOSAL_FIELD_ROWS: tuple[str, ...] = (
     "county",
     "iso",
     "connects_at",
-    "sponsor",
     "queue_ids",
     "eia_ids",
 )
@@ -607,9 +609,58 @@ def proposal_fields_json() -> str:
     return json.dumps({"not_applicable": table}, separators=(",", ":")).replace("</", "<\\/")
 
 
+def org_ref(summary: Any) -> dict[str, Any] | None:
+    """An embedded organisation summary (`sponsor`, `issuer`, a `parent`:
+    `services/api/serialize.py::serialize_organization_summary`) as the company link a page prints
+    (docs/16 U-2): its name, its company page and whether it is a natural person named in a register
+    (`personal_data`, migration 0033; docs/13 §5.5). That page is `noindex`, so the link to it says
+    `nofollow` too, and the label reads "Sponsor", not "Company". `None` when there is no name."""
+    if not isinstance(summary, Mapping):
+        return None
+    name = summary.get("name_canonical") or summary.get("name")
+    if not name:
+        return None
+    ident = summary.get("slug") or summary.get("public_id")
+    return {
+        "name": str(name),
+        "public_id": summary.get("public_id"),
+        "slug": summary.get("slug"),
+        "href": f"/organizations/{ident}" if ident else None,
+        "personal_data": bool(summary.get("personal_data")),
+    }
+
+
+def sponsor_parent(api: ApiClient, sponsor: Any) -> dict[str, Any] | None:
+    """The direct parent of a record's company, for the record header's "part of …" (docs/16 U-2),
+    as an ownership claim: the name, its page and the sentence that says where the link comes from
+    and whether the source dates it (`web/ownership.py::Claim.note`; owner brief 2026-09-20, an
+    ownership claim is never a bare name). The sponsor embed carries no parent, so this is one read
+    of `GET /v1/organizations/{id}`. `None` when there is no parent, when the call fails, and for a
+    natural person on either end of the link: the header names the person who filed, never who
+    owns or is owned by them."""
+    company = org_ref(sponsor)
+    if not company or company["personal_data"] or not company["public_id"]:
+        return None
+    try:
+        detail = api.get(f"/v1/organizations/{company['public_id']}")["data"]
+    except (ApiError, KeyError, TypeError):
+        return None
+    if not isinstance(detail, Mapping):
+        return None
+    from web.ownership import parent_claim  # local: web/ownership.py imports this module
+
+    claim = parent_claim(detail)
+    edge = detail.get("parent_edge")
+    linked = [detail.get("parent"), edge.get("organization") if isinstance(edge, Mapping) else None]
+    if claim is None or any(isinstance(o, Mapping) and o.get("personal_data") for o in linked):
+        return None
+    return {"name": claim.name, "href": claim.href, "note": claim.note, "dated": claim.dated}
+
+
 def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
     """API `serialize_proposal()` shape -> the flat dict the detail/list templates read."""
     location = entity.get("location") or {}
+    sponsor = entity.get("sponsor") or {}
     primary_source = _primary_provenance(entity.get("provenance") or [])
     identifiers = entity.get("identifiers") or {}
     queue_ids = identifiers.get("queue_ids") or []
@@ -633,7 +684,14 @@ def flatten_proposal(entity: Mapping[str, Any]) -> dict[str, Any]:
         "restricted_precision": location.get("precision_reason") == "licence",
         "iso": entity.get("iso"),
         "iso_label": iso_label(entity.get("iso")),
-        "sponsor": (entity.get("sponsor") or {}).get("name_canonical"),
+        "sponsor": sponsor.get("name_canonical"),
+        # The sponsor's own page (docs/16 U-2): the API sends the slug beside the name, and the
+        # record header, the list's Company column and a group's proposal list all link it.
+        "sponsor_public_id": sponsor.get("public_id"),
+        "sponsor_slug": sponsor.get("slug"),
+        "company": org_ref(sponsor),
+        # Its direct parent, where the detail route read one (`with_composition`); lists carry none.
+        "company_parent": entity.get("sponsor_parent"),
         "lifecycle_state": entity.get("lifecycle_state"),
         "lifecycle_family": lifecycle_family(entity.get("lifecycle_state")),
         "status_raw": entity.get("status_raw"),
@@ -821,13 +879,15 @@ _COMPOSITION_KEYS: tuple[str, ...] = ("field_sources", "members", "merge_history
 
 
 def with_composition(api: ApiClient, entity: Mapping[str, Any]) -> dict[str, Any]:
-    """`entity` with the detail route's `field_sources`, `members` and `merge_history`. A failed
-    detail call leaves them out: the page then names a status source only for a single-source
-    record (`field_source`) and shows no member table, never a wrong credit."""
+    """`entity` with the detail route's `field_sources`, `members` and `merge_history`, and the
+    sponsor's direct parent as `sponsor_parent` (docs/16 U-2). A failed detail call leaves the
+    three out: the page then names a status source only for a single-source record
+    (`field_source`) and shows no member table, never a wrong credit."""
     out = dict(entity)
     public_id = entity.get("public_id")
     if not public_id:
         return out
+    out["sponsor_parent"] = sponsor_parent(api, entity.get("sponsor"))
     try:
         detail = api.get(f"/v1/proposals/{public_id}")["data"]
     except (ApiError, KeyError, TypeError):
@@ -912,6 +972,8 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
         # the funding agency's code a Grants.gov notice carries (expert review 2026-10-07). TED and
         # World Bank buyers are in the normalised rows but not linked or served (reported to L3).
         "issuer": (entity.get("issuer") or {}).get("name_canonical") or entity.get("issuer_name"),
+        # The linked issuer's company page (docs/16 U-2): the name a page prints links there.
+        "issuer_org": org_ref(entity.get("issuer")),
         "issuer_code": (entity.get("identifiers") or {}).get("agency_code"),
         "jurisdiction": entity.get("jurisdiction"),
         "technologies": entity.get("technologies") or [],
@@ -954,10 +1016,19 @@ def flatten_asset(entity: Mapping[str, Any]) -> dict[str, Any]:
         }
         for o in (entity.get("owners") or [])
     ]
+    # Holders that are natural people named in a register (`personal_data`; the API embeds the
+    # organisation under `organization`): the header's link to their `noindex` page says `nofollow`.
+    personal_holder_ids: list[str] = []
+    for o in entity.get("owners") or []:
+        org = o.get("organization") if isinstance(o, Mapping) else None
+        org = org if isinstance(org, Mapping) else o
+        if isinstance(org, Mapping) and org.get("personal_data") and org.get("public_id"):
+            personal_holder_ids.append(str(org["public_id"]))
     return {
         "public_id": entity["public_id"],
         "slug": entity["slug"],
         "name": entity.get("name"),
+        "personal_holder_ids": personal_holder_ids,
         "asset_type": entity.get("asset_type"),
         "status": entity.get("status"),
         "status_label": asset_status_label(entity.get("status")),

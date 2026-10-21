@@ -19,6 +19,7 @@
     <tr>
       <th scope="col">Status</th>
       <th scope="col">Name</th>
+      <th scope="col">Company</th>
       <th scope="col">Technology</th>
       {% if not load_view %}<th scope="col" class="num">Capacity (MW)</th>{% endif %}
       <th scope="col">Jurisdiction</th>
@@ -31,6 +32,8 @@
     <tr>
       <td data-label="Status">{{ m.status_chip(r.lifecycle_state, r.lifecycle_family, r.status_raw) }}{{ m.slip_note(r.slip, compact=True) }}</td>
       <td data-label="Name"><a class="row-link" href="/proposals/{{ r.slug }}">{{ r.name }}</a></td>
+      {#- docs/16 U-2: the filing company as the register names it, linked to its page. -#}
+      <td data-label="Company">{% if r.company %}{% if r.company.href %}<a href="{{ r.company.href }}"{% if r.company.personal_data %} rel="nofollow"{% endif %}>{{ r.company.name | readable_name }}</a>{% else %}{{ r.company.name | readable_name }}{% endif %}{% else %}—{% endif %}</td>
       <td data-label="Technology">{{ r.technology_label or '—' }}</td>
       {% if not load_view %}<td data-label="Capacity (MW)" class="num">{{ r.capacity_mw | mw if r.capacity_mw is not none else '—' }}</td>{% endif %}
       <td data-label="Jurisdiction">{{ r.state or (r.jurisdiction or '—') }}</td>

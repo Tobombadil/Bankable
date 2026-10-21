@@ -1622,7 +1622,8 @@ paths:
       description: >-
         The point, its `totals` at the caller's tier, and `proposals[]`: the visible proposals that connect at it,
         active first, then built, other and withdrawn, each by capacity (at most 500; `proposals_truncated` says
-        when more exist, and `totals` always covers all of them). `recent_changes[]` is the newest ten change events
+        when more exist, and `totals` always covers all of them). Each row names its `sponsor` where the tier may
+        see it, under the same rule as a site's rows. `recent_changes[]` is the newest ten change events
         of those proposals (a project entering the queue here, its status changes, its withdrawal, its leaving the
         register's report), in the `Event`
         shape and under the events endpoints' visibility rules. `404` for an unknown id and, identically, for a
@@ -11180,6 +11181,15 @@ components:
           enum: [active, withdrawn, built, other]
         jurisdiction: {type: string}
         proposed_online_date: {type: [string, 'null'], format: date}
+        sponsor:
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationSummary'
+            - type: 'null'
+          description: >-
+            The sponsor organisation when the caller may see it, read from the proposal's served view exactly as
+            `SiteProposalRow.sponsor` is: `null` when there is none, when its `publish_state` is not `public`, and
+            when its only evidence comes from a source the caller's tier may not read. A natural person is served
+            with `personal_data: true`.
     InterconnectionPointDetail:
       allOf:
         - $ref: '#/components/schemas/InterconnectionPoint'
