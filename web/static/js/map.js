@@ -1261,16 +1261,32 @@
 
   // The key sits on the map (review 2026-10-10): "Key" hides it and shows it again. Without this
   // script the button stays hidden and the key stays shown.
+  // UX review 2026-10-20 (docs/16 M-2): below 720px the open key covered about half of the 464px
+  // map at 400px, so there it starts closed, as the filter bar does; from 720px it starts open, as
+  // before. Until the reader presses "Key" the default follows the width (a turned phone, a
+  // resized window); after that their choice stands.
   var mapKey = document.getElementById("map-key");
   var mapKeyToggle = document.getElementById("map-key-toggle");
+  var narrowKey = window.matchMedia ? window.matchMedia("(max-width: 719px)") : null;
+  var mapKeyChosen = false;
+  function setMapKeyOpen(open) {
+    mapKeyToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    mapKey.hidden = !open;
+    if (open && typeof syncKeyFocusable === "function") syncKeyFocusable();
+  }
   if (mapKey && mapKeyToggle) {
     mapKeyToggle.hidden = false;
+    setMapKeyOpen(!(narrowKey && narrowKey.matches));
+    mapKey.setAttribute("data-ready", "");
     mapKeyToggle.addEventListener("click", function () {
-      var open = mapKeyToggle.getAttribute("aria-expanded") !== "true";
-      mapKeyToggle.setAttribute("aria-expanded", open ? "true" : "false");
-      mapKey.hidden = !open;
-      if (open && typeof syncKeyFocusable === "function") syncKeyFocusable();
+      mapKeyChosen = true;
+      setMapKeyOpen(mapKeyToggle.getAttribute("aria-expanded") !== "true");
     });
+    if (narrowKey && narrowKey.addEventListener) {
+      narrowKey.addEventListener("change", function (e) {
+        if (!mapKeyChosen) setMapKeyOpen(!e.matches);
+      });
+    }
   }
   // With the existing-asset or retired-plant layer on, the key is compact, so it no longer grows
   // over the West Coast (it reached the map's foot at 1440x900): the status key becomes the strip of

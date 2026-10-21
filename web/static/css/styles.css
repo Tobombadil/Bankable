@@ -807,6 +807,10 @@ a.button-secondary { display: inline-flex; align-items: center; text-decoration:
 a.button-secondary:visited { color: var(--link); }
 .legend__icon { flex: none; }
 .map-attribution { font-size: var(--text-1); color: var(--text-muted); padding-top: var(--space-2); }
+/* One line under a map drawn on the outline alone (basemap.js `showFailedNote`, docs/16 §2 M-1):
+   under the canvas on the home map, between a mini-map and its caption on the record pages. */
+.map-basemap-note { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-2) 0 0; }
+.mini-map + .map-basemap-note { margin: 0 0 var(--space-1); }
 .map-live-region { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 /* Hover cards (MapLibre popups) take the theme. MapLibre's stylesheet loads after this one and paints
    the card and its tip #fff while the text inherits --text, so in dark mode the text vanished (owner
@@ -1329,6 +1333,9 @@ a.button-secondary:visited { color: var(--link); }
   .map-key .legend--lifecycle .legend__note { margin: var(--space-1) 0; }
 }
 @media (max-width: 719px) {
+  /* Closed from first paint, not only once map.js runs after the CDN scripts (review of lane
+     w1-map: on a slow phone the open key covered the map until then), as the filter bar does. */
+  .js .map-key:not([data-ready]) { display: none; }
   .map-key__panel { max-height: 9rem; padding: var(--space-1) var(--space-2); }
   .map-key .legend--lifecycle { gap: 0 var(--space-3); }
   .map-key .legend--lifecycle .legend__group-name { display: none; }

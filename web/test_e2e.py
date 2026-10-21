@@ -82,7 +82,10 @@ FAKE_PMTILES_URL = "https://tiles.example.invalid/basemap.pmtiles"
 #     /tmp/bankable-e2e-pmtiles/austin.pmtiles --bbox=-98.1,30.0,-97.4,30.6 --maxzoom=10
 # (a few MB, a few seconds; `go-pmtiles` is installed by the infra lane at `/root/go/bin/go-pmtiles`,
 # not on PATH). `test_pmtiles_basemap_renders_real_labels_end_to_end` below is skipped, not failed,
-# when this path does not exist, so the default suite stays fully offline.
+# when this path does not exist, so the default suite stays fully offline. Protomaps keeps only
+# recent daily builds (20260914 was gone by 2026-10-21; 20261020 worked): pick a current one from
+# https://build-metadata.protomaps.dev/builds.json. `infra/ci/beta.sh install-pmtiles` installs the
+# pinned, checksummed go-pmtiles (as `go-pmtiles`).
 PMTILES_ARCHIVE_PATH = Path(
     os.environ.get("PMTILES_TEST_ARCHIVE") or "/tmp/bankable-e2e-pmtiles/austin.pmtiles"  # noqa: S108 -- documented, overridable test fixture path
 )
@@ -1246,16 +1249,18 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             assert top < 640, f"map starts at {top}px at 400x800"
             assert page.evaluate("document.documentElement.scrollWidth") <= 401
             # Review 2026-10-10: the key is on the map, under the zoom controls, in the first
-            # viewport; "Key" hides it and shows it again.
+            # viewport. Below 720px it starts closed (UX review 2026-10-20, docs/16 M-2); "Key"
+            # shows it and hides it again.
+            key_toggle = page.locator("#map-key-toggle")
+            assert key_toggle.is_visible() and key_toggle.get_attribute("aria-expanded") == "false"
+            assert page.locator("#map-key").is_hidden()
+            key_toggle.click()
+            assert page.locator("#map-key").is_visible()
             key = page.evaluate("document.getElementById('lifecycle-legend').getBoundingClientRect().top")
             assert top <= key < 800, f"map key starts at {key}px at 400x800"
-            key_toggle = page.locator("#map-key-toggle")
-            assert key_toggle.is_visible() and key_toggle.get_attribute("aria-expanded") == "true"
             key_toggle.click()
             assert page.locator("#map-key").is_hidden()
             assert key_toggle.get_attribute("aria-expanded") == "false"
-            key_toggle.click()
-            assert page.locator("#map-key").is_visible()
 
             # Menu: a disclosure; the links are out of the way until it opens.
             menu = page.locator(".nav-toggle")
@@ -1334,6 +1339,280 @@ def test_map_says_when_proposals_fail_to_load_with_the_request_id_and_a_retry(se
             browser.close()
 
 
+# UX review 2026-10-20 (docs/16 §2 M-1, U-1): with the archive answering 404, the maps showed their
+# data on a blank plane: the Protomaps style's first layer, an opaque `background` that needs no
+# source, painted over the same-origin outline whether or not the tiles loaded. The two pmtiles-mode
+# scripts are not recorded (tests/fixtures/cdn/README.md), so these tests stand in for them with the
+# surface basemap.js calls and the shape of what it gets back. `basemaps.layers()` puts the opaque,
+# sourceless `background` first and then layers drawn from the archive, as
+# @protomaps/basemaps@5.7.2 does. `pmtiles.Protocol().tile` reads the archive with a Range request,
+# as pmtiles@4.5.0 does, so the route on the archive URL decides whether the basemap loads. The
+# opt-in real-archive tests at the end of this file repeat the checks with the real scripts.
+_PMTILES_STAND_INS = r"""
+(() => {
+  const archiveOf = (url) => url.replace(/^pmtiles:\/\//, "").replace(/\/\d+\/\d+\/\d+$/, "");
+  window.pmtiles = {
+    Protocol: function () {
+      this.tile = async (params, abortController) => {
+        const resp = await fetch(archiveOf(params.url), {
+          headers: { Range: "bytes=0-16383" }, signal: abortController.signal
+        });
+        if (!resp.ok) throw new Error("Bad response code: " + resp.status);
+        if (params.type !== "json") return { data: new ArrayBuffer(0) };
+        return { data: {
+          tilejson: "3.0.0", tiles: [params.url + "/{z}/{x}/{y}"], minzoom: 0, maxzoom: 5,
+          vector_layers: [{ id: "earth", fields: {} }, { id: "water", fields: {} }]
+        } };
+      };
+    }
+  };
+  window.basemaps = {
+    namedFlavor: () => ({ background: "#000000", earth: "#000000", water: "#000000", landcover: {} }),
+    layers: (source, flavor) => [
+      { id: "background", type: "background", paint: { "background-color": flavor.background } },
+      { id: "earth", type: "fill", source, "source-layer": "earth", paint: { "fill-color": flavor.earth } },
+      { id: "water", type: "fill", source, "source-layer": "water", paint: { "fill-color": flavor.water } }
+    ]
+  };
+})();
+"""
+_BASEMAP_UNAVAILABLE = "Base map unavailable; showing country and state outlines."
+# The style's layer ids, a trailing `*` on each that needs no source; `name` is the map's window handle.
+_LAYER_IDS = "(name) => window[name].getStyle().layers.map((l) => l.id + (l.source ? '' : '*'))"
+# How many lines an element's text wraps to.
+_LINE_COUNT = (
+    "(n) => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects().length; }"
+)
+
+
+def _stand_in_pmtiles_scripts(page: Any) -> None:
+    """The stand-ins above in place of the (aborted) CDN scripts; the Protomaps glyph and sprite
+    host they point the style at is aborted too, so the suite stays offline."""
+    page.add_init_script(_PMTILES_STAND_INS)
+    page.route(f"{GLYPHS_SPRITE_HOST_PREFIX}**", lambda r: r.abort())
+
+
+def _archive_answers(page: Any, status: int) -> None:
+    """The archive URL answers `status` (registered last, so it overrides the suite's abort)."""
+    headers = {"Access-Control-Allow-Origin": "*", "Access-Control-Expose-Headers": "Content-Range"}
+    if status == 206:
+        headers["Content-Range"] = "bytes 0-15/16"
+    page.route("**/*.pmtiles", lambda r: r.fulfill(status=status, body=b"\0" * 16, headers=headers))
+
+
+def _basemap_failed_beacons(page: Any) -> list[str]:
+    calls: list[str] = []
+
+    def record(route: Route) -> None:
+        if "map.basemap_failed" in (route.request.post_data or ""):
+            calls.append(route.request.post_data or "")
+        route.fulfill(status=202, content_type="application/json", body="{}")
+
+    page.route("**/api/ui-events", record)
+    return calls
+
+
+def _outline_is_uncovered(ids: list[str]) -> None:
+    """Every layer above the outline's land fill is drawn from a source, and the archive's layers
+    were added (so the check is not passing on a basemap that never ran)."""
+    land = ids.index("fallback-land")
+    assert [i for i in ids[land + 1 :] if i.endswith("*")] == [], ids
+    assert "earth" in ids and "water" in ids, ids
+
+
+def test_a_failed_basemap_archive_leaves_the_outline_in_view_and_says_so(server: object) -> None:
+    """With the archive answering 404 the home map keeps the outline under its data, and one line
+    under the map says why it looks plain, at 1440 and at 400 wide. With the archive answering,
+    the same layers are drawn as before, less the sourceless one, and nothing is said."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for viewport in (DESKTOP_VIEWPORT, {"width": 400, "height": 800}):
+                page = browser.new_page(viewport=viewport)
+                _install_offline_routes(page)
+                _stand_in_pmtiles_scripts(page)
+                beacons = _basemap_failed_beacons(page)
+                _archive_answers(page, 404)
+                page.goto(BASE_URL + "/")
+                note = page.locator(".map-basemap-note")
+                note.wait_for(timeout=15000)
+                page.wait_for_function("() => window.__map.isStyleLoaded()", timeout=15000)
+                _outline_is_uncovered(page.evaluate(_LAYER_IDS, "__map"))
+                assert note.inner_text() == _BASEMAP_UNAVAILABLE
+                map_box = page.locator("#map").bounding_box()
+                note_box = note.bounding_box()
+                assert map_box and note_box and note_box["y"] >= map_box["y"] + map_box["height"] - 1
+                lines = note.evaluate(_LINE_COUNT)
+                assert lines == 1, f"the note takes {lines} lines at {viewport['width']}px"
+                page.wait_for_timeout(300)
+                assert len(beacons) == 1, beacons
+                page.close()
+
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            _stand_in_pmtiles_scripts(page)
+            beacons = _basemap_failed_beacons(page)
+            _archive_answers(page, 206)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function("() => window.__map && window.__map.isSourceLoaded('protomaps')")
+            page.wait_for_function("() => window.__mapIdle", timeout=15000)
+            ids = page.evaluate(_LAYER_IDS, "__map")
+            outline = ["fallback-water*", "fallback-land", "fallback-country-lines", "fallback-state-lines"]
+            assert ids[:6] == [*outline, "earth", "water"], ids
+            page.wait_for_timeout(300)
+            assert page.locator(".map-basemap-note").count() == 0 and beacons == []
+
+            # One failed tile on a working base map is a gap, not an outage: it is still reported,
+            # but the map does not claim the base map is unavailable (review of lane w1-map).
+            page.evaluate(
+                "() => { window.__map.fire('error', {sourceId: 'protomaps', error: new Error('one tile')});"
+                " window.__map.triggerRepaint(); }"
+            )
+            page.wait_for_function("() => window.__map.loaded()", timeout=15000)
+            page.wait_for_timeout(500)
+            assert page.locator(".map-basemap-note").count() == 0
+            assert len(beacons) == 1, beacons
+        finally:
+            browser.close()
+
+
+def test_the_map_key_is_closed_on_a_phone_before_the_map_script_runs(server: object) -> None:
+    """Review of lane w1-map: map.js runs only after the MapLibre and basemap CDN scripts, so on a
+    slow phone the open key covered the map until then. Below 720px it is closed from first paint;
+    from 720px it shows as before."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for viewport, shown in (({"width": 400, "height": 800}, False), (DESKTOP_VIEWPORT, True)):
+                page = browser.new_page(viewport=viewport)
+                _install_offline_routes(page)
+                page.route("**/static/js/map.js*", lambda r: r.abort())
+                page.goto(BASE_URL + "/")
+                assert page.evaluate("document.documentElement.classList.contains('js')")
+                assert page.locator("#map-key").is_visible() is shown, viewport
+                page.close()
+        finally:
+            browser.close()
+
+
+def _mini_map_page() -> str:
+    """The mini-map as the asset and company pages render it (the `_macros.html` macro over
+    `web/page.py::_mini_map`, then the scripts those pages load), alone on a page: the e2e store has
+    no asset with a location to open a real asset page on."""
+    from web.page import _mini_map, templates
+
+    feature = {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [-97.75, 30.3]},
+        "properties": {"kind": "asset", "name": "E2E plant", "asset_type": "power_plant"},
+    }
+    mini_map = _mini_map([feature], label="Map of E2E plant", caption="E2E plant: location.")
+    macro = templates.env.get_template("_macros.html").module.mini_map(mini_map, FAKE_PMTILES_URL, "pmtiles")  # type: ignore[attr-defined]
+    maplibre = f"https://cdn.jsdelivr.net/npm/maplibre-gl@{MAPLIBRE_VERSION}/dist/maplibre-gl"
+    scripts = [
+        f"{maplibre}.js",
+        f"https://cdn.jsdelivr.net/npm/pmtiles@{PMTILES_VERSION}/dist/pmtiles.js",
+        f"https://cdn.jsdelivr.net/npm/@protomaps/basemaps@{BASEMAPS_VERSION}/dist/basemaps.js",
+        "/static/js/basemap.js",
+        "/static/js/asset_map.js",
+    ]
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Mini-map</title>'
+        f'<link rel="stylesheet" href="/static/css/styles.css"><link rel="stylesheet" href="{maplibre}.css">'
+        f"</head><body><main>{macro}</main>"
+        + "".join(f'<script src="{src}"></script>' for src in scripts)
+        + "</body></html>"
+    )
+
+
+def test_a_failed_basemap_archive_is_said_under_the_asset_and_company_mini_map(server: object) -> None:
+    """The asset and company mini-maps share basemap.js: with the archive answering 404 the outline
+    stays in view and the note sits between the map and its caption; answering, nothing is said."""
+    html, url = _mini_map_page(), BASE_URL + "/e2e-mini-map"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for status in (404, 206):
+                page = browser.new_page(viewport={"width": 400, "height": 800})
+                _install_offline_routes(page)
+                _stand_in_pmtiles_scripts(page)
+                _archive_answers(page, status)
+                page.route(url, lambda r: r.fulfill(content_type="text/html", body=html))
+                page.goto(url)
+                page.wait_for_function(
+                    "() => window.__assetMap && window.__assetMap.isStyleLoaded()"
+                    " && window.__assetMap.getSource('protomaps')",
+                    timeout=15000,
+                )
+                note = page.locator(".map-basemap-note")
+                if status == 404:
+                    note.wait_for(timeout=15000)
+                    _outline_is_uncovered(page.evaluate(_LAYER_IDS, "__assetMap"))
+                    assert note.inner_text() == _BASEMAP_UNAVAILABLE
+                    assert note.evaluate("(n) => n.previousElementSibling.id") == "asset-map"
+                    assert note.evaluate("(n) => n.nextElementSibling.className") == "mini-map__caption"
+                else:
+                    page.wait_for_function("() => window.__assetMap.isSourceLoaded('protomaps')")
+                    page.wait_for_timeout(300)
+                    assert note.count() == 0
+                    assert "background*" not in page.evaluate(_LAYER_IDS, "__assetMap")
+                page.close()
+        finally:
+            browser.close()
+
+
+def test_map_key_starts_closed_below_720px_and_opens_from_the_keyboard(server: object) -> None:
+    """UX review 2026-10-20 (docs/16 M-2, U-12): at 400x800 the open key covered about half of the
+    464px map. Below 720px it now starts closed, as the filter bar does, and "Key" is a tab stop in
+    the map's controls that opens it in place; from 720px it starts open, as before. The default
+    follows the width until the reader presses "Key"; after that their choice stands."""
+    narrow = {"width": 400, "height": 800}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=narrow)
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.goto(BASE_URL + "/")
+            page.wait_for_selector("#map canvas", timeout=10000)
+            toggle = page.locator("#map-key-toggle")
+            toggle.wait_for()
+            key = page.locator("#map-key")
+            assert toggle.get_attribute("aria-expanded") == "false" and key.is_hidden()
+
+            # Not chosen yet: the default follows the width both ways.
+            page.set_viewport_size(DESKTOP_VIEWPORT)
+            page.wait_for_function("() => !document.getElementById('map-key').hidden")
+            assert toggle.get_attribute("aria-expanded") == "true"
+            page.set_viewport_size(narrow)
+            page.wait_for_function("() => document.getElementById('map-key').hidden")
+            assert toggle.get_attribute("aria-expanded") == "false"
+
+            # From "Reset", Tab passes the region jumps and reaches "Key"; Enter opens the key on the
+            # map, in the first viewport.
+            page.focus("#zoom-reset")
+            for _ in range(10):
+                page.keyboard.press("Tab")
+                if page.evaluate("document.activeElement.id") == "map-key-toggle":
+                    break
+            assert page.evaluate("document.activeElement.id") == "map-key-toggle"
+            page.keyboard.press("Enter")
+            assert toggle.get_attribute("aria-expanded") == "true" and key.is_visible()
+            map_top = page.evaluate("document.getElementById('map').getBoundingClientRect().top")
+            key_top = page.evaluate("document.getElementById('lifecycle-legend').getBoundingClientRect().top")
+            assert map_top <= key_top < narrow["height"], f"map key at {key_top}px, map at {map_top}px"
+
+            # Chosen: a change of width leaves it open.
+            page.set_viewport_size(DESKTOP_VIEWPORT)
+            page.set_viewport_size(narrow)
+            page.wait_for_timeout(200)
+            assert toggle.get_attribute("aria-expanded") == "true" and key.is_visible()
+            page.keyboard.press("Space")
+            assert toggle.get_attribute("aria-expanded") == "false" and key.is_hidden()
+        finally:
+            browser.close()
+
+
 _PMTILES_PROOF_DB_PATH = REPO_ROOT / "web" / ".data" / "pmtiles-proof-test.db"
 _PMTILES_PROOF_PORT = 8798
 _PMTILES_PROOF_BASE_URL = f"http://127.0.0.1:{_PMTILES_PROOF_PORT}"
@@ -1386,15 +1665,18 @@ def pmtiles_proof_server(pmtiles_range_server: int) -> object:
         server_log.close()
 
 
-@pytest.mark.network  # fetches the pmtiles/basemaps scripts and Protomaps glyphs from their real hosts
-@pytest.mark.skipif(
+_NEEDS_REAL_ARCHIVE = pytest.mark.skipif(
     not PMTILES_ARCHIVE_PATH.exists(),
     reason=(
         f"real PMTiles archive not present at {PMTILES_ARCHIVE_PATH} -- extract one first: "
-        "/root/go/bin/go-pmtiles extract https://build.protomaps.com/20260914.pmtiles "
+        "go-pmtiles extract https://build.protomaps.com/<a current YYYYMMDD>.pmtiles "
         f"{PMTILES_ARCHIVE_PATH} --bbox=-98.1,30.0,-97.4,30.6 --maxzoom=10"
     ),
 )
+
+
+@pytest.mark.network  # fetches the pmtiles/basemaps scripts and Protomaps glyphs from their real hosts
+@_NEEDS_REAL_ARCHIVE
 def test_pmtiles_basemap_renders_real_labels_end_to_end(pmtiles_proof_server: object) -> None:
     """Coordinator follow-up (2026-09-15): closes the "basemap glyph/sprite gap not done" item
     and proves pmtiles mode end to end against a real, small (~1.3 MB) archive -- not merely that
@@ -1465,7 +1747,53 @@ def test_pmtiles_basemap_renders_real_labels_end_to_end(pmtiles_proof_server: ob
             page.wait_for_timeout(300)
             assert basemap_failed_calls == [], basemap_failed_calls
 
+            # (f) UX review 2026-10-20 (docs/16 §2 M-1): the real style's sourceless `background`
+            # layer is not added, so nothing without a source sits over the outline; no note.
+            _outline_is_uncovered(page.evaluate(_LAYER_IDS, "__map"))
+            assert page.locator(".map-basemap-note").count() == 0
+
+            # (g) ... and with the tiles in, the map is what it was with that layer: the archive's
+            # fills cover the outline. Put the layer back where it stood and compare the canvas.
+            page.evaluate("() => new Promise((done) => window.__map.once('idle', done).triggerRepaint())")
+            without = page.locator("#map").screenshot()
+            page.evaluate(
+                "() => new Promise((done) => { const m = window.__map;"
+                " const css = getComputedStyle(document.documentElement);"
+                " const paint = {'background-color': css.getPropertyValue('--map-land').trim()};"
+                " const first = m.getStyle().layers.find((l) => l.source === 'protomaps').id;"
+                " m.addLayer({id: 'background', type: 'background', paint}, first);"
+                " m.once('idle', done); })"
+            )
+            assert page.locator("#map").screenshot() == without, "dropping the background changed the map"
+
             page.screenshot(path=str(SCREENSHOT_DIR / "pmtiles-austin-real.png"), full_page=True)
+        finally:
+            browser.close()
+
+
+@pytest.mark.network  # fetches the pmtiles/basemaps scripts from their real host
+@_NEEDS_REAL_ARCHIVE
+def test_pmtiles_archive_failure_keeps_the_outline_with_real_scripts(pmtiles_proof_server: object) -> None:
+    """UX review 2026-10-20 (docs/16 §2 M-1), with the real pinned pmtiles and basemaps scripts in
+    place of the offline suite's stand-ins: the archive answering 404 leaves no sourceless layer
+    over the outline, and the note under the map says the base map is unavailable."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page, serve_pmtiles_scripts=True)
+            _install_glyphs_and_sprite_routes(page)
+            beacons = _basemap_failed_beacons(page)
+            page.route(f"**/{PMTILES_ARCHIVE_PATH.name}", lambda r: r.fulfill(status=404, body=""))
+            page.goto(_PMTILES_PROOF_BASE_URL + "/")
+            note = page.locator(".map-basemap-note")
+            note.wait_for(timeout=15000)
+            page.wait_for_function("() => window.__map.isStyleLoaded()", timeout=15000)
+            _outline_is_uncovered(page.evaluate(_LAYER_IDS, "__map"))
+            assert note.inner_text() == _BASEMAP_UNAVAILABLE
+            assert page.evaluate("window.__map.queryRenderedFeatures({layers: ['fallback-land']}).length") > 0
+            page.wait_for_timeout(300)
+            assert len(beacons) == 1, beacons
         finally:
             browser.close()
 
