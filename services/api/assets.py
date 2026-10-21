@@ -45,7 +45,7 @@ from typing import Annotated, Any, NamedTuple
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
-from sqlalchemy.orm import Session, load_only, selectinload
+from sqlalchemy.orm import Session, aliased, load_only, selectinload
 
 from pipeline.normalize import TECH_RULES
 from services.api import geo_cache
@@ -69,7 +69,13 @@ from services.api.lines import (
     tolerance_for_zoom,
 )
 from services.api.orgtree import OwnershipEdge, org_ancestors, org_scope, scope_from_request, scope_ids
-from services.api.pagination import decode_cursor, encode_cursor, paginate
+from services.api.pagination import (
+    coerce_cursor_value,
+    coerce_tiebreaker,
+    decode_cursor,
+    encode_cursor,
+    paginate,
+)
 from services.api.params import check_allowed, csv_param, int_param, page_limit
 from services.api.serialize import (
     asset_geometry,
@@ -102,6 +108,7 @@ from services.api.visibility import (
     location_exact_permitted,
     organization_visibility_filter,
     organization_visible,
+    permitted_source_states,
     proposal_public_filter,
     visible_organization_or_404,
     visible_source_links,
@@ -1695,6 +1702,129 @@ def get_nearby_grid(public_id: str, request: Request, db: Annotated[Session, Dep
 # there, so `services/api/app.py` can scope the sponsored-proposals list through the same code.
 
 
+def asset_owner_visibility_filter(entitlement: str = "public") -> list[Any]:
+    """SQL twin of `services/api/visibility.py::provenance_visible` for an `asset_owner` row: the
+    edge's source passes `source_permits` and `licence_permits` (its `publish_state`, its licence's
+    class) and the edge's own licence is publishable. The asset detail's `owners[]` drops such an
+    edge row by row (docs/21 §8 item 3: the edge's existence is the register's disclosure); an
+    organisation's asset list, its `totals` and its portfolio (`services/api/org_portfolio.py`)
+    read edges through this, so an edge only a hidden register states neither lists the asset,
+    counts it nor lends it a share (2026-10-21; until then the list served such an edge). The
+    publishable classes are the posture's (`services/posture.py`). Aliased so each EXISTS keeps
+    its own FROM whatever the caller joined."""
+    src = aliased(Source)
+    src_lic = aliased(Licence)
+    edge_lic = aliased(Licence)
+    return [
+        sa.exists(
+            select(src.id)
+            .join(src_lic, src_lic.id == src.licence_id)
+            .where(
+                src.id == AssetOwner.source_id,
+                src.publish_state.in_(permitted_source_states(entitlement)),
+                src_lic.reuse_class.in_(PUBLISHABLE_REUSE_CLASSES),
+            )
+        ),
+        sa.exists(
+            select(edge_lic.id).where(
+                edge_lic.id == AssetOwner.licence_id, edge_lic.reuse_class.in_(PUBLISHABLE_REUSE_CLASSES)
+            )
+        ),
+    ]
+
+
+def organization_edge_filters(holder_ids: list[Any]) -> list[Any]:
+    """The `asset_owner` rows an organisation's scope reads, over a statement that joins `asset`:
+    held by one of `holder_ids` (`org_scope`, which has already dropped taken-down organisations),
+    to a visible asset, through an edge whose own provenance is visible. One predicate for the
+    list, its totals and the portfolio, so no count is taken over rows the list would not show."""
+    return [
+        AssetOwner.organization_id.in_(holder_ids),
+        *asset_visibility_filter(),
+        *asset_owner_visibility_filter(),
+    ]
+
+
+#: Filters `GET /v1/organizations/{id}/assets` applies to its rows, beside `scope`: the asset's
+#: `status`, `technology` and `state` were added on 2026-10-21 so that every count the portfolio
+#: returns names a query of this list. `technology` and `state` match the stored token, as
+#: `GET /v1/assets` does (an asset's technology vocabulary is wider than a proposal's: `aquifer`,
+#: `lfg_electricity`), so a value nothing stores selects nothing rather than answering 400.
+ORGANIZATION_ASSET_FILTERS: tuple[str, ...] = ("role", "asset_type", "status", "technology", "state")
+#: `sort` on that list: absent, the edges in `asset_owner` order (unchanged); `-capacity_mw`, the
+#: largest asset first (docs/16 §4.1, the Assets tab's order).
+ORGANIZATION_ASSET_SORTS: tuple[str, ...] = ("-capacity_mw",)
+
+
+def _apply_organization_asset_filters(stmt: sa.Select[Any], request: Request) -> sa.Select[Any]:
+    roles = _role_filter_values(request)
+    if roles is not None:
+        stmt = stmt.where(AssetOwner.role.in_(roles))
+    stmt = _apply_sql_filters(
+        stmt, _asset_type_filter_values(request), None, None, _status_filter_values(request)
+    )
+    qp = request.query_params
+    if v := qp.get("technology"):
+        stmt = stmt.where(Asset.technology.in_(csv_param(v)))
+    if v := qp.get("state"):
+        stmt = stmt.where(Asset.state_code.in_(csv_param(v)))
+    return stmt
+
+
+def _organization_asset_sort(request: Request) -> str | None:
+    raw = request.query_params.get("sort")
+    if not raw:
+        return None
+    if raw not in ORGANIZATION_ASSET_SORTS:
+        takes = ", ".join(ORGANIZATION_ASSET_SORTS)
+        raise validation_error("sort", f"sort takes only {takes} on this resource", request.url.path)
+    return raw
+
+
+def _page_by_capacity(
+    db: Session, stmt: sa.Select[tuple[AssetOwner]], cursor: str | None, limit: int, instance: str
+) -> tuple[list[AssetOwner], str | None, bool]:
+    """`sort=-capacity_mw`: the largest asset first, assets with no MW last, then by asset and edge,
+    so one asset's edges sit together and a page boundary splits at most one asset's rows.
+    `paginate` keys on a column of the row it returns and this sort column is the joined asset's,
+    so the keyset is written out here: the cursor's `v` is the capacity (its exact decimal string,
+    or null) and its `id` is `<asset id>/<edge id>`. A cursor from the default order has no `/`
+    and is refused, as this one is there."""
+    capacity, asset_id, edge_id = Asset.capacity_mw, AssetOwner.asset_id, AssetOwner.id
+    if cursor:
+        decoded = decode_cursor(cursor, instance)
+        value = coerce_cursor_value(decoded.sort_value, capacity.type, instance)
+        asset_key, slash, edge_key = decoded.tiebreaker_id.partition("/")
+        if not slash:
+            raise invalid_cursor(instance)
+        after_asset = coerce_tiebreaker(asset_key, asset_id.type, instance)
+        after_edge = coerce_tiebreaker(edge_key, edge_id.type, instance)
+        later = sa.or_(asset_id < after_asset, sa.and_(asset_id == after_asset, edge_id < after_edge))
+        if value is None:
+            stmt = stmt.where(capacity.is_(None), later)
+        else:
+            stmt = stmt.where(sa.or_(capacity < value, capacity.is_(None), sa.and_(capacity == value, later)))
+    stmt = stmt.order_by(capacity.desc().nulls_last(), asset_id.desc(), edge_id.desc()).limit(limit + 1)
+    rows = list(db.scalars(stmt).all())
+    page = rows[:limit]
+    next_cursor = None
+    if len(rows) > limit and page:
+        last = page[-1]
+        mw = last.asset.capacity_mw
+        next_cursor = encode_cursor(str(mw) if mw is not None else None, f"{last.asset_id}/{last.id}")
+    return page, next_cursor, len(rows) > limit
+
+
+def _edge_licence_rows(edge: AssetOwner) -> list[dict[str, Any]]:
+    """One `licence_summary` row per register a row of the organisation's list rests on: the
+    asset's and the edge's, once when one register states both (with the later retrieval)."""
+    asset_row = licence_summary_row(edge.asset.source, edge.asset.licence, edge.asset.retrieved_at)
+    edge_row = licence_summary_row(edge.source, edge.licence, edge.retrieved_at)
+    if edge.source_id != edge.asset.source_id:
+        return [asset_row, edge_row]
+    return [edge_row if edge.retrieved_at > edge.asset.retrieved_at else asset_row]
+
+
 #: Portfolio rows (`totals.by_organization`) one response carries. A fund page lists the companies
 #: it holds rather than their assets, so this is the cap on that list; beyond it the response says
 #: `organization_count` and the page links to the subsidiaries index instead of pretending to be
@@ -1724,10 +1854,7 @@ def organization_asset_totals(db: Session, org: Organization, *, scope: str = "s
             sa.cast(AssetOwner.organization_id, sa.Text),
         )
         .join(Asset, Asset.id == AssetOwner.asset_id)
-        .where(
-            AssetOwner.organization_id.in_(org_scope_result.ids),
-            *asset_visibility_filter(),
-        )
+        .where(*organization_edge_filters(org_scope_result.ids))
         .distinct()
     )
     by_role: dict[str, set[str]] = defaultdict(set)
@@ -1856,37 +1983,46 @@ def list_organization_assets(
     `scope` (2026-09-20) widens the set down the ownership tree: `self`, `children` (the direct
     subsidiaries — what the deprecated `include_subsidiaries=true` has always meant and still
     means) or `all` (the full descent). `totals` counts the whole scope regardless of paging or
-    the `role`/`asset_type` filters and carries the portfolio breakdown; the `scope` block says
-    how many organisations were spanned and whether any bound stopped the walk.
+    the filters and carries the portfolio breakdown; the `scope` block says how many
+    organisations were spanned and whether any bound stopped the walk.
+
+    2026-10-21: an edge whose own source or licence the tier may not see is not a row and is not
+    in `totals` (`asset_owner_visibility_filter`); each row carries that edge's provenance as
+    `edge_provenance`, and `licence_summary` credits the edge's register beside the asset's. The
+    rows filter on `status`, `technology` and `state` as well as `role` and `asset_type`, and
+    `sort=-capacity_mw` orders them largest asset first: the queries the portfolio's counts name
+    (`services/api/org_portfolio.py`).
     """
-    check_allowed(request, {"limit", "cursor", "role", "asset_type", "scope", "include_subsidiaries"})
+    check_allowed(
+        request, {"limit", "cursor", "sort", "scope", "include_subsidiaries", *ORGANIZATION_ASSET_FILTERS}
+    )
     org = visible_organization_or_404(db, public_id, request.url.path)
 
     limit = page_limit(request)
-    roles = _role_filter_values(request)
-    asset_types = _asset_type_filter_values(request)
+    sort = _organization_asset_sort(request)
     scope = scope_from_request(request)
     org_scope_result = org_scope(db, org, scope)
     stmt = (
         select(AssetOwner)
         .join(Asset, Asset.id == AssetOwner.asset_id)
-        .where(AssetOwner.organization_id.in_(org_scope_result.ids), *asset_visibility_filter())
+        .where(*organization_edge_filters(org_scope_result.ids))
         .options(selectinload(AssetOwner.asset), selectinload(AssetOwner.organization))
     )
-    if roles is not None:
-        stmt = stmt.where(AssetOwner.role.in_(roles))
-    if asset_types is not None:
-        stmt = stmt.where(Asset.asset_type.in_(asset_types))
-    rows, next_cursor, has_more = paginate(
-        db,
-        stmt,
-        sort_column=AssetOwner.id,
-        id_column=AssetOwner.id,
-        ascending=True,
-        cursor=request.query_params.get("cursor"),
-        limit=limit,
-        instance=request.url.path,
-    )
+    stmt = _apply_organization_asset_filters(stmt, request)
+    cursor = request.query_params.get("cursor")
+    if sort is None:
+        rows, next_cursor, has_more = paginate(
+            db,
+            stmt,
+            sort_column=AssetOwner.id,
+            id_column=AssetOwner.id,
+            ascending=True,
+            cursor=cursor,
+            limit=limit,
+            instance=request.url.path,
+        )
+    else:
+        rows, next_cursor, has_more = _page_by_capacity(db, stmt, cursor, limit, request.url.path)
     withheld = withheld_names(db)
     data = []
     licence_rows = []
@@ -1898,10 +2034,11 @@ def list_organization_assets(
         asset_row["share_pct"] = personal_share(edge.organization, edge.share_pct)
         asset_row["as_of"] = edge.as_of.isoformat() if edge.as_of is not None else None
         asset_row["held_by"] = serialize_organization_summary(edge.organization)
-        data.append(asset_row)
-        licence_rows.append(
-            licence_summary_row(edge.asset.source, edge.asset.licence, edge.asset.retrieved_at)
+        asset_row["edge_provenance"] = provenance_quartet(
+            edge.source, edge.licence, source_url=edge.source_url, retrieved_at=edge.retrieved_at
         )
+        data.append(asset_row)
+        licence_rows.extend(_edge_licence_rows(edge))
 
     meta = build_meta(lag_days=0, tier="public")
     env = build_list_envelope(

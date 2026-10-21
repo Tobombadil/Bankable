@@ -1020,6 +1020,78 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+  /v1/organizations/{public_id}/portfolio:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationPublicId'
+    get:
+      operationId: getOrganizationPortfolio
+      tags: [Organizations, Assets]
+      summary: The organization's fleet of existing assets in one read
+      description: >-
+        Distinct assets, nameplate MW and owned MW of the assets the organisation (at `scope`) owns or operates
+        through `asset_owner`, by status, role, technology, state and asset type, with the registers behind them and
+        each one's latest retrieval (2026-10-21; docs/16 §5). The fleet's twin of
+        `/v1/organizations/{public_id}/pipeline`: one aggregate in place of paging
+        `/v1/organizations/{public_id}/assets`.
+
+
+        **What is counted.** An asset held through an edge by an organisation in the scope (a taken-down subsidiary
+        and everything below it are not in the scope), visible itself (`GET /v1/assets`' licence and source gate),
+        through an edge whose own source and licence are visible too. An edge only a hidden register states lends
+        nothing: not the asset, not a role, not a share. One asset held by two companies in the scope, named by two
+        registers or both owned and operated counts once in every bucket; `by_role` counts it under each role, so
+        the roles can add up to more than `totals.assets`.
+
+
+        **MW.** `capacity_mw` sums the nameplate MW of the counted assets that state one (power plants and
+        landfill-gas electricity projects); pipelines, storage and processing plants state capacity in their own
+        units and are counted, not summed. `capacity_assets` says how many were summed; `capacity_mw` is `null`,
+        never `0`, when none was.
+
+
+        **Owned MW.** An asset's owned fraction is, per register that states shares, the sum of the shares the
+        scope's holders have in it; then the largest of those per-register sums, never their total (two registers
+        stating one stake at two levels of a group is one stake), capped at 100%. `owned_mw` is that fraction of each
+        asset's MW over the assets with both a stated share and MW, and `owned_mw_assets` counts them. A natural
+        person's share is withheld everywhere and is not used.
+
+
+        **Status.** The headline (`totals`, `by_role`, `by_technology`, `by_state`, `by_asset_type`) counts the
+        statuses in `statuses` (`status=`, default `operating,standby,retiring`); `by_status` counts every status, so
+        `retired` is reported beside the headline and not in it.
+
+
+        **Each count is the total of a list query.** A bucket's `list_query` is the
+        `GET /v1/organizations/{public_id}/assets` filters that select exactly its assets (`scope` when it spans more
+        than the organisation, `status`, and the bucket's `role`, `technology`, `state` or `asset_type`). That list
+        is one row per edge, so the count is the number of distinct `public_id`s it returns. A `null` technology or
+        state is its own bucket, which no filter selects (`list_query: null`). Registers carry counts but no query.
+
+
+        **Rate limits.** One unit of the caller's read window and daily cap (`x-rate-limits`), as any `GET` without
+        `q`; no search unit, no window of its own. No tier gating: assets carry none.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-203]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/OrganizationScope'
+        - $ref: '#/components/parameters/PortfolioStatus'
+      responses:
+        '200':
+          description: The organization's fleet inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationAssetPortfolioResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
   /v1/organizations/{public_id}/opportunities:
     parameters:
       - $ref: '#/components/parameters/OrganizationPublicId'
@@ -2079,11 +2151,26 @@ paths:
       description: >-
         Assets this organisation owns or operates, through `asset_owner`: one row per edge, each an `Asset`
         (with `asset_type`, `attributes`, `length_miles`) annotated with `role`, `share_pct` and `as_of` (docs/21
-        §3.23); an asset the organisation both owns and operates appears once per role. `role` and `asset_type`
-        filter the page; `totals` counts the whole set regardless of filters or paging, so the company page can
-        say "operates 3 pipelines, owns 2 plants" from one call. Licence-gated assets are omitted, as on
-        `GET /v1/assets`. Each row's `held_by` names the organisation that holds the edge, which differs from the
-        path organisation only with `include_subsidiaries=true`.
+        §3.23); an asset the organisation both owns and operates appears once per role. `role`, `asset_type`,
+        `status`, `technology` and `state` filter the page; `totals` counts the whole set regardless of filters or
+        paging, so the company page can say "operates 3 pipelines, owns 2 plants" from one call. Licence-gated
+        assets are omitted, as on `GET /v1/assets`. Each row's `held_by` names the organisation that holds the
+        edge, which differs from the path organisation only when `scope` spans subsidiaries.
+
+
+        **The edge's own provenance** (2026-10-21). Each row carries the `asset_owner` edge's provenance as
+        `edge_provenance` (the register that states this organisation holds the asset), beside the asset's own
+        `provenance[]`, and `licence_summary` credits both registers. An edge recorded under a source or licence the
+        caller's tier may not see is omitted, and is not counted in `totals`, as it is omitted from an asset's
+        `owners[]`.
+
+
+        **The portfolio's queries.** `status`, `technology` and `state` (2026-10-21) match the asset's stored value,
+        as on `GET /v1/assets`; a value no asset stores selects nothing. With them every count
+        `GET /v1/organizations/{public_id}/portfolio` returns names a query of this list. `sort=-capacity_mw`
+        orders the rows by the asset's nameplate MW, largest first and assets with none last, then by asset, so
+        one asset's rows are adjacent; without `sort` the rows keep edge order. A cursor is valid only for the
+        order it came from.
       x-tier: public
       x-status: live
       x-sprint: 4
@@ -2092,8 +2179,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/SortOrganizationAssets'
         - $ref: '#/components/parameters/AssetOwnerRoleFilter'
         - $ref: '#/components/parameters/AssetType'
+        - $ref: '#/components/parameters/AssetStatusFilter'
+        - $ref: '#/components/parameters/AssetTechnologyFilter'
+        - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/OrganizationScope'
         - $ref: '#/components/parameters/IncludeSubsidiaries'
       responses:
@@ -6760,6 +6851,43 @@ components:
         type: string
         pattern: '^-?(last_changed|first_seen|name|capacity_mw|retirement_year)(,-?(last_changed|first_seen|name|capacity_mw|retirement_year))*$'
         default: '-last_changed'
+    SortOrganizationAssets:
+      name: sort
+      in: query
+      description: >-
+        `-capacity_mw`: the asset's nameplate MW, largest first, assets with none last, then by asset (so one asset's
+        rows are adjacent). Absent: edge order. Any other value is a `400 validation_error` naming `sort`.
+      schema:
+        type: string
+        enum: ['-capacity_mw']
+    AssetTechnologyFilter:
+      name: technology
+      in: query
+      description: >-
+        The asset's stored technology token (`gas_cc`, `wind`, `depleted_field`, `lfg_electricity`); comma-separated
+        for OR. Matched as stored, as `GET /v1/assets` matches it: an asset's vocabulary is wider than a proposal's,
+        and a value no asset stores selects nothing.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          examples: [gas_cc, wind]
+    PortfolioStatus:
+      name: status
+      in: query
+      description: >-
+        The asset statuses the headline counts (`totals`, `by_role`, `by_technology`, `by_state`, `by_asset_type`);
+        comma-separated. Default `operating,standby,retiring`: what the company runs today. `by_status` counts every
+        status whatever this says. An unknown value is a `400 validation_error`.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/AssetStatus'
+        default: [operating, standby, retiring]
     AssetStatusFilter:
       name: status
       in: query
@@ -10816,7 +10944,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/Asset'
         - type: object
-          required: [role, held_by]
+          required: [role, held_by, edge_provenance]
           properties:
             role:
               $ref: '#/components/schemas/AssetOwnerRole'
@@ -10827,6 +10955,12 @@ components:
               format: date
             held_by:
               $ref: '#/components/schemas/OrganizationSummary'
+            edge_provenance:
+              allOf:
+                - $ref: '#/components/schemas/ProvenanceQuartet'
+              description: >-
+                The `asset_owner` edge's own provenance: the register that states `held_by` holds the asset in this
+                `role` (2026-10-21). `provenance[]` is the asset's.
     OrganizationScopeMeta:
       type: object
       description: >-
@@ -11078,6 +11212,177 @@ components:
               $ref: '#/components/schemas/OrganizationAssetTotals'
             scope:
               $ref: '#/components/schemas/OrganizationScopeMeta'
+    OrganizationAssetsListQuery:
+      type: object
+      description: >-
+        The `GET /v1/organizations/{public_id}/assets` filters that select exactly a portfolio bucket's assets; the
+        bucket's count is the number of distinct `public_id`s that query returns. `scope` is present only when the
+        scope spans more than the organisation.
+      required: [status]
+      properties:
+        scope:
+          type: string
+          enum: [children, all]
+        status:
+          type: string
+          description: Comma-separated asset statuses.
+        role:
+          $ref: '#/components/schemas/AssetOwnerRole'
+        technology:
+          type: string
+        state:
+          type: string
+        asset_type:
+          $ref: '#/components/schemas/AssetType'
+      additionalProperties: false
+    AssetPortfolioTally:
+      type: object
+      description: One bucket of `GET /v1/organizations/{public_id}/portfolio`, counted in distinct assets.
+      required: [assets, capacity_mw, capacity_assets, owned_mw, owned_mw_assets]
+      properties:
+        assets:
+          type: integer
+          minimum: 0
+        capacity_mw:
+          type: [number, 'null']
+          description: Nameplate MW summed over the bucket's assets that state one; `null` when none does.
+        capacity_assets:
+          type: integer
+          minimum: 0
+          description: Assets whose MW is in `capacity_mw`. `assets - capacity_assets` are counted and state no MW.
+        owned_mw:
+          type: [number, 'null']
+          description: >-
+            The owned part of `capacity_mw` over the assets with a stated ownership share: per asset, the largest
+            per-register sum of the scope's holders' shares, capped at 100%. `null` when no asset has one.
+        owned_mw_assets:
+          type: integer
+          minimum: 0
+          description: Assets whose owned MW is in `owned_mw` (a stated share and MW).
+    AssetPortfolioBucket:
+      allOf:
+        - $ref: '#/components/schemas/AssetPortfolioTally'
+        - type: object
+          required: [list_query]
+          properties:
+            list_query:
+              oneOf:
+                - $ref: '#/components/schemas/OrganizationAssetsListQuery'
+                - type: 'null'
+              description: The list query whose distinct assets are this bucket; `null` for a bucket no filter selects.
+    AssetPortfolioRegister:
+      type: object
+      description: A register behind the counted assets, how many of them (any status) it backs, and its latest retrieval.
+      required: [source_id, name, licence_id, reuse_class, attribution_text, assets, retrieved_at_max]
+      properties:
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        name:
+          type: string
+        licence_id:
+          $ref: '#/components/schemas/LicenceIdValue'
+        reuse_class:
+          $ref: '#/components/schemas/ReuseClass'
+        attribution_text:
+          type: [string, 'null']
+        assets:
+          type: integer
+          minimum: 1
+        retrieved_at_max:
+          type: [string, 'null']
+          format: date-time
+    OrganizationAssetPortfolio:
+      type: object
+      required: [organization, scope, statuses, list_query, totals, by_status, by_role, by_technology, by_state, by_asset_type, asset_registers, ownership_registers]
+      properties:
+        organization:
+          $ref: '#/components/schemas/OrganizationSummary'
+        scope:
+          $ref: '#/components/schemas/OrganizationScopeMeta'
+        statuses:
+          type: array
+          description: The asset statuses the headline counts (`status=`, default `operating`, `standby`, `retiring`).
+          items:
+            $ref: '#/components/schemas/AssetStatus'
+        list_query:
+          $ref: '#/components/schemas/OrganizationAssetsListQuery'
+        totals:
+          allOf:
+            - $ref: '#/components/schemas/AssetPortfolioTally'
+          description: The headline. Its list query is `list_query`.
+        by_status:
+          type: array
+          description: Every status in the scope, whatever `status=` says, in vocabulary order; statuses with no asset are left out.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/AssetPortfolioBucket'
+              - type: object
+                required: [status]
+                properties:
+                  status:
+                    $ref: '#/components/schemas/AssetStatus'
+        by_role:
+          type: array
+          description: The headline by the role the scope holds each asset in (`owner`, `operator`); an asset held in both is in both.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/AssetPortfolioBucket'
+              - type: object
+                required: [role]
+                properties:
+                  role:
+                    $ref: '#/components/schemas/AssetOwnerRole'
+        by_technology:
+          type: array
+          description: The headline by stored technology token, largest MW first, `null` (not stated) last.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/AssetPortfolioBucket'
+              - type: object
+                required: [technology]
+                properties:
+                  technology:
+                    type: [string, 'null']
+        by_state:
+          type: array
+          description: The headline by `state_code`, largest MW first, `null` (not stated) last.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/AssetPortfolioBucket'
+              - type: object
+                required: [state_code]
+                properties:
+                  state_code:
+                    type: [string, 'null']
+        by_asset_type:
+          type: array
+          description: The headline by asset type, largest MW first.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/AssetPortfolioBucket'
+              - type: object
+                required: [asset_type]
+                properties:
+                  asset_type:
+                    $ref: '#/components/schemas/AssetType'
+        asset_registers:
+          type: array
+          description: The registers the counted assets' own rows come from; most assets first.
+          items:
+            $ref: '#/components/schemas/AssetPortfolioRegister'
+        ownership_registers:
+          type: array
+          description: The registers of the counted `asset_owner` edges; most assets first.
+          items:
+            $ref: '#/components/schemas/AssetPortfolioRegister'
+    OrganizationAssetPortfolioResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/OrganizationAssetPortfolio'
     InterconnectionPointKind:
       type: string
       enum: [substation, line_tap, unknown]

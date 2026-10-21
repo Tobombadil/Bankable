@@ -13,8 +13,22 @@ freezes its startup heap and carries no such backlog. So each timed call starts 
 from __future__ import annotations
 
 import gc
+import statistics
+import time
+from collections.abc import Callable
 
 
 def settle_heap() -> None:
     """Run the cyclic collector now, so a pending full collection is not billed to the next timed call."""
     gc.collect()
+
+
+def median_seconds(call: Callable[[], object], runs: int = 5) -> float:
+    """The median wall-clock time of `runs` calls of `call`, each started from a settled heap."""
+    timings = []
+    for _ in range(runs):
+        settle_heap()
+        start = time.perf_counter()
+        call()
+        timings.append(time.perf_counter() - start)
+    return statistics.median(timings)

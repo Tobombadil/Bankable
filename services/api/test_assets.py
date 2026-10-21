@@ -4,7 +4,10 @@
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import itertools
+import json
 import pathlib
 
 import pytest
@@ -20,6 +23,7 @@ from services.api.conftest import (
     make_public_source,
     make_visible_proposal,
 )
+from services.db.models import Licence
 from tests.test_api_contract import assert_valid
 
 UTC = dt.UTC
@@ -321,6 +325,190 @@ def test_organization_assets_lists_role_and_share(client, db):
 def test_organization_assets_404_for_unknown_org(client, db):
     resp = client.get("/v1/organizations/org_doesnotexist/assets")
     assert resp.status_code == 404
+
+
+def _named_source(db, lic, id_, name, publish_state="public"):
+    src = make_public_source(db, lic, id_=id_)
+    src.name, src.url, src.publish_state = name, f"https://example.org/{id_}", publish_state
+    db.flush()
+    return src
+
+
+def _restricted_licence(db):
+    lic = Licence(
+        id="restricted-lic",
+        name="Restricted Licence",
+        reuse_class="restricted",
+        allows_derived_publication=False,
+        allows_raw_publication=False,
+        allows_api_redistribution=False,
+        allows_bulk_export=False,
+        allows_commercial_use=False,
+        gate_flag=True,
+        evidence_url="https://example.org/restricted",
+        evidence_retrieved_at=dt.datetime(2026, 9, 1, tzinfo=UTC),
+        classified_by="legal-compliance",
+    )
+    db.add(lic)
+    db.flush()
+    return lic
+
+
+def test_organization_assets_filter_on_status_technology_and_state(client, db):
+    """2026-10-21: the filters the portfolio's counts name (`services/api/org_portfolio.py`). The
+    stored token is matched, as on `GET /v1/assets`: `depleted_field` is no proposal technology."""
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    org = make_org(db, "Filter Co")
+    rows = [
+        ("Gas Plant", "power_plant", "gas_cc", "US-TX", "operating"),
+        ("Old Coal", "power_plant", "coal", "US-OH", "retired"),
+        ("Wind Farm", "power_plant", "wind", "US-TX", "retiring"),
+        ("Storage Field", "gas_storage", "depleted_field", "US-OK", "standby"),
+    ]
+    for i, (name, type_, tech, state, status) in enumerate(rows):
+        asset = make_asset(
+            db,
+            src,
+            lic,
+            source_asset_id=str(i),
+            name=name,
+            asset_type=type_,
+            technology=tech,
+            state_code=state,
+        )
+        asset.status = status
+        make_asset_owner(db, asset, org, src, lic)
+    db.commit()
+    path = f"/v1/organizations/{org.public_id}/assets"
+
+    def names(**params):
+        resp = client.get(path, params=params)
+        assert resp.status_code == 200, resp.text
+        return sorted(r["name"] for r in resp.json()["data"])
+
+    assert names(status="operating,standby,retiring") == ["Gas Plant", "Storage Field", "Wind Farm"]
+    assert names(status="retired") == ["Old Coal"]
+    assert names(technology="depleted_field") == ["Storage Field"]
+    assert names(technology="gas_cc,wind", state="US-TX") == ["Gas Plant", "Wind Farm"]
+    assert names(state="US-TX", status="retiring") == ["Wind Farm"]
+    assert names(technology="unobtanium") == []  # a value nothing stores selects nothing
+    assert client.get(path, params={"status": "planned"}).status_code == 400
+    # `totals` still counts the whole set, whatever the filters.
+    assert client.get(path, params={"status": "retired"}).json()["totals"]["assets"] == 4
+
+
+def test_organization_assets_sort_by_capacity_pages_largest_first_one_asset_at_a_time(client, db):
+    lic = make_open_licence(db)
+    src = make_public_source(db, lic)
+    org = make_org(db, "Sorted Co")
+    sub = make_org(db, "Sorted Sub")
+    sub.parent_org_id = org.id
+    for i, mw in enumerate([100.0, 300.0, None, 300.0, 50.5, None]):
+        asset = make_asset(db, src, lic, source_asset_id=str(i), name=f"Plant {i}", capacity_mw=mw)
+        make_asset_owner(db, asset, org, src, lic)
+        if i % 2 == 0:  # a second edge on some: the two rows of one asset must stay adjacent
+            make_asset_owner(db, asset, sub, src, lic, share_pct=None)
+    db.commit()
+    path = f"/v1/organizations/{org.public_id}/assets"
+
+    seen, cursor, pages = [], None, 0
+    while True:
+        params = {
+            "sort": "-capacity_mw",
+            "scope": "children",
+            "limit": 2,
+            **({"cursor": cursor} if cursor else {}),
+        }
+        body = client.get(path, params=params).json()
+        seen.extend((r["name"], r["capacity_mw"], r["held_by"]["name_canonical"]) for r in body["data"])
+        cursor, pages = body["page"]["next_cursor"], pages + 1
+        if not cursor:
+            break
+    assert pages == 5 and len(seen) == 9 and len(set(seen)) == 9  # every edge once
+    capacities = [mw for _, mw, _ in seen]
+    stated = [mw for mw in capacities if mw is not None]
+    assert stated == sorted(stated, reverse=True) and capacities[len(stated) :] == [None] * 3  # MW-less last
+    # One run per asset: its two rows are adjacent even across a page boundary.
+    runs = [name for name, _ in itertools.groupby(name for name, _, _ in seen)]
+    assert len(runs) == len(set(runs)) == 6
+
+    assert client.get(path, params={"sort": "capacity_mw"}).status_code == 400
+    assert client.get(path, params={"sort": "name"}).json()["errors"][0]["field"] == "sort"
+    # A cursor is valid only for the order it came from.
+    default_cursor = client.get(path, params={"limit": 1}).json()["page"]["next_cursor"]
+    capacity_cursor = client.get(path, params={"limit": 1, "sort": "-capacity_mw"}).json()["page"][
+        "next_cursor"
+    ]
+    assert client.get(path, params={"sort": "-capacity_mw", "cursor": default_cursor}).status_code == 400
+    assert client.get(path, params={"cursor": capacity_cursor}).status_code == 400
+    nil = "00000000-0000-0000-0000-000000000000"
+    for payload in (
+        {"v": "abc", "id": f"{nil}/{nil}"},
+        {"v": "1.5", "id": f"{nil}/x"},
+        {"v": None, "id": "y/"},
+        {"v": "1.5", "id": nil},  # a default-order id: no asset half
+    ):
+        raw = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+        resp = client.get(path, params={"sort": "-capacity_mw", "cursor": raw})
+        assert resp.status_code == 400 and resp.json()["code"] == "invalid_cursor", payload
+
+
+def test_organization_assets_rows_carry_the_edge_provenance_and_credit_its_register(client, db, spec):
+    lic = make_open_licence(db)
+    plants = _named_source(db, lic, "us.test.plants", "Test Plant Register")
+    owners = _named_source(db, lic, "us.test.owner_shares", "Test Owner Shares")
+    org = make_org(db, "Provenance Co")
+    asset = make_asset(db, plants, lic, source_asset_id="1", name="Credited Plant")
+    edge = make_asset_owner(db, asset, org, owners, lic, share_pct=25.0)
+    edge.source_url = "https://example.org/us.test.owner_shares#row-7"
+    edge.retrieved_at = dt.datetime(2026, 10, 9, 22, 27, tzinfo=UTC)
+    db.commit()
+
+    body = client.get(f"/v1/organizations/{org.public_id}/assets").json()
+    assert_valid(spec, "OrganizationAssetsResponse", body)
+    row = body["data"][0]
+    assert row["edge_provenance"] == {
+        "source_id": "us.test.owner_shares",
+        "source_name": "Test Owner Shares",
+        "source_url": "https://example.org/us.test.owner_shares#row-7",
+        "retrieved_at": "2026-10-09T22:27:00Z",
+        "licence_id": "open-lic",
+        "reuse_class": "open",
+        "attribution_text": None,
+    }
+    assert [p["source_id"] for p in row["provenance"]] == ["us.test.plants"]  # the asset's own
+    credited = {s["source_id"]: s for s in body["licence_summary"]["sources"]}
+    assert set(credited) == {"us.test.plants", "us.test.owner_shares"}
+    assert credited["us.test.owner_shares"]["retrieved_at_max"] == "2026-10-09T22:27:00Z"
+    assert all(s["record_count"] == 1 for s in credited.values())
+
+
+def test_organization_assets_omit_an_edge_only_a_hidden_register_states(client, db):
+    """docs/21 §8 item 3: the asset detail already drops such an edge from `owners[]`; until
+    2026-10-21 the organisation's own list still served it as a row and counted it in `totals`."""
+    lic = make_open_licence(db)
+    plants = _named_source(db, lic, "us.test.plants", "Test Plant Register")
+    restricted = _named_source(db, _restricted_licence(db), "us.test.restricted_owners", "Restricted Owners")
+    staged = _named_source(db, lic, "us.test.staged_owners", "Staged Owners", publish_state="ingest_only")
+    org = make_org(db, "Shadow Holder")
+    shown = make_asset(db, plants, lic, source_asset_id="1", name="Openly Held Plant")
+    make_asset_owner(db, shown, org, plants, lic)
+    gated = make_asset(db, plants, lic, source_asset_id="2", name="Quietly Held Plant")
+    make_asset_owner(db, gated, org, restricted, db.get(Licence, "restricted-lic"))
+    make_asset_owner(db, gated, org, staged, lic, role="operator", share_pct=None)
+    db.commit()
+
+    resp = client.get(f"/v1/organizations/{org.public_id}/assets")
+    body = resp.json()
+    assert [r["name"] for r in body["data"]] == ["Openly Held Plant"]
+    assert body["totals"]["assets"] == 1 and body["totals"]["by_role"] == {"owner": 1}
+    for text in ("Quietly Held Plant", "us.test.restricted_owners", "us.test.staged_owners"):
+        assert text not in resp.text
+    # The organisation page's counts read the same totals.
+    assert client.get(f"/v1/organizations/{org.public_id}").json()["data"]["asset_counts"]["assets"] == 1
+    # The asset stays visible on its own: only the edge is a hidden register's statement.
+    assert client.get(f"/v1/assets/{gated.public_id}").json()["data"]["owners"] == []
 
 
 def test_list_assets_filters_by_slug(client, db):
