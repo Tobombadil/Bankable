@@ -13,10 +13,24 @@ D-16 fixes the shape: Public (`inframation.io`, no key), Pro (same host, entitle
 Admin (`admin.` host, role `operator`/`owner`). D-4 and D-17 fix the rule governing every screen below: one filter
 vocabulary, one URL grammar (`docs/23` §7), shared across list, map and feed, on every tier — a tier changes what
 a query returns, never its shape. Primary nav is identical across public and Pro. ~~**Proposals · Opportunities ·
-Map · Feed · Alerts · API**~~ — as built (2026-10-07, audit UX-7): **Map · Proposals · Opportunities · Assets ·
-Grid connection points · Companies · About & sources · Pricing · Alerts · Sign in**. Feed and API are not nav items:
-every list's "View as" switch carries its RSS twin, and the footer links **API and feeds** (`/docs/api`). Depth ≤ 3
-clicks to any record (D-16); breadcrumbs on every record page. **As built, 2026-10-10 (pre-beta, owner: paid tiers stay
+Map · Feed · Alerts · API**~~, then ~~**Map · Proposals · Opportunities · Assets · Grid connection points · Companies ·
+About & sources · Pricing · Alerts · Sign in**~~ (as built 2026-10-07, audit UX-7) — **as built 2026-10-21
+(`docs/16` §3.1, U-6): Map · Projects · Companies · RFPs & funding · Infrastructure · Alerts**, then Pricing (only
+under the `commercial` posture, below), Sign in and the search box. Routes are unchanged: `/`, `/proposals`,
+`/organizations`, `/opportunities`, `/assets`, `/alerts`. **Infrastructure** is one H1, "Existing infrastructure",
+over two tabs that are plain links to their own URLs, *Plants, pipelines & lines* (`/assets`) and *Grid connection
+points* (`/interconnection-points`), in a `<nav aria-label="Infrastructure sections">`, not a `role="tablist"`
+(`docs/16` §3.2). The link to the current page carries `aria-current="page"`; the link to the section holding it (a
+record page, the other Infrastructure tab) carries `aria-current="true"`; weight and an underline are the visible echo.
+**About & sources** is reference, not a destination: a utility link in the masthead beside the freshness line, in the
+Menu panel below 720px (where the masthead is hidden), and in the footer. The names are the coordinator's
+recommendation pending the owner's ratification (`docs/16` §7 question 1), so they live in one template,
+`web/templates/partials/_sections.html`, which the nav, masthead, footer and list headers read: a rename is one line.
+Feed and API are not nav items: every list's "View as" switch carries its RSS twin, and the footer links **API and
+feeds** (`/docs/api`). Depth ≤ 3 clicks to any record (D-16); breadcrumbs on every record page. The five list pages
+carry none (from 2026-10-21; `/proposals` and `/opportunities` never did): the nav marks where the reader is, and the
+space goes to data (U-17: the first row now starts under 450px at 1440 on all five, against 488–689px in `docs/16`
+§1.2). **As built, 2026-10-10 (pre-beta, owner: paid tiers stay
 off and must not distract the beta):** under the `noncommercial` posture "Pricing" is left out of the primary nav on
 every page (`web/page.py::paid_tiers_offered`, read from `GET /v1/health` `posture` once per request and registered on
 all four environments that render `base.html`); `/pricing` still answers by URL with its posture notice. The footer
@@ -25,13 +39,18 @@ does not report the free-alert offer), `/docs/api` says API keys belong to the p
 of pointing at Pricing, the alerts pages drop "See what the plans include", and `/about` drops its "The paid tier is
 workflow" line. Under `commercial` all of it is as before (`web/test_paid_tiers_posture.py`).
 
-**Names (2026-10-07, audit UX-7).** One reader-facing term per concept, in nav, H1, breadcrumbs, column heads and
-search headings. Where this doc did not settle a term, the choice and its reason are recorded here.
+**Names (2026-10-07, audit UX-7; sections renamed 2026-10-21, `docs/16` §3.1).** One reader-facing term per concept,
+in nav, H1, breadcrumbs, column heads and search headings. Where this doc did not settle a term, the choice and its
+reason are recorded here. Section names (nav, list H1s, tab labels) are read from
+`web/templates/partials/_sections.html`, never spelled in a page template.
 
 | Concept | Term on public pages | Not used | Note |
 |---|---|---|---|
-| Organisation (docs/21 `organization`) | **Company / Companies** | Organisation(s), Organization | §3.2 already named the nav item and index "Companies". A public body that issues tenders is still listed under it. Admin keeps the API's word, "Organization". |
-| Interconnection point (docs/21 §3.24) | **Grid connection point(s)** | Grid points, Grid interconnection points | This doc never named it; the nav said "Grid points" and the page "Grid interconnection points". Chosen as plain words that fit the nav; the URL `/interconnection-points` and the entity name are unchanged, and the proposal field "Connects at" already uses the verb. |
+| Proposal (docs/21 `proposal`), the supply side | **Project(s)**: nav "Projects", list H1 "Projects in development", standfirst "Supply side: …" | Proposal(s) as a section name | 2026-10-21, `docs/16` §3.1: "project" is the developers', investors' and utilities' word, and "Proposals" beside "Opportunities" read as synonyms. Pending the owner's ratification (§7 question 1). Routes, API and data model keep `proposal`. As built in the nav, the list H1 and title, and the footer; record-page breadcrumbs, the company and connection-point list headings (`web/list_subject.py`), counts, column heads and JSON-LD names still say "Proposals" and follow in the lanes that own them. |
+| Opportunity (docs/21 `opportunity`), the demand side | **RFPs & funding** (nav); list H1 "RFPs, tenders and funding", standfirst "Demand side: …" | Opportunities as a section name | Same date, reason and status as the row above: it says what the rows are (RFPs, tenders, grants). Record-page breadcrumbs and JSON-LD names still say "Opportunities". |
+| Existing assets and grid connection points, together | **Infrastructure** (nav); H1 "Existing infrastructure"; tabs *Plants, pipelines & lines* (`/assets`) · *Grid connection points* (`/interconnection-points`) | Assets as a section name | Same date and status. One home for what already exists; "asset" stays the word for one plant, pipeline or line (row counts, record pages, the type chips' "Assets by type"). |
+| Organisation (docs/21 `organization`) | **Company / Companies** | Organisation(s), Organization | §3.2 already named the nav item and index "Companies". A public body that issues tenders is still listed under it. Admin keeps the API's word, "Organization". Third in the nav from 2026-10-21 (`docs/16` §3.1: the join between projects, RFPs and assets). |
+| Interconnection point (docs/21 §3.24) | **Grid connection point(s)** | Grid points, Grid interconnection points, Interconnection points | This doc never named it; the nav said "Grid points" and the page "Grid interconnection points". Chosen as plain words that fit the nav; the URL `/interconnection-points` and the entity name are unchanged, and the proposal field "Connects at" already uses the verb. From 2026-10-21 the second Infrastructure tab; the list's empty state still says "interconnection points" (`partials/_interconnection_point_rows.html`). |
 | Lifecycle state | **Status** (the filter), with the legend's groups: Announced · In process · Contracted · Built or operating · Withdrawn or cancelled · Status unknown | Lifecycle (on public pages) | Groups, not the eleven tokens, as the map legend already does (docs/31 §1.2). |
 | Location | Open | — | "Jurisdiction" (proposals), "State" (asset filter), "Location" (asset list) still all hold `US-TX`; not settled in this lane. |
 

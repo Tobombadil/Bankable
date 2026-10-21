@@ -15,6 +15,7 @@ no `web/test_*.py` imports another).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from typing import Any
 
@@ -114,8 +115,11 @@ def test_noncommercial_leaves_pricing_out_of_the_navigation(
     nav = resp.text.split('aria-label="Primary"', 1)[1].split("</nav>", 1)[0]
     assert 'href="/pricing"' not in nav, path
     assert NAV_LINK not in resp.text, path
-    # The rest of the navigation is unchanged.
-    assert '<a href="/about">About &amp; sources</a>' in nav and '<a href="/alerts">Alerts</a>' in nav
+    # The rest of the navigation is unchanged: the six section links (docs/16 §3.1), with About &
+    # sources beside the freshness line rather than among them.
+    hrefs = re.findall(r'<a href="([^"]+)"(?: aria-current="(?:page|true)")?>', nav)
+    assert hrefs[:6] == ["/", "/proposals", "/organizations", "/opportunities", "/assets", "/alerts"], path
+    assert 'href="/about"' not in nav and '<a class="masthead__about" href="/about"' in resp.text, path
 
 
 @pytest.mark.parametrize("path", PAGES)
@@ -126,7 +130,8 @@ def test_commercial_keeps_pricing_in_the_navigation(
     resp = client.get(path)
     assert resp.status_code == 200, path
     nav = resp.text.split('aria-label="Primary"', 1)[1].split("</nav>", 1)[0]
-    assert NAV_LINK in nav, path
+    # On /pricing itself the link is marked as the current page.
+    assert re.search(r'<a href="/pricing"(?: aria-current="page")?>Pricing</a>', nav), path
 
 
 @pytest.mark.parametrize("path", [p for p in PAGES if p != "/pricing"])

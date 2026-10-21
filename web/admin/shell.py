@@ -50,6 +50,7 @@ ADMIN_NAV: tuple[tuple[str, str, str], ...] = (
 )
 templates.env.globals["ADMIN_NAV"] = ADMIN_NAV
 templates.env.globals["asset_version"] = ASSET_VERSION
+templates.env.globals["section_labels"] = labels.SECTION_LABELS
 
 router = APIRouter()
 

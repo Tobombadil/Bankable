@@ -487,7 +487,7 @@ def test_record_pages_emit_a_breadcrumb_list(web_client: TestClient) -> None:
     assert crumbs["@context"] == "https://schema.org"
     assert [(i["position"], i["name"], i["item"]) for i in crumbs["itemListElement"]] == [
         (1, "Home", "http://testserver/"),
-        (2, "Assets", "http://testserver/assets"),
+        (2, "Infrastructure", "http://testserver/assets"),
         (3, "Roscoe Wind Farm", "http://testserver/assets/roscoe-wind-farm-tx"),
     ]
     assert all(item["@type"] == "ListItem" for item in crumbs["itemListElement"])

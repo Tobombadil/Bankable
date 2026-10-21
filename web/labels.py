@@ -589,3 +589,22 @@ def install(env: Any) -> None:
     # Number and date formats (docs/31 §4, audit 2026-10-07 UX-8) ride on the same call, so every
     # environment that can render `_macros.html` has them.
     formatting.install(env)
+
+
+#: The public site's section names (docs/16 §3.1, U-6): the one place they live, so renaming a section
+#: is a one-line change. `partials/_sections.html` reads them through the `section_labels` Jinja global
+#: (nav, masthead, footer, list headers, record breadcrumbs) and the page routes read them for the
+#: JSON-LD breadcrumbs, so the visible and structured breadcrumbs cannot disagree. They are the
+#: coordinator's recommendation pending the owner's ratification (docs/16 §7 question 1); routes, the
+#: API and the data model keep `proposal`, `opportunity`, `asset` and `interconnection point`.
+SECTION_LABELS: dict[str, str] = {
+    "map": "Map",
+    "projects": "Projects",
+    "companies": "Companies",
+    "rfps": "RFPs & funding",
+    "infrastructure": "Infrastructure",
+    "alerts": "Alerts",
+    "about": "About & sources",
+    "assets": "Plants, pipelines & lines",
+    "points": "Grid connection points",
+}

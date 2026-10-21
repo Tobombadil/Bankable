@@ -1852,3 +1852,112 @@ def test_smoke_pricing_page_reached_from_the_nav_and_legible_at_400px(server: ob
             page.screenshot(path=str(SCREENSHOT_DIR / "pricing-400.png"), full_page=True)
         finally:
             browser.close()
+
+
+# ============================================================================================
+# Navigation (docs/16 §3.1-3.2, U-6, U-17, U-24): six sections named for supply and demand, the
+# Infrastructure tabs, list headers short enough to show data in the first screen, a favicon.
+
+SECTIONS = ["Map", "Projects", "Companies", "RFPs & funding", "Infrastructure", "Alerts"]
+LIST_PATHS = ("/proposals", "/opportunities", "/organizations", "/assets", "/interconnection-points")
+#: Measured as production lays the page out: this server runs with WEB_DEV_PREVIEW=1, whose notice
+#: (`.preview-banner`, about 53px) no production page shows, so it is taken out first.
+_FIRST_ROW_JS = """() => {
+  document.querySelectorAll('.preview-banner').forEach((el) => el.remove());
+  const top = (el) => el ? el.getBoundingClientRect().top + window.scrollY : null;
+  const row = document.querySelector('table.record-table tbody tr');
+  return [top(row), top(document.getElementById('result-rows'))];
+}"""
+
+
+def test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_favicon(
+    server: object,
+) -> None:
+    """Owner, 2026-10-20: "proposals vs opportunities are a bit confusing". At 1440: six links in
+    order, the current one marked; About & sources in the masthead; on every list the first row
+    starts under 450px (it was 488-689px, docs/16 §1.2); the favicon loads, so no page logs a 404
+    for it. At 400: the six links and About & sources behind Menu, the tabs on one screen width."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            wide = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(wide)
+            icon_responses: list[tuple[str, int]] = []
+            wide.on(
+                "response", lambda r: icon_responses.append((r.url, r.status)) if "icon" in r.url else None
+            )
+            measured = 0
+            for path in LIST_PATHS:
+                wide.goto(BASE_URL + path)
+                links = wide.locator(".primary-nav a")
+                assert links.all_inner_texts()[:6] == SECTIONS, path
+                current = wide.locator(".primary-nav a[aria-current]")
+                assert current.count() == 1, path
+                expected = {"/proposals": "Projects", "/opportunities": "RFPs & funding"}.get(path)
+                expected = expected or ("Companies" if path == "/organizations" else "Infrastructure")
+                assert current.inner_text() == expected, path
+                assert wide.locator(".masthead__about").is_visible(), path
+                assert wide.locator(".site-nav-panel__about").is_hidden(), path
+                row, rows_block = wide.evaluate(_FIRST_ROW_JS)
+                # Not every list has rows in the e2e store; where none, the block they would fill.
+                assert (row if row is not None else rows_block) < 450, (
+                    f"{path}: first row at {row}, rows at {rows_block}"
+                )
+                measured += row is not None
+            assert measured, "no list had a row to measure"
+            wide.goto(BASE_URL + "/interconnection-points")
+            tabs = wide.locator('nav.section-tabs[aria-label="Infrastructure sections"] a')
+            assert tabs.all_inner_texts() == ["Plants, pipelines & lines", "Grid connection points"]
+            assert tabs.nth(1).get_attribute("aria-current") == "page"
+            assert tabs.nth(0).get_attribute("aria-current") is None
+            assert wide.locator('[role="tablist"], [role="tab"]').count() == 0
+            tabs.nth(0).click()
+            wide.wait_for_url("**/assets")
+            assert (
+                wide.locator(".section-tabs a[aria-current='page']").inner_text()
+                == "Plants, pipelines & lines"
+            )
+            assert wide.locator("h1").inner_text() == "Existing infrastructure"
+            svg = wide.request.get(BASE_URL + "/static/img/favicon.svg")
+            assert svg.status == 200 and svg.headers["content-type"].startswith("image/svg+xml")
+            assert not [u for u, status in icon_responses if status >= 400], icon_responses
+            wide.screenshot(path=str(SCREENSHOT_DIR / "nav-assets-1440.png"))
+
+            narrow = browser.new_page(viewport=NARROW_VIEWPORT)
+            _install_offline_routes(narrow)
+            narrow.goto(BASE_URL + "/interconnection-points")
+            assert narrow.locator(".masthead").is_hidden()
+            menu = narrow.locator(".nav-toggle")
+            assert narrow.locator(".primary-nav").is_hidden()
+            menu.click()
+            assert narrow.locator(".primary-nav a").all_inner_texts()[:6] == SECTIONS
+            about = narrow.locator(".site-nav-panel__about a")
+            assert about.is_visible() and about.inner_text() == "About & sources"
+            menu.click()
+            tab_boxes = [narrow.locator(".section-tabs a").nth(i).bounding_box() for i in range(2)]
+            assert all(box is not None and box["x"] + box["width"] <= 400 for box in tab_boxes), tab_boxes
+            overflow = narrow.evaluate(
+                "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+            )
+            assert overflow <= 0, f"page scrolls horizontally at 400px by {overflow}px"
+            narrow.screenshot(path=str(SCREENSHOT_DIR / "nav-points-400.png"))
+        finally:
+            browser.close()
+
+
+def test_list_pages_never_scroll_sideways_at_the_breakpoint(server: object) -> None:
+    """Review of lane w1-nav: from 720px the list heads do not wrap, so the visually hidden spans
+    in them escaped `.table-scroll` and widened the page (856px at a 720px viewport once the
+    Company column landed). docs/31 §3: the page body never scrolls horizontally."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for width in (720, 723, 1024):
+                page = browser.new_page(viewport={"width": width, "height": 900})
+                _install_offline_routes(page)
+                page.goto(BASE_URL + "/proposals")
+                page.wait_for_selector(".record-table")
+                assert page.evaluate("document.documentElement.scrollWidth") <= width, width
+                page.close()
+        finally:
+            browser.close()

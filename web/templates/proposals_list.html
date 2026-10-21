@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}{{ subject.heading if subject else 'Proposals' }} — Inframation{% endblock %}
+{% import "partials/_sections.html" as sections %}
+{% block title %}{{ subject.heading if subject else sections.heading.projects }} — Inframation{% endblock %}
 {% block meta_description %}{{ sources_phrase }}, filterable by kind, technology, lifecycle state, jurisdiction and capacity.{% endblock %}
 {% block content %}
 <div class="page-header">
   {#- A list about one company, its group or one connection point says so, with a link back to that
       page (web/list_subject.py); the form below keeps the filter that makes it so. -#}
-  <h1>{{ subject.heading if subject else 'Proposals' }}</h1>
+  <h1>{{ subject.heading if subject else sections.heading.projects }}</h1>
   {% if subject and subject.href %}<p>{{ subject.link_label }}: <a href="{{ subject.href }}">{{ subject.name }}</a></p>{% endif %}
-  <p>Supply-side records: interconnection queue positions, planned generation and storage units, and data-centre sites from air-permit registers. Where two sources describe one project and have been matched, it is one row.</p>
-  {#- docs/30 §4.5 and IA-3: the intake form is entered from the two list pages. -#}
-  <p>Know of a project that is not listed? <a href="/submit">Submit it for review</a>.</p>
+  {#- One line (docs/16 §3.1, U-17) that says which side of the market the rows are. docs/30 §4.5
+      and IA-3: the intake form is entered from the two list pages. -#}
+  <p>Supply side: grid-queue requests, permits and planned plants, matched across registers. Know of a project that is not listed? <a href="/submit">Submit it for review</a>.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 

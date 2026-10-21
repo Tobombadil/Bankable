@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Inframation favicon (docs/16 U-24). Palette from styles.css: ink #16324f, paper #f6f4ef,
+       copper tint #e0b58a and copper deep #8a4614. Inverted for a dark browser theme, so the ground
+       never sinks into a dark tab strip. favicon.ico and apple-touch-icon.png draw the same shapes. -->
+  <style>
+    .ground { fill: #16324f; }
+    .mark { fill: #f6f4ef; }
+    .dot { fill: #e0b58a; }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: #f6f4ef; }
+      .mark { fill: #16324f; }
+      .dot { fill: #8a4614; }
+    }
+  </style>
+  <rect class="ground" width="32" height="32" rx="6"/>
+  <path class="mark" d="M8 6h12v3h-4v14h4v3H8v-3h4V9H8z"/>
+  <circle class="dot" cx="24.5" cy="23.5" r="2.5"/>
+</svg>

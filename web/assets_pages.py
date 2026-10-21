@@ -35,6 +35,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.datastructures import QueryParams
 
+from web import labels
 from web.api_client import ApiClient, ApiError, ApiNotFound
 from web.labels import data_notes, labelled_attributes
 from web.page import (
@@ -338,7 +339,14 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
             "tile_mode": tile_mode,
             "canonical_path": path,
             "jsonld": [
-                breadcrumb_jsonld(request, [("Home", "/"), ("Assets", "/assets"), (record["name"], path)])
+                breadcrumb_jsonld(
+                    request,
+                    [
+                        ("Home", "/"),
+                        (labels.SECTION_LABELS["infrastructure"], "/assets"),
+                        (record["name"], path),
+                    ],
+                )
             ],
         },
     )

@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from web import formatting
+from web import formatting, labels
 from web.api_client import ApiError, ApiNotFound
 from web.page import (
     breadcrumb_jsonld,
@@ -252,7 +252,8 @@ def interconnection_point_detail(request: Request, public_id: str) -> HTMLRespon
                     request,
                     [
                         ("Home", "/"),
-                        ("Grid connection points", "/interconnection-points"),
+                        (labels.SECTION_LABELS["infrastructure"], "/assets"),
+                        (labels.SECTION_LABELS["points"], "/interconnection-points"),
                         (record["name"], path),
                     ],
                 )

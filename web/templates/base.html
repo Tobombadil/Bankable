@@ -1,3 +1,6 @@
+{#- The section names, routes and `aria-current` rule (docs/16 §3.1, U-6) live in one partial, so a
+    rename is one line there. -#}
+{%- import "partials/_sections.html" as sections -%}
 <!doctype html>
 <html lang="en">
 <head>
@@ -54,6 +57,13 @@
 <link rel="preload" href="/static/fonts/IBMPlexSans-SemiBold-Latin1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/newsreader-latin-600.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/css/styles.css?v={{ asset_version }}">
+{#- Favicon (docs/16 §2, U-24): the SVG, which follows the reader's colour scheme, where the browser
+    takes one; the ICO (16, 32 and 48px) where it does not, with `sizes` so a browser that takes
+    SVG does not prefer it; the 180px PNG for iOS home screens. Declared on every page, so browsers
+    stop asking for `/favicon.ico` (a 404 and a console error on every load). -#}
+<link rel="icon" href="/static/img/favicon.ico" sizes="32x32">
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
 {#- UX-6: a list's feed twin, for feed readers (`web/feeds.py::feed_href`). -#}
 {%- if feed_alternate %}
 <link rel="alternate" type="application/rss+xml" title="{{ feed_alternate.title }}" href="{{ feed_alternate.href }}">
@@ -89,6 +99,10 @@
       tier notice to carry it (review 2026-10-10 §2.6 item 2). -#}
   <div class="masthead{% block masthead_modifier %}{% endblock %}">
     <span class="masthead__ref">Inframation register &middot; public edition</span>
+    {#- About & sources is reference, not a destination (docs/16 §3.1): a utility link beside the
+        freshness line, and in the footer. Below 720px, where the masthead is hidden, the Menu
+        panel carries it instead. -#}
+    <span class="masthead__util">
     <span class="masthead__lag">
       {%- if fresh.available and not fresh.behind -%}
       All {{ fresh.scheduled }} scheduled sources fetched on schedule
@@ -98,48 +112,49 @@
       <a href="/methodology#vintage">Source fetch dates</a>
       {%- endif -%}
     </span>
+    <a class="masthead__about" href="{{ sections.href.about }}"{{ sections.current('about', request.url.path) }}>{{ sections.label.about }}</a>
+    </span>
   </div>
   <div class="site-header__bar">
     <a class="wordmark" href="/">Inframation</a>
-    {#- Designer audit D-4, docs/31 §3: below 720px the nine links and the search box collapse
-        behind one "Menu" button (a disclosure; site.js). Without scripts the button is not shown
-        and the links stay open, as before. -#}
+    {#- Designer audit D-4, docs/31 §3: below 720px the links and the search box collapse behind one
+        "Menu" button (a disclosure; site.js). Without scripts the button is not shown and the
+        links stay open, as before. -#}
     <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav-panel">Menu</button>
     <div class="site-nav-panel" id="site-nav-panel">
+    {#- Six destinations (docs/16 §3.1, U-6). The current one carries `aria-current` and, as its
+        visible echo, weight and an underline (styles.css). -#}
     <nav class="primary-nav" aria-label="Primary">
-      <a href="/">Map</a>
-      <a href="/proposals">Proposals</a>
-      <a href="/opportunities">Opportunities</a>
-      <a href="/assets">Assets</a>
-      <a href="/interconnection-points">Grid connection points</a>
-      <a href="/organizations">Companies</a>
-      <a href="/about">About &amp; sources</a>
+      {%- for key in sections.primary %}
+      <a href="{{ sections.href[key] }}"{{ sections.current(key, request.url.path) }}>{{ sections.label[key] }}</a>
+      {%- endfor %}
       {#- Owner, 2026-10-10: paid tiers stay off and must not distract the private beta. Under the
           noncommercial posture the link is left out; /pricing still answers by URL and says why
           the tiers are not offered (`web/page.py::paid_tiers_offered`, docs/26 §3). -#}
       {%- if paid_tiers_offered(request) %}
-      <a href="/pricing">Pricing</a>
+      <a href="/pricing"{% if request.url.path == '/pricing' %} aria-current="page"{% endif %}>Pricing</a>
       {%- endif %}
-      <a href="/alerts">Alerts</a>
       {% if request.cookies.get('session') %}
-      <a href="/account">Account</a>
+      <a href="/account"{% if request.url.path == '/account' %} aria-current="page"{% endif %}>Account</a>
       {% else %}
-      <a href="/login">Sign in</a>
+      <a href="/login"{% if request.url.path == '/login' %} aria-current="page"{% endif %}>Sign in</a>
       {% endif %}
     </nav>
     <form class="site-search" action="/search" method="get" role="search" aria-label="Site search">
-      <label class="visually-hidden" for="site-search-q">Search proposals and opportunities</label>
+      <label class="visually-hidden" for="site-search-q">Search projects, companies, RFPs and infrastructure</label>
       <input id="site-search-q" type="search" name="q" placeholder="Search by name, sponsor, queue ID&hellip;" value="{{ request.query_params.get('q', '') }}">
       <button type="submit">Search</button>
     </form>
+    <p class="site-nav-panel__about"><a href="{{ sections.href.about }}"{{ sections.current('about', request.url.path) }}>{{ sections.label.about }}</a></p>
     </div>
   </div>
 </header>
-<main id="main">
+{#- The five list pages share a compact header (U-17); which pages they are is in the sections partial. -#}
+<main id="main"{% if request.url.path in sections.list_pages %} class="list-page"{% endif %}>
 {% block content %}{% endblock %}
 </main>
 <footer class="site-footer">
-  <p>Every proposal, opportunity and change event is public as soon as it is ingested. <a href="/about#sources">Sources and licences</a>. <a href="/methodology">Coverage and methodology</a>. <a href="/attribution">Attribution</a>. <a href="/legal/reuse">Reuse conditions</a>. <a href="/docs/api">API and feeds</a>. <a href="/privacy">Privacy</a>.</p>
+  <p>Every project, RFP, funding notice and change event is public as soon as it is ingested. <a href="{{ sections.href.about }}">{{ sections.label.about }}</a>. <a href="/about#sources">Sources and licences</a>. <a href="/methodology">Coverage and methodology</a>. <a href="/attribution">Attribution</a>. <a href="/legal/reuse">Reuse conditions</a>. <a href="/docs/api">API and feeds</a>. <a href="/privacy">Privacy</a>.</p>
   {%- set build = footer_build(request) %}
   {%- if build.commit or build.source_data_as_of or fresh.available %}
   {#- Two dates, never one. "Last fetched" is ours; "oldest release" is the sources' own, and the

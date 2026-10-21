@@ -253,6 +253,7 @@ templates.env.globals["footer_build"] = lambda request: vm_footer_build(request,
 # The header, tier notice and footer state how current the sources are (web/viewmodels.py).
 templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))
 templates.env.globals["asset_version"] = ASSET_VERSION
+templates.env.globals["section_labels"] = labels.SECTION_LABELS
 
 
 # ---------------------------------------------------------------------------------------- CSRF

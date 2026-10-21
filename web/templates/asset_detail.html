@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name | readable_name }} — Inframation{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.type_label }}{% if record.technology_label %}, {{ record.technology_label | lower }}{% endif %}{% for f in record.fuel_fields if f.label in ('Nameplate capacity', 'Rated capacity', 'LFG flow to project') %}, {{ f.value }}{% endfor %}{% if record.capacity_mw and not record.is_fuel %}, {{ record.capacity_mw | mw }} MW{% endif %}{% if record.length_miles %}, {{ '{:,.0f}'.format(record.length_miles) }} miles{% endif %}{% if record.operator.name %}, operated by {{ record.operator.name }}{% endif %}{% if record.states %}, {{ record.states }}{% elif record.state %}, {{ record.state }}{% endif %}.{% endblock %}
@@ -6,7 +7,7 @@
 {% if mini_map %}{{ m.cdn_style("maplibre_css") }}{% endif %}
 {% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/assets">Assets</a> / {{ record.name | readable_name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="{{ sections.href.infrastructure }}">{{ sections.label.infrastructure }}</a> / {{ record.name | readable_name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name | readable_name }}</h1>
   <span class="reuse-badge">{{ record.type_label }}{% if record.technology_label %} &middot; {{ record.technology_label }}{% endif %}{% if record.line_class %} &middot; {{ record.line_class }}{% endif %}{% if record.status_label %} &middot; {{ record.status_label }}{% endif %}</span>

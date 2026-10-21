@@ -12,6 +12,7 @@ duplicated from `web/test_map_filter_passthrough.py`, per this repo's convention
 from __future__ import annotations
 
 import re
+import struct
 from collections.abc import Callable, Iterator, Mapping
 from html import unescape
 from pathlib import Path
@@ -663,3 +664,246 @@ def test_font_files_are_served_with_a_long_lived_cache() -> None:
     assert response.headers["content-type"] == "font/woff2"
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert "immutable" not in css.headers.get("cache-control", "")
+
+
+# ---- docs/16 §3.1-3.2 (U-6): six sections, named in one place; U-24 favicon; U-17 list headers ----
+
+#: The primary links in order (docs/16 §3.1), as the page prints them.
+PRIMARY = [
+    ("/", "Map"),
+    ("/proposals", "Projects"),
+    ("/organizations", "Companies"),
+    ("/opportunities", "RFPs &amp; funding"),
+    ("/assets", "Infrastructure"),
+    ("/alerts", "Alerts"),
+]
+LISTS = ("/proposals", "/opportunities", "/organizations", "/assets", "/interconnection-points")
+
+
+@pytest.fixture()
+def lists(transport: FakeTransport) -> FakeTransport:
+    """The fake transport with the two index endpoints the asset and company lists read."""
+    transport.responses.update({"/v1/assets": _counted, "/v1/organizations": _counted})
+    return transport
+
+
+def _primary_nav(html: str) -> str:
+    return html.split('<nav class="primary-nav" aria-label="Primary">', 1)[1].split("</nav>", 1)[0]
+
+
+def _links(fragment: str) -> list[tuple[str, str | None, str]]:
+    """(href, aria-current or None, text) for each link, in order."""
+    found = re.findall(r'<a href="([^"]+)"(?: aria-current="([a-z]+)")?>([^<]*)</a>', fragment)
+    return [(href, current or None, text.strip()) for href, current, text in found]
+
+
+def _h1(html: str) -> str:
+    match = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.S)
+    assert match is not None
+    return _text(match.group(1))
+
+
+@pytest.mark.parametrize(
+    ("path", "current"),
+    [
+        ("/", {"/": "page"}),
+        ("/proposals", {"/proposals": "page"}),
+        ("/proposals?technology=solar", {"/proposals": "page"}),
+        ("/opportunities", {"/opportunities": "page"}),
+        ("/organizations", {"/organizations": "page"}),
+        ("/assets", {"/assets": "page"}),
+        # The second Infrastructure tab: its section's link is marked, though it points elsewhere.
+        ("/interconnection-points", {"/assets": "true"}),
+        ("/alerts", {"/alerts": "page"}),
+    ],
+)
+def test_the_primary_nav_is_six_sections_in_order_and_marks_where_the_reader_is(
+    lists: FakeTransport, path: str, current: dict[str, str]
+) -> None:
+    with TestClient(web_app) as client:
+        html = client.get(path).text
+    links = _links(_primary_nav(html))
+    assert [(href, text) for href, _, text in links[:6]] == PRIMARY, path
+    assert {href: mark for href, mark, _ in links[:6] if mark} == current, path
+    # After the six: Pricing where the posture offers it, then Sign in. Nothing else.
+    assert [href for href, _, _ in links[6:]] in (["/login"], ["/pricing", "/login"]), path
+
+
+@pytest.mark.parametrize(
+    ("key", "path", "expected"),
+    [
+        ("projects", "/proposals", ' aria-current="page"'),
+        ("projects", "/proposals/gonzaga-ridge-battery-facility-tnksj5", ' aria-current="true"'),
+        ("projects", "/sites/site_1M5CV3A40ETXA6NQ2TPMWXMQV", ' aria-current="true"'),
+        ("projects", "/proposals-archive", ""),
+        ("infrastructure", "/assets", ' aria-current="page"'),
+        ("infrastructure", "/assets/grand-coulee-us-wa", ' aria-current="true"'),
+        ("infrastructure", "/interconnection-points/poi_1", ' aria-current="true"'),
+        ("points", "/assets", ""),
+        ("map", "/", ' aria-current="page"'),
+        ("map", "/proposals", ""),
+        ("about", "/about", ' aria-current="page"'),
+    ],
+)
+def test_a_link_is_marked_on_its_page_and_on_every_page_its_section_holds(
+    key: str, path: str, expected: str
+) -> None:
+    render = templates.env.from_string(
+        '{% import "partials/_sections.html" as s %}{{ s.current(key, path) }}'
+    )
+    assert render.render(key=key, path=path) == expected
+
+
+def test_a_section_is_named_in_one_place() -> None:
+    """The names are the coordinator's recommendation pending the owner (docs/16 §7 question 1), so a
+    rename must be one line: the nav, masthead, footer and list headers take them from the partial."""
+    partial = (WEB / "templates" / "partials" / "_sections.html").read_text(encoding="utf-8")
+    labels_py = (WEB / "labels.py").read_text(encoding="utf-8")
+    # Section names live in web/labels.py (shared with the JSON-LD breadcrumbs); list headings in the partial.
+    for name in ("RFPs & funding", "Plants, pipelines & lines", "Grid connection points"):
+        assert labels_py.count(f'"{name}"') == 1 and f'"{name}"' not in partial, name
+    for heading in ("Projects in development", "Existing infrastructure"):
+        assert partial.count(f'"{heading}"') == 1, heading
+    names = (
+        "RFPs & funding",
+        "Projects in development",
+        "Existing infrastructure",
+        "Plants, pipelines & lines",
+    )
+    spellings = (*names, "RFPs &amp; funding", ">Projects<", ">Infrastructure<", "About &amp; sources")
+    records = ("proposal_detail.html", "site_detail.html", "opportunity_detail.html", "asset_detail.html")
+    pages = ("base.html", *(f"{p.strip('/').replace('-', '_')}_list.html" for p in LISTS), *records)
+    for page in pages:
+        text = (WEB / "templates" / page).read_text(encoding="utf-8")
+        assert not [s for s in spellings if s in text], page
+    # Review of lane w1-nav: record breadcrumbs kept the old names ("Home / Proposals / …" under "Projects").
+    old = (">Proposals</a>", ">Opportunities</a>", ">Assets</a>")
+    for page in (*records, "interconnection_point_detail.html"):
+        text = (WEB / "templates" / page).read_text(encoding="utf-8")
+        assert not [s for s in old if s in text], page
+    for module in ("app.py", "assets_pages.py", "sites.py", "interconnection_points.py"):
+        text = (WEB / module).read_text(encoding="utf-8")
+        assert not [s for s in ('("Proposals", "/', '("Opportunities", "/', '("Assets", "/') if s in text], (
+            module
+        )
+
+
+def test_favicon_ico_is_served_for_clients_that_ask_for_it_directly() -> None:
+    """Review of lane w1-nav (docs/16 U-24): pages declare their icons, but feed readers, crawlers and
+    the admin pages fetch /favicon.ico, which answered 404."""
+    with TestClient(web_app) as client:
+        response = client.get("/favicon.ico")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/x-icon"
+    assert response.content[:4] == b"\x00\x00\x01\x00"
+
+
+def test_infrastructure_is_one_heading_over_two_tab_links(lists: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        pages = {path: client.get(path).text for path in ("/assets", "/interconnection-points")}
+    for path, html in pages.items():
+        assert _h1(html) == "Existing infrastructure", path
+        tabs = html.split('<nav class="section-tabs" aria-label="Infrastructure sections">', 1)[1]
+        tabs = tabs.split("</nav>", 1)[0]
+        marked = "/assets" if path == "/assets" else "/interconnection-points"
+        assert _links(tabs) == [
+            ("/assets", "page" if marked == "/assets" else None, "Plants, pipelines &amp; lines"),
+            ("/interconnection-points", "page" if marked != "/assets" else None, "Grid connection points"),
+        ], path
+        # Tabs are navigations between URLs, not a scripted widget (docs/16 §3.2).
+        assert 'role="tab' not in html, path
+        # A list reached from the nav carries no breadcrumb; the nav marks where the reader is.
+        assert 'class="breadcrumbs"' not in html, path
+    assert (
+        "<title>Plants, pipelines &amp; lines: existing infrastructure — Inframation</title>"
+        in pages["/assets"]
+    )
+    titled = "<title>Grid connection points: existing infrastructure — Inframation</title>"
+    assert titled in pages["/interconnection-points"]
+
+
+@pytest.mark.parametrize(
+    ("path", "heading", "side"),
+    [
+        (
+            "/proposals",
+            "Projects in development",
+            "Supply side: grid-queue requests, permits and planned plants",
+        ),
+        (
+            "/opportunities",
+            "RFPs, tenders and funding",
+            "Demand side: buyers and funders asking for projects",
+        ),
+    ],
+)
+def test_the_two_record_lists_say_in_one_line_which_side_of_the_market_they_hold(
+    transport: FakeTransport, path: str, heading: str, side: str
+) -> None:
+    with TestClient(web_app) as client:
+        html = client.get(path).text
+    header = html.split('<div class="page-header">', 1)[1].split("</div>", 1)[0]
+    assert _h1(header) == heading
+    assert f"<title>{heading} — Inframation</title>" in html
+    # One paragraph under the H1 (U-17): the standfirst, ending on the intake link (IA-3).
+    [standfirst] = re.findall(r"<p>(.*?)</p>", header, re.S)
+    assert _text(standfirst).startswith(side)
+    assert '<a href="/submit">Submit it for review</a>' in standfirst
+
+
+def test_only_the_five_lists_take_the_compact_list_header(lists: FakeTransport) -> None:
+    with TestClient(web_app) as client:
+        for path in LISTS:
+            assert '<main id="main" class="list-page">' in client.get(path).text, path
+        for path in ("/", "/alerts", "/login"):
+            assert '<main id="main">' in client.get(path).text, path
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert ".list-page .page-header h1 { font-size: var(--text-5);" in css
+
+
+def test_about_and_sources_is_a_masthead_link_and_in_the_footer_not_a_destination(
+    transport: FakeTransport,
+) -> None:
+    with TestClient(web_app) as client:
+        html = client.get("/proposals").text
+        about = client.get("/about").text
+    assert 'href="/about"' not in _primary_nav(html)
+    masthead = html.split('<div class="masthead">', 1)[1].split("</div>", 1)[0]
+    assert '<a class="masthead__about" href="/about">About &amp; sources</a>' in masthead
+    # Below 720px the masthead is hidden, so the Menu panel carries it.
+    panel = html.split('id="site-nav-panel">', 1)[1].split("</header>", 1)[0]
+    assert '<p class="site-nav-panel__about"><a href="/about">About &amp; sources</a></p>' in panel
+    footer = html.split('<footer class="site-footer">', 1)[1]
+    assert '<a href="/about">About &amp; sources</a>' in footer
+    assert '<a class="masthead__about" href="/about" aria-current="page">' in about
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert ".site-nav-panel__about { display: none; margin: 0; }" in css
+    assert ".masthead--keep .masthead__about { display: none; }" in css
+    assert ".primary-nav a[aria-current] { font-weight: 600; border-bottom-color: currentColor; }" in css
+
+
+def test_every_page_declares_the_favicon_and_its_three_files_are_served(transport: FakeTransport) -> None:
+    """docs/16 §2 (U-24): `/favicon.ico` answered 404 on every page load, a console error each time."""
+    with TestClient(web_app) as client:
+        head = client.get("/proposals").text.split("</head>", 1)[0]
+        svg = client.get("/static/img/favicon.svg")
+        ico = client.get("/static/img/favicon.ico")
+        touch = client.get("/static/img/apple-touch-icon.png")
+    assert '<link rel="icon" href="/static/img/favicon.ico" sizes="32x32">' in head
+    assert '<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">' in head
+    assert '<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">' in head
+    assert svg.status_code == ico.status_code == touch.status_code == 200
+    assert svg.headers["content-type"].startswith("image/svg+xml")
+    # The site's palette (styles.css :root), and a variant for a dark browser theme.
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    for token in ("--color-ink", "--color-paper", "--color-copper-tint", "--color-copper-deep"):
+        colour = re.search(rf"{token}: (#[0-9a-f]{{6}});", css)
+        assert colour is not None and colour.group(1) in svg.text, token
+    assert "@media (prefers-color-scheme: dark)" in svg.text
+    # ICO: reserved 0, type 1, then 16, 32 and 48px frames.
+    reserved, kind, count = struct.unpack("<HHH", ico.content[:6])
+    sizes = sorted(ico.content[6 + 16 * i] for i in range(count))
+    assert (reserved, kind, sizes) == (0, 1, [16, 32, 48])
+    # PNG signature, then IHDR width and height.
+    assert touch.content[:8] == b"\x89PNG\r\n\x1a\n"
+    assert struct.unpack(">II", touch.content[16:24]) == (180, 180)

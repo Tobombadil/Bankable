@@ -53,6 +53,7 @@ _WEB_ROOT = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(_WEB_ROOT / "templates"))
 labels.install(templates.env)
 templates.env.globals["asset_version"] = ASSET_VERSION
+templates.env.globals["section_labels"] = labels.SECTION_LABELS
 
 #: docs/40-launch-runbook.md §4 row 5 names this as the privacy-notice contact route; US-910 AC1
 #: is the deletion process it points to.

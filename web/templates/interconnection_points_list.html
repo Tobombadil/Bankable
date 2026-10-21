@@ -1,17 +1,19 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Grid connection points — Inframation{% endblock %}
+{% import "partials/_sections.html" as sections %}
+{% block title %}{{ sections.label.points }}: {{ sections.heading.infrastructure | lower }} — Inframation{% endblock %}
 {% block meta_description %}Substations and line taps where proposed power projects connect to the grid, each with the megawatts queued there, from the interconnection queues that name them.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / Grid connection points</nav>
-<div class="page-header">
-  <h1>Grid connection points</h1>
-  <p>Where proposed projects connect to the grid, as each interconnection queue names it: a substation bus or a tap on a line. A project connects at the point; it is not built there. Each row adds up the projects queued at that point.</p>
+{#- The second Infrastructure tab (docs/16 §3.1-3.2, U-6); see assets_list.html. -#}
+<div class="page-header page-header--tabbed">
+  <h1>{{ sections.heading.infrastructure }}</h1>
+  {{ sections.section_tabs("infrastructure", request.url.path) }}
 </div>
+<p class="list-lede">Where queued projects connect to the grid, as each queue names it: a substation bus or a line tap. A project connects at the point; it is not built there.</p>
 <p class="attribution-line">Totals count only projects this page may show; a project withheld under its source licence, or not yet published, is not in any number here. Spellings of one point in one queue are grouped by a documented rule; points are never merged across queues. <a href="/methodology">Methodology</a>.</p>
 
 {{ m.filter_toggle("filters") }}
-<form id="filters" class="filter-bar" data-collapse method="get" action="/interconnection-points" hx-get="/interconnection-points" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search" aria-label="Filter interconnection points">
+<form id="filters" class="filter-bar" data-collapse method="get" action="/interconnection-points" hx-get="/interconnection-points" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search" aria-label="Filter grid connection points">
   <div class="filter-field">
     <label for="f-poi-iso">Queue</label>
     <select id="f-poi-iso" name="iso">
