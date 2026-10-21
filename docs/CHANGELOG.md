@@ -315,3 +315,11 @@
   - On a slow phone the key showed open until `map.js` ran, which happens only after the CDN scripts load. `.js .map-key:not([data-ready])` now keeps it closed from first paint below 720px, the same pattern the filter bar uses, and `map.js` marks it ready.
   - New tests in `web/test_e2e.py`: a failed tile after the archive answered writes no note but still beacons once, and with `map.js` blocked the key is hidden at 400px and shown at 1440px. Each fails without its fix.
   - Also: the dead `flavor.background` assignment is removed, and the `web/README.md` fallback paragraph describes the note and the dropped layer.
+- 2026-10-21 product-designer (mobile review): `docs/17-mobile-review-2026-10-21.md`. The live site (build f75dc7d) was measured in Chromium with touch, at 390×844 and 360×800, light and dark: 21 page types, about 64 page loads. Findings:
+  - On arrival the map overlay covers 55.6% of the visible map at 390, and the key alone 41.4% (743 px of content in a 142 px window). At 360 the overlay covers 57.6%. U-12 alone brings it to 14.1%.
+  - A one-finger swipe on the home map or a company or asset mini-map scrolls the page 0 px (`touch-action: none`).
+  - Every layer's click handler fires on one tap. A tap on a proposal cluster also opens an unrelated transmission-line drawer, and a tap on a plant in a shaded county navigates to `/proposals?county_fips=48439`.
+  - The drawer covers 93% of the map, and cluster and region hover information has no touch equivalent.
+  - The home map starts at 512 px; lists run 17–23 screens.
+  - No sideways scroll, no text under 12 px, no field under 16 px, no dark-mode text contrast failure.
+  - Fix list M-1–M-15, marked against the in-flight U-12, U-6, U-17 and U-2/U-14/U-20–U-23, and the backlog U-10. No code changed.
