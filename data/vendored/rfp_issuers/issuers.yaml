@@ -1,0 +1,2335 @@
+# Curated US utility RFP issuer registry (US-303, source family us.utility_rfps).
+#
+# One entry per issuer: the registry the RFP connector reads. Built 2026-10-21 by the legal-compliance
+# lane from the market-research candidate list (63 issuers) and a terms-of-use read of every issuer's
+# governing page. docs/28-utility-rfp-registry.md explains the method, the verdict rules and the counsel
+# questions; docs/13-legal-data-rights.md §3 and §6 are the policy this applies. NOT LEGAL ADVICE.
+#
+# Field guide
+#   id                : us.rfp.<slug>; the source_id records ingested from this issuer carry
+#   url               : the solicitation listing (or, where none exists, the page the RFP was found on)
+#   access            : public (listing readable without login) | unverified (site refused this client)
+#                       | none (no standing listing; per-cycle documents or releases only)
+#   format, cadence   : page format and observed solicitation cadence (market-research lane, 2026-10-21)
+#   poll              : what a connector may do; "none" means no automated request to this host
+#   verdict           : cleared       = facts may be read automatically at a polite cadence and published
+#                                       as derived fields with attribution and a link back
+#                       link_out_only = may be read automatically to detect solicitations; publish title,
+#                                       dates and link only; never copy documents
+#                       manual_only   = no automated reading; a human may record title, dates and link
+#                       excluded      = login, or terms that bar the listing itself (manual monitoring,
+#                                       linking, derivative use); use another route (docket, permission)
+#   automated_reading : allowed | not_allowed
+#   publish           : derived_fields_with_attribution | title_date_link | none
+#   reuse             : open | attribution | noncommercial | unknown | excluded
+#                       (excluded = the terms withhold reuse of the site's content; noncommercial is the
+#                       docs/13 §0 class and is publishable only while PLATFORM_POSTURE=noncommercial)
+#   manifest          : the data/sources.yaml reuse/publication pair this row supports today. Nothing
+#                       here is wired into data/sources.yaml; the coordinator does that.
+#   basis             : the rule in docs/28 §3.2 that decided the verdict
+#   terms_quote       : verbatim operative clauses from terms_url, read on read_on. Checked against the
+#                       capture by the build script; an empty list means nothing could be quoted
+#   robots            : robots.txt URL and what it said on read_on
+#   public_records_law: named from general knowledge for public bodies; not retrieved; counsel to confirm
+#
+# Re-read every terms_url at least quarterly and before any change of verdict: most of these pages say
+# the issuer may change the terms at any time without notice.
+
+version: '2026-10-21'
+issuers:
+- id: us.rfp.pacificorp
+  name: PacifiCorp (Pacific Power, Rocky Mountain Power)
+  type: iou
+  states: [OR, WA, CA, UT, WY, ID]
+  iso: non-RTO West (WEIM)
+  url: https://www.pacificorp.com/suppliers/rfps.html
+  access: public
+  bid_portal: email distribution list per RFP (e.g. 2025WASitusRFP@PacifiCorp.com)
+  format: html_list_plus_per_rfp_pages
+  cadence: several per year (situs RFPs, REC RFPs); all-source per IRP cycle (2020, 2022)
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"The Content on this site may not be used, unless specifically permitted in writing" (Content
+    = "the information included on this site")'
+  terms_url: https://www.pacificorp.com/terms
+  terms_status: 200 (redirects to /terms-of-use.html)
+  terms_quote:
+  - Access to and use of this website (“site”) is subject to these terms and conditions.
+  - PacifiCorp and its affiliates, subsidiaries and business units make no representations about the suitability
+    for any particular purpose of the information included on this site, including but not limited to documents,
+    images and graphics (collectively referred to as "Content").
+  - The Content on this site may not be used, unless specifically permitted in writing by PacifiCorp or the owner
+    of the rights to the Content.
+  - Reporters and media companies are granted a non-exclusive, royalty-free, non-transferable license to re-produce
+    and re-print Content intended for press release.
+  robots:
+    url: https://www.pacificorp.com/robots.txt
+    result: 200; * disallows /error, /footer, /header only
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: 'Permission request is the unlock: PacifiCorp actively solicits bidders. The media licence covers only
+    "Content intended for press release"; whether Inframation is a "media company" is counsel item C-7.'
+- id: us.rfp.portland_general
+  name: Portland General Electric
+  type: iou
+  states: [OR]
+  iso: non-RTO West (WEIM)
+  url: https://portlandgeneral.com/about/who-we-are/resource-planning/procuring-clean-energy
+  access: public
+  bid_portal: not named on page
+  format: html_single_page_with_pdfs
+  cadence: roughly every 2 years
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"otherwise disseminating any information in the proprietary materials in any media, without
+    prior written approval from PGE, is strictly prohibited"'
+  terms_url: https://portlandgeneral.com/legal-notices
+  terms_status: '200'
+  terms_quote:
+  - By accessing and using this site, you are agreeing to be bound by and comply with the Terms and Conditions.
+  - Commercial use or broadcasting or otherwise disseminating any information in the proprietary materials in any
+    media, without prior written approval from PGE, is strictly prohibited. For example, you may not post any content
+    from the site on other Web sites, news groups, mail lists or electronic bulletin boards.
+  robots:
+    url: https://portlandgeneral.com/robots.txt
+    result: '200; * Allow: /'
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: Facts are also filed with the OPUC (UM 2274 and successors); an OPUC docket source would be a separate
+    terms read.
+- id: us.rfp.puget_sound_energy
+  name: Puget Sound Energy
+  type: iou
+  states: [WA]
+  iso: non-RTO West (WEIM)
+  url: https://www.pse.com/en/pages/energy-supply/acquiring-energy
+  access: public
+  bid_portal: PSE RFP submission portal https://rfp.pse.com/ (registration)
+  format: html_list_plus_per_rfp_pages
+  cadence: annual or more often
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_automation
+  deciding_clause: '"you will not: ... Use any data mining, robots or similar data gathering or extraction methods
+    designed to scrape or extract data from the Services"'
+  terms_url: https://www.pse.com/en/pages/terms-of-use
+  terms_status: '200'
+  terms_quote:
+  - BY USING OUR WEBSITES AND MOBILE APPLICATIONS, YOU AGREE TO THESE TERMS AND CONDITIONS.
+  - 'For example, you will not:'
+  - Copy, reproduce, distribute, publicly perform or publicly display all or portions of the Services, except as
+    expressly permitted by us or our licensors;
+  - Use any data mining, robots or similar data gathering or extraction methods designed to scrape or extract data
+    from the Services;
+  robots:
+    url: https://www.pse.com/robots.txt
+    result: '200; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: Anti-scraping clause bars a connector. A human may read the page and record title, dates and link. WUTC
+    filings are an alternative route.
+- id: us.rfp.avista
+  name: Avista Utilities
+  type: iou
+  states: [WA, ID]
+  iso: non-RTO West (WEIM)
+  url: https://www.myavista.com/-/media/myavista/content-documents/about-us/our-company/asrfp/ava-2025-all-source-rfp-03-07-2025-revised.pdf
+  access: none
+  bid_portal: IE-run
+  format: pdf
+  cadence: per IRP (2-year)
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located; the policies page is privacy and text-alert terms only
+  terms_url: https://www.myavista.com/about-us/policies-and-guidelines
+  terms_status: 200; privacy and notification policies only, no website-use terms located (homepage footer, this
+    page, search)
+  terms_quote: []
+  robots:
+    url: https://www.myavista.com/robots.txt
+    result: 200; * disallows login, error and /connect/ listing paths only
+  read_on: '2026-10-21'
+  confidence: moderate
+  listing_status_2026_10_21: partial
+  notes: The row's URL is an RFP PDF found by search; no landing page exists. Terms not located, so conservative.
+- id: us.rfp.idaho_power
+  name: Idaho Power
+  type: iou
+  states: [ID, OR]
+  iso: non-RTO West (WEIM)
+  url: https://www.idahopower.com/about-us/working-with-us/request-for-resources/
+  access: public
+  bid_portal: Zycus sourcing portal (registration, then email supplier ID to ResourceRFP@idahopower.com)
+  format: html_tabs_with_pdfs
+  cadence: about every 2 years
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_manual_and_derivative_use
+  deciding_clause: '"performing manually or in an automated fashion ... scrape the Site ... make any derivative
+    use of this Site or its contents"; no storage "in any information storage and retrieval system"'
+  terms_url: https://www.idahopower.com/terms-and-conditions/
+  terms_status: '200'
+  terms_quote:
+  - Idaho Power grants you a limited nonexclusive, nontransferable, nonsublicensable, revocable license to access
+    and use this Site for your personal, noncommercial use or legitimate business purposes or as otherwise approved
+    in writing by IDACORP or Idaho Power.
+  - In no event shall materials from this Site be stored in any information storage and retrieval system without
+    the prior written permission from Idaho Power.
+  - 'While accessing Idaho Power’s services you are prohibited from, without Idaho Power’s prior written authorization,
+    performing manually or in an automated fashion any of the following actions:'
+  - scrape the Site or its content (without express written consent)
+  - make any derivative use of this Site or its contents
+  robots:
+    url: https://www.idahopower.com/robots.txt
+    result: answers an HTML page (no robots file); treated as absent
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: The clause bars manual as well as automated scraping and any derivative use; no route through this site.
+    IPUC/OPUC dockets (IPC-E-26-03, UM 2255) are the alternative; a permission request is the other.
+- id: us.rfp.nv_energy
+  name: NV Energy (Nevada Power, Sierra Pacific Power)
+  type: iou
+  states: [NV]
+  iso: non-RTO West (WEIM)
+  url: https://www.nvenergy.com/about-nvenergy/doing-business-with-us/request-for-proposals
+  access: unverified
+  bid_portal: Asite (link emailed at launch)
+  format: js_app_plus_pdf
+  cadence: about annual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located (JavaScript-only site)
+  terms_url: https://www.nvenergy.com/
+  terms_status: 200 but the site renders only with JavaScript; no terms link in served HTML; search found none
+  terms_quote: []
+  robots:
+    url: https://www.nvenergy.com/robots.txt
+    result: 200; * disallows /Templates/ only
+  read_on: '2026-10-21'
+  confidence: moderate
+  listing_status_2026_10_21: partial
+  notes: JavaScript-only site; terms could not be located in served HTML. A human read of the terms in a browser
+    is the next step (browser task).
+- id: us.rfp.aps
+  name: Arizona Public Service (APS)
+  type: iou
+  states: [AZ]
+  iso: non-RTO West (WEIM)
+  url: https://www.aps.com/en/About/Our-Company/Doing-Business-with-Us/Resource-Planning/Request-for-Proposals
+  access: public
+  bid_portal: PowerAdvocate (registration)
+  format: html_single_page_with_pdf
+  cadence: annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"otherwise disseminating any Content [defined to include all information] ... is strictly prohibited";
+    "APS encourages you instead to tell others about the Site and direct them to the Site"'
+  terms_url: https://www.aps.com/en/Utility/Regulatory-and-Legal/Terms-of-Use
+  terms_status: '200'
+  terms_quote:
+  - By using this Site, you agree to be legally bound by the terms and conditions of this Agreement current at the
+    time of your use.
+  - The word "Content" as used in this Agreement means any and all information, data, software, content, materials,
+    documents, text, photographs, audio, video, sounds, music, illustrations, graphics, logos, functions, processes
+    and the like that are available on, in or through this Site.
+  - Commercial use, broadcasting or otherwise disseminating any Content in any media, without the prior written
+    consent of APS, is strictly prohibited.
+  - APS encourages you instead to tell others about the Site and direct them to the Site.
+  - uses or launches any automated system, including without limitation, "robots," "spiders," or "offline readers,"
+    or other technology to attempt to gain unauthorized access to APS user accounts, content, computer networks,
+    or systems;
+  robots:
+    url: https://www.aps.com/robots.txt
+    result: 200; * disallows /Pay-Bill-Cash-Only only
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: The automation clause is limited to attempts at unauthorized access, so a polite reader of public pages
+    is not caught by it (counsel item C-5). Link-out is supported by the sentence encouraging users to direct others
+    to the Site.
+- id: us.rfp.tep_uns
+  name: Tucson Electric Power and UniSource Energy Services
+  type: iou
+  states: [AZ]
+  iso: non-RTO West (WEIM)
+  url: https://www.uesaz.com/news/unisource-tep-issue-new-all-source-request-for-proposals-for-additional-energy-resources/
+  access: none
+  bid_portal: per-cycle microsite
+  format: news_post_plus_microsite
+  cadence: roughly every 2 years
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_manual_monitoring
+  deciding_clause: '"Access, monitor, or copy any part of the Website using any automatic device ... Use any manual
+    process ... to monitor or copy any Content" without written consent'
+  terms_url: https://www.uesaz.com/terms-of-use/
+  terms_status: '200'
+  terms_quote:
+  - 'You agree not to:'
+  - Access, monitor, or copy any part of the Website using any automatic device, process or means for any purpose
+    without UES’ prior written permission.
+  - Use any manual process, including phishing, to monitor or copy any Content or for any other purpose not expressly
+    authorized in the Terms of Use without UES’ prior written consent.
+  robots:
+    url: https://www.uesaz.com/robots.txt
+    result: 200; * disallows /wp-admin/ only
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: partial
+  notes: Same text on tep.com/terms-of-use. Manual monitoring is barred as well as automated, so no route through
+    these sites. ACC dockets are the alternative.
+- id: us.rfp.pnm
+  name: Public Service Company of New Mexico (PNM)
+  type: iou
+  states: [NM]
+  iso: non-RTO West (WEIM)
+  url: https://www.pnm.com/rfp
+  access: public
+  bid_portal: Jaggaer (event 1024-GENALL-2026)
+  format: html_single_page
+  cadence: roughly annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"You may not copy, modify or distribute the content [= any information ...] in any form without
+    written permission"'
+  terms_url: https://www.pnm.com/terms-of-use
+  terms_status: '200'
+  terms_quote:
+  - Any reference to "content" means any information, text, trademarks, service marks, logos, images, and other
+    graphics and artwork, and any meta tags and other computer code.
+  - You may view and use this Web site or the PNM App and their content solely for your personal, noncommercial
+    use.
+  - You may not copy, modify or distribute the content in any form without written permission from PNM, TXNM Energy,
+    or other copyright owner.
+  robots:
+    url: https://www.pnm.com/robots.txt
+    result: '200; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: NMPRC filings are an alternative route.
+- id: us.rfp.el_paso_electric
+  name: El Paso Electric
+  type: iou
+  states: [TX, NM]
+  iso: non-RTO West (WEIM)
+  url: https://www.epelectric.com/company/request-for-proposals
+  access: public
+  bid_portal: not named
+  format: html_list_plus_per_rfp_pages
+  cadence: annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_content
+  deciding_clause: '"The content of the Site is for your personal, noncommercial use"; commercial use needs written
+    consent'
+  terms_url: https://www.epelectric.com/company/terms-of-use
+  terms_status: '200'
+  terms_quote:
+  - Your use of this Site signifies and constitutes your acceptance of this Agreement, as it may be amended from
+    time to time.
+  - The content of the Site is for your personal, noncommercial use.
+  - For commercial use of any portion of the contents you must secure the written consent from the appropriate content
+    provider.
+  robots:
+    url: https://www.epelectric.com/robots.txt
+    result: 404 (absent; permissive by convention)
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  listing_status_2026_10_21: verified
+  notes: Grant is personal, noncommercial; a public listing is not "personal", so the noncommercial posture does
+    not convert this to a grant.
+- id: us.rfp.xcel
+  name: Xcel Energy (Public Service Co. of Colorado, Southwestern Public Service, Northern States Power)
+  type: iou
+  states: [CO, TX, NM, MN, WI, ND, SD, MI]
+  iso: PSCo non-RTO West; SPS in SPP; NSP in MISO
+  url: https://www.xcelenergy.com/company/rates_and_regulations/resource_plans
+  access: public
+  bid_portal: XpressDRIVE
+  format: html_index_plus_per_rfp_pages
+  cadence: annual across operating companies
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located (only account-holder terms linked)
+  terms_url: https://www.xcelenergy.com/company/rates_and_regulations/resource_plans
+  terms_status: 200; footer links only a My Account Terms PDF (account holders); xcelenergy.com/ redirects to my.xcelenergy.com;
+    no website-use terms located
+  terms_quote: []
+  robots:
+    url: https://www.xcelenergy.com/robots.txt
+    result: 404 (absent; permissive by convention)
+  read_on: '2026-10-21'
+  confidence: moderate
+  listing_status_2026_10_21: verified
+  notes: 'Terms not located; the footer is client-rendered. Browser task: read xcelenergy.com website terms.'
+- id: us.rfp.hawaiian_electric
+  name: Hawaiian Electric
+  type: iou
+  states: [HI]
+  iso: none (island grids)
+  url: https://www.hawaiianelectric.com/clean-energy-hawaii/selling-power-to-the-utility/competitive-bidding-for-system-resources
+  access: public
+  bid_portal: not named
+  format: html_list_plus_per_rfp_pages
+  cadence: multi-year stages
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"You may not distribute, publish ... or in any way exploit any of the content [incl. all information,
+    data], in whole or in part, for any purpose"'
+  terms_url: https://www.hawaiianelectric.com/terms-of-use
+  terms_status: '200'
+  terms_quote:
+  - The content of this website, including but not limited to all information, data, text, software, music, images,
+    sounds, photographs, video, messages and other materials, and the arrangement thereof, is the property of Hawaiian
+    Electric Company
+  - Hawaiian Electric Company hereby authorizes you to copy and display the content of this website for your personal,
+    noncommercial, informational use only.
+  - You may not distribute, publish, transmit, modify, create derivative works from, or in any way exploit any of
+    the content, in whole or in part, for any purpose.
+  robots:
+    url: https://www.hawaiianelectric.com/robots.txt
+    result: 200; * disallows recipe query parameters only
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: HPUC dockets are an alternative route.
+- id: us.rfp.sce
+  name: Southern California Edison
+  type: iou
+  states: [CA]
+  iso: CAISO
+  url: https://www.sce.com/about-sce/energy-procurement/solicitations
+  access: public
+  bid_portal: PowerAdvocate
+  format: html_list_plus_per_rfp_pages
+  cadence: several per year
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_content
+  deciding_clause: Use limited to "non-commercial personal or internal business use"; bots barred only "in a manner
+    that interferes with ... or places an unreasonable or disproportionately large load"
+  terms_url: https://www.sce.com/terms-conditions/website-terms-of-use
+  terms_status: 200 (linked as "SCE Website Terms of Use" from sce.com/legal)
+  terms_quote:
+  - Subject to the terms of this TOU, you may use the Website and the Website Content for your non-commercial personal
+    or internal business use, but not for service bureau, time-sharing or other similar purposes.
+  - You are not allowed to reproduce, modify, distribute, translate, create derivative works based (whether in whole
+    or in part) on, reverse engineer, decompile or disassemble any software, or any part of the Website.
+  - The Website Content in the “Newsroom” pages may be reproduced solely for editorial purposes in news and trade
+    publications in electronic, print and broadcast media.
+  - You are not allowed to use bots, spiders and other automated methods, including screen scraping, to access,
+    monitor or collect Website Content in a manner that interferes with, destabilizes, degrades the performance
+    of, or places an unreasonable or disproportionately large load on, the Website or our computing systems and
+    network, including by exceeding any data download restrictions we institute.
+  robots:
+    url: https://www.sce.com/robots.txt
+    result: 200; * disallows admin, user, search, language and app paths; /about-sce/ not disallowed
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  listing_status_2026_10_21: verified
+  notes: The anti-bot clause is conditional on load or interference; one polite request per listing per poll is
+    outside it on its face (counsel item C-5). Newsroom content may be reproduced for editorial purposes in trade
+    publications (C-7).
+- id: us.rfp.pge
+  name: Pacific Gas and Electric
+  type: iou
+  states: [CA]
+  iso: CAISO
+  url: https://www.pge.com/en/about/doing-business-with-pge/wholesale-electric-power-procurement.html
+  access: public
+  bid_portal: PowerAdvocate
+  format: html_list_plus_per_rfp_pages
+  cadence: several per year
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_automation
+  deciding_clause: 'Mining clause: no "software, bots, spiders, or other information-gathering devices ... to monitor,
+    copy, or otherwise ''mine'' information displayed on the Website for display on or use with any Website or service"'
+  terms_url: https://www.pge.com/en/privacy-center/disclosure.html
+  terms_status: 200 (PG&E Terms of Use on the Disclosure page)
+  terms_quote:
+  - By clicking the button or checkbox labeled “I Agree” or similar language, or by otherwise using this website,
+    you agree to these terms of use and acknowledge PG&E’s privacy and security policies.
+  - No user or third party is authorized to use any software, bots, spiders, or other information-gathering devices
+    or programming routines to monitor, copy, or otherwise "mine" information displayed on the Website for display
+    on or use with any Website or service, except as authorized by PG&E or by a PG&E customer of record.
+  - Use of these materials in publications, other websites or presentations is prohibited without PG&E's prior written
+    consent.
+  robots:
+    url: https://www.pge.com/robots.txt
+    result: 200; * disallows /mobile/ only (GPTBot disallowed entirely)
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: The Mining clause bars automated monitoring "for display on or use with any Website or service"; a human
+    may record title, dates and link.
+- id: us.rfp.sdge
+  name: San Diego Gas & Electric
+  type: iou
+  states: [CA]
+  iso: CAISO
+  url: https://www.sdge.com/2027-2032-reliability-rfo
+  access: public
+  bid_portal: SDG&E marketplace
+  format: html_per_rfp_pages_with_year_tabs
+  cadence: about annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: medium
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"No other use of the Content [incl. information, data], including without limitations any republications
+    thereof, is permitted without prior written permission"'
+  terms_url: https://www.sdge.com/node/20211
+  terms_status: 200 (redirects to /sdgecom-terms-and-conditions)
+  terms_quote:
+  - All text, information, data, photographs, graphics, html, software, source and object code, video and audio
+    clips, trademarks and logos, and the like (“Content”) appearing on this Web site belongs to San Diego Gas &
+    Electric Company
+  - You may use the Content only online, and solely for your personal, internal, noncommercial use.
+  - No other use of the Content hereof, including without limitations any republications thereof, is permitted without
+    prior written permission from the Company.
+  robots:
+    url: https://www.sdge.com/robots.txt
+    result: 200; Drupal default, * disallows admin/user/search paths only
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: CPUC filings are an alternative route.
+- id: us.rfp.dominion_virginia
+  name: Dominion Energy Virginia
+  type: iou
+  states: [VA, NC]
+  iso: PJM
+  url: https://www.dominionenergy.com/about/delivering-energy/renewable-projects/solar-onshore-wind-and-energy-storage-proposals
+  access: public
+  bid_portal: Accion Power portal for PPA and REC RFPs (registration); acquisition bids by email after intent to
+    bid + confidentiality agreement
+  format: html_single_page_with_docs
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_automation
+  deciding_clause: '"You agree You will not: use spiders, robots, data mining techniques or other automated devices
+    or programs to catalog, download or otherwise reproduce, store or distribute content"; linking permitted'
+  terms_url: https://www.dominionenergy.com/terms-and-conditions
+  terms_status: '200'
+  terms_quote:
+  - By using the Website, You agree to be bound by all of the Terms and Conditions set forth below.
+  - You agree You will not access or use the Site Material for any public or commercial purpose, except as expressly
+    permitted herein.
+  - 'In exchange for the license to use the Website, You agree You will not:'
+  - use spiders, robots, data mining techniques or other automated devices or programs to catalog, download or otherwise
+    reproduce, store or distribute content available on this Website;
+  - You may link to the Website, provided (i) Your link does not alter in any way the visual presentation or appearance
+    of the Website, or create a frame around the Website;
+  robots:
+    url: https://www.dominionenergy.com/robots.txt
+    result: '200; * Allow: /'
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: Automated reading barred; linking expressly permitted with conditions. Virginia SCC VCEA filings are robots-excluded
+    too (see us.rfp.virginia_scc).
+- id: us.rfp.appalachian_power
+  name: Appalachian Power (AEP)
+  type: iou
+  states: [VA, WV]
+  iso: PJM
+  url: https://www.appalachianpower.com/business/b2b/energy-rfps/
+  access: public
+  bid_portal: AEP B2B register
+  format: html_list_with_year_tabs
+  cadence: annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: cleared
+  automated_reading: allowed
+  publish: derived_fields_with_attribution
+  reuse: noncommercial
+  manifest:
+    reuse: noncommercial
+    publication: derived_only
+  basis: terms_permit_noncommercial
+  deciding_clause: '"If attribution to AEP is included, limited quotations from the content are hereby permitted.
+    You may not copy or display for redistribution to third parties for commercial purposes ..."'
+  terms_url: https://www.aep.com/terms/
+  terms_status: 200 ("AEP Terms and Conditions", linked from every AEP operating-company footer)
+  terms_quote: &id001
+  - The content of this site, including but not limited to the text and images herein and their arrangement, is
+    the property of American Electric Power Company, Inc., (AEP).
+  - AEP hereby authorizes you to copy and display the content herein, but for your personal use only.
+  - If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy
+    or display for redistribution to third parties for commercial purposes any portion of the content without the
+    prior written permission of AEP.
+  - Use of this site constitutes acceptance of the AEP Terms and Conditions.
+  robots:
+    url: https://www.appalachianpower.com/robots.txt
+    result: 404 on all four operating-company hosts (absent; permissive by convention)
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  attribution: 'Source: Appalachian Power (AEP), Energy RFPs'
+  listing_status_2026_10_21: verified
+  notes: 'Footer on the listing page reads "Use of this site constitutes acceptance of the AEP Terms and Conditions."
+    Credit line: "Source: Appalachian Power (AEP), Energy RFPs". Class is noncommercial: publishable only while
+    PLATFORM_POSTURE=noncommercial (docs/26).'
+- id: us.rfp.pso
+  name: Public Service Company of Oklahoma (AEP)
+  type: iou
+  states: [OK]
+  iso: SPP
+  url: https://www.psoklahoma.com/business/b2b/energy-rfps/
+  access: public
+  bid_portal: AEP B2B register
+  format: html_list_plus_per_rfp_pages
+  cadence: annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: cleared
+  automated_reading: allowed
+  publish: derived_fields_with_attribution
+  reuse: noncommercial
+  manifest:
+    reuse: noncommercial
+    publication: derived_only
+  basis: terms_permit_noncommercial
+  deciding_clause: '"If attribution to AEP is included, limited quotations from the content are hereby permitted.
+    You may not copy or display for redistribution to third parties for commercial purposes ..."'
+  terms_url: https://www.aep.com/terms/
+  terms_status: 200 ("AEP Terms and Conditions", linked from every AEP operating-company footer)
+  terms_quote: *id001
+  robots:
+    url: https://www.appalachianpower.com/robots.txt
+    result: 404 on all four operating-company hosts (absent; permissive by convention)
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  attribution: 'Source: Public Service Company of Oklahoma (AEP), Energy RFPs'
+  listing_status_2026_10_21: verified
+  notes: 'Same AEP terms and page template as Appalachian Power. Credit: "Source: Public Service Company of Oklahoma
+    (AEP), Energy RFPs".'
+- id: us.rfp.swepco
+  name: Southwestern Electric Power Company (AEP)
+  type: iou
+  states: [AR, LA, TX]
+  iso: SPP
+  url: https://www.swepco.com/business/b2b/energy-rfps/
+  access: public
+  bid_portal: AEP B2B register
+  format: html_list_plus_per_rfp_pages
+  cadence: annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: cleared
+  automated_reading: allowed
+  publish: derived_fields_with_attribution
+  reuse: noncommercial
+  manifest:
+    reuse: noncommercial
+    publication: derived_only
+  basis: terms_permit_noncommercial
+  deciding_clause: '"If attribution to AEP is included, limited quotations from the content are hereby permitted.
+    You may not copy or display for redistribution to third parties for commercial purposes ..."'
+  terms_url: https://www.aep.com/terms/
+  terms_status: 200 ("AEP Terms and Conditions", linked from every AEP operating-company footer)
+  terms_quote: *id001
+  robots:
+    url: https://www.appalachianpower.com/robots.txt
+    result: 404 on all four operating-company hosts (absent; permissive by convention)
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  attribution: 'Source: SWEPCO (AEP), Energy RFPs'
+  listing_status_2026_10_21: verified
+  notes: 'Same AEP terms and page template. Credit: "Source: SWEPCO (AEP), Energy RFPs".'
+- id: us.rfp.indiana_michigan_power
+  name: Indiana Michigan Power (AEP)
+  type: iou
+  states: [IN, MI]
+  iso: PJM
+  url: https://www.indianamichiganpower.com/business/b2b/energy-rfps/
+  access: public
+  bid_portal: AEP B2B register
+  format: html_list_plus_per_rfp_pages
+  cadence: per IRP
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: medium
+  verdict: cleared
+  automated_reading: allowed
+  publish: derived_fields_with_attribution
+  reuse: noncommercial
+  manifest:
+    reuse: noncommercial
+    publication: derived_only
+  basis: terms_permit_noncommercial
+  deciding_clause: '"If attribution to AEP is included, limited quotations from the content are hereby permitted.
+    You may not copy or display for redistribution to third parties for commercial purposes ..."'
+  terms_url: https://www.aep.com/terms/
+  terms_status: 200 ("AEP Terms and Conditions", linked from every AEP operating-company footer)
+  terms_quote: *id001
+  robots:
+    url: https://www.appalachianpower.com/robots.txt
+    result: 404 on all four operating-company hosts (absent; permissive by convention)
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  attribution: 'Source: Indiana Michigan Power (AEP), Energy RFPs'
+  listing_status_2026_10_21: verified
+  notes: 'Same AEP terms and page template. Credit: "Source: Indiana Michigan Power (AEP), Energy RFPs".'
+- id: us.rfp.georgia_power
+  name: Georgia Power
+  type: iou
+  states: [GA]
+  iso: non-RTO Southeast
+  url: https://psc.ga.gov/search/facts-docket/?docketId=56298
+  access: none
+  bid_portal: Accion Group PowerPro (independent evaluator; old per-RFP subdomains redirect to acciongroup.com)
+  format: docket
+  cadence: per IRP (3-year) plus targeted RFPs
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located; footer "©2026 Georgia Public Service Commission. All rights reserved."
+  terms_url: https://psc.ga.gov/search/facts-docket/?docketId=56298
+  terms_status: 200; no terms, disclaimer or legal page linked from the docket page or footer; search found none
+  terms_quote: []
+  robots:
+    url: https://psc.ga.gov/robots.txt
+    result: 404 (absent)
+  read_on: '2026-10-21'
+  confidence: moderate
+  southern_company_terms:
+    terms_url: https://www.southerncompany.com/terms-and-conditions.html
+    terms_quote:
+    - By accessing and using the Web Sites, you acknowledge that you have read and agree to these Terms.
+    - You may not reproduce, republish, transmit, distribute, publicly display, modify, create derivative works
+      from, or exploit in any way, in whole or in part, any of the Contents of the Web Sites without the prior written
+      consent of Southern Company subsidiaries, or as authorized under these Terms.
+  listing_status_2026_10_21: partial
+  notes: The row's listing is the Georgia PSC docket page, so the PSC's (unlocated) terms govern. Georgia Power's
+    own site is under Southern Company's terms, which bar reproducing or republishing any of the Contents (quoted
+    in southern_company_terms below), so georgiapower.com is not a route either.
+- id: us.rfp.duke_energy
+  name: Duke Energy (Carolinas, Progress, Indiana, Florida)
+  type: iou
+  states: [NC, SC, IN, FL]
+  iso: non-RTO Southeast; Duke Energy Indiana in MISO
+  url: https://www.duke-energy.com/ (site-wide 403 to identified client)
+  access: unverified
+  bid_portal: unknown
+  format: unknown
+  cadence: annual (Carolinas solar), per IRP elsewhere
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers 403 "Access Denied" to an identified client, robots.txt included; terms not retrieved
+  terms_url: https://www.duke-energy.com/legal/terms-of-use
+  terms_status: 403 Akamai "Access Denied" (robots.txt also 403)
+  terms_quote: []
+  robots:
+    url: https://www.duke-energy.com/robots.txt
+    result: 403 Akamai Access Denied
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  listing_status_2026_10_21: blocked
+  notes: Site-wide 403 to the identified client. Escalating to browser egress needs legal sign-off (docs/20 §12
+    failure table). NCUC is behind a challenge too.
+- id: us.rfp.entergy
+  name: Entergy (Arkansas, Louisiana, Mississippi, Texas, New Orleans)
+  type: iou
+  states: [AR, LA, MS, TX]
+  iso: MISO
+  url: https://rfp.entergy.com/
+  access: public
+  bid_portal: Entergy RFP site (independent monitor)
+  format: html_index_plus_per_rfp_pages
+  cadence: 5-10 RFPs per year across operating companies
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Terms page on www.entergy.com answers 403 to an identified client; rfp.entergy.com footer "©
+    2022 Entergy Corporation, All Rights Reserved."
+  terms_url: http://www.entergy.com/privacy_legal/legal.aspx
+  terms_status: 403 nginx (also /privacy-policy/ and /terms-of-use/); rfp.entergy.com itself answers 200 and links
+    here as "Termss of Use"
+  terms_quote: []
+  robots:
+    url: https://rfp.entergy.com/robots.txt
+    result: 404 on rfp.entergy.com (absent); www.entergy.com/robots.txt 200 disallows /wp-admin/ only
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  listing_status_2026_10_21: verified
+  notes: 'Highest-value issuer and the cleanest listing, but its governing terms sit on www.entergy.com, which refuses
+    this client. First browser task: a human opens entergy.com/privacy_legal/legal.aspx and saves a PDF. A third-party
+    summary (elliott.org, via search) says the terms prohibit scraping; unverified and not relied on.'
+- id: us.rfp.consumers_energy
+  name: Consumers Energy
+  type: iou
+  states: [MI]
+  iso: MISO
+  url: https://www.consumersenergy.com/residential/savings-and-clean-energy/renewable-energy/customer-generation/electricity-sales/electric-power-notices
+  access: public
+  bid_portal: Enel X Exchange (public announcement page; bidding requires registration)
+  format: html_notice_plus_portal
+  cadence: semiannual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_automation
+  deciding_clause: '"not to use ... spiders, robots ... to navigate or search the Site ... other than generally
+    available third-party web browsers"'
+  terms_url: https://www.consumersenergy.com/terms-and-conditions
+  terms_status: '200'
+  terms_quote:
+  - Please note that your use of the Site or App constitutes your unconditional agreement to follow and be bound
+    by these terms & conditions, legal notices, and the privacy policy (collectively, the “Terms”).
+  - You may not reproduce (except as noted above), publish, transmit, distribute, display, modify, create derivative
+    works from, sell or participate in any sale of or exploit in any way, in whole or in part, any of the Contents,
+    the Site, the App or any related software.
+  - You agree, further, not to use or attempt to use any engine, software, tool, agent or other device or mechanism
+    (including without limitation browsers, spiders, robots, avatars or intelligent agents) to navigate or search
+    the Site or App other than the search engine and search agents available from Consumers Energy on the Site or
+    App and other than generally available third-party web browsers (e.g., Google Chrome or Microsoft Explorer).
+  robots:
+    url: https://www.consumersenergy.com/robots.txt
+    result: 200; * disallows outage map, app and feedback paths only
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: Documents sit on Enel X Exchange (separate terms; bidding requires registration). MPSC filings are an alternative
+    route.
+- id: us.rfp.dte
+  name: DTE Electric
+  type: iou
+  states: [MI]
+  iso: MISO
+  url: https://www.dteenergy.com/us/en/newsroom/2025/DTE-Energy-seeking-developers-for-new-renewable-energy-projects-to-achieve-carbon-reduction-goals.html
+  access: none
+  bid_portal: PowerAdvocate (registration)
+  format: news_post
+  cadence: two RFPs per year (renewables + storage)
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_linking
+  deciding_clause: '"prohibit caching, unauthorized hypertext links to a website"; no use of content "for any commercial
+    or public purpose"'
+  terms_url: https://www.dteenergy.com/us/en/quicklinks/terms-conditions.html
+  terms_status: '200'
+  terms_quote:
+  - A user is prohibited from modifying, copying, distributing, transmitting, displaying, publishing, selling, licensing,
+    creating derivative works or using any content available on or through a website for any commercial or public
+    purpose unless the user has the prior written permission of DTE Energy or its Affiliate.
+  - DTE Energy and its Affiliates prohibit caching, unauthorized hypertext links to a website and the framing of
+    any content available through our website.
+  robots:
+    url: https://www.dteenergy.com/robots.txt
+    result: 200; * disallows /global and pages under development
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: partial
+  notes: Linking itself requires authorisation on DTE's terms. MPSC dockets are the alternative route.
+- id: us.rfp.centerpoint_indiana
+  name: CenterPoint Energy Indiana South
+  type: iou
+  states: [IN]
+  iso: MISO
+  url: https://www.centerpointenergy.com/en-us/corporate/about-us/news/1581
+  access: none
+  bid_portal: 1898 & Co (CenterPointRFP@1898andco.com)
+  format: news_post
+  cadence: about every 2 years (2022, 2024)
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_manual_monitoring
+  deciding_clause: '"deep-link, scraper, robot ... or manual process having similar processes or functionality,
+    to access, acquire, copy, or monitor any portion of the Service"'
+  terms_url: https://www.centerpointenergy.com/en-us/about-us/legal/terms-of-use
+  terms_status: '200'
+  terms_quote:
+  - Use or attempt to use any deep-link, scraper, robot, bot, spider, data mining, computer code or any other automated
+    device, program, tool, algorithm, process or methodology or manual process having similar processes or functionality,
+    to access, acquire, copy, or monitor any portion of the Service or any data or content found on or accessed
+    through the Service without prior express written consent;
+  robots:
+    url: https://www.centerpointenergy.com/robots.txt
+    result: '200; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: partial
+  notes: Manual monitoring and deep links barred. IURC filings are the alternative route.
+- id: us.rfp.evergy
+  name: Evergy
+  type: iou
+  states: [KS, MO]
+  iso: SPP
+  url: https://www.businesswire.com/news/home/20230118005859/en/Evergy-Seeks-to-Add-Generation-Resources/
+  access: none
+  bid_portal: null
+  format: news_post
+  cadence: 2021 x2, 2023; recent additions via self-build predetermination filings
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_manual_monitoring
+  deciding_clause: '"or any manual process, to monitor or copy any of the Web pages, data or content"; "prohibits
+    ... unauthorized hypertext links"'
+  terms_url: https://www.evergy.com/terms-and-conditions
+  terms_status: '200'
+  terms_quote:
+  - You may not, without the prior written permission of Evergy, use any computer code, data mining software, “robot”,
+    “bot”, “spider”, “scraper” or other automatic device, or program, algorithm or methodology having similar processes
+    or functionality, or any manual process, to monitor or copy any of the Web pages, data or content found on or
+    accessed through these Sites.
+  - Evergy prohibits caching, unauthorized hypertext links to our Websites, and the framing of any content available
+    through our Websites.
+  robots:
+    url: https://www.evergy.com/robots.txt
+    result: 200; * disallows search and query-string paths
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: candidate
+  notes: The row's URL is a 2023 Business Wire release (Business Wire terms not retrieved, docs/13 §2.7). Evergy's
+    own terms bar manual monitoring and unauthorized links.
+- id: us.rfp.nipsco
+  name: NIPSCO
+  type: iou
+  states: [IN]
+  iso: MISO
+  url: none found (nipsco.com/rfp 404)
+  access: none
+  bid_portal: null
+  format: none
+  cadence: per IRP
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_automation
+  deciding_clause: '"not permitted ... accessing or collecting data from our Website using automated or any other
+    unauthorized means"'
+  terms_url: https://www.nipsco.com/our-site/terms-of-use
+  terms_status: '200'
+  terms_quote:
+  - By using this Website, you agree to be bound by and to use the Website in strict accordance with these Terms
+    of Use.
+  - 'For example, the following activities are not permitted on this Website for any reason whatsoever:'
+  - accessing or collecting data from our Website using automated or any other unauthorized means (without our prior
+    permission);
+  robots:
+    url: https://www.nipsco.com/robots.txt
+    result: 200; * disallows /Sitefinity only
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: candidate
+  notes: No listing page exists (candidate).
+- id: us.rfp.ameren
+  name: Ameren Missouri
+  type: iou
+  states: [MO]
+  iso: MISO
+  url: none found (ameren.com/rfp 403)
+  access: unverified
+  bid_portal: null
+  format: none
+  cadence: unknown
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: robots.txt and /terms answer 403 to an identified client; terms not retrieved
+  terms_url: https://www.ameren.com/terms
+  terms_status: 403 (Imperva-style block page; robots.txt also 403; homepage answered 200 once)
+  terms_quote: []
+  robots:
+    url: https://www.ameren.com/robots.txt
+    result: 403 block page
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  listing_status_2026_10_21: candidate
+  notes: No listing page exists (candidate).
+- id: us.rfp.tri_state
+  name: Tri-State Generation and Transmission Association
+  type: gt_coop
+  states: [CO, NM, WY, NE]
+  iso: SPP (east) and non-RTO West
+  url: https://tristate.coop/2024rfp/
+  access: public
+  bid_portal: rfpmanager.biz (tsrenewablerfp / tsstoragerfp / tsdispatchablerfp)
+  format: per_cycle_html_page
+  cadence: per ERP cycle (2022, 2024)
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_manual_monitoring
+  deciding_clause: '"Use any robot ... to access the Website for any purpose"; "Use any manual process to monitor
+    or copy any of the material"'
+  terms_url: https://tristate.coop/terms-and-conditions/
+  terms_status: '200'
+  terms_quote:
+  - These Terms and Conditions of Use permit you to use the Website for your personal, non-commercial use only.
+  - Use any robot, spider, or other automatic device, process, or means to access the Website for any purpose, including
+    monitoring or copying any of the material on the Website.
+  - Use any manual process to monitor or copy any of the material on the Website or for any other unauthorized purpose
+    without Tri-State’s prior written consent.
+  robots:
+    url: https://tristate.coop/robots.txt
+    result: '200; * disallows /wp-admin/; Crawl-delay: 10'
+  read_on: '2026-10-21'
+  confidence: high
+  listing_status_2026_10_21: verified
+  notes: Linking is permitted only after notifying the Webmaster. CO PUC proceeding 23A-0585E is the alternative
+    route.
+- id: us.rfp.core_electric
+  name: CORE Electric Cooperative
+  type: dist_coop
+  states: [CO]
+  iso: non-RTO West (PSCo BA)
+  url: https://www.acespower.com/?p=4217 (ACES-hosted RFP documents page)
+  access: unverified
+  bid_portal: ACES
+  format: html_per_rfp_page
+  cadence: unknown
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers a Cloudflare challenge (403) to an identified client; terms not retrieved
+  terms_url: https://www.acespower.com/
+  terms_status: '403 Cloudflare managed challenge (robots.txt 200: Crawl-delay 10, nothing disallowed)'
+  terms_quote: &id002 []
+  robots:
+    url: https://www.acespower.com/robots.txt
+    result: '200; Crawl-delay: 10; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  listing_status_2026_10_21: blocked
+  notes: RFP hosted by ACES (private co-op energy services company).
+- id: us.rfp.ekpc
+  name: East Kentucky Power Cooperative
+  type: gt_coop
+  states: [KY]
+  iso: PJM
+  url: https://www.acespower.com/EKPC2024pjmrfp
+  access: unverified
+  bid_portal: ACES
+  format: pdf
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers a Cloudflare challenge (403) to an identified client; terms not retrieved
+  terms_url: https://www.acespower.com/
+  terms_status: '403 Cloudflare managed challenge (robots.txt 200: Crawl-delay 10, nothing disallowed)'
+  terms_quote: *id002
+  robots:
+    url: https://www.acespower.com/robots.txt
+    result: '200; Crawl-delay: 10; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  listing_status_2026_10_21: blocked
+  notes: RFP hosted by ACES.
+- id: us.rfp.hoosier_energy
+  name: Hoosier Energy
+  type: gt_coop
+  states: [IN, IL]
+  iso: MISO
+  url: https://www.acespower.com/hoosierenergysummer2025rfp/
+  access: unverified
+  bid_portal: ACES
+  format: html_per_rfp_page
+  cadence: unknown
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers a Cloudflare challenge (403) to an identified client; terms not retrieved
+  terms_url: https://www.acespower.com/
+  terms_status: '403 Cloudflare managed challenge (robots.txt 200: Crawl-delay 10, nothing disallowed)'
+  terms_quote: *id002
+  robots:
+    url: https://www.acespower.com/robots.txt
+    result: '200; Crawl-delay: 10; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  listing_status_2026_10_21: blocked
+  notes: RFP hosted by ACES.
+- id: us.rfp.golden_spread
+  name: Golden Spread Electric Cooperative
+  type: gt_coop
+  states: [TX, OK, NM]
+  iso: SPP and ERCOT
+  url: https://www.acespower.com/wp-content/uploads/2026/01/GSEC-2026-RFP.pdf
+  access: unverified
+  bid_portal: ACES
+  format: pdf
+  cadence: unknown
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers a Cloudflare challenge (403) to an identified client; terms not retrieved
+  terms_url: https://www.acespower.com/
+  terms_status: '403 Cloudflare managed challenge (robots.txt 200: Crawl-delay 10, nothing disallowed)'
+  terms_quote: *id002
+  robots:
+    url: https://www.acespower.com/robots.txt
+    result: '200; Crawl-delay: 10; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  listing_status_2026_10_21: blocked
+  notes: RFP PDF hosted by ACES.
+- id: us.rfp.great_river_energy
+  name: Great River Energy
+  type: gt_coop
+  states: [MN]
+  iso: MISO
+  url: https://greatriverenergy.com/renewables/request-for-proposals/
+  access: public
+  bid_portal: null
+  format: html_single_page
+  cadence: irregular
+  poll: weekly; daily while a window is open; 10 s Crawl-delay honoured
+  developer_value: low
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_content
+  deciding_clause: '"personal, non-commercial transitory viewing only"; may not use the materials "for any public
+    display"'
+  terms_url: https://greatriverenergy.com/terms/
+  terms_status: '200'
+  terms_quote:
+  - Permission is granted to access the materials on this website for personal, non-commercial transitory viewing
+    only.
+  - Use the materials for any commercial purpose, or for any public display (commercial or non-commercial);
+  robots:
+    url: https://greatriverenergy.com/robots.txt
+    result: '200; Crawl-delay: 10; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  listing_status_2026_10_21: verified
+  notes: Single stale RFP (2023); low value.
+- id: us.rfp.odec
+  name: Old Dominion Electric Cooperative
+  type: gt_coop
+  states: [VA, MD, DE]
+  iso: PJM
+  url: none found
+  access: none
+  bid_portal: null
+  format: none
+  cadence: irregular
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: low
+  verdict: cleared
+  automated_reading: allowed
+  publish: derived_fields_with_attribution
+  reuse: attribution
+  manifest:
+    reuse: attribution
+    publication: derived_only
+  basis: terms_permissive_by_omission
+  deciding_clause: Notice restricts only trademarks ("may not be used without permission"); no restriction on content
+    reuse or automated access
+  terms_url: https://www.odec.com/terms/
+  terms_status: '200'
+  terms_quote:
+  - This website features registered and non-registered trademarks and copyright-protected content. Many of these
+    trademarks are federally registered trademarks and may not be used without permission.
+  robots:
+    url: https://www.odec.com/robots.txt
+    result: 200; * disallows /wp-content/uploads/ (where documents sit) and member-programme paths
+  read_on: '2026-10-21'
+  confidence: moderate
+  attribution: 'Source: Old Dominion Electric Cooperative'
+  listing_status_2026_10_21: candidate
+  notes: No listing page exists (candidate), so nothing to build. robots.txt disallows /wp-content/uploads/, so
+    any ODEC document is link-only.
+- id: us.rfp.srp
+  name: Salt River Project
+  type: public_power
+  states: [AZ]
+  iso: non-RTO West (WEIM)
+  url: https://srpnet.com/assets/srpnet/pdf/doing-business/suppliers/2026-All-Source-RFP.pdf
+  access: unverified
+  bid_portal: null
+  format: pdf
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers 403 to an identified client although robots.txt allows /; terms not retrieved
+  terms_url: https://www.srpnet.com/
+  terms_status: '403 (robots.txt 200: Allow: /)'
+  terms_quote: []
+  robots:
+    url: https://www.srpnet.com/robots.txt
+    result: '200; * Allow: /'
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  public_records_law: Arizona public records law (A.R.S. § 39-121 et seq.); application to SRP's power district
+    to be confirmed; named from general knowledge, not retrieved (counsel to confirm)
+  listing_status_2026_10_21: blocked
+  notes: 403 to the identified client although robots allows everything.
+- id: us.rfp.scppa
+  name: Southern California Public Power Authority (LADWP, IID, Anaheim, Burbank, Glendale, Pasadena, Riverside,
+    Vernon and others)
+  type: joint_action_agency
+  states: [CA]
+  iso: CAISO and LADWP/IID balancing areas
+  url: https://scppa.org/rfps-bids/rfps-resourceproject/
+  access: public
+  bid_portal: SCPPA vendor portal
+  format: html_list
+  cadence: semiannual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located; footer "© 2026 SCPPA . All rights reserved."
+  terms_url: https://scppa.org/rfps-bids/rfps-resourceproject/
+  terms_status: 200; no terms, disclaimer or legal page in the footer or on the homepage
+  terms_quote: []
+  robots:
+    url: https://scppa.org/robots.txt
+    result: 200; * disallows /wp-admin/ only
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: 'Second-ranked issuer. A public joint powers agency whose RFPs are public contracting notices; silent terms
+    are the only obstacle. Recommended: written confirmation from SCPPA and counsel item C-3.'
+- id: us.rfp.austin_energy
+  name: Austin Energy
+  type: public_power
+  states: [TX]
+  iso: ERCOT
+  url: https://austinenergy.com/contractors/working-with-austin-energy/rfps
+  access: public
+  bid_portal: City of Austin
+  format: html_list_with_year_tabs
+  cadence: several per year
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"no unauthorized use is permitted" of copyrighted "data, information and images"; "grants permission
+    for websites to link to ... any page within"'
+  terms_url: https://austinenergy.com/about/company-profile/privacy-policy
+  terms_status: 200 (Austin Energy privacy policy, which carries the site's terms of use)
+  terms_quote:
+  - By using our websites, you acknowledge and accept all terms of use outlined below and also found on the City
+    of Austin website .
+  - As a governmental entity, Austin Energy is subject to the Texas Public Information Act
+  - Many areas of our website provide data, information and images that are copyrighted. Austin Energy owns the
+    copyright in such works, and no unauthorized use is permitted, and no authorized use is allowed without explicit
+    written permission of the Austin Energy Manager of Utility Marketing Services.
+  - Austin Energy grants permission for websites to link to the home page of austinenergy.com or to any page within.
+  robots:
+    url: https://austinenergy.com/robots.txt
+    result: 200; * disallows CMS system paths only
+  read_on: '2026-10-21'
+  confidence: high
+  public_records_law: Texas Public Information Act (Gov't Code ch. 552); named from general knowledge, not retrieved
+    (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: Linking to any page is expressly permitted. The page also says the terms are "also found on the City of
+    Austin website"; that City page was not read.
+- id: us.rfp.cps_energy
+  name: CPS Energy (San Antonio)
+  type: public_power
+  states: [TX]
+  iso: ERCOT
+  url: https://www.cpsenergy.com/content/corporate/en/work-with-us/procurement-and-suppliers/flex-path-rfp.html
+  access: public
+  bid_portal: CPS supplier registration
+  format: html_single_page
+  cadence: irregular
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: Footer "Customer Terms & Conditions" is the electric-service tariff document; no website-use
+    terms located
+  terms_url: https://www.cpsenergy.com/content/corporate/en/about-us/terms-and-conditions.html
+  terms_status: 200 but redirects to the Customer Terms and Conditions PDF (electric service); no website-use terms
+    located
+  terms_quote: []
+  robots:
+    url: https://www.cpsenergy.com/robots.txt
+    result: 200; * disallows /etc/ only
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: Texas Public Information Act (Gov't Code ch. 552); named from general knowledge, not retrieved
+    (counsel to confirm)
+  listing_status_2026_10_21: candidate
+  notes: Stale page (2020 RFP).
+- id: us.rfp.lipa
+  name: Long Island Power Authority (procurement by PSEG Long Island)
+  type: public_power
+  states: [NY]
+  iso: NYISO (also buys capacity in PJM and ISO-NE)
+  url: https://www.psegliny.com/aboutpseglongisland/proposalsandbids
+  access: public
+  bid_portal: PSEG LI / PowerAdvocate
+  format: html_list_plus_per_rfp_pages
+  cadence: 2-3 per year
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_manual_monitoring
+  deciding_clause: 'lipower.org: "Use any manual process to monitor or copy any of the material"; psegliny.com (listing
+    host): "Use any deep link to the Site or any portion thereof"'
+  terms_url: https://www.lipower.org/terms-of-use/
+  terms_status: '200'
+  terms_quote:
+  - These Terms of Use permit you to use the Website for your personal, non-commercial use only.
+  - Use any robot, spider, or other automatic device, process, or means to access the Website for any purpose, including
+    monitoring or copying any of the material on the Website.
+  - Use any manual process to monitor or copy any of the material on the Website, or for any other purpose not expressly
+    authorized in these Terms of Use, without our prior written consent.
+  robots:
+    url: https://www.psegliny.com/robots.txt
+    result: '404 on psegliny.com (absent); lipower.org/robots.txt 200, Crawl-delay: 10, nothing disallowed'
+  read_on: '2026-10-21'
+  confidence: high
+  public_records_law: New York Freedom of Information Law (Public Officers Law art. 6); named from general knowledge,
+    not retrieved (counsel to confirm)
+  pseg_li_terms:
+    terms_url: https://www.psegliny.com/en/WebsiteTermsandConditions
+    terms_status: 200 (Acceptable Use Policy and Disclaimer captured; the Terms of Use tab body was not in the served
+      HTML)
+    terms_quote:
+    - By browsing the Site or using Services available on the Site, you acknowledge that you have read, understood,
+      and agree to be legally bound by this Disclaimer, and our Terms of Use, Privacy Policy and Acceptable Use
+      Policy, and to comply with applicable laws and regulations.
+    - 'You further agree not to:'
+    - Use any deep link to the Site or any portion thereof; or
+  listing_status_2026_10_21: verified
+  notes: Listing lives on psegliny.com, whose Acceptable Use Policy bars deep links (quoted in pseg_li_terms below);
+    LIPA's own site bars manual monitoring. Permission request to LIPA is the route.
+- id: us.rfp.nypa
+  name: New York Power Authority
+  type: public_power
+  states: [NY]
+  iso: NYISO
+  url: https://www.nypa.gov/procurement
+  access: unverified
+  bid_portal: SAP Ariba (free registration)
+  format: js_app
+  cadence: continuous (all procurement)
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_silent
+  deciding_clause: Only footer legal page (Disclaimer) concerns the translation widget; terms silent on reuse and
+    automated access
+  terms_url: https://www.nypa.gov/Footer/Disclaimer
+  terms_status: 200; the Disclaimer addresses only the Google Translate widget; no reuse or automation clause located
+  terms_quote:
+  - Google™ Translate was not developed, maintained, or approved by NYPA.
+  robots:
+    url: https://www.nypa.gov/robots.txt
+    result: '200; * Allow: /'
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: New York Freedom of Information Law (Public Officers Law art. 6); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: Listing is a JavaScript application (rfp.nypa.gov); bids via SAP Ariba.
+- id: us.rfp.tva
+  name: Tennessee Valley Authority
+  type: federal_power
+  states: [TN, AL, MS, KY, GA, NC, VA]
+  iso: non-RTO Southeast
+  url: https://www.tva.com/ (Cloudflare challenge)
+  access: unverified
+  bid_portal: null
+  format: unknown
+  cadence: irregular
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Cloudflare challenge on every request including robots.txt; terms not retrieved
+  terms_url: https://www.tva.com/robots.txt
+  terms_status: 403 Cloudflare managed challenge ("Just a moment") on robots.txt; not retried
+  terms_quote: []
+  robots:
+    url: https://www.tva.com/robots.txt
+    result: 403 Cloudflare challenge
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  public_records_law: Federal FOIA (5 U.S.C. § 552); whether 17 U.S.C. § 105 reaches TVA works is unsettled; named
+    from general knowledge, not retrieved (counsel to confirm)
+  listing_status_2026_10_21: blocked
+  notes: TVA is a federal corporation; whether its works are 17 U.S.C. § 105 public domain is counsel item C-8.
+- id: us.rfp.santee_cooper
+  name: Santee Cooper (South Carolina Public Service Authority)
+  type: public_power
+  states: [SC]
+  iso: non-RTO Southeast
+  url: https://newsroom.santeecooper.com/news/Santee-Cooper-Issues-Request-for-Proposals-for-New-Solar-Energy-Resources/
+  access: none
+  bid_portal: The Energy Authority (TEA) RFP Marketplace (login)
+  format: news_post_plus_portal
+  cadence: unknown
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_silent
+  deciding_clause: Assent sentence points to the retail electric-service terms, which say nothing about website
+    reuse or automated access
+  terms_url: https://www.santeecooper.com/about/legal-notices/
+  terms_status: 200; the page's "Terms and Conditions" link is the Terms and Conditions of Retail Electric Service
+    PDF (effective 2018-10-31); no website-use clause
+  terms_quote:
+  - 'PLEASE BE AWARE THAT BY ACCESSING AND USING THIS SITE, YOU AGREE TO ABIDE BY AND FOLLOW THE TERMS AND CONDITIONS
+    AS SET FORTH BELOW:'
+  robots:
+    url: https://newsroom.santeecooper.com/robots.txt
+    result: '200; Crawl-delay: 10; nothing disallowed (www.santeecooper.com disallows /Currently/ and /Employees/
+      only)'
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: South Carolina Freedom of Information Act (S.C. Code § 30-4-10 et seq.); named from general
+    knowledge, not retrieved (counsel to confirm)
+  listing_status_2026_10_21: partial
+  notes: Bids via TEA RFP Marketplace (login).
+- id: us.rfp.smud
+  name: Sacramento Municipal Utility District
+  type: public_power
+  states: [CA]
+  iso: BANC (WEIM)
+  url: bids.smud.org (e-bid system, not opened)
+  access: unverified
+  bid_portal: SMUD e-bid
+  format: unknown
+  cadence: unknown
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: low
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_information
+  deciding_clause: '"otherwise disseminating any information in the proprietary materials in any media, without
+    prior written approval from SMUD, is strictly prohibited"'
+  terms_url: https://www.smud.org/Corporate/Privacy-policy/Terms-and-conditions
+  terms_status: '200'
+  terms_quote:
+  - By accessing and using this Site, you are agreeing to be bound by and comply with these Terms of Use.
+  - Commercial use or broadcasting or otherwise disseminating any information in the proprietary materials in any
+    media, without prior written approval from SMUD, is strictly prohibited.
+  robots:
+    url: https://www.smud.org/robots.txt
+    result: 200; sitemap line only (no rules)
+  read_on: '2026-10-21'
+  confidence: high
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: candidate
+  notes: Listing (bids.smud.org) not opened; candidate.
+- id: us.rfp.colorado_springs_utilities
+  name: Colorado Springs Utilities
+  type: public_power
+  states: [CO]
+  iso: non-RTO West
+  url: https://www.csu.org/ (homepage 200; RFP page not located)
+  access: none
+  bid_portal: null
+  format: unknown
+  cadence: irregular
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: low
+  verdict: link_out_only
+  automated_reading: allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_restrict_content
+  deciding_clause: '"content may not be reproduced, downloaded, disseminated, published, or transferred in any form
+    ... except with the prior written permission"'
+  terms_url: https://www.csu.org/copyright-notice?hsLang=en
+  terms_status: 200 (redirects to /copyright-notice)
+  terms_quote:
+  - By accessing, copying or using any information contained at this website, you agree to be bound by the terms
+    and conditions described in this Legal Notice.
+  - All rights are reserved by the City of Colorado Springs and Colorado Springs Utilities, and content may not
+    be reproduced, downloaded, disseminated, published, or transferred in any form or by any means, except with
+    the prior written permission of Colorado Springs Utilities, or as indicated below.
+  robots:
+    url: https://www.csu.org/robots.txt
+    result: 200; * disallows HubSpot preview paths only
+  read_on: '2026-10-21'
+  confidence: moderate-high
+  public_records_law: Colorado Open Records Act (C.R.S. § 24-72-201 et seq.); named from general knowledge, not
+    retrieved (counsel to confirm)
+  listing_status_2026_10_21: candidate
+  notes: RFP page not located; candidate.
+- id: us.rfp.platte_river
+  name: Platte River Power Authority
+  type: public_power
+  states: [CO]
+  iso: non-RTO West
+  url: https://prpa.org/projects/
+  access: none
+  bid_portal: null
+  format: unknown
+  cadence: irregular
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located; footer "Copyright © 2026 Platte River Power Authority. All rights
+    reserved."
+  terms_url: https://prpa.org/linking-policy/
+  terms_status: 200; footer carries Privacy policy and Linking policy only; the linking policy covers outbound links;
+    no reuse terms located
+  terms_quote: []
+  robots:
+    url: https://www.prpa.org/robots.txt
+    result: '200; Crawl-delay: 10; nothing disallowed'
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: Colorado Open Records Act (C.R.S. § 24-72-201 et seq.); named from general knowledge, not
+    retrieved (counsel to confirm)
+  listing_status_2026_10_21: candidate
+  notes: Candidate.
+- id: us.rfp.clean_power_alliance
+  name: Clean Power Alliance of Southern California
+  type: cca
+  states: [CA]
+  iso: CAISO
+  url: https://cleanpoweralliance.org/2026-clean-energy-and-reliability-rfo/
+  access: public
+  bid_portal: Ascend Analytics RFO website (registration)
+  format: html_per_rfp_page
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: Footer "Terms and Conditions" is the customer service agreement; no website-use terms located
+  terms_url: https://cleanpoweralliance.org/terms-and-conditions/
+  terms_status: 200 but the page is "Terms and Conditions of Service" (electric service), not website-use terms
+  terms_quote: []
+  robots:
+    url: https://cleanpoweralliance.org/robots.txt
+    result: '200; Crawl-delay: 10; * disallows /uploads/wpforms/ only'
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: Registration and documents on an Ascend Analytics RFO site (separate terms). The CPA footer links "Request
+    a Public Record".
+- id: us.rfp.mce
+  name: MCE (Marin Clean Energy)
+  type: cca
+  states: [CA]
+  iso: CAISO
+  url: https://www.mcecleanenergy.org/solicitations/
+  access: unverified
+  bid_portal: null
+  format: html_list_plus_pdfs
+  cadence: annual Open Season plus ad hoc
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers 403 to an identified client; terms not retrieved
+  terms_url: https://www.mcecleanenergy.org/
+  terms_status: 403 Forbidden (103 bytes) to an identified client; robots.txt 200 with nothing disallowed for *
+  terms_quote: []
+  robots:
+    url: https://www.mcecleanenergy.org/robots.txt
+    result: '200; * Disallow: (empty)'
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: blocked
+  notes: 403 to the identified client.
+- id: us.rfp.svce
+  name: Silicon Valley Clean Energy
+  type: cca
+  states: [CA]
+  iso: CAISO
+  url: https://www.svcleanenergy.org/solicitations/
+  access: public
+  bid_portal: null
+  format: html_list
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: Footer "Terms & Conditions" is the customer service agreement; no website-use terms located
+  terms_url: https://www.svcleanenergy.org/conditions/
+  terms_status: 200 but the page is "Terms and Conditions of Service" (electric service), not website-use terms
+  terms_quote: []
+  robots:
+    url: https://www.svcleanenergy.org/robots.txt
+    result: 200; nothing disallowed
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: null
+- id: us.rfp.westlight
+  name: WestLight Energy (formerly Peninsula Clean Energy, renamed 2026-07-01)
+  type: cca
+  states: [CA]
+  iso: CAISO
+  url: https://www.westlightenergy.org/work-with-us/
+  access: public
+  bid_portal: null
+  format: html_list_plus_per_rfp_pages
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: Footer "Terms & Conditions" is the customer service agreement; no website-use terms located
+  terms_url: https://www.westlightenergy.org/terms-and-conditions-of-service/
+  terms_status: 200 but the page is "Terms and Conditions of Service" (electric service), not website-use terms
+  terms_quote: []
+  robots:
+    url: https://www.westlightenergy.org/robots.txt
+    result: 200; * disallows calendar/event actions and /cdn-cgi only
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: null
+- id: us.rfp.ava
+  name: Ava Community Energy (formerly East Bay Community Energy), with San Jose Clean Energy
+  type: cca
+  states: [CA]
+  iso: CAISO
+  url: https://avaenergy.org/about-ava/solicitations/
+  access: public
+  bid_portal: null
+  format: html_list_plus_per_rfp_pages
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: terms_bar_automation
+  deciding_clause: '"expressly restricted from ... publishing any Website material in any media ... engaging in
+    any data mining, data harvesting, data extracting"'
+  terms_url: https://avaenergy.org/terms-website/
+  terms_status: 200 ("Website Terms of Use")
+  terms_quote:
+  - By using this Website, you expressly accept all terms and conditions contained herein in full.
+  - 'You are expressly restricted from all of the following: publishing any Website material in any media;'
+  - engaging in any data mining, data harvesting, data extracting or any other similar activity in relation to this
+    Website, or while using this Website;
+  robots:
+    url: https://avaenergy.org/robots.txt
+    result: 200; * disallows /wp-admin/ and translated-language paths only
+  read_on: '2026-10-21'
+  confidence: high
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: Ava is a California joint powers agency; whether a public agency may bar publication of its public solicitation
+    notices is counsel item C-3.
+- id: us.rfp.sdcp
+  name: San Diego Community Power
+  type: cca
+  states: [CA]
+  iso: CAISO
+  url: https://sdcommunitypower.org/ (403 to this client)
+  access: unverified
+  bid_portal: null
+  format: pdf
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Site answers 403 to an identified client; terms not retrieved
+  terms_url: https://sdcommunitypower.org/
+  terms_status: 403 Forbidden (103 bytes) to an identified client; robots.txt 200 with nothing disallowed
+  terms_quote: []
+  robots:
+    url: https://sdcommunitypower.org/robots.txt
+    result: 200; nothing disallowed
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: blocked
+  notes: 403 to the identified client, homepage included.
+- id: us.rfp.cc_power
+  name: California Community Power (joint powers authority of CCAs)
+  type: joint_action_agency
+  states: [CA]
+  iso: CAISO
+  url: https://cacommunitypower.org/
+  access: none
+  bid_portal: null
+  format: none
+  cadence: irregular
+  poll: none (no automated polling)
+  developer_value: low
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located; footer "Copyright © 2026, CA Community Power"
+  terms_url: https://cacommunitypower.org/
+  terms_status: 200; no terms, disclaimer or legal page linked
+  terms_quote: []
+  robots:
+    url: https://cacommunitypower.org/robots.txt
+    result: 200; nothing disallowed
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: California Public Records Act (Gov. Code § 7920.000 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: candidate
+  notes: No listing; candidate.
+- id: us.rfp.nyserda
+  name: NYSERDA (Large-Scale Renewables, Bulk Energy Storage, Offshore Wind)
+  type: state_procurement
+  states: [NY]
+  iso: NYISO
+  url: https://www.nyserda.ny.gov/All-Programs/Large-Scale-Renewables/Solicitations-for-Long-term-Contracts
+  access: unverified
+  bid_portal: NYSERDA solicitation portal (login)
+  format: html_per_rfp_pages_plus_pdfs
+  cadence: annual Tier 1; storage and OSW rounds
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: Cloudflare challenge on every request including robots.txt; terms not retrieved
+  terms_url: https://www.nyserda.ny.gov/robots.txt
+  terms_status: 403 Cloudflare managed challenge on robots.txt; not retried
+  terms_quote: []
+  robots:
+    url: https://www.nyserda.ny.gov/robots.txt
+    result: 403 Cloudflare challenge
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  public_records_law: New York Freedom of Information Law (Public Officers Law art. 6); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: blocked
+  notes: Challenge on every request. NYSERDA's annual Tier 1 RFP is high value; a human read of its website policies
+    is a browser task.
+- id: us.rfp.massachusetts_clean_energy
+  name: Massachusetts DOER and distribution companies (Sections 83C, 83D, 83E procurements)
+  type: state_procurement
+  states: [MA]
+  iso: ISO-NE
+  url: https://macleanenergy.com/
+  access: public
+  bid_portal: macleanenergy.com login
+  format: html_news_list_plus_sections
+  cadence: every 1-2 years per section
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located (only a WordPress.com footer)
+  terms_url: https://macleanenergy.com/
+  terms_status: 200; WordPress.com-hosted site, footer "Blog at WordPress.com." only; no terms page
+  terms_quote: []
+  robots:
+    url: https://macleanenergy.com/robots.txt
+    result: 200; WordPress.com default, * disallows admin/login paths only
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: macleanenergy.com is run for the Massachusetts distribution companies; DOER is subject to
+    the Massachusetts Public Records Law (G.L. c. 66, § 10) but the site is not DOER's; named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: Flaky server (500 then 200). Bidder log-in area for documents.
+- id: us.rfp.ct_deep
+  name: Connecticut DEEP (zero-carbon, storage and offshore wind procurements)
+  type: state_procurement
+  states: [CT]
+  iso: ISO-NE
+  url: https://portal.ct.gov/deep/news-releases/news-releases---2026/deep-announces-2026-zero-carbon-request-for-proposals
+  access: public
+  bid_portal: null
+  format: news_post_plus_lotus_notes_filing
+  cadence: annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: cleared
+  automated_reading: allowed
+  publish: derived_fields_with_attribution
+  reuse: attribution
+  manifest:
+    reuse: attribution
+    publication: derived_only
+  basis: terms_permissive_by_omission
+  deciding_clause: Disclaimer restricts only the state arms/seal and the CT.gov logo; no restriction on reuse of
+    state information or on automated access
+  terms_url: https://portal.ct.gov/portal/policies/disclaimer/
+  terms_status: 200 (State of Connecticut Disclaimer, linked from the DEEP news release)
+  terms_quote:
+  - The State of Connecticut is dedicated to the practice of democracy and strongly believes in the free exchange
+    of ideas.
+  - Reproduction of this material, in whole or in part, without prior permission from Connecticut Office of Tourism
+    is strictly prohibited.
+  - Your use of the website is subject to all applicable terms of use including, but not limited to, the State of
+    Connecticut Disclaimer.
+  robots:
+    url: https://portal.ct.gov/robots.txt
+    result: '200; * Allow: / with beta and search paths disallowed; DOCUMENTS HOST www.dpuc.state.ct.us/robots.txt
+      200: "User-Agent: * Disallow: /"'
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: Connecticut Freedom of Information Act (C.G.S. § 1-200 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  attribution: 'Source: Connecticut Department of Energy and Environmental Protection'
+  listing_status_2026_10_21: verified
+  notes: 'Read news releases on portal.ct.gov automatically. RFP documents sit on www.dpuc.state.ct.us, whose robots.txt
+    disallows everything: link to them, never fetch them. Credit: "Source: Connecticut Department of Energy and
+    Environmental Protection".'
+- id: us.rfp.nj_bpu
+  name: New Jersey Board of Public Utilities (GSESP storage, offshore wind, solar programmes)
+  type: state_procurement
+  states: [NJ]
+  iso: PJM
+  url: https://www.nj.gov/bpu/pdf/publicnotice/Public%20Notice%20-%20GSESP%20Tranche%202%20Extension.pdf
+  access: none
+  bid_portal: NJ Clean Energy Program
+  format: pdf_orders_and_notices
+  cadence: tranches roughly annual
+  poll: weekly; daily while a window is open; >= 2 s per host
+  developer_value: high
+  verdict: cleared
+  automated_reading: allowed
+  publish: derived_fields_with_attribution
+  reuse: open
+  manifest:
+    reuse: open
+    publication: derived_only
+  basis: terms_permit_open
+  deciding_clause: '"anyone may view, copy or distribute State information found here without obligation to the
+    State"'
+  terms_url: https://www.nj.gov/nj/legal.shtml
+  terms_status: 200 ("Legal Statement & Disclaimers", statewide; nj.gov/nj/legal.html redirects here)
+  terms_quote:
+  - By visiting this web site, you are accepting the policies and practices described in this Notice.
+  - The State of New Jersey has made the content of these pages available to the public and anyone may view, copy
+    or distribute State information found here without obligation to the State, unless otherwise stated on particular
+    material or information to which a restriction on free use may apply.
+  robots:
+    url: https://www.nj.gov/robots.txt
+    result: 200; * disallows /Support/ and some cgi-bin and document paths; /bpu/ not disallowed
+  read_on: '2026-10-21'
+  confidence: high
+  public_records_law: New Jersey Open Public Records Act (N.J.S.A. 47:1A-1 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  attribution: 'Source: New Jersey Board of Public Utilities'
+  listing_status_2026_10_21: partial
+  notes: 'Statewide use policy permits copying and distribution of State information. The row has no single listing
+    page: read the BPU public notices index and orders. Credit: "Source: New Jersey Board of Public Utilities".'
+- id: us.rfp.maryland_psc
+  name: Maryland Public Service Commission (NGEA dispatchable solicitations; offshore wind OREC rounds)
+  type: state_procurement
+  states: [MD]
+  iso: PJM
+  url: https://psc.maryland.gov/news/2025/psc-seeks-generation-proposals-under-next-gen-energy-act/
+  access: public
+  bid_portal: MD PSC portal
+  format: news_post_plus_docket
+  cadence: statutory windows to 2030
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located; footer "© 2026 Maryland Public Service Commission"
+  terms_url: https://psc.maryland.gov/
+  terms_status: 200; footer links Accessibility, Contact, Maryland.gov only; no terms page located
+  terms_quote: []
+  robots:
+    url: https://psc.maryland.gov/robots.txt
+    result: '200; Crawl-delay: 10; nothing disallowed'
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: Maryland Public Information Act (Md. Code, Gen. Prov. § 4-101 et seq.); named from general
+    knowledge, not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: Docket PC74 on webpscxb.psc.state.md.us (separate host, not read).
+- id: us.rfp.illinois_ipa
+  name: Illinois Power Agency (indexed REC, block energy and capacity, utility-scale storage)
+  type: state_procurement
+  states: [IL]
+  iso: MISO and PJM
+  url: https://www.ipa-energyrfp.com/indexed-renewables/
+  access: public
+  bid_portal: IPA procurement administrator
+  format: html_news_list
+  cadence: semiannual
+  poll: none (no automated polling)
+  developer_value: high
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: terms_not_located
+  deciding_clause: No website-use terms located; footer "© 2026 Copyright Illinois Power Agency. All rights reserved."
+  terms_url: https://www.ipa-energyrfp.com/indexed-renewables/
+  terms_status: 200; procurement administrator site (NERA-hosted) with no terms page, privacy link to nera.com;
+    robots.txt answers 403 (S3 AccessDenied); ipa.illinois.gov footer links only the State privacy notice, which
+    is silent on reuse
+  terms_quote: []
+  robots:
+    url: https://www.ipa-energyrfp.com/robots.txt
+    result: '403 S3 AccessDenied (treated as absent by pipeline/connectors/http.py); ipa.illinois.gov/robots.txt
+      200, default group * Allow: /'
+  read_on: '2026-10-21'
+  confidence: moderate
+  public_records_law: Illinois Freedom of Information Act (5 ILCS 140); named from general knowledge, not retrieved
+    (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: 'High-value, semiannual and well structured; silent terms are the only obstacle. Recommended: written confirmation
+    from the IPA or its procurement administrator, and counsel item C-3.'
+- id: us.rfp.maine_puc
+  name: Maine Public Utilities Commission (Northern Maine, Class IA and repowering RFPs)
+  type: state_procurement
+  states: [ME]
+  iso: ISO-NE
+  url: https://www.maine.gov/mpuc/regulated-utilities/electricity/rfp-awarded-contracts
+  access: unverified
+  bid_portal: null
+  format: html_per_docket_pages
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: blocked
+  deciding_clause: CloudFront 403 "Request blocked." on robots.txt; terms not retrieved
+  terms_url: https://www.maine.gov/robots.txt
+  terms_status: 403 CloudFront "Request blocked." on robots.txt; not retried
+  terms_quote: []
+  robots:
+    url: https://www.maine.gov/robots.txt
+    result: 403 CloudFront Request blocked
+  read_on: '2026-10-21'
+  confidence: n/a (not read)
+  public_records_law: Maine Freedom of Access Act (1 M.R.S. § 400 et seq.); named from general knowledge, not retrieved
+    (counsel to confirm)
+  listing_status_2026_10_21: blocked
+  notes: CloudFront block on robots.txt.
+- id: us.rfp.virginia_scc
+  name: Virginia SCC (VCEA RPS development plans and CPCN filings for Dominion and APCo RFPs)
+  type: state_docket
+  states: [VA]
+  iso: PJM
+  url: https://www.scc.virginia.gov/docketsearch
+  access: unverified
+  bid_portal: null
+  format: js_app
+  cadence: annual
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: manual_only
+  automated_reading: not_allowed
+  publish: title_date_link
+  reuse: unknown
+  manifest:
+    reuse: unknown
+    publication: none
+  basis: robots_disallow
+  deciding_clause: 'robots.txt: "User-agent: *" / "Disallow: /"'
+  terms_url: https://www.scc.virginia.gov/robots.txt
+  terms_status: 'robots.txt 200: "User-agent: *" group "Disallow: /" (named search engines allowed); web policy
+    page /accessibility-and-web-policy/ not fetched because robots disallows it'
+  terms_quote: []
+  robots:
+    url: https://www.scc.virginia.gov/robots.txt
+    result: '200; User-agent: * Disallow: /'
+  read_on: '2026-10-21'
+  confidence: high
+  public_records_law: Virginia Freedom of Information Act (Va. Code § 2.2-3700 et seq.); named from general knowledge,
+    not retrieved (counsel to confirm)
+  listing_status_2026_10_21: verified
+  notes: One GET of https://www.scc.virginia.gov/ was made in the same batch as its robots.txt, before robots was
+    evaluated; no further request was made. Docket search is a JavaScript application.
+- id: us.rfp.puerto_rico_preb
+  name: Puerto Rico Energy Bureau / PREPA renewable and storage tranches (LUMA-administered)
+  type: territory_procurement
+  states: [PR]
+  iso: none (island grid)
+  url: prebrfp.accionpower.com (PREB independent coordinator portal; not opened)
+  access: none
+  bid_portal: Accion (PREB independent coordinator)
+  format: portal
+  cadence: irregular
+  poll: none (no automated polling)
+  developer_value: medium
+  verdict: excluded
+  automated_reading: not_allowed
+  publish: none
+  reuse: excluded
+  manifest:
+    reuse: restricted
+    publication: none
+  basis: login
+  deciding_clause: Bid portal requires registration (Accion, PREB independent coordinator); energia.pr.gov has no
+    terms page
+  terms_url: https://energia.pr.gov/
+  terms_status: 200; no terms page on energia.pr.gov; the tranche bid portal prebrfp.accionpower.com was not opened
+    (login per the market-research lane)
+  terms_quote: []
+  robots:
+    url: https://energia.pr.gov/robots.txt
+    result: 200; * disallows /wp-admin/ only
+  read_on: '2026-10-21'
+  confidence: high
+  public_records_law: Puerto Rico Transparency and Expedited Procedure for Access to Public Information Act (Act
+    141-2019); named from general knowledge, not retrieved (counsel to confirm)
+  listing_status_2026_10_21: candidate
+  notes: PREB orders (energia.pr.gov/ordenes/) are a docket route with no located terms (manual only).
