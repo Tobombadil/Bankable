@@ -820,6 +820,56 @@ def _feature_with_source(name: str, lon: float) -> dict[str, Any]:
     return feature
 
 
+def _rgb_hex(css_colour: str) -> str:
+    r, g, b = (int(v) for v in re.findall(r"\d+", css_colour)[:3])
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _contrast(a: str, b: str) -> float:
+    def luminance(hex_colour: str) -> float:
+        channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_map_hover_card_text_is_readable_in_both_themes(server: object, scheme: str) -> None:
+    """Owner report 2026-10-21: in dark mode the hover card's text could not be seen. MapLibre's
+    stylesheet, loaded after styles.css, paints the card and its tip #fff, and the text inherited
+    the dark theme's light --text."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT, color_scheme=scheme)
+            _install_offline_routes(page)
+            page.route(
+                "**/api/ui-events",
+                lambda r: r.fulfill(status=202, content_type="application/json", body="{}"),
+            )
+            page.goto(BASE_URL + "/")
+            page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()")
+            # The Popup map.js opens on hover, anchored below its point so the tip shows.
+            page.evaluate(
+                "() => new maplibregl.Popup({closeButton: false, closeOnClick: false, anchor: 'top'})"
+                ".setLngLat(window.__map.getCenter())"
+                ".setHTML('<strong>Plant</strong><br>Operator: Example')"
+                ".addTo(window.__map)"
+            )
+            colours = page.locator(".maplibregl-popup-content").evaluate(
+                "el => { const card = getComputedStyle(el);"
+                " const tip = getComputedStyle(el.parentElement.querySelector('.maplibregl-popup-tip'));"
+                " return [card.color, card.backgroundColor, tip.borderBottomColor]; }"
+            )
+        finally:
+            browser.close()
+    text, background, tip = (_rgb_hex(c) for c in colours)
+    assert _contrast(text, background) >= 4.5, (scheme, text, background)
+    assert tip == background, f"the tip ({tip}) does not join the card ({background})"
+
+
 def test_map_keyboard_path_reaches_results_and_the_drawer_and_the_closed_drawer_is_gone(
     server: object,
 ) -> None:
