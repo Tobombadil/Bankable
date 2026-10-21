@@ -1,18 +1,33 @@
 """Loader tests for `services/ingest/ownership.py` (EIA-860 Schedule 4 -> `asset_owner`, ADR
 0008): aggregation (unweighted mean across generators), organisation resolution/creation via the
-alias table, and the unmatched-plant-id report."""
+alias table, and the unmatched-plant-id report; and the resolver's cost when a load creates thousands
+of organisations (the slug and alias lookups, docs/16 §5)."""
 
 from __future__ import annotations
 
+import datetime as dt
+import re
+from typing import Any
+
 import pandas as pd
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
-from services.db.models import AssetOwner, Organization, OrganizationAlias
+from pipeline.connectors.registry import Registry
+from services.db.models import AssetOwner, Organization, OrganizationAlias, Source
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ingest.assets import load_assets
-from services.ingest.ownership import load_owner_shares, load_owner_shares_parquet
+from services.ingest.loader import upsert_licence_and_source
+from services.ingest.ownership import (
+    OWNERSHIP_SOURCE_ID,
+    StoredOrganizationSlugs,
+    _alias_keys,
+    _build_norm_org_index,
+    _resolve_organization,
+    load_owner_shares,
+    load_owner_shares_parquet,
+)
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
@@ -383,3 +398,104 @@ def test_report_samples_the_unmatched_plant_ids_and_counts_them_all(session):
     assert report["unmatched_plant_count"] == 13  # "9999" plus the twelve synthetic plants
     assert len(report["unmatched_plant_ids_sample"]) == 10
     assert len(set(result.unmatched_plant_ids)) == 13
+
+
+# --------------------------------------------- creating organisations at scale (docs/16 U-3, §5)
+NOW = dt.datetime(2026, 10, 21, tzinfo=dt.UTC)
+
+
+def _statements(session: Session) -> list[str]:
+    """Every SQL statement the session's engine runs from here on, whitespace-collapsed."""
+    seen: list[str] = []
+
+    def record(conn: Any, cursor: Any, statement: str, *args: Any) -> None:
+        seen.append(" ".join(statement.split()))
+
+    event.listen(session.get_bind(), "before_cursor_execute", record)
+    return seen
+
+
+def _ownership_source(session: Session) -> Source:
+    registry = Registry()
+    return upsert_licence_and_source(session, registry.get(OWNERSHIP_SOURCE_ID), registry.version)
+
+
+def _new_org(name: str, slug: str) -> Organization:
+    return Organization(
+        public_id=f"org_{slug}",
+        slug=slug,
+        name_canonical=name,
+        name_normalised=name.lower(),
+        type="other",
+        country="US",
+    )
+
+
+def test_stored_slugs_answer_from_the_store_including_an_organisation_not_yet_flushed(session):
+    taken = StoredOrganizationSlugs(session)
+    session.add(_new_org("Delta Solar", "delta-solar"))
+    session.commit()
+    session.add(_new_org("Epsilon Wind", "epsilon-wind"))  # pending: autoflush makes it count
+    assert "delta-solar" in taken and "epsilon-wind" in taken
+    assert "zeta-storage" not in taken
+
+
+def test_new_organisations_get_unique_slugs_without_reading_every_slug(session):
+    """`_resolve_organization` read every slug in the table for each organisation it created: 264 s
+    of the 16,472-plant EIA-860M operator load, which creates about 6,100 (docs/16 §5). Each
+    candidate is now one indexed lookup. Slugs stay unique against the table and within the run:
+    `org_key` keeps `&` as AND, so these are four organisations, and `acme-power` is everyone's
+    first choice."""
+    session.add(_new_org("Acme Power", "acme-power"))
+    session.commit()
+    index = _build_norm_org_index(session)
+    source = _ownership_source(session)
+    statements = _statements(session)
+    created = [0]
+    names = ("Acme & Power", "ACME & POWER INC", "Beta Gas", "Beta & Gas")
+    orgs = [
+        _resolve_organization(session, index, name, source=source, now=NOW, created_counter=created)
+        for name in names
+    ]
+    session.commit()
+    issued = list(statements)  # before the assertions' own reads
+    assert created == [3]  # the second spelling is the first organisation
+    assert orgs[0] is orgs[1]
+    slugs = list(session.scalars(select(Organization.slug)))
+    assert len(slugs) == len(set(slugs)) == 4
+    assert orgs[0].slug.startswith("acme-power-") and orgs[2].slug == "beta-gas"
+    assert orgs[3].slug.startswith("beta-gas-")  # beta-gas was taken earlier in this run
+    whole_column = [s for s in issued if re.search(r"FROM organization\b(?!_)", s) and " WHERE " not in s]
+    assert whole_column == []
+
+
+def test_alias_keys_answer_the_alias_check_without_a_query_per_name(session):
+    index = _build_norm_org_index(session)
+    keys = _alias_keys(session)
+    source = _ownership_source(session)
+    statements = _statements(session)
+    for name in ["Gamma Wind LLC"] * 20 + ["GAMMA WIND, L.L.C."]:
+        _resolve_organization(
+            session, index, name, source=source, now=NOW, created_counter=[0], alias_keys=keys
+        )
+    session.commit()
+    issued = list(statements)  # before the assertions' own reads
+    assert sorted(session.scalars(select(OrganizationAlias.alias))) == [
+        "GAMMA WIND, L.L.C.",
+        "Gamma Wind LLC",
+    ]
+    assert [s for s in issued if s.startswith("SELECT") and "FROM organization_alias" in s] == []
+    # Written through, so a second pass over the same names adds nothing.
+    for name in ("Gamma Wind LLC", "GAMMA WIND, L.L.C."):
+        _resolve_organization(
+            session, index, name, source=source, now=NOW, created_counter=[0], alias_keys=keys
+        )
+    session.commit()
+    assert len(session.scalars(select(OrganizationAlias)).all()) == 2
+
+
+def test_owner_shares_read_the_alias_table_once_per_load(session):
+    _seed_plant(session)
+    statements = _statements(session)
+    load_owner_shares(session, owner_frame())
+    assert len([s for s in statements if s.startswith("SELECT") and "FROM organization_alias" in s]) == 2

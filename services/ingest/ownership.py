@@ -280,6 +280,34 @@ def _build_norm_org_index(session: Session) -> dict[str, Organization]:
     return index
 
 
+class StoredOrganizationSlugs:
+    """`services.ids.unique_slug`'s `taken` for a new organisation, answered by the store one slug at
+    a time: `slug in taken` is one lookup on `organization.slug`'s unique index. It replaces reading
+    every slug in the table into a set for each organisation created, which made a load quadratic:
+    the EIA-860M operator edges create about 6,100 organisations over a table that grows from 8,500
+    rows, and the rebuilt sets took most of that load's 264 s (measured 2026-10-20 on the docs/16 §5
+    store). Autoflush makes an organisation this session has added but not committed count as
+    taken, as it did for the set, so slugs stay unique within a run as well as against the table."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def __contains__(self, slug: object) -> bool:
+        found = self._session.scalar(select(Organization.id).where(Organization.slug == slug).limit(1))
+        return found is not None
+
+
+def _alias_keys(session: Session) -> set[tuple[str, str]]:
+    """Every `(organization_id, alias_normalised)` pair in the store, the `one_alias_per_org` key:
+    `_resolve_organization`'s `alias_keys`, read once per load."""
+    return {
+        (str(org_id), alias)
+        for org_id, alias in session.execute(
+            select(OrganizationAlias.organization_id, OrganizationAlias.alias_normalised)
+        ).all()
+    }
+
+
 def _resolve_organization(
     session: Session,
     norm_index: dict[str, Organization],
@@ -289,6 +317,7 @@ def _resolve_organization(
     now: dt.datetime,
     created_counter: list[int],
     source_url: str | None = None,
+    alias_keys: set[tuple[str, str]] | None = None,
 ) -> Organization:
     """Resolves `raw_name` to an organisation via `norm_index` (module docstring: `org_key`, not
     a raw casefold), creating a new organisation plus a `filing_spelling` alias only when no
@@ -301,6 +330,12 @@ def _resolve_organization(
     `now` is stamped on a new alias as its `retrieved_at`, so callers pass the fetch the spelling
     was read in, and `source_url` the page it came from (audit 2026-09-30 F8: aliases carried the
     load time and the manifest landing URL).
+
+    `alias_keys` is the same kind of write-through cache for the alias check: a caller that passes
+    `_alias_keys(session)`, read once at the start of its load, is answered from it instead of by a
+    query per row. Each of those queries also autoflushed the row before it, which was most of the
+    EIA-860M operator load's time once the slug set was fixed (16,472 rows; docs/16 §5). Without it
+    the store is asked, as before.
     """
     key = org_key(raw_name)
     exact_key = raw_name.strip().lower()
@@ -308,8 +343,9 @@ def _resolve_organization(
     org = norm_index.get(key)
     if org is None:
         org_id = new_uuid()
-        existing_slugs = set(session.scalars(select(Organization.slug)))
-        slug = unique_slug(raw_name.strip(), make_public_id("org", org_id), existing_slugs, bare_first=True)
+        slug = unique_slug(
+            raw_name.strip(), make_public_id("org", org_id), StoredOrganizationSlugs(session), bare_first=True
+        )
         org = Organization(
             id=org_id,
             public_id=make_public_id("org", org_id),
@@ -324,12 +360,22 @@ def _resolve_organization(
         created_counter[0] += 1
         norm_index[key] = org
 
-    exists_alias = session.scalar(
-        select(OrganizationAlias).where(
-            OrganizationAlias.organization_id == org.id, OrganizationAlias.alias_normalised == exact_key
+    alias_key = (str(org.id), exact_key)
+    if alias_keys is not None:
+        has_alias = alias_key in alias_keys
+    else:
+        has_alias = (
+            session.scalar(
+                select(OrganizationAlias.id).where(
+                    OrganizationAlias.organization_id == org.id,
+                    OrganizationAlias.alias_normalised == exact_key,
+                )
+            )
+            is not None
         )
-    )
-    if exists_alias is None:
+    if not has_alias:
+        if alias_keys is not None:
+            alias_keys.add(alias_key)
         session.add(
             OrganizationAlias(
                 organization_id=org.id,
@@ -403,6 +449,7 @@ def load_owner_shares(
     }
 
     norm_index = _build_norm_org_index(session)
+    alias_keys = _alias_keys(session)
     created_counter = [0]
     seen_org_ids: set[object] = set()
 
@@ -427,6 +474,7 @@ def load_owner_shares(
             now=retrieved_at,
             created_counter=created_counter,
             source_url=source_url,
+            alias_keys=alias_keys,
         )
         if created_counter[0] == created_before and org.id not in seen_org_ids:
             result.organizations_matched += 1

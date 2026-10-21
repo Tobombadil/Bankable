@@ -3179,7 +3179,7 @@ DEVCO NC, AES Keystone Wind, AES Long Island, AES NY Wind, AES Somerset and Some
 Arthur Kill Storage; RWE Renewables Development, LLC, RWE COGEN UK (HYTHE); SSE Utility Solutions (all absent from
 complete lists); Duke Energy Renewables Solar (sold 2023); Calpine Corp (not on Constellation's list);
 Dominion Renewable Energy (not on Dominion's Exhibit 21 and its name does not carry "Dominion Energy"; Dominion
-is therefore not a group here); the bare "DTE" on two EPA Class VI wells; AEP Resources Service Corp.; Iberdrola
+was therefore not a group on 2026-10-16, and became one on 2026-10-21 through its utilities, §24.6); the bare "DTE" on two EPA Class VI wells; AEP Resources Service Corp.; Iberdrola
 USA (Avangrid's own former name); Lightsource Renewable Energy Asset Management and Lightsource Renewable
 Energy Development (US; bp's 20-F moved certain US assets into a joint venture and nothing read separates them),
 LIGHTSOURCE SPV 204 (its projects are not on Lightsource bp's page); ZENOBE STALYBRIDGE and ZENOBE WISHAW; ENGIE
@@ -3207,6 +3207,78 @@ active).
   `jurisdiction: US`; this file adds GB, DE and NO parents under it.
 - Open: the GLEIF loader, when an operator runs it, links a child to its *direct* parent and wins over this file;
   six RWE companies hold Level 2 records, so after such a run they would hang under their direct RWE parents.
+
+### 24.6 The plants a group operates (2026-10-21, docs/16 U-3)
+
+docs/16 §5 found that no power plant was linked to its operator: every EIA-860M row names one, and none became
+an edge, so Invenergy's page counted the 8 plants it holds owner shares in and not the 70 Invenergy Services
+operates. The plants' operator edges now load with the plants (docs/21 §3.23). An operator spelling resolves like
+any other through `org_key`, so it reaches a group only when it is the group's parent or one of the file's
+children. The utility subsidiaries that operate most of these fleets were not children, because the queues had
+not created them. Eighteen rows were added, under the same rule (§24.1), each quoting the parent's own 10-K
+Exhibit 21 for 2025, read on EDGAR on 2026-10-21:
+
+- **The Southern Company**: Alabama Power Co and Mississippi Power Co (27 and 6 current plants).
+- **Duke Energy Corporation**: Duke Energy Indiana, Ohio and Kentucky, and Duke Energy Florida Solar Solutions.
+- **The AES Corporation**: AES Indiana, which the exhibit lists as Indianapolis Power & Light Company. The 10-K's
+  own glossary gives the trading name: "AES Indiana Indianapolis Power & Light Company, formerly branded as
+  IPL". Also the eight AES operator spellings the complete list names (AES Alamitos, AES Alamitos Energy, AES
+  Huntington Beach, AES Huntington Beach Energy, AES ES Alamitos, AES ES Gilbert, AES Pike County Energy Storage,
+  AES Griggs Solar).
+- **Dominion Energy, Inc.**, a new group: Virginia Electric & Power Co (the exhibit's "Name Under Which Business
+  is Conducted" adds Dominion Energy Virginia and Dominion Energy North Carolina), Dominion Energy South
+  Carolina and Dominion Energy Nuclear Connecticut (Millstone).
+
+Declined, each recorded in its group's note. Names the parent's current list no longer carries: Duke Energy DEGS
+North Allegheny and DEGS Happy Jack (wind projects of the renewables business sold in 2023); Dominion Energy
+Transmission, Dominion Transmission, Dominion Gathering and Processing and Dominion Energy Questar Pipeline (the
+gas businesses; Dominion's glossary names Eastern Energy Gas Holdings and Cove Point as Berkshire Hathaway Energy
+subsidiaries "effective November 2020"); Dominion Energy Kewaunee; NextEra Energy Partners LP (already declined).
+Also declined: Dominion Renewable Energy (38 plants, 1,783 MW; no company on the list carries the name);
+DOMINION RESOURCES INC (Dominion's own former name: a merge question, not a parent link); NextEra's project
+companies (NextEra Energy Point Beach, NextEra Energy Seabrook, the FPL Energy project companies and others:
+47 NextEra- or FPL-named organisations outside the group hold 72 current assets, 9,299 MW; rule 4 needs a
+document naming each, and none was read).
+
+Measured on a store rebuilt with `web.dev_up.build_store` from the docs/16 study's data root (2026-10-09
+connector data), against that study's store from the same root before the change. Scope is the group's descent
+by `parent_org_id`, as the company page reads it (`scope=all`). "Plants operated" counts operating, standby and
+retiring plants with an EIA-860M operator edge in scope.
+
+| Group (companies in scope) | Edges in scope | EIA-860M operator edges | Plants operated, MW | Company assets in the API (all statuses) |
+|---|---:|---:|---:|---:|
+| NextEra Energy, Inc. (9 → 9) | 35 → 185 | 0 → 150 | 0 → 146, 41,110 | 33 → 165 |
+| Invenergy LLC (14 → 14) | 8 → 78 | 0 → 70 | 0 → 69, 12,793 | 8 → 71 |
+| Duke Energy Corporation (4 → 8) | 51 → 210 | 0 → 155 | 0 → 136, 60,676 | 49 → 157 |
+| The AES Corporation (5 → 14) | 16 → 304 | 0 → 285 | 0 → 281, 15,723 | 16 → 295 |
+| The Southern Company (4 → 6) | 49 → 198 | 0 → 145 | 0 → 130, 55,656 | 46 → 154 |
+| Dominion Energy, Inc. (1 → 4) | 40 → 132 | 0 → 87 | 0 → 75, 29,957 | 38 → 96 |
+
+The store holds 16,472 EIA-860M operator edges, one per plant; the group-parents load linked 141 children (123
+before), with none of the file's 135 children missing from the store. The same edges written onto the study's
+store took 330 s before the resolver fix below and 18.0 s after, ending in the same counts (14,627 organisations,
+15,202 aliases, 26,495 edges); a second run wrote nothing.
+
+**Load time.** `services/ingest/ownership.py::_resolve_organization` read every slug in the table into a set for
+each organisation it created. The operator step creates about 6,100 organisations over a table that starts at
+8,500, so the reads grew with the square of the load. The study measured 264 s; this machine measured 330 s.
+`StoredOrganizationSlugs` answers each candidate slug with one lookup on the unique index, and autoflush counts
+an organisation this session has added as taken, so slugs stay unique within a run and against the table. The
+alias check now reads the alias table once per load (`_alias_keys`) instead of once per row. The ownership and
+midstream loaders pass that set; the GHGRP and asset loaders, outside this lane, still query per row. The whole
+`build_store` took 184.5 s with the new edges, against 232.6 s for the study's build without them.
+
+- A-22-24c: an EIA-860M operator is a company that operates the plant, not necessarily one that owns it. The
+  edge says `operator` and nothing more; ownership stays with the EIA-860 and GHGRP owner edges.
+- Personal data: organisations flagged as natural persons rose from 11 to 30 in the rebuilt store (heuristic
+  basis 9 -> 28), all 19 new ones created from EIA-860M operator names. The existing `personal_data` handling
+  covers them (noindex, no sitemap entry, no share); recorded here so the footprint stays on record.
+- Withdrawal (coordinator, on integration): the frame is the source's current statement for every asset it
+  carries, so an operator edge this source wrote for one of those assets that the frame no longer states (a
+  plant sold to a new operator) is deleted on the next load; assets absent from the frame keep their edges
+  (`EdgesLoadResult.edges_removed`; `test_a_new_operator_replaces_the_old_one_and_absent_assets_keep_theirs`).
+- Open: the page still counts a group's assets without telling the two roles apart. docs/16 U-4 and U-5 (the
+  Operating column, "Operates n power plants · owns shares in m") read these edges.
 
 ## 25. Proposal–opportunity matching v2 (2026-10-21)
 
