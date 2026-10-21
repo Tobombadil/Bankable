@@ -1333,10 +1333,10 @@ a.button-secondary:visited { color: var(--link); }
   .map-key .legend--lifecycle .legend__note { margin: var(--space-1) 0; }
 }
 @media (max-width: 719px) {
+  .map-key__panel { max-height: 9rem; padding: var(--space-1) var(--space-2); }
   /* Closed from first paint, not only once map.js runs after the CDN scripts (review of lane
      w1-map: on a slow phone the open key covered the map until then), as the filter bar does. */
   .js .map-key:not([data-ready]) { display: none; }
-  .map-key__panel { max-height: 9rem; padding: var(--space-1) var(--space-2); }
   .map-key .legend--lifecycle { gap: 0 var(--space-3); }
   .map-key .legend--lifecycle .legend__group-name { display: none; }
   .map-key .legend__short { display: inline; }
