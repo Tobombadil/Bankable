@@ -808,6 +808,18 @@ a.button-secondary:visited { color: var(--link); }
 .legend__icon { flex: none; }
 .map-attribution { font-size: var(--text-1); color: var(--text-muted); padding-top: var(--space-2); }
 .map-live-region { position: absolute; width: 1px; height: 1px; overflow: hidden; }
+/* Hover cards (MapLibre popups) take the theme. MapLibre's stylesheet loads after this one and paints
+   the card and its tip #fff while the text inherits --text, so in dark mode the text vanished (owner
+   report, 2026-10-21); these selectors carry one class more than MapLibre's so load order is moot. */
+.maplibregl-popup .maplibregl-popup-content { background: var(--surface); color: var(--text); }
+.maplibregl-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--surface); }
+.maplibregl-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--surface); }
+.maplibregl-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--surface); }
+.maplibregl-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--surface); }
 .map-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
 .map-controls button {
   font: inherit; min-width: 2.25rem; min-height: 2.25rem; border-radius: var(--radius-2);
