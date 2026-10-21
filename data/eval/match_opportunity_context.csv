@@ -1,0 +1,61 @@
+opportunity_source_id,opportunity_record_id,kind,summary,programme_codes,context_origin
+eu.ted.api,623581-2026,,,,not_in_store
+eu.ted.api,623842-2026,,,,not_in_store
+eu.ted.api,623919-2026,,,,not_in_store
+eu.ted.api,625553-2026,,,,not_in_store
+eu.ted.api,627063-2026,,,,not_in_store
+eu.ted.api,627226-2026,,,,not_in_store
+eu.ted.api,627257-2026,,,,not_in_store
+eu.ted.api,627491-2026,,,,not_in_store
+eu.ted.api,628928-2026,,,,not_in_store
+gb.find_a_tender,ocds-h6vhtk-066b6b,tender,,cpv:09310000;cpv:31121320;cpv:31121340;cpv:45200000;cpv:45315300;cpv:71314000,store 2026-10-20
+gb.find_a_tender,ocds-h6vhtk-0775ad,tender,,cpv:71314000;cpv:71314300;cpv:72222300;cpv:73110000;cpv:73210000,store 2026-10-20
+gb.find_a_tender,ocds-h6vhtk-07809d,tender,,cpv:31321200,store 2026-10-20
+gb.find_a_tender,ocds-h6vhtk-07834a,tender,,cpv:31211110;cpv:45310000;cpv:50530000;cpv:50532400;cpv:72212150,store 2026-10-20
+gb.find_a_tender,ocds-h6vhtk-07846a,tender,,cpv:09110000,store 2026-10-20
+mdb.worldbank.procnotices,OP00459524,,,,not_in_store
+mdb.worldbank.procnotices,OP00464865,,,,not_in_store
+mdb.worldbank.procnotices,OP00464964,,,,not_in_store
+mdb.worldbank.procnotices,OP00466217,,,,not_in_store
+mdb.worldbank.procnotices,OP00467023,,,,not_in_store
+mdb.worldbank.procnotices,OP00468043,,,,not_in_store
+mdb.worldbank.procnotices,OP00468087,,,,not_in_store
+mdb.worldbank.procnotices,OP00468319,,,,not_in_store
+mdb.worldbank.procnotices,OP00468510,,,,not_in_store
+us.grants_gov.search2,279638,foa,,aln:10.868,store 2026-10-20
+us.grants_gov.search2,310029,foa,,aln:10.868,store 2026-10-20
+us.grants_gov.search2,329436,foa,,aln:81.121,store 2026-10-20
+us.grants_gov.search2,332367,foa,,aln:12.800,store 2026-10-20
+us.grants_gov.search2,332894,foa,,aln:12.431,store 2026-10-20
+us.grants_gov.search2,344592,foa,,aln:12.431,store 2026-10-20
+us.grants_gov.search2,345914,foa,,aln:19.040,store 2026-10-20
+us.grants_gov.search2,347414,foa,,aln:11.307,store 2026-10-20
+us.grants_gov.search2,348258,,,,not_in_store
+us.grants_gov.search2,349858,foa,,aln:12.600,store 2026-10-20
+us.grants_gov.search2,352741,foa,,aln:12.300,store 2026-10-20
+us.grants_gov.search2,353821,foa,,aln:93.840;aln:93.838;aln:93.839;aln:93.837;aln:93.233,store 2026-10-20
+us.grants_gov.search2,356538,,,,not_in_store
+us.grants_gov.search2,356612,foa,,aln:12.351,store 2026-10-20
+us.grants_gov.search2,356623,foa,,aln:81.135,store 2026-10-20
+us.grants_gov.search2,358100,foa,,aln:81.121,store 2026-10-20
+us.grants_gov.search2,359970,foa,,aln:93.142,store 2026-10-20
+us.grants_gov.search2,360183,foa,,aln:12.300,store 2026-10-20
+us.grants_gov.search2,360258,foa,,aln:12.800,store 2026-10-20
+us.grants_gov.search2,361080,foa,,aln:12.630,store 2026-10-20
+us.grants_gov.search2,361554,foa,,aln:19.415,store 2026-10-20
+us.grants_gov.search2,362395,foa,,aln:15.591,store 2026-10-20
+us.grants_gov.search2,362871,foa,,aln:12.300,store 2026-10-20
+us.grants_gov.search2,363223,,,,not_in_store
+us.grants_gov.search2,363302,,,,not_in_store
+us.grants_gov.search2,363396,foa,,aln:10.757,store 2026-10-20
+us.grants_gov.search2,363479,foa,,aln:10.217,store 2026-10-20
+us.grants_gov.search2,363632,foa,,aln:12.300,store 2026-10-20
+us.grants_gov.search2,363649,,,,not_in_store
+us.grants_gov.search2,363660,foa,,aln:19.989,store 2026-10-20
+us.grants_gov.search2,363689,,,,not_in_store
+us.grants_gov.search2,363724,foa,,aln:12.630,store 2026-10-20
+us.grants_gov.search2,363757,,,,not_in_store
+us.grants_gov.search2,363758,foa,,aln:11.463,store 2026-10-20
+us.grants_gov.search2,363818,,,,not_in_store
+us.grants_gov.search2,363843,foa,,aln:19.047,store 2026-10-20
+us.grants_gov.search2,363936,foa,,aln:66.039,store 2026-10-20

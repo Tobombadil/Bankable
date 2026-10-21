@@ -34,7 +34,7 @@ so the change appears in both timelines (`GET /v1/proposals/{id}/events`, `.../o
   source clauses in `services/api/visibility.py::event_visibility_filter` gate the side the event
   discloses, while its subject clause gates the side it is filed under;
 - `public_at` / `published_at` are set only when the rule set's `publish` gate is on
-  (`data/match_rules.yaml`; `match-rules@v1` is withheld because it misses docs/10 US-401 AC3) and
+  (`data/match_rules.yaml`; withheld since `match-rules@v1` missed docs/10 US-401 AC3, docs/22 §21) and
   both sides pass the public / Pro predicate at the moment of writing. Otherwise the event is
   recorded (the audit trail is complete) with both null and never surfaces on a non-admin read.
   Recorded limitation: such an event does not surface later -- not when the hidden side is
@@ -80,6 +80,7 @@ from services.match.engine import (
     proposal_families,
     score_pair,
 )
+from services.match.relevance import programme_codes
 from services.match.rules import RuleSet, load_rules
 
 log = logging.getLogger(__name__)
@@ -134,6 +135,10 @@ def opportunity_facts(row: Opportunity) -> OpportunityFacts:
         capacity_sought_mw=_float(row.capacity_sought_mw),
         status=row.status,
         due_at=row.due_at,
+        title=row.title,
+        summary=row.summary,
+        kind=row.kind,
+        programme_codes=programme_codes(row.identifiers),
     )
 
 
@@ -159,9 +164,27 @@ def _eligible_opportunities(session: Session) -> dict[_uuid.UUID, OpportunityFac
             Opportunity.capacity_sought_mw,
             Opportunity.status,
             Opportunity.due_at,
+            # The eligibility gate's inputs (match-rules@v2): title, summary, kind, programme codes.
+            Opportunity.title,
+            Opportunity.summary,
+            Opportunity.kind,
+            Opportunity.identifiers,
         ).where(Opportunity.merged_into_id.is_(None), Opportunity.publish_state != "unpublished")
     ).all()
-    return {r[0]: OpportunityFacts(list(r[1] or []), r[2], _float(r[3]), r[4], r[5]) for r in rows}
+    return {
+        r[0]: OpportunityFacts(
+            list(r[1] or []),
+            r[2],
+            _float(r[3]),
+            r[4],
+            r[5],
+            title=r[6],
+            summary=r[7],
+            kind=r[8],
+            programme_codes=programme_codes(r[9]),
+        )
+        for r in rows
+    }
 
 
 # --------------------------------------------------------------------------------------- blocking

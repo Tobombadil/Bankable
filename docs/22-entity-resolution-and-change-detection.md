@@ -2242,6 +2242,9 @@ carries a full provenance quartet. Events written before this carry a NULL `sour
 
 ## 21. Proposal–opportunity matching v1 (2026-09-26)
 
+> Superseded as the committed rule set by match-rules@v2 (§25, 2026-10-21). The numbers below stay
+> reproducible: §25.8 gives the command that measures v1 on the same labels.
+
 > **Mandatory caveat.** The 103 labels in `data/eval/match_labels.csv` were produced by the lane that
 > implemented the rule set, not by an independent labeller, and that lane had read every notice title in the
 > corpus before it labelled. US-401 AC3 asks for a sample "supplied by the data-scientist"; this is not that.
@@ -3204,3 +3207,398 @@ active).
   `jurisdiction: US`; this file adds GB, DE and NO parents under it.
 - Open: the GLEIF loader, when an operator runs it, links a child to its *direct* parent and wins over this file;
   six RWE companies hold Level 2 records, so after such a run they would hang under their direct RWE parents.
+
+## 25. Proposal–opportunity matching v2 (2026-10-21)
+
+The task named this section §22; §22 already holds the resolver hardening of lane H5, so it is §25.
+
+> **Read this first: v2 does not meet US-401 AC3, and `publish` stays `false`.** AC3 asks for precision
+> ≥ 0.7 "on a labelled sample of ≥100 proposal–opportunity pairs supplied by the data-scientist"
+> (docs/10 US-401). The independent sample has 82 pairs, and its held-out half has 62. The 103-row
+> sample of §21 does not qualify, by §21's own caveat. The rules that decide the held-out result were
+> written with its notices known (below), and every pair v2 predicts there comes from one notice. The
+> 6/6 = 1.000 of §25.5 measures those 62 pairs; it is not a pass. The gate opens only on a fresh blind
+> draw of at least 100 pairs (§25.5, "Against US-401 AC3").
+>
+> **How blind the test measurement is.** The held-out half of the independent labels holds five notices
+> that v1 matched. Three of them informed the rules that remove them:
+>
+> - The DOE scholarship notice 329436 and the NIEHS training notice 359970 are the notices §21.3
+>   described. The coordinator's category list ("people, training, scholarships, staff, pure research,
+>   studies or planning") came from them, and the `people` class is that list. The false friends
+>   "nuclear weapons" and "weapons complex" (§25.3) match only 359970 among labelled notices.
+> - The lane read the label note on the Forestry Commission wind tender `ocds-h6vhtk-066b6b` before it
+>   wrote rule J, because it had to read the label file to append it. Rule J has its own evidence in the
+>   tune half (§25.2). Its effect on that notice is still not a blind measurement.
+>
+> Without `people` the held-out half reads 6/12; without rule J, 6/12; without both, 6/18 = 0.333. The
+> blind evidence is the other two notices. The true-match notice 358100 is in the §21 sample too, but no
+> rule was written from it, and v2 keeps it. The Nova Education Trust pellet tender `ocds-h6vhtk-07846a`
+> was unseen, and v2 removes it. Two components remove it independently, and each was derived from the
+> tune half or written a priori.
+
+### 25.1 What changed
+
+§21.3 found one failure mode. Every false positive of v1 had the right technology and the wrong object:
+it funded people, not projects, and it scored exactly what the true matches scored. The independent labels
+of 2026-10-20 (82 rows, labelled by a lane that never saw the rule set's scores) show the same failure on
+GB tenders. A school trust buys pellet fuel, Scottish Water buys control panels, SSEN buys cables and a
+landowner seeks a development partner. Every one of them carries a technology tag and none is something a
+queued project could apply for.
+
+match-rules@v2 (`data/match_rules.yaml`) keeps weights, threshold (0.70), size window and timing, and
+`publish: false`. It adds:
+
+| Component | What it does | Code |
+|---|---|---|
+| Eligibility gate | Unweighted pass/fail. The notice must be energy-relevant (§25.3), and the first class of `rules.eligibility.classes` that claims it must be eligible | `services/match/eligibility.py`, `engine.py::eligibility_rule` |
+| Technology vocabulary | `ccs` meets the EPA Class VI wells' `co2_geologic_sequestration`. `microgrid`, `metering` (opportunity) and `load` (proposal) are excluded by name | `rules.technology.families.ccs`, `excluded_tokens` |
+| Rule J | A country-only jurisdiction means "country-wide" only for `foa`, `program`, `loan_program`, `auction`. A single buyer's tender that states only its country passes on `unresolved_credit` (0.5), not `national_credit` (0.8) | `rules.jurisdiction.national_kinds` |
+
+A failed gate is a failed rule: `rules_failed` carries `eligibility`, and the gate's label leads the
+rationale text. Example: "not project-eligible: funds or hires people, not projects (Scholarship);
+nuclear, US-wide, size not stated, due in 45 days". The gate never enters the score or `credits`, so
+every v1 score is unchanged except where rule J applies. A rule file without the v2 keys parses to v1
+behaviour, which is how §25.5 measures v1 on the same code.
+
+### 25.2 The eligibility classes and where each term came from
+
+Classes are tried in file order and the first that claims a notice decides. A class claims a notice when
+one of its terms (case-insensitive regexes) occurs in the title or summary, or when the notice states CPV
+codes and every code falls under the class's `cpv_all_in` prefixes. A notice that no class claims is
+eligible, so the gate removes only what it can name. `summary` is null for every current opportunity
+connector, so on today's data the terms read the title only (§25.6 item 3).
+
+| Class | Eligible | Terms (abridged) | CPV, all codes in | Source of the terms |
+|---|---|---|---|---|
+| `people` | no | scholarship, fellowship, training, trainee, workforce, internship, apprenticeship, student, teaching, curriculum, staff, recruitment, capacity building, **delegates** | 80, 796 | A priori: the coordinator's categories. **Tune:** `ocds-h6vhtk-0775ad` (DESNZ hires IEA delegates) for "delegates" |
+| `project_offtake` | **yes** | power purchase, PPA, offtake, contract(s) for difference, capacity auction/market/solicitation, all-source | — | A priori. Tried before the exclusions, so "supply of electricity under a PPA" stays eligible |
+| `research` | no | research, R&D, clinical trial, broad agency announcement, BAA, investigator | 73 | A priori ("pure research") |
+| `studies_planning` | no | study, feasibility, planning, assessment, audit, survey, technical assistance, advisory | 71241, 7141, 90712, 793 | A priori ("studies or planning") |
+| `goods_services` | no | **supply of/and/&**, supplies, **provision of**, **framework**, maintenance, servicing, repair, spare parts, software, consultancy, owner's engineer, supervision | — | **Tune:** `ocds-h6vhtk-07809d` ("FW Supply & Deliver – LV & MV Cables"), `ocds-h6vhtk-07834a` ("Provision of Motor Control Centres ..."). Both are multi-supplier framework agreements. The rest is a priori procurement vocabulary |
+
+Each term carries its tag (`[A]` a priori, `[T]` tune row) in the rule file. No term was taken from a
+test-half row, but the `people` list came from the categories of two test-half notices (see the box
+at the head of §25). "Fuel" is deliberately not a class term. Fuel purchases are a relevance verdict
+(§25.3), from docs/16 §4.5, written on 2026-10-20 before any v2 label existed.
+
+Two terms reach test-half notices by generalisation:
+
+- **`supply\s+(of|and|&)`.** It is tagged `[T]` from the tune notice's "Supply &". Its "supply of"
+  variant is the only class term that matches the test pellet tender (`07846a`, "Contract for Supply of
+  Biomass Boiler Fuel Pellets"). The pellet removal does not depend on it, because relevance removes the
+  notice on CPV 09110000 (§25.3).
+- **`clinical\s+trials?`.** It is `[A]`, but it matches NIH's standard title suffix "(Clinical Trial
+  Not Allowed)", where the meaning is inverted. That is how it claims NIEHS 359970 once `people` is
+  out. The verdict is still right, because an NIH notice is research funding either way. Take out every
+  component written with a test notice known: `people`, rule J and the "weapons" false friends. The
+  held-out half then reads 6/18, and that figure leans on this accidental hit. Without the hit as well,
+  it reads 6/24 = 0.250 (§25.5).
+
+**Rule J's evidence.** The two tune-half framework notices come from regional buyers: Scottish Water
+serves Scotland only, and SSEN Distribution serves the north of Scotland and central southern England.
+Both are stored as `GB`, and v1 credited them as GB-wide. A procurement notice that states only its
+country has an unextracted region. It is not a national programme. This weakens the jurisdiction
+evidence and excludes nothing. With no size and no deadline, such a tender against a regionless
+proposal scores 0.675, below the 0.70 threshold. With a stated deadline it scores 0.775 and matches
+(`test_engine.py::test_rule_j_moves_a_regionless_open_ended_tender_below_the_threshold`).
+
+**Rule J's reach is every procurement notice, not only the GB tenders.** On the 2026-10-20 store all
+1,349 opportunities carry a country only, and 1,213 of them are a `tender` or `procurement_notice`:
+every TED (1,094), World Bank (100) and Find a Tender (19) notice. Only the 136 grants.gov FOAs keep
+`national_credit`. Rule J therefore caps every same-country pair of those 1,213 notices at 0.85, and
+fails it below 0.70 when both the size and the deadline are missing. No TED or World Bank notice has a
+same-country proposal in the store today, so the effect is on GB notices for now.
+
+**Excluded tokens.**
+- `microgrid` (7 notices). A buyer's distribution-level system for its own communities, bid by EPC
+  contractors. Mapping it to solar/storage would set every utility-scale solar row in a country against a
+  rural-electrification tender.
+- `metering` (1 notice). A utility buying meters.
+- `load` (583 proposals). Data centres and large loads consume power. They do not answer supply
+  solicitations.
+
+`test_rules.py::test_every_technology_token_is_mapped_or_deliberately_excluded` reads both vocabularies.
+On the proposal side these are `pipeline.normalize.TECH_RULES` plus the literals connectors write. On
+the opportunity side they are `OPPORTUNITY_TECHNOLOGIES`. The test fails on any token that is in no
+family and not excluded.
+
+### 25.3 Energy relevance, shared with the API
+
+`services/match/relevance.py` (`opportunity-relevance@v1`) answers one question: is this notice about
+energy infrastructure at all? It has two readers. The gate uses it (`require_energy_relevance: true`).
+Later, the docs/16 U-7 default view of RFPs & funding will use it through `opportunity_relevance(row)`
+on an ORM row; no web or API code changes in this lane. The checks run in this order, and the first
+that applies decides:
+
+1. **Fuel purchase: not relevant.** Every CPV code is under 091 or 092 (fuels, petroleum products), or
+   the title or summary makes a fuel the object of a purchase verb ("supply of ... fuel"). Fuel cells,
+   diesel generators and gensets are equipment, not fuel.
+2. **Positive evidence: relevant.** Any of: an energy keyword once false friends are removed; an energy
+   CPV prefix (093, 311, 3132, 314, 38551, 4211, 452314, 45251, 653, 654, 71314); a World Bank energy
+   sector (LB, LH, LI, LT, LU, LW, LZ); or a technology tag. A tag does not count when the text held a
+   false friend, because the tag was read from that same text.
+3. **False friend only: not relevant.** "Directed energy", "nuclear weapons", "wind tunnel", and similar
+   phrases where the energy word is not about energy. Among labelled notices, "directed energy" matches
+   tune 332367. "Nuclear weapons" and "weapons complex" match only test 359970, and were written with
+   its title known. They are not decisive there, because `people` and `research` also remove it. The
+   rest match no labelled notice. `relevance.py` records this beside each phrase.
+4. Otherwise **not relevant** ("no energy evidence").
+
+Counts on the 2026-10-20 store. These notices are unlabelled, so these are counts, not precision.
+1,349 notices: 751 relevant. 624 open notices: 328 relevant (docs/16 §4.5 counted 307 against a broad
+keyword set). By source:
+
+| Source | All notices | Relevant | Open | Open and relevant |
+|---|---|---|---|---|
+| `eu.ted.api` | 1,094 | 627 | 483 | 286 |
+| `us.grants_gov.search2` | 136 | 12 | 103 | 9 |
+| `mdb.worldbank.procnotices` | 100 | 100 | 26 | 26 |
+| `gb.find_a_tender` | 19 | 12 | 12 | 7 |
+
+What decided each verdict: keyword 391, programme code 274, technology tag 86, fuel purchase 168, false
+friend only 3, no energy evidence 427. Among the 751 relevant notices, the classes of §25.2 claim 82:
+goods_services 59, studies_planning 13, people 9, research 1. U-7 should label a sample before it
+relies on this function. Its precision is not measured here.
+
+### 25.4 Method
+
+**Labels.** The 82 rows were drawn by the labelling lane from a copy of the 2026-10-20 store. That lane
+read neither scores nor rationales. They were appended verbatim to `data/eval/match_labels.csv`; the
+only byte change is the line terminator, CRLF to the file's LF, and a parsed comparison of every field
+is equal. They form two strata:
+
+- `predicted_match_v2`, 42 rows: every notice holding a v1 match, at most 6 pairs each, out of 499
+  active v1 pairs on 7 notices. This stratum is not a census.
+- `candidate_v2`, 40 rows: same-place pairs whose notice text mentions the proposal's technology,
+  drawn from a frame of 10,635 pairs on 10 notices, at most 4 per notice.
+
+**Split.** Per notice, as in §21.2: `tune` when the first hex digit of `sha256("<source_id>:<record_id>")`
+is even.
+
+| Split | Rows | Predicted by v1 | Candidate | Notices | Positives |
+|---|---|---|---|---|---|
+| tune | 20 | 12 (07834a, 07809d) | 8 (0775ad, 07809d) | 3 | 0 |
+| test | 62 | 30 (07846a, 066b6b, 329436, 358100, 359970) | 32 (8 notices) | 8 | 6 (all 358100) |
+
+**Notice context.** The gate and rule J read fields that a label row does not carry: kind, summary and
+programme codes. They sit in `data/eval/match_opportunity_context.csv`, one row per labelled notice,
+built from the same store copy. 34 of the 60 labelled notices are in the store. The 26 that are not are
+all from the 2026-09-26 sample: 8 grants.gov, 9 TED and 9 World Bank. Their rows are empty. With no
+kind, a country-only notice reads as national, which is v1's reading. It is the correct reading for
+those 8 grants.gov FOAs, and it makes no difference for the TED and World Bank notices, whose pairs all
+cross a border. Their gate reads the title alone.
+
+**Tuning.** Tuning used the tune half only. That half still holds no positive pair. Under v2 it predicts
+nothing at any threshold from 0.50 to 0.95 (`--sweep`), so the threshold stays at the a-priori 0.70.
+The test half was measured once, at the end.
+
+### 25.5 Results
+
+`python -m services.match.eval` (95 % Wilson intervals):
+
+| Rule set | Labels | Split | n | Pos. | TP | FP | FN | Precision (95 % CI) | Recall (95 % CI) |
+|---|---|---|---|---|---|---|---|---|---|
+| v1 | independent, 2026-10-20 | tune | 20 | 0 | 0 | 12 | 0 | 0.000 (0.000–0.243) | n/a |
+| v1 | independent, 2026-10-20 | **test** | 62 | 6 | 6 | 24 | 0 | **0.200 (0.095–0.373)** | 1.000 (0.610–1.000) |
+| **v2** | independent, 2026-10-20 | tune | 20 | 0 | 0 | 0 | 0 | n/a (predicts nothing) | n/a |
+| **v2** | independent, 2026-10-20 | **test** | 62 | 6 | 6 | 0 | 0 | **1.000 (0.610–1.000)** | **1.000 (0.610–1.000)** |
+| v1 | §21 sample, 2026-09-26 | all | 103 | 5 | 5 | 15 | 0 | 0.250 (0.112–0.469) | 1.000 (0.566–1.000) |
+| v2 | §21 sample, 2026-09-26 | all | 103 | 5 | 5 | 0 | 0 | 1.000 (0.566–1.000) | 1.000 (0.566–1.000) |
+| v1 | both | test | 117 | 11 | 11 | 34 | 0 | 0.244 (0.142–0.387) | 1.000 (0.741–1.000) |
+| v2 | both | test | 117 | 11 | 11 | 0 | 0 | 1.000 (0.741–1.000) | 1.000 (0.741–1.000) |
+
+The §21 sample was labelled by the lane that built v1 and is not independent (§21's caveat). Its test
+half shares notices 329436, 358100 and 359970 with the independent test half.
+
+**Ablation on the independent test half.** Each row removes one component from v2:
+
+| Variant | Precision | Tune FP |
+|---|---|---|
+| v2 | 6/6 = 1.000 (0.610–1.000) | 0 |
+| v2 without rule J | **6/12 = 0.500 (0.254–0.746)** | 0 |
+| v2 without the notice context file (rule J cannot see `kind`) | 6/12 = 0.500 | 0 |
+| v2 without `people` | 6/12 = 0.500 (0.254–0.746) | 0 |
+| **v2 without `people` and rule J** (the two decisive components written with test-half notices known) | **6/18 = 0.333 (0.163–0.563)** | 0 |
+| the same, and without the "weapons" false friends (also written with 359970's title known) | 6/18 | 0 |
+| the same, and without `research`'s "clinical trial" term (its hit on 359970 is NIH's "Clinical Trial Not Allowed") | 6/24 = 0.250 (0.120–0.449) | 0 |
+| v2 without `goods_services` | 6/6 | 6 |
+| v2 without relevance | 6/6 | 0 |
+| v2 without `research` and `studies_planning` | 6/6 | 0 |
+| v2 without the gate (technology vocabulary and rule J only) | 6/24 = 0.250 | 6 |
+| v1 | 6/30 = 0.200 | 12 |
+
+Relevance and `goods_services` back each other up on this sample: the pellet tender fails both. NIEHS
+fails three checks: relevance, `people` and, behind it, `research` (§25.2). Neither `research` nor
+`studies_planning` is the first class to claim any labelled notice. Their effect is on the unlabelled
+corpus (§25.3).
+
+**Why each v1 error is gone.** The table reports the first failing check, for every labelled pair v1
+predicted:
+
+| Notice | Split | v1 pairs labelled | v2 |
+|---|---|---|---|
+| 358100 DOE Advanced Nuclear Energy Licensing Cost-Share | test | 6 true | kept, score 0.865 |
+| 329436 DOE University Nuclear Leadership: Scholarship and Fellowship | test | 6 false | gate: people ("Scholarship") |
+| 359970 NIEHS HAZMAT Worker Training at the DOE weapons complex | test | 6 false | gate: not relevant (false friend "nuclear weapons"); also `people` ("Training") |
+| `ocds-h6vhtk-07846a` Nova Education Trust, biomass boiler fuel pellets | test | 6 false | gate: not relevant (fuel purchase, CPV 09110000); also `goods_services` ("Supply of") |
+| `ocds-h6vhtk-066b6b` Forestry Commission, onshore wind development in Northumberland | test | 6 false | **score 0.675 < 0.70 (rule J)**; the gate passes it |
+| `ocds-h6vhtk-07834a` Scottish Water, motor control centres and ICA services | tune | 6 false | gate: goods_services ("Provision of") |
+| `ocds-h6vhtk-07809d` SSEN, LV and MV cables framework | tune | 6 false | gate: goods_services ("Supply &"); also 0.675 under rule J |
+| 363757 DOE staff support, regional engagement (§21 sample) | tune | 5 false | gate: people ("Staff") |
+
+No pair that v1 rejected is accepted by v2 (0 of 185).
+
+**On the store.** `run_matches(full=True)` ran on a copy of the 2026-10-20 study store
+(`assets-study/study.db`): 10,635 proposals, 1,349 opportunities, 2,451 pairs scored. It ran under v1,
+then v2, at `now = 2026-10-20T14:23:03Z`, the clock of the store's own last run. It ran again under v2
+at 2026-10-21T12:00Z.
+
+| Active matches by opportunity source | v1 | v2 |
+|---|---|---|
+| `gb.find_a_tender` | 478 (Northumberland wind 424, Scottish Water 29, SSEN cables 19, Nova pellets 6) | **0** |
+| `us.grants_gov.search2` | 21 (licensing 7, scholarship 7, NIEHS 7) | **7** (licensing) |
+| `eu.ted.api` | 0 | 0 |
+| `mdb.worldbank.procnotices` | 0 | 0 |
+| **Total** | **499** | **7** |
+
+v2 removed 492 matches and wrote 984 `match_removed` events. All of them have null `public_at` and
+`published_at`, because the gate is closed. The 2026-10-21 run changed nothing. Six of the seven
+remaining matches are labelled true. The seventh is unlabelled: ERCOT `27INR0557`, "STP Unit2 High
+Pressure Turbine Upgrade" (nuclear, `studied`). This lane reads it as a probable false positive. It is
+an uprate of an operating reactor, and the programme cost-shares licensing for new advanced reactors.
+That reading is not a label (§25.6 item 2).
+
+**Against US-401 AC3** (precision ≥ 0.7 at the default threshold, "on a labelled sample of ≥100
+proposal–opportunity pairs supplied by the data-scientist"): **not met.** Reasons 1 and 2 each fail
+it on AC3's own terms. Reasons 3 and 4 show how little the 6/6 says even taken at face value:
+
+1. **The sample is below 100 pairs.** The independent sample has 82 pairs, and its held-out half has 62.
+   The 103-row sample of §21 was labelled by the lane that built v1, so it does not qualify (§21's
+   caveat). The 117-pair "both, test" row above is therefore not an AC3 sample either.
+2. **The decisive rules are not blind.** `people` came from the categories of 329436 and 359970. Rule J
+   was written after the label note on 066b6b had been read. Without `people` the held-out half reads
+   6/12 = 0.500; without rule J, 6/12; without both, 6/18 = 0.333 (0.163–0.563). The blind evidence is
+   two notices: 358100 kept and 07846a removed (box at the head of §25).
+3. **One predicted notice.** Every pair v2 predicts on the held-out half comes from 358100. At the notice
+   level, the sample shows v2 right about 1 of 1 predicted notices.
+4. **The interval.** The 95 % Wilson lower bound of 6/6 is 0.610, below 0.7.
+
+`publish` therefore stays `false` under §21.4. What would open it: a fresh blind draw of at least 100
+pairs, made after this rule set is frozen. The draw should come from notices no rule was written from,
+be labelled by a lane that reads neither scores nor rationales, and measure precision ≥ 0.7 at the
+default threshold. The coordinator should say before the draw whether the bar is the point estimate
+(AC3's wording) or the Wilson lower bound. The current store cannot supply that draw. v2 makes 7
+matches on it, all on one notice, so any draw from it holds at most 7 predicted pairs. The draw needs
+more demand-side notices first: the US-303 solicitations, and GB notices with regions (§25.6 item 1).
+`test_eval.py::test_v2_does_not_meet_ac3_on_this_evidence` pins each figure in this list.
+
+On the store, v1's precision is at most 7/499 (1.4 %), or 6/499 if the STP pair is false. v2's is 7/7,
+or probably 6/7 (the STP pair, above). These are store counts against six labels, not an AC3
+measurement. The labelled sample cannot show v1's figure, because it caps each notice at 6 pairs and
+the Northumberland notice alone holds 424.
+
+### 25.6 What still fails
+
+1. **The Northumberland tender is out by 0.025.** It scores 0.675 against a 0.70 threshold because it has
+   no deadline, no size and no region on either side. If Find a Tender adds a `tenderPeriod`, it scores
+   0.775 and all 424 wrong matches return. With `publish: true` they would be shown publicly, which is
+   one reason the gate stays closed on this evidence (§25.5). Its real defect has no rule in v2: a
+   landowner seeking a development partner for its own sites is an opportunity for a developer, not
+   for an existing project elsewhere. Two changes would close this:
+   - a site-offer class, or organisation-level matching;
+   - GB regions on both sides: NESO connection site to nation, and Find a Tender delivery region (NUTS).
+     The connector keeps neither today.
+
+   Neither was built. The tune half holds no such notice, and a class written from the one test notice
+   would be fitted to the labels it is measured on. A fresh label draw should include notices of this
+   kind.
+2. **Uprate or new build.** The technology token `nuclear` cannot tell an uprate of an operating unit
+   (STP Unit 2) from a new advanced reactor, and the licensing programme funds only the latter. The fix is
+   a proposal-side project type (new build, uprate, repower) that the gate can read. Nothing in this
+   lane's files carries it.
+3. **No summaries.** All four opportunity connectors write `summary = null`. The description sits in
+   `opportunity_source.raw`: Find a Tender `tender.description`, World Bank `bid_description`. Text
+   such as "multi-supplier Framework Agreement" or "development and operating partner" would let the
+   classes read what the titles omit. Populating `summary` at extraction is a connector change.
+4. **Recall is barely tested.** There are 6 positives, all on one notice. The 40 candidate rows, which
+   are same-place notices that mention the technology, held no positive that the rules missed.
+5. **The demand side is still not the matcher's market (§21.5 item 1).** No US utility RFP or state
+   solicitation is in the store (US-303), so v2 is measured against grants.gov and public procurement.
+6. **Non-English titles** (most TED notices) are classified by CPV only. This has no effect today,
+   because no EU proposal exists.
+7. **Recall risk from three widened `goods_services` terms (not measured).** `provision\s+of`,
+   `supply\s+(of|and|&)` and `framework` were generalised from two tune notices. They would also reject
+   tenders that a project bids with its own assets, for example:
+   - "Provision of Stability/Balancing Services";
+   - a DNO's flexibility-services framework;
+   - an "RFP for the Supply of Energy and Capacity".
+
+   `project_offtake` is tried first, but it has no ancillary-service, flexibility or capacity-supply
+   term. The 2026-10-20 store holds no such notice. Its one title that names ancillary, flexibility,
+   balancing, stability or energy supply is "The Supply of Electricity to MOD sites in Northern
+   Ireland". That is a retail supply contract, and `goods_services` rejects it correctly (A-22-29). So
+   the labels cannot show the cost. Re-check when the US-303 and NESO notices land, and add
+   `project_offtake` terms from a tune half that holds such notices.
+8. **Rule J is broad and close to the line.** It covers all 1,213 procurement notices (§25.2), and it
+   decides the Northumberland tender by 0.025 (item 1). A connector change that adds a deadline or a
+   size to Find a Tender notices moves those notices back above the threshold without any rule change.
+
+### 25.7 Tests, and proof that each fails without its change
+
+The tests sit next to the code: `test_relevance.py`, `test_eligibility.py`, plus additions to
+`test_rules.py`, `test_engine.py`, `test_eval.py` and `test_run.py`. For each change, a scratch copy of
+the tree had that one change taken out, and the tests written for it were run. All of them failed. The
+untouched copy passed (`services/match`, 0 failures).
+
+| Change taken out | Tests that fail without it |
+|---|---|
+| The gate (`rules.eligibility`) | `test_the_gate_fails_people_notices_whatever_the_score`, `test_committed_class_order`, `test_the_numbers_docs_22_quotes_for_v2`, `test_the_v2_gate_reads_the_stored_title` |
+| Class `people` | 6 `test_classes_claim_what_they_name` cases; `test_the_gate_fails_people_notices_whatever_the_score`; `test_every_tune_row_that_informed_a_rule_is_now_rejected_by_it` |
+| Class `project_offtake` | 2 `test_classes_claim_what_they_name` cases (PPA, all-source) |
+| Class `research` | 3 `test_classes_claim_what_they_name` cases |
+| Class `studies_planning` | 2 `test_classes_claim_what_they_name` cases |
+| Class `goods_services` | 4 `test_classes_claim_what_they_name` cases; `test_the_gate_names_its_reason[FW...]`; `test_every_tune_row_that_informed_a_rule_is_now_rejected_by_it` |
+| `require_energy_relevance` | `test_the_gate_names_its_reason` (Nova, NIEHS); `test_the_v2_inputs_come_from_the_store` |
+| The fuel-purchase check (code) | `test_verdicts` (heating oil, diesel); `test_opportunity_relevance_reads_an_orm_shaped_row`; `test_the_gate_names_its_reason[Nova...]` |
+| A false friend (code) | `test_verdicts[DIRECTED ENERGY ...]` |
+| `excluded_tokens` | `test_every_technology_token_is_mapped_or_deliberately_excluded` (both sides); 4 `test_technology_rule` cases |
+| The `ccs` family | `test_every_technology_token_is_mapped_or_deliberately_excluded` (both sides); `test_technology_rule[co2_geologic_sequestration...]` |
+| Rule J (`national_kinds`) | 3 `test_rule_j_country_only_procurement_is_region_unknown` cases; `test_rule_j_moves_a_regionless_open_ended_tender_below_the_threshold`; `test_the_numbers_docs_22_quotes_for_v2`; `test_the_v2_inputs_come_from_the_store` |
+| Reading the notice context (eval) | `test_the_numbers_docs_22_quotes_for_v2` |
+| Passing title, kind and identifiers to the facts (run) | `test_the_v2_gate_reads_the_stored_title`, `test_the_v2_inputs_come_from_the_store` |
+
+`test_eval.py::test_v2_does_not_meet_ac3_on_this_evidence` is a measurement test, not a rule test. It
+pins the figures behind the AC3 verdict of §25.5: the sample sizes (82 and 62), the single predicted
+notice, the 0.610 lower bound and the ablations (6/12, 6/18, 6/24). It fails if any of them moves.
+
+### 25.8 Commands
+
+```
+python -m services.match.eval --sweep                       # v2 on all 185 labels, by split and by sample
+python -m services.match.eval --rules <a v1-shaped file>    # §21 / §25.5 v1 rows; test_eval.py::_v1_doc builds one
+python -m services.match.eval --write-context "store 2026-10-20" \
+    --database-url sqlite+pysqlite:///<copy of study.db>    # rebuilds data/eval/match_opportunity_context.csv
+python -m services.match.run --all --database-url <url>     # re-runs the store under the committed rule set
+```
+
+### 25.9 Assumptions recorded
+
+- **A-22-28:** "energy-relevant" means energy infrastructure (generation, storage, networks, hydrogen,
+  CCS, LNG, heat networks, EV charging, efficiency). Water, roads and buildings are out of scope, whatever
+  "infrastructure" means elsewhere in the product.
+- **A-22-29:** a commodity fuel purchase is not energy-relevant, following docs/16 §4.5. An electricity
+  supply contract is relevant; it is then ineligible as `goods_services` unless it names a PPA or offtake.
+- **A-22-30:** the gate excludes only what it can name. A notice no class claims is eligible. On today's
+  data the classes read titles and CPV codes, because `summary` is empty.
+- **A-22-31:** a tender, procurement notice or RFP that states only its country has an unknown region,
+  and is not national. A notice with no kind, from an older caller or a labelled notice that is not in
+  the store, reads as national, as in v1.
+- **A-22-32:** a large-load proposal never answers a supply solicitation, and microgrid and metering
+  notices never fit a queued project. These are the excluded tokens.
+- **A-22-33:** a labelled notice's kind and CPV codes did not change between its label date and the
+  2026-10-20 store that the context file was built from.
+- **A-22-34:** a labelled sample counts towards US-401 AC3 only for a rule set written without reading
+  it. The labeller must also be independent of the rule set's author (§21's caveat). The 82 independent
+  pairs fail the first condition for v2 on three notices (box at the head of §25). They also fail AC3's
+  size on their own.

@@ -1,5 +1,5 @@
-"""Measure the rule set against labelled pairs (docs/10 US-401 AC3; docs/22 §21).
-`python -m services.match.eval [--split tune|test|all] [--sweep] [--labels PATH] [--rules PATH]`.
+"""Measure the rule set against labelled pairs (docs/10 US-401 AC3; docs/22 §21, §25).
+`python -m services.match.eval [--sweep] [--labels PATH] [--context PATH] [--rules PATH]`.
 
 `data/eval/match_labels.csv` holds one row per labelled proposal <-> opportunity pair with the
 facts the label was judged on (both sides' technology, jurisdiction, capacity, lifecycle state or
@@ -13,6 +13,14 @@ are minted from random uuids at load time and do not survive a reload.
 half and the half used to choose the threshold never shares a notice with the half it is reported
 on. `draw_sample` is the frame the file was drawn from (docs/22 §21.2); it reads a loaded store and
 emits unlabelled rows, so an independent labeller can re-draw and re-label from the same frame.
+
+**Notice context (match-rules@v2).** The eligibility gate and the jurisdiction rule's
+`national_kinds` read fields a label row does not carry: the notice's `kind`, `summary` and
+programme codes. They live beside the labels in `data/eval/match_opportunity_context.csv`, one row
+per notice keyed like the labels, so the label file itself never changes when the rule set's inputs
+grow. `write_context` builds it from a loaded store; a notice the store does not hold gets an empty
+row (`context_origin = not_in_store`): no kind (the jurisdiction rule then treats a country-only
+notice as national, as v1 did) and no codes (the gate reads the title alone).
 """
 
 from __future__ import annotations
@@ -33,6 +41,16 @@ from services.match.engine import OpportunityFacts, ProposalFacts, score_pair
 from services.match.rules import REPO_ROOT, RuleSet, load_rules, load_rules_from
 
 DEFAULT_LABELS_PATH = REPO_ROOT / "data" / "eval" / "match_labels.csv"
+DEFAULT_CONTEXT_PATH = REPO_ROOT / "data" / "eval" / "match_opportunity_context.csv"
+
+CONTEXT_COLUMNS = (
+    "opportunity_source_id",
+    "opportunity_record_id",
+    "kind",
+    "summary",
+    "programme_codes",
+    "context_origin",
+)
 
 COLUMNS = (
     "stratum",
@@ -84,7 +102,8 @@ class LabelledPair:
     split: str
 
     @classmethod
-    def from_row(cls, row: dict[str, str]) -> LabelledPair:
+    def from_row(cls, row: dict[str, str], context: dict[str, str] | None = None) -> LabelledPair:
+        context = context or {}
         label = row["label"].strip().lower()
         if label not in ("true", "false"):
             raise ValueError(f"label must be true or false, got {row['label']!r}")
@@ -105,6 +124,10 @@ class LabelledPair:
                 capacity_sought_mw=_opt_float(row["opportunity_capacity_sought_mw"]),
                 status=row["opportunity_status"],
                 due_at=_opt_datetime(row["opportunity_due_at"]),
+                title=row.get("opportunity_title") or None,
+                summary=context.get("summary") or None,
+                kind=context.get("kind") or None,
+                programme_codes=tuple(c for c in (context.get("programme_codes") or "").split(";") if c),
             ),
             as_of=as_of,
             label=label == "true",
@@ -112,9 +135,25 @@ class LabelledPair:
         )
 
 
-def read_labels(path: Path = DEFAULT_LABELS_PATH) -> list[LabelledPair]:
+def notice_key(row: dict[str, str]) -> tuple[str, str]:
+    return row["opportunity_source_id"], row["opportunity_record_id"]
+
+
+def read_context(path: Path = DEFAULT_CONTEXT_PATH) -> dict[tuple[str, str], dict[str, str]]:
+    """The notice context rows by `(opportunity_source_id, opportunity_record_id)`; empty when the
+    file does not exist (a labels file from before v2)."""
+    if not path.exists():
+        return {}
     with path.open(encoding="utf-8", newline="") as fh:
-        return [LabelledPair.from_row(row) for row in csv.DictReader(fh)]
+        return {notice_key(row): row for row in csv.DictReader(fh)}
+
+
+def read_labels(
+    path: Path = DEFAULT_LABELS_PATH, context_path: Path | None = DEFAULT_CONTEXT_PATH
+) -> list[LabelledPair]:
+    context = read_context(context_path) if context_path is not None else {}
+    with path.open(encoding="utf-8", newline="") as fh:
+        return [LabelledPair.from_row(row, context.get(notice_key(row))) for row in csv.DictReader(fh)]
 
 
 # ------------------------------------------------------------------------------------------ metrics
@@ -195,6 +234,18 @@ def report_lines(pairs: Sequence[LabelledPair], rules: RuleSet, *, sweep: bool =
             f"{name:<6} {m.n:<4} {m.positives:<4} {m.tp:<3} {m.fp:<3} {m.fn:<3} {m.tn:<5} "
             f"{_fmt(m.precision)} ({_fmt_ci(m.precision_ci)})   {_fmt(m.recall)} ({_fmt_ci(m.recall_ci)})"
         )
+    samples = sorted({p.row["as_of"] for p in pairs})
+    if len(samples) > 1:
+        lines.append("by sample (as_of) and split:")
+        for as_of in samples:
+            for name in ("tune", "test", "all"):
+                subset = [p for p in pairs if p.row["as_of"] == as_of and (name == "all" or p.split == name)]
+                m = measure(subset, rules)
+                lines.append(
+                    f"  {as_of} {name:<5} n={m.n:<4} pos={m.positives:<3} tp={m.tp:<3} fp={m.fp:<3} "
+                    f"fn={m.fn:<3} precision {_fmt(m.precision)} ({_fmt_ci(m.precision_ci)}) "
+                    f"recall {_fmt(m.recall)} ({_fmt_ci(m.recall_ci)})"
+                )
     by_stratum: dict[str, list[LabelledPair]] = defaultdict(list)
     for pair in pairs:
         by_stratum[pair.row["stratum"]].append(pair)
@@ -375,6 +426,44 @@ def write_rows(rows: Iterable[dict[str, str]], path: Path) -> None:
             writer.writerow(row)
 
 
+def context_rows(session: Any, keys: Iterable[tuple[str, str]], *, origin: str) -> list[dict[str, str]]:
+    """One notice-context row per `(source_id, source_record_id)`, read from a loaded store: the
+    opportunity's `kind`, `summary` and `programme_codes(identifiers)`. `origin` names the store
+    (it lands in `context_origin`); a key the store does not hold gets `not_in_store`."""
+    from sqlalchemy import select
+
+    from services.db.models import Opportunity, OpportunitySource
+    from services.match.relevance import programme_codes
+
+    rows: list[dict[str, str]] = []
+    for source_id, record_id in sorted(set(keys)):
+        opp = session.scalars(
+            select(Opportunity)
+            .join(OpportunitySource, OpportunitySource.opportunity_id == Opportunity.id)
+            .where(OpportunitySource.source_id == source_id, OpportunitySource.source_record_id == record_id)
+            .limit(1)
+        ).first()
+        rows.append(
+            {
+                "opportunity_source_id": source_id,
+                "opportunity_record_id": record_id,
+                "kind": opp.kind if opp is not None else "",
+                "summary": (opp.summary or "") if opp is not None else "",
+                "programme_codes": ";".join(programme_codes(opp.identifiers)) if opp is not None else "",
+                "context_origin": origin if opp is not None else "not_in_store",
+            }
+        )
+    return rows
+
+
+def write_context(rows: Iterable[dict[str, str]], path: Path) -> None:
+    with path.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(CONTEXT_COLUMNS), lineterminator="\n")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
 # --------------------------------------------------------------------------------------------- CLI
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -382,11 +471,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Precision and recall of the match rule set on labelled pairs (US-401 AC3).",
     )
     parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_PATH)
+    parser.add_argument("--context", type=Path, default=DEFAULT_CONTEXT_PATH, help="notice context file")
     parser.add_argument("--rules", type=Path, default=None, help="another rules file (defaults to data/)")
     parser.add_argument("--sweep", action="store_true", help="threshold sweep on the tune split")
+    parser.add_argument(
+        "--write-context",
+        metavar="ORIGIN",
+        default=None,
+        help="rebuild --context for every notice in --labels from the store at --database-url, "
+        "recording ORIGIN (e.g. 'store 2026-10-20') in context_origin; prints nothing else",
+    )
+    parser.add_argument("--database-url", default=None, help="for --write-context; default $DATABASE_URL")
     args = parser.parse_args(argv)
+    if args.write_context:
+        from services.db.session import get_engine, get_sessionmaker
+
+        with args.labels.open(encoding="utf-8", newline="") as fh:
+            keys = {notice_key(row) for row in csv.DictReader(fh)}
+        with get_sessionmaker(get_engine(args.database_url))() as session:
+            write_context(context_rows(session, keys, origin=args.write_context), args.context)
+        return 0
     rules = load_rules_from(args.rules) if args.rules else load_rules()
-    pairs = read_labels(args.labels)
+    pairs = read_labels(args.labels, args.context)
     sys.stdout.write("\n".join(report_lines(pairs, rules, sweep=args.sweep)) + "\n")
     return 0
 
@@ -397,16 +503,22 @@ if __name__ == "__main__":  # pragma: no cover
 
 __all__ = [
     "COLUMNS",
+    "CONTEXT_COLUMNS",
+    "DEFAULT_CONTEXT_PATH",
     "DEFAULT_LABELS_PATH",
     "LabelledPair",
     "Metrics",
+    "context_rows",
     "draw_sample",
     "main",
     "measure",
+    "notice_key",
     "predict",
+    "read_context",
     "read_labels",
     "report_lines",
     "split_for",
     "wilson_interval",
+    "write_context",
     "write_rows",
 ]

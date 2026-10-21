@@ -125,7 +125,7 @@ def test_proposal_matches_are_public_and_match_the_schema(
     (row,) = body["data"]
     assert row["opportunity"]["public_id"] == seeded["rfp"].public_id
     assert row["rationale_text"] == "storage, TX, 50–550 MW, due in 45 days"
-    assert row["score"] == 1.0 and row["rule_set_version"] == "match-rules@v1"
+    assert row["score"] == 1.0 and row["rule_set_version"] == "match-rules@v2"
     assert row["first_matched_at"] and row["status"] == "active"
     assert "dismissed_by_me" not in row and "crm_lead_ref" not in row
     assert row["proposal"]["provenance"][0]["source_id"] == "us.test.queue"
@@ -436,7 +436,7 @@ def test_intake_approval_computes_matches(client: TestClient, db: Session, seede
 # ------------------------------------------------------------------ publish gate closed (committed)
 @pytest.fixture()
 def gated(db: Session, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """The committed state: `match-rules@v1` has `publish: false`. Matches are computed with the
+    """The committed state: `match-rules@v2` has `publish: false`. Matches are computed with the
     committed rule set (so the events carry its stamps) and the API reads the committed flag."""
     monkeypatch.setattr(matches_mod, "matches_published", lambda: load_rules().publish)
     assert load_rules().publish is False
@@ -447,7 +447,7 @@ def _withheld_ok(body: dict[str, Any], spec: dict[str, Any]) -> None:
     assert_valid(spec, "MatchListResponse", body)
     assert body["data"] == [] and body["page"]["has_more"] is False
     assert body["matches_withheld"]["reason"] == "pending_evaluation"
-    assert body["matches_withheld"]["rule_set_version"] == "match-rules@v1"
+    assert body["matches_withheld"]["rule_set_version"] == "match-rules@v2"
 
 
 def test_gate_closed_record_lists_are_empty_and_say_why(

@@ -8,6 +8,7 @@ than as a silently-neutral rule. Nothing here reads a database.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -19,7 +20,11 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RULES_PATH = REPO_ROOT / "data" / "match_rules.yaml"
 
+#: The weighted rules: each yields a credit and together they make the score (docs/10 US-401 AC1).
 RULE_NAMES = ("technology", "jurisdiction", "size_window", "timing")
+#: Unweighted gates (match-rules@v2, docs/22 §25): pass or fail, never part of the score. A rule
+#: file without the `rules.eligibility` section has no gate, which is how v1 behaves.
+GATE_NAMES = ("eligibility",)
 
 
 class RuleSetError(ValueError):
@@ -32,6 +37,10 @@ class TechnologyRule:
     #: `solar_storage` is both `solar` and `storage`, so the value is a frozenset).
     families_of: MappingProxyType[str, frozenset[str]]
     all_source_tokens: frozenset[str]
+    #: Tokens deliberately left out of matching (`excluded_tokens`): recognised vocabulary with no
+    #: family, so a pair that depends on one fails the technology rule with a named reason rather
+    #: than as an unexplained mismatch. A token may not be both excluded and in a family.
+    excluded_tokens: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,11 @@ class JurisdictionRule:
     unresolved_credit: float
     adjacent_credit: float
     adjacency: MappingProxyType[str, frozenset[str]]
+    #: Opportunity kinds whose country-only jurisdiction means "country-wide" (`national_credit`).
+    #: Any other kind with a country-only jurisdiction is a single buyer's notice whose region was
+    #: not extracted, and passes on `unresolved_credit`. `None` (key absent) treats every kind as
+    #: national, which is how v1 behaves.
+    national_kinds: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +72,27 @@ class TimingRule:
 
 
 @dataclass(frozen=True)
+class NoticeClass:
+    """One entry of `rules.eligibility.classes`: what a notice funds or buys. A class claims a
+    notice when one of its `terms` (case-insensitive regexes) occurs in the title or summary, or
+    when the notice states CPV codes and every one of them starts with a `cpv_all_in` prefix."""
+
+    name: str
+    eligible: bool
+    reason: str
+    terms: tuple[re.Pattern[str], ...]
+    cpv_all_in: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class EligibilityRule:
+    #: First class that claims a notice decides; a notice no class claims is eligible.
+    classes: tuple[NoticeClass, ...]
+    #: Whether the gate also requires `services.match.relevance` to call the notice energy-relevant.
+    require_energy_relevance: bool
+
+
+@dataclass(frozen=True)
 class RuleSet:
     version: str
     threshold: float
@@ -67,6 +102,8 @@ class RuleSet:
     size_window: SizeWindowRule
     timing: TimingRule
     path: Path
+    #: The eligibility gate (`rules.eligibility`), or `None` when the file has no such section.
+    eligibility: EligibilityRule | None = None
     #: Whether matches produced by this rule set may be shown to anyone but an operator
     #: (`publish` in the file; absent means `False`, so a rule set is withheld until someone says
     #: otherwise). Read by `services/api/matches.py` and `services/match/run.py`'s event stamps.
@@ -128,9 +165,17 @@ def parse_rules(doc: dict[str, Any], *, path: Path = DEFAULT_RULES_PATH) -> Rule
         for token in tokens:
             families_of.setdefault(str(token), set()).add(str(family))
     all_source = tech.get("all_source_tokens") or []
+    excluded_raw = tech.get("excluded_tokens") or []
+    if not isinstance(excluded_raw, list):
+        raise RuleSetError("rules.technology.excluded_tokens must be a list")
+    excluded = frozenset(str(t) for t in excluded_raw)
+    for token in sorted(excluded):
+        if token in families_of:
+            raise RuleSetError(f"rules.technology.excluded_tokens: {token} is also in a family")
     technology = TechnologyRule(
         families_of=MappingProxyType({k: frozenset(v) for k, v in families_of.items()}),
         all_source_tokens=frozenset(str(t) for t in all_source),
+        excluded_tokens=excluded,
     )
 
     jur = _section(doc, "rules", "jurisdiction")
@@ -142,11 +187,17 @@ def parse_rules(doc: dict[str, Any], *, path: Path = DEFAULT_RULES_PATH) -> Rule
         for other in neighbours:
             if code not in adjacency.get(other, frozenset()):
                 raise RuleSetError(f"rules.jurisdiction.adjacency is not symmetric: {code} -> {other}")
+    national_kinds_raw = jur.get("national_kinds")
+    if national_kinds_raw is not None and (
+        not isinstance(national_kinds_raw, list) or not all(isinstance(k, str) for k in national_kinds_raw)
+    ):
+        raise RuleSetError("rules.jurisdiction.national_kinds must be a list of opportunity kinds")
     jurisdiction = JurisdictionRule(
         national_credit=_credit(jur, "national_credit", "rules.jurisdiction"),
         unresolved_credit=_credit(jur, "unresolved_credit", "rules.jurisdiction"),
         adjacent_credit=_credit(jur, "adjacent_credit", "rules.jurisdiction"),
         adjacency=MappingProxyType(adjacency),
+        national_kinds=frozenset(national_kinds_raw) if national_kinds_raw is not None else None,
     )
 
     size = _section(doc, "rules", "size_window")
@@ -175,6 +226,9 @@ def parse_rules(doc: dict[str, Any], *, path: Path = DEFAULT_RULES_PATH) -> Rule
         ),
     )
 
+    rules_section = _section(doc, "rules")
+    eligibility = _parse_eligibility(rules_section["eligibility"]) if "eligibility" in rules_section else None
+
     return RuleSet(
         version=version.strip(),
         threshold=threshold,
@@ -185,7 +239,60 @@ def parse_rules(doc: dict[str, Any], *, path: Path = DEFAULT_RULES_PATH) -> Rule
         size_window=size_window,
         timing=timing,
         path=path,
+        eligibility=eligibility,
     )
+
+
+def _parse_eligibility(section: Any) -> EligibilityRule:
+    where = "rules.eligibility"
+    if not isinstance(section, dict):
+        raise RuleSetError(f"section {where} must be a mapping")
+    require = section.get("require_energy_relevance", True)
+    if not isinstance(require, bool):
+        raise RuleSetError(f"{where}.require_energy_relevance must be true or false")
+    classes_raw = section.get("classes")
+    if not isinstance(classes_raw, list) or not classes_raw:
+        raise RuleSetError(f"{where}.classes must be a non-empty list")
+    classes: list[NoticeClass] = []
+    seen: set[str] = set()
+    for i, entry in enumerate(classes_raw):
+        at = f"{where}.classes[{i}]"
+        if not isinstance(entry, dict):
+            raise RuleSetError(f"{at} must be a mapping")
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip() or name in seen:
+            raise RuleSetError(f"{at}.name must be a unique non-empty string")
+        seen.add(name)
+        eligible = entry.get("eligible")
+        if not isinstance(eligible, bool):
+            raise RuleSetError(f"{at}.eligible must be true or false")
+        reason = entry.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise RuleSetError(f"{at}.reason must be a non-empty string")
+        terms_raw = entry.get("terms") or []
+        cpv_raw = entry.get("cpv_all_in") or []
+        if not isinstance(terms_raw, list) or not isinstance(cpv_raw, list):
+            raise RuleSetError(f"{at}.terms and {at}.cpv_all_in must be lists")
+        if not terms_raw and not cpv_raw:
+            raise RuleSetError(f"{at} needs terms or cpv_all_in")
+        terms: list[re.Pattern[str]] = []
+        for term in terms_raw:
+            try:
+                terms.append(re.compile(str(term), re.IGNORECASE))
+            except re.error as exc:
+                raise RuleSetError(f"{at}.terms: {term!r} is not a valid regex ({exc})") from exc
+        if not all(isinstance(c, str) and c.isdigit() for c in cpv_raw):
+            raise RuleSetError(f"{at}.cpv_all_in must be digit-string prefixes (quote them)")
+        classes.append(
+            NoticeClass(
+                name=name,
+                eligible=eligible,
+                reason=reason.strip(),
+                terms=tuple(terms),
+                cpv_all_in=tuple(cpv_raw),
+            )
+        )
+    return EligibilityRule(classes=tuple(classes), require_energy_relevance=require)
 
 
 def load_rules_from(path: Path) -> RuleSet:
@@ -212,8 +319,11 @@ def load_rules(path: Path | None = None) -> RuleSet:
 
 __all__ = [
     "DEFAULT_RULES_PATH",
+    "GATE_NAMES",
     "RULE_NAMES",
+    "EligibilityRule",
     "JurisdictionRule",
+    "NoticeClass",
     "RuleSet",
     "RuleSetError",
     "SizeWindowRule",

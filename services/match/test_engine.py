@@ -1,8 +1,10 @@
-"""`services/match/engine.py`: every branch of the four rules, the score, the rationale in US-402
-AC1's shape, and the blocking keys `services/match/run.py` relies on being exact."""
+"""`services/match/engine.py`: every branch of the four rules and the v2 eligibility gate, the score,
+the rationale in US-402 AC1's shape, and the blocking keys `services/match/run.py` relies on being
+exact."""
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import itertools
 
@@ -52,9 +54,11 @@ def test_the_us_402_example_renders_exactly() -> None:
     assert result.is_match
     assert result.rationale_text == "storage, TX, 50–550 MW, due in 45 days"
     assert result.score == 1.0
-    assert result.rule_set_version == "match-rules@v1"
+    assert result.rule_set_version == "match-rules@v2"
     rationale = result.rationale
-    assert rationale["rules_passed"] == ["technology", "jurisdiction", "size_window", "timing"]
+    # v2: the eligibility gate is a fifth check; it is never in the credits (it has no weight) and
+    # its label stays out of the rationale text when it passes.
+    assert rationale["rules_passed"] == ["technology", "jurisdiction", "size_window", "timing", "eligibility"]
     assert rationale["rules_failed"] == []
     assert rationale["features"]["days_to_due"] == 45
     assert rationale["features"]["capacity_ratio"] == 0.4
@@ -64,6 +68,8 @@ def test_the_us_402_example_renders_exactly() -> None:
         "size_window": 1.0,
         "timing": 1.0,
     }
+    assert rationale["features"]["notice_class"] == "unclassified"
+    assert rationale["features"]["notice_relevance"] == "technology tag: bess"
 
 
 def test_defaults_to_the_committed_rules_and_the_clock() -> None:
@@ -88,6 +94,14 @@ def test_pipe_joined_tokens_are_split() -> None:
         ("storage", [], False, "opportunity technology not stated"),
         ("wind", ["solar_pv"], False, "technology mismatch (wind vs solar_pv)"),
         ("solar_storage", ["bess"], True, "storage"),
+        # v2: `ccs` meets the Class VI wells; `microgrid`, `metering` and `load` are excluded by name,
+        # and an excluded proposal token does not ride an all-source notice.
+        ("co2_geologic_sequestration", ["ccs"], True, "ccs"),
+        ("load", ["all_source"], False, "load not matched (excluded)"),
+        ("load", ["transmission"], False, "load not matched (excluded)"),
+        ("solar_storage", ["microgrid"], False, "microgrid not matched (excluded)"),
+        ("storage", ["metering|microgrid"], False, "metering, microgrid not matched (excluded)"),
+        ("storage", ["microgrid|bess"], True, "storage"),
     ],
 )
 def test_technology_rule(proposal_tech: str | None, opp_techs: list[str], passed: bool, label: str) -> None:
@@ -117,6 +131,118 @@ def test_jurisdiction_rule(
     outcome = score_pair(_p(jurisdiction=proposal_j), _o(jurisdiction=opp_j), RULES, now=NOW).outcomes[1]
     assert (outcome.passed, outcome.credit, outcome.label) == (passed, credit, label)
     assert outcome.features["jurisdiction_relation"] == relation
+
+
+@pytest.mark.parametrize(
+    ("kind", "credit", "relation", "label"),
+    [
+        # A national programme is country-wide ...
+        ("foa", 0.8, "national", "GB-wide"),
+        ("auction", 0.8, "national", "GB-wide"),
+        # ... a single buyer's tender that states only its country is not (v2 rule J).
+        ("tender", 0.5, "notice_region_unknown", "GB (notice region not stated)"),
+        ("procurement_notice", 0.5, "notice_region_unknown", "GB (notice region not stated)"),
+        ("rfp", 0.5, "notice_region_unknown", "GB (notice region not stated)"),
+        # No kind (a caller with only the four rules' facts): v1's reading.
+        (None, 0.8, "national", "GB-wide"),
+    ],
+)
+def test_rule_j_country_only_procurement_is_region_unknown(
+    kind: str | None, credit: float, relation: str, label: str
+) -> None:
+    outcome = score_pair(_p(jurisdiction="GB"), _o(jurisdiction="GB", kind=kind), RULES, now=NOW).outcomes[1]
+    assert (outcome.passed, outcome.credit, outcome.label) == (True, credit, label)
+    assert outcome.features["jurisdiction_relation"] == relation
+
+
+def test_rule_j_moves_a_regionless_open_ended_tender_below_the_threshold() -> None:
+    """The shape of the 424 wind matches of `gb.find_a_tender` ocds-h6vhtk-066b6b under v1 (docs/22
+    §25.5): wind against a GB wind tender, both sides without a region, no size, open with no
+    deadline. v1 credited the tender GB-wide (0.765); v2 scores it 0.675 < 0.70. With a stated
+    deadline it scores 0.775 and matches again: rule J weakens the evidence, it does not exclude."""
+    tender = _o(
+        technologies=["wind"],
+        jurisdiction="GB",
+        capacity_sought_mw=None,
+        due_at=None,
+        kind="tender",
+        title="Onshore Wind Energy Development – Northumberland",
+    )
+    wind = _p(technology="wind", jurisdiction="GB", capacity_mw=None, lifecycle_state="filed")
+    result = score_pair(wind, tender, RULES, now=NOW)
+    assert result.all_rules_pass and result.score == 0.675 and not result.is_match
+    with_deadline = dataclasses.replace(tender, due_at=NOW + dt.timedelta(days=30))
+    assert score_pair(wind, with_deadline, RULES, now=NOW).score == 0.775
+    assert score_pair(wind, with_deadline, RULES, now=NOW).is_match
+    v1_reading = dataclasses.replace(tender, kind=None)
+    assert score_pair(wind, v1_reading, RULES, now=NOW).score == 0.765
+
+
+# ------------------------------------------------------------------------------------ eligibility
+def test_the_gate_fails_people_notices_whatever_the_score() -> None:
+    """docs/22 §21.3: the scholarship notice scored exactly what the real match scored (0.865)."""
+    nuclear = _p(technology="nuclear", jurisdiction="US-TX", capacity_mw=1117.0, lifecycle_state="announced")
+    common = {"technologies": ["nuclear"], "jurisdiction": "US", "capacity_sought_mw": None, "kind": "foa"}
+    scholarship = _o(
+        title="University Nuclear Leadership Program– Scholarship and Fellowship Support", **common
+    )
+    licensing = _o(title="Advanced Nuclear Energy Licensing Cost-Share Grant Program", **common)
+    wrong = score_pair(nuclear, scholarship, RULES, now=NOW)
+    right = score_pair(nuclear, licensing, RULES, now=NOW)
+    assert wrong.score == right.score == 0.865
+    assert right.is_match and right.rules_failed == ()
+    assert not wrong.is_match and wrong.rules_failed == ("eligibility",)
+    assert wrong.rationale_text == (
+        "not project-eligible: funds or hires people, not projects (Scholarship); "
+        "nuclear, US-wide, size not stated, due in 45 days"
+    )
+    assert wrong.rationale["features"]["notice_class"] == "people"
+    assert "eligibility" not in wrong.rationale["features"]["credits"]
+
+
+@pytest.mark.parametrize(
+    ("title", "codes", "label"),
+    [
+        (
+            "Nova Education Trust Contract for Supply of Biomass Boiler Fuel Pellets",
+            ["cpv:09110000"],
+            "not energy-relevant (fuel purchase: cpv:09110000)",
+        ),
+        (
+            "NIEHS Worker Training Program’s HAZMAT Training at DOE Nuclear Weapons Complex",
+            [],
+            "not energy-relevant (false friend only: nuclear weapons)",
+        ),
+        (
+            "FW Supply & Deliver – LV & MV Cables – Multi Site 1232",
+            ["cpv:31321200"],
+            "not project-eligible: buys goods or services for the buyer, which suppliers bid, not projects "
+            "(Supply &)",
+        ),
+    ],
+)
+def test_the_gate_names_its_reason(title: str, codes: list[str], label: str) -> None:
+    gate = score_pair(_p(), _o(title=title, programme_codes=codes), RULES, now=NOW).outcomes[4]
+    assert (gate.name, gate.passed, gate.credit, gate.label) == ("eligibility", False, 0.0, label)
+
+
+def test_relevance_can_be_switched_off_in_the_rule_file() -> None:
+    gate_cfg = RULES.eligibility
+    assert gate_cfg is not None
+    lenient = dataclasses.replace(
+        RULES, eligibility=dataclasses.replace(gate_cfg, require_energy_relevance=False)
+    )
+    fuel = _o(title="Contract for Supply of Biomass Boiler Fuel Pellets", programme_codes=["cpv:09110000"])
+    gate = score_pair(_p(), fuel, lenient, now=NOW).outcomes[4]
+    assert "notice_relevant" not in gate.features
+    assert gate.label.startswith("not project-eligible: buys goods or services")
+
+
+def test_a_rule_file_without_the_gate_scores_as_v1() -> None:
+    v1_like = dataclasses.replace(RULES, eligibility=None)
+    result = score_pair(_p(), _o(title="Scholarship programme"), v1_like, now=NOW)
+    assert [o.name for o in result.outcomes] == ["technology", "jurisdiction", "size_window", "timing"]
+    assert result.is_match and result.rationale_text == "storage, TX, 50–550 MW, due in 45 days"
 
 
 # ----------------------------------------------------------------------------------- size window
@@ -183,8 +309,6 @@ def test_every_rule_must_pass_whatever_the_score() -> None:
 
 
 def test_a_pass_below_threshold_is_not_a_match() -> None:
-    import dataclasses
-
     strict = dataclasses.replace(RULES, threshold=0.99)
     weak = score_pair(_p(), _o(capacity_sought_mw=None, due_at=None), strict, now=NOW)
     assert weak.all_rules_pass
