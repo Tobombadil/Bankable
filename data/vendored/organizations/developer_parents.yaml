@@ -181,13 +181,69 @@ groups:
         source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
         retrieved_at: '2026-10-15T22:09:56Z'
         quote: AES Energy Storage, LLC Delaware
+      # The rows below are EIA-860M operator spellings (docs/16 U-3), each named on the same complete list.
+      - name: AES Indiana
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: Indianapolis Power & Light Company Indiana
+        note: >-
+          AES Indiana is Indianapolis Power & Light Company's trading name. The 10-K's own glossary
+          (https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes-20251231.htm, read
+          2026-10-21T14:28:17Z): "AES Indiana Indianapolis Power & Light Company, formerly branded as IPL. AES
+          Indiana is wholly-owned by IPALCO". Declined: the EPA LMOP joint spelling "AES Indiana; Granger
+          Energy", which names a second company.
+      - name: AES Alamitos LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES Alamitos, L.L.C. Delaware
+      - name: AES Alamitos Energy, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES Alamitos Energy, LLC Delaware
+      - name: AES Huntington Beach LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES Huntington Beach, L.L.C. Delaware
+      - name: AES Huntington Beach Energy, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES Huntington Beach Energy, LLC Delaware
+      - name: AES ES Alamitos, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES ES Alamitos, LLC Delaware
+      - name: AES ES GILBERT, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES ES Gilbert, LLC Delaware
+      - name: AES Pike County Energy Storage
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES Pike County Energy Storage, LLC Delaware
+      - name: AES Griggs Solar, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/874761/000087476126000063/aes1231202510-kexhibit211.htm
+        retrieved_at: '2026-10-21T14:27:49Z'
+        quote: AES Griggs Solar, LLC Delaware
 
   - parent: Duke Energy Corporation
     parent_country: US
     parent_names: [Duke Energy]
     note: >-
-      Exhibit 21 to the 10-K for 2025 (filed 2026-02-26). Declined: Duke Energy Renewables Solar, LLC (Duke
-      sold its commercial renewables business in 2023; not on the list).
+      Exhibit 21 to the 10-K for 2025 (filed 2026-02-26), "a list of certain Duke Energy subsidiaries (50%
+      owned or greater) ... as of December 31, 2025". Declined: Duke Energy Renewables Solar, LLC (Duke
+      sold its commercial renewables business in 2023; not on the list); Duke Energy DEGS North Allegheny
+      and Duke Energy DEGS Happy Jack (EIA-860 owner spellings of wind projects of that business: the
+      exhibit still lists Duke Energy Generation Services, Inc. itself, but not these project companies,
+      and a list of "certain" subsidiaries cannot carry a project company, rule 4).
     children:
       - name: Duke Energy Carolinas, LLC
         evidence: sec_ex21
@@ -204,6 +260,27 @@ groups:
         source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
         retrieved_at: '2026-10-15T22:10:00Z'
         quote: Duke Energy Florida, LLC (Florida)
+      # The four below are EIA-860M operator spellings (docs/16 U-3).
+      - name: Duke Energy Indiana, LLC
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
+        retrieved_at: '2026-10-21T14:27:28Z'
+        quote: Duke Energy Indiana, LLC (Indiana)
+      - name: Duke Energy Ohio Inc
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
+        retrieved_at: '2026-10-21T14:27:28Z'
+        quote: Duke Energy Ohio, Inc. (Ohio)
+      - name: Duke Energy Kentucky Inc
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
+        retrieved_at: '2026-10-21T14:27:28Z'
+        quote: Duke Energy Kentucky, Inc. (Kentucky)
+      - name: Duke Energy Florida Solar Solutions
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/17797/000132616026000014/duk-20251231x10kxexx21.htm
+        retrieved_at: '2026-10-21T14:27:28Z'
+        quote: Duke Energy Florida Solar Solutions, LLC (Delaware)
 
   - parent: DTE Energy Company
     parent_country: US
@@ -419,6 +496,54 @@ groups:
         retrieved_at: '2026-10-16T01:23:40Z'
         quote: Mississippi Power Company
         note: A NYISO-style joint spelling naming both the subsidiary and the parent.
+      # The two below are the EIA-860M operator spellings (docs/16 U-3): 27 and 6 current plants.
+      - name: Alabama Power Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/3153/000009212226000006/ex21-aq42025xsubsidiarieso.htm
+        retrieved_at: '2026-10-21T14:26:48Z'
+        quote: Alabama Power Company Alabama
+      - name: Mississippi Power Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/3153/000009212226000006/ex21-aq42025xsubsidiarieso.htm
+        retrieved_at: '2026-10-21T14:26:48Z'
+        quote: Mississippi Power Company Mississippi
+
+  - parent: Dominion Energy, Inc.
+    parent_country: US
+    parent_names: [Dominion Energy]
+    note: >-
+      Exhibit 21 to the 10-K for 2025 (filed 2026-02-23), "Subsidiaries of the Registrant At December 31,
+      2025", with each company's jurisdiction and the names it does business under; it states no omission.
+      Declined, none is on it (rule 3): Dominion Energy Transmission, Inc., Dominion Transmission Co and
+      Dominion Gathering and Processing, Inc. (EIA Atlas spellings of the gas transmission and storage
+      business; the 10-K's own glossary names Eastern Energy Gas Holdings and Cove Point as Berkshire
+      Hathaway Energy subsidiaries "effective November 2020"); Dominion Energy Questar Pipeline (an Atlas
+      spelling; the 10-K's Questar sale to Enbridge, completed 2024-05-31, is Questar Gas, a different
+      company, so the list's silence is the evidence); Dominion Energy Kewaunee Inc. (the EIA-860M operator
+      of a retired plant; not on the list); Dominion Renewable Energy (an EIA-860M operator
+      spelling no company on the list carries); DOMINION RESOURCES INC (the parent's own former name on EPA
+      GHGRP: the same company, so a merge question, not a parent link). Old Dominion Electric Coop is
+      another company.
+    children:
+      - name: Virginia Electric & Power Co
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/715957/000119312526063120/d-ex21.htm
+        retrieved_at: '2026-10-21T14:28:42Z'
+        quote: Virginia Electric and Power Company Virginia
+        note: >-
+          The exhibit's "Name Under Which Business is Conducted" for it: Virginia Electric and Power Company,
+          Dominion Energy Virginia, Dominion Energy North Carolina.
+      - name: Dominion Energy South Carolina, Inc
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/715957/000119312526063120/d-ex21.htm
+        retrieved_at: '2026-10-21T14:28:42Z'
+        quote: Dominion Energy South Carolina, Inc. South Carolina
+      - name: Dominion Energy Nuclear Conn Inc
+        evidence: sec_ex21
+        source_url: https://www.sec.gov/Archives/edgar/data/715957/000119312526063120/d-ex21.htm
+        retrieved_at: '2026-10-21T14:28:42Z'
+        quote: Dominion Energy Nuclear Connecticut, Inc. Delaware
+        note: The EIA-860M operator spelling for Millstone.
 
   - parent: Black Hills Corporation
     parent_country: US

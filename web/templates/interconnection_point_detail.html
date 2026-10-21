@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name }} — Inframation{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.kind_label | lower }} in the {{ record.iso_label or 'grid' }} interconnection queue, {{ record.active_mw_label }} MW active across {{ record.totals.active_count }} projects.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/interconnection-points">Grid connection points</a> / {{ record.name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="{{ sections.href.infrastructure }}">{{ sections.label.infrastructure }}</a> / <a href="{{ sections.href.points }}">{{ sections.label.points }}</a> / {{ record.name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name }}</h1>
   <span class="reuse-badge">{{ record.kind_label }}</span>
@@ -55,6 +56,11 @@
   {{ m.section_heading("2.", "Projects connecting here") }}
   {% if proposals_truncated %}<p class="attribution-line">Showing the first {{ proposals | length }} of {{ record.totals.proposal_count }} projects; the totals above cover all of them.</p>{% endif %}
   {% if proposals %}
+  {#- docs/16 U-2: the filing company, linked, from each row's `sponsor` embed
+      (`InterconnectionPointProposal.sponsor`: `null` where the tier may not see one, a natural
+      person flagged `personal_data`, whose link says `nofollow`); the column shows when any row
+      names one. -#}
+  {%- set show_company = proposals | selectattr('sponsor') | list | length > 0 %}
   <div class="table-scroll">
   <table class="record-table">
     <caption class="visually-hidden">Projects that connect at this point: active first, then built, other and withdrawn, each by capacity.</caption>
@@ -62,6 +68,7 @@
       <tr>
         <th scope="col">Status</th>
         <th scope="col">Name</th>
+        {% if show_company %}<th scope="col">Company</th>{% endif %}
         <th scope="col">Technology</th>
         <th scope="col" class="num">Capacity (MW)</th>
         <th scope="col">Jurisdiction</th>
@@ -73,10 +80,11 @@
       <tr>
         <td data-label="Status">{{ m.status_chip(p.lifecycle_state, p.lifecycle_family) }}</td>
         <td data-label="Name"><a class="row-link" href="{{ p.href }}">{{ p.name_canonical }}</a></td>
+        {% if show_company %}{% set co = p.sponsor if p.sponsor is mapping else {} %}{% set ident = co.slug or co.public_id %}<td data-label="Company">{% if co.name_canonical and ident %}<a href="/organizations/{{ ident }}"{% if co.personal_data %} rel="nofollow"{% endif %}>{{ co.name_canonical | readable_name }}</a>{% elif co.name_canonical %}{{ co.name_canonical | readable_name }}{% else %}—{% endif %}</td>{% endif %}
         <td data-label="Technology">{{ (p.technology | technology_label) or '—' }}</td>
         <td data-label="Capacity (MW)" class="num tnum">{{ p.capacity_label }}</td>
         <td data-label="Jurisdiction">{{ p.jurisdiction or '—' }}</td>
-        <td data-label="Proposed online" class="tnum">{{ p.proposed_online_date or '—' }}</td>
+        <td data-label="Proposed online" class="tnum">{{ p.proposed_online_date | display_date if p.proposed_online_date else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -104,7 +112,7 @@
     <tbody>
       {% for c in changes %}
       <tr>
-        <td data-label="Observed" class="tnum">{% if c.date %}<time datetime="{{ c.date }}">{{ c.date }}</time>{% else %}—{% endif %}</td>
+        <td data-label="Observed" class="tnum">{% if c.date %}<time datetime="{{ c.date }}">{{ c.date | display_date }}</time>{% else %}—{% endif %}</td>
         <td data-label="Change">{{ c.label }}</td>
         <td data-label="Project">{% if c.proposal_href %}<a class="row-link" href="{{ c.proposal_href }}">{{ c.proposal_name }}</a>{% else %}{{ c.proposal_name or '—' }}{% endif %}</td>
         <td data-label="Source">{% if c.source_url %}<a href="{{ c.source_url }}" rel="noopener nofollow">{{ c.source_name or c.attribution_text }}</a>{% else %}{{ c.source_name or '—' }}{% endif %}</td>

@@ -1,24 +1,35 @@
 {% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.title | readable_name }} — Inframation{% endblock %}
-{% block meta_description %}{{ record.title }}: {{ record.kind_label }} from {{ record.issuer or 'issuer unstated' }}, due {{ record.due_at | display_date if record.due_at else 'unstated' }}.{% endblock %}
+{% block meta_description %}{{ record.title }}: {{ record.kind_label }} from {{ record.issuer | readable_name if record.issuer else (record.issuer_code or 'issuer unstated') }}, due {{ record.due_at | display_date if record.due_at else 'unstated' }}.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/opportunities">Opportunities</a> / {{ record.title | readable_name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="{{ sections.href.rfps }}">{{ sections.label.rfps }}</a> / {{ record.title | readable_name }}</nav>
 <div class="detail-header">
   <h1>{{ record.title | readable_name }}</h1>
   {{ m.status_chip(record.status, record.lifecycle_family, record.status_raw) }}{{ m.deadline_note(record) }}
 </div>
 {{ m.as_filed(record.title) }}
+{#- docs/16 U-2: who is asking, on the record's first lines, linked to its company page where the
+    issuer is a linked organisation; else the name or agency code the notice gives; else "not
+    recorded" (a TED or World Bank buyer is in the notice but not yet served, so "not named" would
+    be untrue). A named issuer keeps its agency code beside it, in mono (docs/16 §4.5). -#}
+{% set co = record.issuer_org %}
+{% set code = record.issuer_code if record.issuer_code and record.issuer_code != (co.name if co else record.issuer) else none %}
+<p class="record-company" id="record-company"><span class="record-company__label">Issuer</span>
+{%- if co %} {% if co.href %}<a href="{{ co.href }}"{% if co.personal_data %} rel="nofollow"{% endif %}>{{ co.name | readable_name }}</a>{% else %}{{ co.name | readable_name }}{% endif %}{% if code %} <span class="mono">{{ code }}</span>{% endif %}
+{%- elif record.issuer %} {{ record.issuer | readable_name }}{% if code %} <span class="mono">{{ code }}</span>{% endif %}
+{%- elif record.issuer_code %} <span class="mono">{{ record.issuer_code }}</span> <span class="record-company__none">(agency code)</span>
+{%- else %} <span class="record-company__none">not recorded</span>{% endif %}</p>
 {{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">
   <div><dt>Kind</dt><dd>{{ record.kind_label or '—' }}</dd></div>
-  <div><dt>Issuer</dt><dd>{% if record.issuer %}{{ record.issuer }}{% elif record.issuer_code %}<span class="mono">{{ record.issuer_code }}</span> <span class="field-grid__source-value">(agency code)</span>{% else %}—{% endif %}</dd></div>
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>Technologies</dt><dd>{{ (record.technologies | technologies_label) if record.technologies else 'all-source' }}</dd></div>
   <div><dt>Capacity sought (MW)</dt><dd class="tnum">{{ record.capacity_sought_mw | mw if record.capacity_sought_mw is not none else '—' }}</dd></div>
   <div><dt>Budget</dt><dd class="tnum">{% if record.budget_amount %}{{ '{:,.0f}'.format(record.budget_amount) }} {{ record.budget_currency or '' }}{% else %}&mdash;{% endif %}</dd></div>
-  <div><dt>Opens</dt><dd class="tnum">{{ record.open_at or '—' }}</dd></div>
+  <div><dt>Opens</dt><dd class="tnum">{{ record.open_at | display_date if record.open_at else '—' }}</dd></div>
   <div><dt>Due</dt><dd class="tnum">{{ record.due_at | display_date if record.due_at else '—' }}</dd></div>
 </dl>
 
@@ -31,7 +42,7 @@
   <p class="attribution-line">Built from this record&rsquo;s single most recent source snapshot.</p>
   <ul class="timeline">
     <li><time datetime="{{ record.retrieved_at }}">{{ record.retrieved_at | display_date if record.retrieved_at else 'unknown date' }}</time> <span class="timeline__event">Observed as <strong>{{ record.status | lifecycle_label | lower }}</strong> in {{ record.source_name }}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span></li>
-    {% if record.open_at %}<li><time datetime="{{ record.open_at }}">{{ record.open_at }}</time> <span class="timeline__event">Notice opened for responses.</span></li>{% endif %}
+    {% if record.open_at %}<li><time datetime="{{ record.open_at }}">{{ record.open_at | display_date }}</time> <span class="timeline__event">Notice opened for responses.</span></li>{% endif %}
     {% if record.due_at %}<li><time datetime="{{ record.due_at }}">{{ record.due_at | display_date }}</time> <span class="timeline__event">Response deadline, as stated by the source.</span></li>{% endif %}
   </ul>
 </section>

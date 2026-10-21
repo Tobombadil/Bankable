@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
 {% import "_macros.html" as m %}
 {% block title %}{{ record.name | readable_name }} — Inframation{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.kind_label if record.technology == record.kind else (record.technology_label or record.kind_label) }} proposal, {{ (record.capacity_mw | mw) ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/proposals">Proposals</a> / {{ record.name | readable_name }}</nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="{{ sections.href.projects }}">{{ sections.label.projects }}</a> / {{ record.name | readable_name }}</nav>
 <div class="detail-header">
   <h1>{{ record.name | readable_name }}</h1>
   {{ m.status_chip(record.lifecycle_state, record.lifecycle_family, record.status_raw) }}
@@ -11,6 +12,18 @@
 </div>
 {% if not_listed %}<p class="attribution-line" id="not-listed">No longer listed in any register{% if not_listed.since %} since <time datetime="{{ not_listed.since }}">{{ not_listed.since | display_date }}</time>{% endif %}.</p>{% endif %}
 {{ m.as_filed(record.name) }}
+{#- docs/16 U-2: who is behind the project, on the record's first lines, linked to its company page,
+    with the parent where one is recorded. The parent is an ownership claim, so its source and date
+    sit under it (web/ownership.py). A natural person named in a register keeps their page's
+    `noindex` (the link says `nofollow`) and is labelled "Sponsor", not "Company". With no company
+    the line says "not recorded", never "not named in the source": the API serves no sponsor both
+    when the register names none and when the company is not public (docs/21 §8 item 3). -#}
+{% set co = record.company %}
+<p class="record-company" id="record-company"><span class="record-company__label">{{ 'Sponsor' if co and co.personal_data else 'Company' }}</span>
+{%- if co %} {% if co.href %}<a href="{{ co.href }}"{% if co.personal_data %} rel="nofollow"{% endif %}>{{ co.name | readable_name }}</a>{% else %}{{ co.name | readable_name }}{% endif %}
+{%- if record.company_parent %}<span class="record-company__group"> &middot; part of {% if record.company_parent.href %}<a href="{{ record.company_parent.href }}">{{ record.company_parent.name | readable_name }}</a>{% else %}{{ record.company_parent.name | readable_name }}{% endif %}</span>{% endif %}
+{%- else %} <span class="record-company__none">not recorded</span>{% endif %}</p>
+{% if record.company_parent and record.company_parent.note %}<p class="ownership-claim record-company__claim{% if not record.company_parent.dated %} ownership-claim--undated{% endif %}" id="record-company-claim">{{ record.company_parent.note }}</p>{% endif %}
 {{ m.delayed_banner(delayed) }}
 
 <dl class="field-grid">
@@ -32,7 +45,6 @@
   <div><dt>County</dt><dd>{{ record.county or '—' }}{% if record.restricted_precision %} <span class="reuse-badge">county level (source licence)</span>{% elif record.location_precision == 'county_centroid' %} <span class="reuse-badge">county centroid</span>{% endif %}</dd></div>
   {% if 'iso' in fields %}<div><dt>ISO / operator</dt><dd>{{ record.iso_label or '—' }}</dd></div>{% endif %}
   {% if 'connects_at' in fields %}<div><dt>Connects at</dt><dd>{% if connection %}<a href="{{ connection.href }}">{{ connection.name }}</a> <span class="attribution-line tnum">{{ connection.active_mw_label }} MW active across {{ connection.active_count }} project{{ 's' if connection.active_count != 1 }} queued there ({{ connection.proposal_count }} in all)</span>{% else %}—{% endif %}</dd></div>{% endif %}
-  <div><dt>Sponsor</dt><dd>{{ record.sponsor or '—' }}</dd></div>
   <div><dt>{{ record.queue_id_label }}</dt><dd class="mono">{{ record.queue_ids | join(', ') if record.queue_ids else '—' }}</dd></div>
   {% if 'eia_ids' in fields %}<div><dt>EIA plant / generator ID</dt><dd class="mono">{{ record.eia_ids or '—' }}</dd></div>{% endif %}
 </dl>

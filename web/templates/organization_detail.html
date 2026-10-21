@@ -20,8 +20,9 @@
   <h1>{{ record.name | readable_name }}</h1>
   {# `descriptor` (web/app.py::org_descriptor) replaces a meaningless "other" with what the
      organisation holds -- "Ethanol producer", "Gas pipeline operator and Power plant owner"; the
-     raw type stays in the fields table below. #}
-  {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type %}<span class="reuse-badge">{{ record.type | organization_type_label }}</span>{% endif %}
+     raw type stays in the fields table below. With no descriptor, an "Other" badge says nothing
+     and is left out (docs/16 U-21). #}
+  {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type and record.type != 'other' %}<span class="reuse-badge">{{ record.type | organization_type_label }}</span>{% endif %}
 </div>
 {{ m.as_filed(record.name) }}
 {# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
@@ -80,40 +81,67 @@
 
 {% include "partials/_org_pipeline.html" %}
 
-{% if portfolio and portfolio | length > 1 %}
-{# A fund-level node is not a company page: a scope spanning many portfolio companies has no
-   readable map, and "which companies, holding how much" is what a reader at that level wants.
-   The table renders for any group; the map and the flat asset table below drop out by the
-   thresholds in web/ownership.py. #}
-<section aria-label="Portfolio">
-  <h2>Portfolio <span class="section-num">{% if group_view.holder_count > portfolio | length %}{{ portfolio | length }} of {{ group_view.holder_count }} companies{% else %}{{ portfolio | length }} companies{% endif %}</span></h2>
+{#- Group (docs/16 U-21, before the U-4 tabs): the portfolio and the direct subsidiaries in one
+    table, because they answer one question, "which companies make up this group". The holders come
+    first, largest holding first, the API's order (web/ownership.py::portfolio_rows), each marked as
+    this company, a direct subsidiary or a company further down; then the other direct
+    subsidiaries, in name order. A fund-level node is not a company page: a scope spanning many
+    portfolio companies has no readable map, and "which companies, holding how much" is what a
+    reader at that level wants. The table renders for any group; the map and the flat asset table
+    below drop out by the thresholds in web/ownership.py. No type badge: on this site it read
+    "Other" on almost every row.
+
+    The holders are every portfolio row, a single row included, unless that one row is this company
+    and no subsidiary is listed (a lone company needs no group table). A count is the company's own
+    holding (`totals.by_organization`). A listed subsidiary outside the holders reads "0" only where
+    that is true however it is read -- it holds nothing and nothing below it does: the scope is the
+    whole descent (`all`), the walk was not cut short (`truncated`), every holder is on the page,
+    and every holder is this company or a listed direct subsidiary, so none can sit under it.
+    Otherwise its count is not known from this page ("—", said in words above the table). The
+    descent stops at services/api/orgtree.py's MAX_DEPTH (10 levels); `group_view.notes` says so
+    when it does. -#}
+{% set sub_hrefs = [] %}
+{% for s in subsidiaries %}{% set _ = sub_hrefs.append('/organizations/' ~ (s.slug or s.public_id)) %}{% endfor %}
+{% set holders = portfolio if portfolio and (portfolio | length > 1 or subsidiaries or not portfolio[0].is_subject) else [] %}
+{#- Whether every direct subsidiary is listed: then a holder that is neither this company nor one of
+    them sits further down; otherwise it may be an unlisted subsidiary. -#}
+{% set subs_listed = record.subsidiary_count is not none and record.subsidiary_count <= subsidiaries | length %}
+{% set grp = namespace(rows=[], hrefs=[], off_list=false, unknown=false) %}
+{% for row in holders %}
+{% if row.is_subject %}{% set role = 'This company' %}
+{% elif row.href in sub_hrefs or scope == 'children' %}{% set role = 'Subsidiary' %}
+{% else %}{% set grp.off_list = true %}{% set role = 'Further down the group' if subs_listed else 'In the group' %}{% endif %}
+{% set grp.rows = grp.rows + [{'name': row.name, 'href': row.href, 'assets': row.assets, 'types': row.by_type.keys() | map('replace', '_', ' ') | join(', '), 'role': role}] %}
+{% set grp.hrefs = grp.hrefs + [row.href] %}
+{% endfor %}
+{% set counted = scope == 'all' and group_view and not group_view.truncated and group_view.holder_count <= (portfolio or []) | length and not grp.off_list %}
+{% for s in subsidiaries %}{% set href = '/organizations/' ~ (s.slug or s.public_id) %}{% if href not in grp.hrefs %}
+{% set grp.rows = grp.rows + [{'name': s.name or s.public_id, 'href': href, 'assets': 0 if counted else none, 'types': '', 'role': 'Subsidiary'}] %}
+{% if not counted %}{% set grp.unknown = true %}{% endif %}
+{% endif %}{% endfor %}
+{% if grp.rows %}
+<section aria-label="Group" id="group">
+  <h2>Group <span class="section-num">{{ grp.rows | length }} compan{{ 'y' if grp.rows | length == 1 else 'ies' }}</span></h2>
+  {% if holders and group_view.holder_count > holders | length %}<p class="attribution-line" id="group-holders-shown">The {{ holders | length }} largest of the {{ group_view.holder_count }} companies in this group that hold assets.</p>{% endif %}
+  {% if record.subsidiary_count and record.subsidiary_count > subsidiaries | length %}<p class="attribution-line" id="group-subsidiaries-shown">{{ subsidiaries | length }} of {{ record.subsidiary_count }} direct subsidiaries listed.</p>{% endif %}
+  {% if record.descendant_count and record.descendant_count > record.subsidiary_count %}<p class="attribution-line" id="descendant-count">{{ record.descendant_count }} companies sit below this one in total, across {{ group_view.depth if group_view else 0 }} levels.</p>{% endif %}
+  {% if grp.unknown %}<p class="attribution-line" id="group-uncounted">Assets are what each company holds itself. A dash: this view does not show it; the company&rsquo;s own page does.</p>{% endif %}
   <div class="table-scroll">
-  <table class="record-table" id="portfolio-table">
-    <caption class="visually-hidden">Companies in this group holding assets, largest holding first.</caption>
-    <thead><tr><th scope="col">Company</th><th scope="col" class="num">Assets</th><th scope="col">Types</th></tr></thead>
+  <table class="record-table" id="group-table">
+    <caption class="visually-hidden">Companies in this group: those holding assets first, largest holding first, then the other direct subsidiaries. Assets are what each company holds itself.</caption>
+    <thead><tr><th scope="col">Company</th><th scope="col">Relationship</th><th scope="col" class="num">Assets</th><th scope="col">Asset types</th></tr></thead>
     <tbody>
-      {% for row in portfolio %}
+      {% for row in grp.rows %}
       <tr>
-        <td data-label="Company">{% if row.href %}<a class="row-link" href="{{ row.href }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %}{% if row.is_subject %} <span class="reuse-badge">this company</span>{% endif %}</td>
-        <td data-label="Assets" class="num tnum">{{ row.assets }}</td>
-        <td data-label="Types">{{ row.by_type.keys() | map('replace', '_', ' ') | join(', ') }}</td>
+        <td data-label="Company">{% if row.href and row.role != 'This company' %}<a class="row-link" href="{{ row.href }}">{{ row.name | readable_name }}</a>{% else %}{{ row.name | readable_name }}{% endif %}</td>
+        <td data-label="Relationship">{{ row.role }}</td>
+        <td data-label="Assets" class="num tnum">{{ row.assets if row.assets is not none else '—' }}</td>
+        <td data-label="Asset types">{{ row.types or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
-</section>
-{% endif %}
-
-{% if subsidiaries %}
-<section aria-label="Subsidiaries">
-  <h2>Subsidiaries{% if record.subsidiary_count and record.subsidiary_count > subsidiaries | length %} <span class="section-num">{{ subsidiaries | length }} of {{ record.subsidiary_count }}</span>{% endif %}</h2>
-  {% if record.descendant_count and record.descendant_count > record.subsidiary_count %}<p class="attribution-line" id="descendant-count">Direct subsidiaries. {{ record.descendant_count }} companies sit below this one in total, across {{ group_view.depth if group_view else 0 }} levels.</p>{% endif %}
-  <ul class="org-links">
-    {% for s in subsidiaries %}
-    <li><a class="row-link" href="/organizations/{{ s.slug or s.public_id }}">{{ s.name or s.public_id }}</a>{% if s.type %} <span class="reuse-badge">{{ s.type | organization_type_label }}</span>{% endif %}</li>
-    {% endfor %}
-  </ul>
 </section>
 {% endif %}
 
@@ -217,9 +245,12 @@
   {% endif %}
 </section>
 
+{#- Opportunities this company issued: only when there are any (docs/16 U-21). For a developer
+    the section said "No opportunities issued by this company." at the foot of an eleven-screen
+    page; the Sources section then takes its number. -#}
+{% if opportunities %}
 <section aria-label="Opportunities">
   {{ m.section_heading("4.", "Opportunities") }}
-  {% if opportunities %}
   <ul class="in-view-list">
     {% for r in opportunities %}
     <li>{{ m.status_chip(r.status, r.lifecycle_family) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
@@ -227,16 +258,14 @@
     </li>
     {% endfor %}
   </ul>
-  {% else %}
-  <p>No opportunities issued by this company.</p>
-  {% endif %}
 </section>
+{% endif %}
 
 {# An organisation row carries no source rows of its own; the panel shows the sources behind its
    assets and proposals instead. With none of those either, no panel at all -- never a "withheld
    under licence" claim that is not true (docs/31 §5.2 empty state is for gated evidence only). #}
 {% if provenance_rows %}
-{{ m.provenance_panel(provenance_rows, number="5.", note=provenance_note, id="sources") }}
+{{ m.provenance_panel(provenance_rows, number="5." if opportunities else "4.", note=provenance_note, id="sources") }}
 {% endif %}
 {% endblock %}
 {% block extra_scripts %}

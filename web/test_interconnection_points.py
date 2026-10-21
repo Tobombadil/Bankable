@@ -154,7 +154,8 @@ def test_index_lists_visible_points_with_their_totals(web_client: TestClient, st
     assert "1,100" not in body and 'class="num tnum">200</td>' in body
     assert f'href="/interconnection-points/{store["points"]["b1"]}"' in body
     assert "2 points match these filters." in body
-    assert '<a href="/interconnection-points">Grid connection points</a>' in body
+    # The index is the second Infrastructure tab (docs/16 §3.1), marked as the page the reader is on.
+    assert '<a href="/interconnection-points" aria-current="page">Grid connection points</a>' in body
     # Largest active queue first: Bearkat (200 MW) above Whirlwind (50 MW).
     assert body.index("59903 Bearkat 345kV") < body.index("Whirlwind Substation 230kV")
 

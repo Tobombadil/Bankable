@@ -44,13 +44,41 @@ DEFAULT_VOCAB: dict[str, Any] = {
         ("ERCOT", "ERCOT"),
         ("CAISO", "CAISO"),
         ("PJM", "PJM"),
-        ("TVA", "TVA"),
+        ("MISO", "MISO"),
+        # docs/16 U-14: an EIA balancing-authority code outside the ISO markets reads as its name.
+        ("TVA", "Tennessee Valley Authority (TVA)"),
+        ("DUK", "Duke Energy Carolinas (DUK)"),
+        ("AZPS", "Arizona Public Service (AZPS)"),
+        ("PACW", "PacifiCorp West (PACW)"),
+        ("HECO", "HECO"),  # not an EIA-930 balancing authority: as stored
         (None, None),
         ("", ""),
     ],
 )
 def test_iso_label(token: str | None, label: str | None) -> None:
     assert iso_label(token) == label
+
+
+def test_no_balancing_authority_name_shadows_an_iso_token() -> None:
+    """The seven ISO/RTO balancing authorities are stored as market tokens; none of those tokens
+    (nor the EIA codes that map to them) may pick up a utility's name."""
+    from web.labels import BALANCING_AUTHORITY_NAMES
+
+    iso_spellings = {
+        "CAISO",
+        "ERCOT",
+        "ISONE",
+        "MISO",
+        "NYISO",
+        "PJM",
+        "SPP",
+        "CISO",
+        "ERCO",
+        "ISNE",
+        "NYIS",
+        "SWPP",
+    }
+    assert not iso_spellings & set(BALANCING_AUTHORITY_NAMES)
 
 
 def test_only_isone_is_relabelled() -> None:

@@ -192,10 +192,63 @@ def test_public_templates_no_longer_hand_format_capacity() -> None:
         ("XYZ CORP INC", "XYZ Corp Inc"),
         ("ERCOT ROSCOE", "ERCOT Roscoe"),  # a known longer acronym is not made a word
         ("KCE TX 16, LLC", "KCE TX 16, LLC"),  # nothing to change
+        # docs/16 U-22: a company's own spelling, from the curated map, where the rules print it
+        # wrongly ("Nextera Energy Inc", "DUKE Energy Corp" before).
+        ("NEXTERA ENERGY INC", "NextEra Energy Inc"),
+        ("DUKE ENERGY CORP", "Duke Energy Corp"),
+        ("GENON ENERGY INC", "GenOn Energy Inc"),
+        ("ARCLIGHT CAPITAL HOLDINGS LLC", "ArcLight Capital Holdings LLC"),
+        ("ONEOK", "ONEOK"),
+        ("IDACORP INC", "IDACORP Inc"),
+        ("KOCH INDUSTRIES INC", "Koch Industries Inc"),
+        ("XCEL ENERGY INC", "Xcel Energy Inc"),
+        ("TRANSCANADA PIPELINE USA LTD", "TransCanada Pipeline USA Ltd"),
+        ("SCOTTISHPOWER RENEWABLES (UK) LIMITED", "ScottishPower Renewables (UK) Limited"),
+        # "CO" stays as filed: it is "Company" in "SOUTHERN CO" but Colorado in "DATA CENTER CO
+        # SPRINGS", and a capital kept is never a wrong word.
+        ("SOUTHERN CO", "Southern CO"),
+        ("NOVVA COLORADO - DATA CENTER CO SPRINGS", "Novva Colorado - Data Center CO Springs"),
+        # docs/16 U-23's RFP record: "with" is a connecting word, not an acronym.
+        (
+            "LEADING ENERGY TECHNOLOGIES WITH UNTAPPED POTENTIAL",
+            "Leading Energy Technologies with Untapped Potential",
+        ),
     ],
 )
 def test_a_name_filed_in_capitals_reads_in_a_readable_case(filed: str, readable: str) -> None:
     assert readable_name(filed) == readable
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Mixed case is the register's own spelling: the curated map does not override it, so
+        # the stored name and the printed one stay the same and no "As filed" line appears.
+        "Nextera Energy Resources",
+        "Duke Energy Carolinas, LLC",
+        "XCEL-1 Community Solar",
+    ],
+)
+def test_the_curated_spellings_leave_a_mixed_case_name_as_filed(name: str) -> None:
+    assert readable_name(name) == name
+
+
+def test_the_curated_spellings_change_whole_words_only() -> None:
+    # "DUKES" is not in the map, and "XCEL1" is a word joined to a digit: the ordinary rules
+    # apply to both.
+    assert readable_name("DUKES CREEK SOLAR") == "Dukes Creek Solar"
+    assert readable_name("XCEL1 SOLAR") == "XCEL1 Solar"
+
+
+def test_the_curated_spellings_never_change_the_stored_name() -> None:
+    """For display only (docs/16 U-22): the page keeps the register's spelling once beside it."""
+    from web.page import templates
+
+    source = '{% import "_macros.html" as m %}{{ name | readable_name }}|{{ m.as_filed(name) }}'
+    html = templates.env.from_string(source).render(name="NEXTERA ENERGY INC")
+    shown, filed = html.split("|", 1)
+    assert shown == "NextEra Energy Inc"
+    assert '<span class="as-filed__name">NEXTERA ENERGY INC</span>' in filed
 
 
 @pytest.mark.parametrize("name", ["Acme Solar", "NextEra Energy Resources", "eBay Data Center", "", "PJM"])

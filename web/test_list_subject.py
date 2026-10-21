@@ -177,8 +177,9 @@ def test_several_companies_are_counted_not_named(client: TestClient) -> None:
 def test_an_unreadable_company_leaves_the_list_as_it_was(client: TestClient) -> None:
     _install([_row(1)])  # the organisation call answers 404
     body = client.get(f"/proposals?sponsor_id={ORG_ID}").text
-    assert _h1(body) == "Proposals"
-    assert "<title>Proposals — Inframation</title>" in body
+    # The unfiltered list's own heading (docs/16 §3.1: the section is "Projects").
+    assert _h1(body) == "Projects in development"
+    assert "<title>Projects in development — Inframation</title>" in body
 
 
 def test_a_connection_points_list_names_it_from_its_own_rows(client: TestClient) -> None:
@@ -200,7 +201,7 @@ def test_an_empty_point_list_reads_the_points_name(client: TestClient) -> None:
 def test_an_unfiltered_list_is_unchanged(client: TestClient) -> None:
     _install([_row(1)])
     body = client.get("/proposals").text
-    assert _h1(body) == "Proposals"
+    assert _h1(body) == "Projects in development"
     assert 'type="hidden" name="sponsor_id"' not in body
 
 

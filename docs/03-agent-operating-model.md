@@ -84,3 +84,22 @@ legal-compliance ──▶      │                      │                  ba
 Every run-time model call is logged with source, record id, tokens and cost. Sources whose per-record cost
 exceeds the value of their records are demoted to weekly batch or dropped. Build-time sessions log which agent
 produced which artifact in `docs/CHANGELOG.md`.
+
+**Build-time model tier by what a miss costs (owner, 2026-10-21; applies from the next batch of lanes,
+not to lanes already running).** The owner asked whether reviewers could run on a smaller tier to save usage.
+Measured this session: a review used roughly a quarter to a third of the tokens of its build. Of the seven
+reviews finished by then, three found blocking defects and two more led to fixes before merge (a
+subsidiary's assets shown as 0, a company column that could never render against the real API, and a
+matcher write-up that claimed its acceptance bar was met). The rule:
+
+| Work | Tier | Why |
+|---|---|---|
+| Review of layout, styling, copy, docs or navigation | Sonnet | a miss is visible on screen and in the coordinator's full suite run before merge |
+| Review of loaders, matching, licence and posture gates, API visibility, privacy or security | Opus | a miss publishes a wrong fact or breaches a source's terms, and nothing downstream catches it |
+| Small mechanical builds (renames, labels, breadcrumbs) | Sonnet | low risk |
+| Other builds | Opus | unchanged |
+
+Reviewers run only the tests for the directories they touch; the coordinator runs the full suite, e2e
+included, once on integration. Check: the coordinator compares what Sonnet reviews catch with what the
+integration run catches. A class of review that misses a defect the integration run finds goes back to Opus,
+and the change is recorded here.

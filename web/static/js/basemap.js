@@ -103,7 +103,6 @@
   var HALO_KEYS = ["city_label_halo", "state_label_halo", "subplace_label_halo", "address_label_halo", "roads_label_minor_halo", "roads_label_major_halo"];
   function themedFlavor(colors) {
     var flavor = basemaps.namedFlavor(colors.flavor);
-    flavor.background = colors.land;
     AREA_KEYS.forEach(function (k) { if (k in flavor) flavor[k] = colors.land; });
     if (flavor.landcover) Object.keys(flavor.landcover).forEach(function (k) { flavor.landcover[k] = colors.land; });
     flavor.water = colors.water;
@@ -133,8 +132,13 @@
       // that would also replace the fallback and data layers.
       map.setGlyphs(PROTOMAPS_GLYPHS_URL);
       map.setSprite(PROTOMAPS_SPRITE_BASE + (colors.flavor || "light"));
+      // UX review 2026-10-20 (docs/16 §2 M-1): the Protomaps list starts with an opaque
+      // `background` layer. It needs no source, so it painted the whole canvas whether or not the
+      // archive loaded, and a failed archive left the data on a blank plane instead of the outline
+      // above. Only layers drawn from the archive are added. Where the tiles load, their `earth`
+      // and `water` fills cover the outline, so a working map looks as it did.
       var styleLayers = basemaps.layers("protomaps", themedFlavor(colors), { lang: "en" });
-      styleLayers.forEach(function (layer) { map.addLayer(layer); });
+      styleLayers.forEach(function (layer) { if (layer.source) map.addLayer(layer); });
       map.on("error", function (e) {
         if (e && e.sourceId === "protomaps") onFail();
       });
@@ -143,11 +147,38 @@
     }
   }
 
+  // A map drawn on the outline alone says so in one line under the canvas (docs/16 §2 M-1: without
+  // it a degraded map reads as a broken site). The note follows the map's container: under `#map`
+  // on the home map, between a mini-map and its caption on the asset and company pages.
+  var FAILED_NOTE = "Base map unavailable; showing country and state outlines.";
+  function showFailedNote(map) {
+    var container = map.getContainer();
+    if (!container || !container.parentNode) return;
+    var note = document.createElement("p");
+    note.className = "map-basemap-note";
+    note.textContent = FAILED_NOTE;
+    container.parentNode.insertBefore(note, container.nextSibling);
+  }
+
   // ---- three MAP_TILE_URL modes (docs/40 §2.7 task item 1) ----
   // `opts.tileMode`: "pmtiles" | "raster" | "dev"; `opts.tileUrl`; `opts.colors` (mapColors());
-  // `opts.onFail` called at most once per map by the caller's own guard.
+  // `opts.onFail` called at most once per map, on the first failure.
+  // One tile that arrives proves the base map works, so a later failed tile is a gap, not an outage
+  // (review of lane w1-map): the note waits for the map to settle and shows only if none arrived.
   function addBasemap(map, opts) {
-    var onFail = opts.onFail || function () {};
+    var callerOnFail = opts.onFail || function () {};
+    var failed = false;
+    var tileArrived = false;
+    var sourceId = opts.tileMode === "pmtiles" ? "protomaps" : "osm";
+    map.on("sourcedata", function (e) {
+      if (e && e.sourceId === sourceId && e.tile) tileArrived = true;
+    });
+    function onFail() {
+      if (failed) return;
+      failed = true;
+      callerOnFail();
+      map.once("idle", function () { if (!tileArrived) showFailedNote(map); });
+    }
     if (opts.tileMode === "pmtiles") {
       addPmtilesBasemap(map, opts.tileUrl, opts.colors, onFail);
     } else if (opts.tileMode === "raster") {

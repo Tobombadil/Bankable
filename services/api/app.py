@@ -252,6 +252,11 @@ app.include_router(records_router)
 from services.api.org_pipeline import router as org_pipeline_router  # noqa: E402
 
 app.include_router(org_pipeline_router)
+# Its fleet in one read (2026-10-21, lane W1; docs/16 §5): distinct assets, MW and owned MW by
+# status, role, technology, state and type, each count the total of an organisation-assets query.
+from services.api.org_portfolio import router as org_portfolio_router  # noqa: E402
+
+app.include_router(org_portfolio_router)
 
 # Proposal <-> opportunity matches (docs/10 US-401-403): the two record-scoped public lists, the Pro
 # cross-entity list, match detail and per-user dismissal. The rows are written by

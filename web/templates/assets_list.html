@@ -1,15 +1,18 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Assets — Inframation{% endblock %}
+{% import "partials/_sections.html" as sections %}
+{% block title %}{{ sections.label.assets }}: {{ sections.heading.infrastructure | lower }} — Inframation{% endblock %}
 {#- Built in web/app.py::_asset_index_description from the filters in force, so a filtered index
     describes itself rather than repeating the unfiltered page's sentence. -#}
 {% block meta_description %}{{ description }}{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / Assets</nav>
-<div class="page-header">
-  <h1>Assets</h1>
-  <p>Infrastructure that exists, from public registers: identity, attributes, owners and operators, and the proposals near it. Free to read, cited to the register it came from.</p>
+{#- One H1 over two tabs (docs/16 §3.1-3.2, U-6): this page and /interconnection-points. A list page
+    reached from the primary nav carries no breadcrumb; the nav marks where the reader is. -#}
+<div class="page-header page-header--tabbed">
+  <h1>{{ sections.heading.infrastructure }}</h1>
+  {{ sections.section_tabs("infrastructure", request.url.path) }}
 </div>
+<p class="list-lede">Power plants, pipelines, transmission lines and terminals that exist today, from public registers, with their owners and operators.</p>
 
 {% if type_counts %}
 {# Counts come from the map endpoint's own by-type totals (web/app.py::asset_type_counts), whose

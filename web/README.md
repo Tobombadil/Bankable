@@ -600,13 +600,18 @@ error on the `osm` or `protomaps` source (`map.on("error", ...)` filtered by `so
 `basemapFailedSent` flag stops a second beacon regardless of which failure path fires first.
 `web/test_e2e.py` runs its whole suite in `pmtiles` mode with both CDN scripts aborted (the
 "keeps working if either script fails to load" case) and asserts the fallback renders and exactly
-one `map.basemap_failed` beacon reaches `/api/ui-events`.
+one `map.basemap_failed` beacon reaches `/api/ui-events`. Two rules keep the outline honest (docs/16
+§2 M-1, 2026-10-21): `basemap.js` adds only the Protomaps layers that have a source (the flavour's
+opaque `background` layer used to cover the outline whether or not the archive loaded), and when no
+basemap tile has arrived by the time the map settles it writes one line under the map, "Base map
+unavailable; showing country and state outlines." (`.map-basemap-note`, home map and mini-maps). A
+failed tile after others arrived is still beaconed but says nothing.
 
 **Tinting.** Both raster and pmtiles paths mute the basemap toward the paper ground using the same
 `--map-land`/`--map-water`/`--map-border` tokens (`cssVar(...)`, never a literal hex): the raster
 layer via `raster-saturation`/`raster-brightness-*`/`raster-contrast` paint properties (unchanged
 from before this task); the pmtiles path by overriding `basemaps.namedFlavor("light")`'s own
-`background`/`earth`/`water`/`major`/`minor_a`/`minor_b`/`highway`/`link`/`boundaries` keys before
+`earth`/`water`/`major`/`minor_a`/`minor_b`/`highway`/`link`/`boundaries` keys before
 calling `basemaps.layers(...)` — these are the actual colour-role keys in `@protomaps/basemaps`
 5.7.2's flavor object (confirmed by inspecting the published bundle; there is no published type
 declaration for a flavor's shape).

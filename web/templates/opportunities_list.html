@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Opportunities — Inframation{% endblock %}
+{% import "partials/_sections.html" as sections %}
+{% block title %}{{ sections.heading.rfps }} — Inframation{% endblock %}
 {% block meta_description %}Grants, tenders and procurement notices for energy and infrastructure from grants.gov, TED, Find a Tender and the World Bank.{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>Opportunities</h1>
-  <p>Demand-side records: grants, tenders and procurement notices. Default view shows open opportunities, soonest deadline first.</p>
-  {#- docs/30 §4.5: a developer submits a project from here to have it matched (US-1001). -#}
-  <p>Developing a project? <a href="/submit">Submit it for review</a>, and once an editor has added it we match it against opportunities like these.</p>
+  <h1>{{ sections.heading.rfps }}</h1>
+  {#- One line (docs/16 §3.1, U-17) that says which side of the market the rows are. docs/30 §4.5: a
+      developer submits a project from here to have it matched (US-1001). -#}
+  <p>Demand side: buyers and funders asking for projects. Open notices, soonest deadline first. Developing a project? <a href="/submit">Submit it for review</a> to have it matched against these.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 

@@ -1,0 +1,67 @@
+{#- The public site's sections (docs/16 §3.1, U-6): the one place their reader-facing names live,
+    so renaming a section is a one-line change here. The names are the coordinator's recommendation
+    pending the owner's ratification (docs/16 §7 question 1). Routes, the API and the data model keep
+    `proposal`, `opportunity`, `asset` and `interconnection point` whatever these say (docs/30 §1,
+    "Names"). Imported by base.html (primary nav, masthead, footer), the five list pages (H1,
+    title, the Infrastructure tabs) and the record pages (breadcrumbs). Every value is plain text: Jinja escapes the `&` on output. -#}
+{#- The names themselves live in web/labels.py `SECTION_LABELS` (a Jinja global), shared with the
+    JSON-LD breadcrumbs the routes build. -#}
+{%- set label = section_labels -%}
+{#- Each list page's H1 (docs/16 §3.1 table; Map and Alerts keep their own). -#}
+{%- set heading = {
+  "projects": "Projects in development",
+  "rfps": "RFPs, tenders and funding",
+  "infrastructure": "Existing infrastructure",
+  "companies": "Companies",
+} -%}
+{%- set href = {
+  "map": "/",
+  "projects": "/proposals",
+  "companies": "/organizations",
+  "rfps": "/opportunities",
+  "infrastructure": "/assets",
+  "alerts": "/alerts",
+  "about": "/about",
+  "assets": "/assets",
+  "points": "/interconnection-points",
+} -%}
+{#- The primary links, in order. About & sources is a masthead and footer link (reference, not a
+    destination); Pricing and Sign in are added by base.html, which knows the posture and the session. -#}
+{%- set primary = ["map", "projects", "companies", "rfps", "infrastructure", "alerts"] -%}
+{#- The routes each section holds, so its link is marked on every page under it: a record page, or
+    the other Infrastructure tab. Site pages are reached from projects (their breadcrumb says so). -#}
+{%- set holds = {
+  "projects": ["/proposals", "/sites"],
+  "companies": ["/organizations"],
+  "rfps": ["/opportunities"],
+  "infrastructure": ["/assets", "/interconnection-points"],
+  "alerts": ["/alerts"],
+  "about": ["/about"],
+  "assets": ["/assets"],
+  "points": ["/interconnection-points"],
+} -%}
+{#- A section shown as several pages under one H1 (docs/16 §3.2 "URL tabs"). -#}
+{%- set tabs = {"infrastructure": ["assets", "points"]} -%}
+{#- The five list pages, which share the compact list header (docs/16 §4.3, U-17; `.list-page` in
+    styles.css). -#}
+{%- set list_pages = [href.projects, href.companies, href.rfps, href.assets, href.points] -%}
+
+{#- ` aria-current="page"` on the link to this page, ` aria-current="true"` on the link to the section
+    that holds it, nothing otherwise. A filtered view (`/proposals?technology=solar`) is still that page. -#}
+{%- macro current(key, path) -%}
+{%- if path == href[key] %} aria-current="page"
+{%- else %}{% for root in holds.get(key, []) if path == root or path.startswith(root ~ "/") %}{% if loop.first %} aria-current="true"{% endif %}{% endfor %}
+{%- endif %}
+{%- endmacro %}
+
+{#- A section's pages as a row of tabs (docs/16 §3.2): plain links, each its own server-rendered URL,
+    so they work without scripts (D-30) and a tab is a navigation, not a `role="tablist"` widget. -#}
+{%- macro section_tabs(section, path) -%}
+<nav class="section-tabs" aria-label="{{ label[section] }} sections">
+  <ul>
+    {%- for key in tabs[section] %}
+    <li><a href="{{ href[key] }}"{{ current(key, path) }}>{{ label[key] }}</a></li>
+    {%- endfor %}
+  </ul>
+</nav>
+{%- endmacro %}

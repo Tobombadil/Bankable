@@ -736,7 +736,10 @@ h3 { font-size: var(--text-4); }
 .record-table tbody tr:hover { background: var(--surface); }
 .record-table a.row-link { color: var(--text); text-decoration: none; font-weight: 600; }
 .record-table a.row-link:hover { color: var(--link); text-decoration: underline; }
-.table-scroll { overflow-x: auto; }
+/* `position: relative` makes the scroller the containing block of the visually hidden spans in its
+   heads, so a wide table scrolls inside it and never widens the page (review of lane w1-nav: at
+   720-723px the nowrap list heads pushed one 4px past the viewport). */
+.table-scroll { overflow-x: auto; position: relative; }
 /* Nested attribute values (_macros.html attribute_value): a mapping inside the asset attributes
    bag renders as a small key/value grid inside the value cell -- left-aligned, muted keys, one
    block per list item -- instead of a Python repr. */
@@ -807,6 +810,10 @@ a.button-secondary { display: inline-flex; align-items: center; text-decoration:
 a.button-secondary:visited { color: var(--link); }
 .legend__icon { flex: none; }
 .map-attribution { font-size: var(--text-1); color: var(--text-muted); padding-top: var(--space-2); }
+/* One line under a map drawn on the outline alone (basemap.js `showFailedNote`, docs/16 §2 M-1):
+   under the canvas on the home map, between a mini-map and its caption on the record pages. */
+.map-basemap-note { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-2) 0 0; }
+.mini-map + .map-basemap-note { margin: 0 0 var(--space-1); }
 .map-live-region { position: absolute; width: 1px; height: 1px; overflow: hidden; }
 /* Hover cards (MapLibre popups) take the theme. MapLibre's stylesheet loads after this one and paints
    the card and its tip #fff while the text inherits --text, so in dark mode the text vanished (owner
@@ -979,6 +986,13 @@ a.button-secondary:visited { color: var(--link); }
 /* The register's own spelling of a name set in capitals, once, under the readable H1 (review
    2026-10-10 §2.6 item 7). */
 .as-filed { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-1) 0 0; }
+/* The company line under a record's name (docs/16 U-2, U-20): who is behind the record, linked
+   to its company page, on the record's first lines. Text on the paper, no chip or card (D-7). */
+.record-company { margin: var(--space-2) 0 0; overflow-wrap: anywhere; }
+.record-company__label { font-size: var(--text-1); color: var(--text-muted); margin-inline-end: var(--space-1); }
+.record-company__none, .record-company__sep, .record-company__count { color: var(--text-muted); }
+.record-company .mono { font-family: var(--font-mono); }
+.record-company + .record-company__claim { margin-block-start: var(--space-1); }
 .field-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-6);
   margin: var(--space-5) 0; border-top: 1px solid var(--border);
@@ -1228,7 +1242,7 @@ a.button-secondary:visited { color: var(--link); }
 
 /* ---------- 2026-10-07 layout lane (audit 2026-09-30: D-3, D-4, D-8, D-11, F6, F7) ---------- */
 
-/* Header below 720px (D-4, docs/31 §3): wordmark and a "Menu" disclosure on one row; the nine
+/* Header below 720px (D-4, docs/31 §3): wordmark and a "Menu" disclosure on one row; the
    links and the search box open beneath it. Every collapsed rule is keyed on `.js` (set in
    base.html before first paint), so without scripts the header stays open as before. Above
    720px the panel is `display: contents` and the bar lays out exactly as it did. */
@@ -1265,6 +1279,63 @@ a.button-secondary:visited { color: var(--link); }
   .js .filter-bar[data-collapse]:not(.is-open) { display: none; }
   .js .filter-bar[data-collapse].is-open .filter-bar__done { display: block; width: 100%; }
 }
+
+/* ---------- 2026-10-21 navigation lane (docs/16 §3.1-3.2, §4.3: U-6, U-17) ----------
+   Six primary links. The link to this page, or to the section holding it, carries `aria-current`;
+   weight and the underline are its visible echo, never colour alone (SC 1.4.1). The bar is 8px
+   shorter, which every page's first screen gets back. */
+.site-header__bar { padding-block: var(--space-3); }
+.primary-nav a[aria-current] { font-weight: 600; border-bottom-color: currentColor; }
+/* About & sources is reference, not a destination: a utility link beside the freshness line, and
+   in the footer. Below 720px the masthead is hidden, so the Menu panel carries it instead. */
+.masthead__util { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-5); }
+.masthead__about[aria-current] { font-weight: 600; }
+.site-nav-panel__about { display: none; margin: 0; }
+@media (max-width: 719px) {
+  .site-nav-panel__about { display: block; }
+  .site-nav-panel__about a { display: inline-block; padding: var(--space-2) 0; }
+  .masthead--keep .masthead__about { display: none; }
+}
+/* Section tabs (docs/16 §3.2): plain links in a row, the GitHub repository idiom. The current tab
+   carries `aria-current="page"`, echoed by weight and a 2px rule in the text colour; the row's
+   bottom rule is the page header's own, so a tabbed header draws no second one. */
+.section-tabs ul {
+  display: flex; flex-wrap: wrap; gap: 0 var(--space-5);
+  list-style: none; margin: 0; padding: 0; border-bottom: 1px solid var(--border);
+}
+.section-tabs a {
+  display: inline-block; padding: var(--space-2) 0; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; color: var(--text); text-decoration: none; font-size: var(--text-2);
+}
+.section-tabs a:hover, .section-tabs a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.section-tabs a[aria-current] { font-weight: 600; border-bottom-color: var(--text); }
+.section-tabs a[aria-current]:hover { color: var(--text); }
+.page-header--tabbed { padding-bottom: 0; border-bottom: 0; }
+/* List pages (U-17): the H1 at the map page's size, a one-line standfirst and tighter spacing down
+   to the table, so the first row starts higher at 1440px (before: 488-689px). Scoped to the five
+   lists (`.list-page` on <main>, set in base.html), so no other page's header changes. */
+.list-page .page-header { padding: var(--space-3) 0; margin-bottom: 0; }
+.list-page .page-header h1 { font-size: var(--text-5); margin: 0 0 var(--space-1); }
+.list-page .page-header p { margin: 0; max-width: none; }
+.list-page .page-header p + p { margin-top: var(--space-1); }
+.list-page .page-header--tabbed { padding-bottom: 0; }
+.list-page .page-header--tabbed h1 { margin-bottom: var(--space-2); }
+.list-lede { color: var(--text-muted); margin: var(--space-3) 0 var(--space-2); }
+.list-page .delayed-notice { margin: var(--space-2) 0; padding-block: var(--space-1); }
+.list-page .filter-bar { padding: var(--space-1) 0; margin-bottom: var(--space-2); }
+/* The lines between the filters and the table (status notice, count, alert and feed links) keep
+   their order and words; only the space between them closes up. The unlisted line still reads as
+   the status notice's continuation. */
+.list-page .view-notice { padding: 0; margin: 0 0 var(--space-2); }
+.list-page .view-notice + .view-notice--unlisted { margin-top: calc(-1 * var(--space-1)); }
+.list-page .result-count, .list-page .results-bar .result-count, .list-page .save-alert, .list-page .feed-link { margin-bottom: var(--space-2); }
+/* `/assets`: the nine type chips fit one row at 1440px (docs/31 §5.14's tokens; 8px sides, not 12). */
+.list-page .count-chips ul { margin-bottom: var(--space-2); }
+.list-page .count-chips a { padding-inline: var(--space-2); }
+.list-page .count-chips + .attribution-line { margin: 0 0 var(--space-2); }
+/* Column heads on one line where the table is a table (at 400px rows are cards with their own
+   labels): "Capacity (MW)" broke over two lines and made the head row 55px. */
+@media (min-width: 720px) { .list-page .record-table th { white-space: nowrap; } }
 
 /* The map page opens on the map (D-3, F6): one line saying what a dot is and what to do, the tier
    stamp, a one-row filter bar, one status row, then the map. No hero, no illustration (D-7). */
@@ -1330,6 +1401,9 @@ a.button-secondary:visited { color: var(--link); }
 }
 @media (max-width: 719px) {
   .map-key__panel { max-height: 9rem; padding: var(--space-1) var(--space-2); }
+  /* Closed from first paint, not only once map.js runs after the CDN scripts (review of lane
+     w1-map: on a slow phone the open key covered the map until then), as the filter bar does. */
+  .js .map-key:not([data-ready]) { display: none; }
   .map-key .legend--lifecycle { gap: 0 var(--space-3); }
   .map-key .legend--lifecycle .legend__group-name { display: none; }
   .map-key .legend__short { display: inline; }

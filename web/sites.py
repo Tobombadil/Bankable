@@ -30,7 +30,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from services.sites.switch import sites_enabled
-from web import formatting
+from web import formatting, labels
 from web.api_client import ApiError, ApiNotFound
 from web.page import (
     breadcrumb_jsonld,
@@ -225,7 +225,10 @@ def site_detail(request: Request, public_id: str) -> Response:
             "credits": page_credits(envelope),
             "canonical_path": path,
             "jsonld": [
-                breadcrumb_jsonld(request, [("Home", "/"), ("Proposals", "/proposals"), (site["name"], path)])
+                breadcrumb_jsonld(
+                    request,
+                    [("Home", "/"), (labels.SECTION_LABELS["projects"], "/proposals"), (site["name"], path)],
+                )
             ],
         },
     )

@@ -70,6 +70,97 @@ OPPORTUNITY_KIND_LABELS: dict[str, str] = {
     "program": "Programme",
 }
 
+#: EIA balancing-authority codes as the names a reader knows (docs/16 U-14). An EIA-860M plant
+#: outside the seven ISO/RTO markets carries its balancing authority's code in `iso` ("DUK",
+#: "AZPS", "TVA": `pipeline/normalize.py::EIA_BA_ISO_TOKENS` maps only the ISO/RTO codes to market
+#: tokens), so a company's pipeline table and a record's "ISO / operator" row printed the code alone.
+#: Source: EIA's balancing-authority reference table,
+#: https://www.eia.gov/electricity/930-content/EIA930_Reference_Tables.xlsx, sheet "BAs" (read
+#: 2026-10-21), every U.S. balancing authority on it except the ISO/RTO seven (CISO, ERCO, ISNE,
+#: MISO, NYIS, PJM, SWPP), which the connector stores as market tokens, and JEA, whose name is its
+#: code. Each name is EIA's with the legal form dropped ("Company", "Corporation", "Inc.", "LLC";
+#: SOCO's "Southern Company Services, Inc. - Trans" reads "Southern Company Services"). Where EIA
+#: gives the legal name of a body that trades under another, that one: "Salt River Project
+#: Agricultural Improvement and Power District" is "Salt River Project", "Public Utility District
+#: No. 1 of Chelan County" is "Chelan County PUD", "City of Tacoma, Department of Public Utilities,
+#: Light Division" is "Tacoma Power", "NorthWestern Corporation" is "NorthWestern Energy". Retired
+#: codes are kept because stored rows still carry them. A code not listed (HECO is not an EIA-930
+#: balancing authority) prints as itself.
+BALANCING_AUTHORITY_NAMES: dict[str, str] = {
+    "AEC": "PowerSouth Energy Cooperative",
+    "AECI": "Associated Electric Cooperative",
+    "AVA": "Avista",
+    "AVRN": "Avangrid Renewables",
+    "AZPS": "Arizona Public Service",
+    "BANC": "Balancing Authority of Northern California",
+    "BHBA": "Black Hills Energy",
+    "BPAT": "Bonneville Power Administration",
+    "CHPD": "Chelan County PUD",
+    "CPLE": "Duke Energy Progress East",
+    "CPLW": "Duke Energy Progress West",
+    "DEAA": "Arlington Valley",
+    "DOPD": "Douglas County PUD",
+    "DUK": "Duke Energy Carolinas",
+    "EEI": "Electric Energy",
+    "EPE": "El Paso Electric",
+    "FMPP": "Florida Municipal Power Pool",
+    "FPC": "Duke Energy Florida",
+    "FPL": "Florida Power & Light",
+    "GCPD": "Grant County PUD",
+    "GLHB": "GridLiance",
+    "GRID": "Gridforce Energy Management",
+    "GRIF": "Griffith Energy",
+    "GRMA": "Gila River Power",
+    "GVL": "Gainesville Regional Utilities",
+    "GWA": "NaturEner Power Watch",
+    "HGMA": "New Harquahala Generating",
+    "HST": "City of Homestead",
+    "IID": "Imperial Irrigation District",
+    "IPCO": "Idaho Power",
+    "LDWP": "Los Angeles Department of Water and Power",
+    "LGEE": "Louisville Gas and Electric and Kentucky Utilities",
+    "NEVP": "Nevada Power",
+    "NSB": "Utilities Commission of New Smyrna Beach",
+    "NWMT": "NorthWestern Energy",
+    "OVEC": "Ohio Valley Electric",
+    "PACE": "PacifiCorp East",
+    "PACW": "PacifiCorp West",
+    "PGE": "Portland General Electric",
+    "PNM": "Public Service Company of New Mexico",
+    "PSCO": "Public Service Company of Colorado",
+    "PSEI": "Puget Sound Energy",
+    "SC": "South Carolina Public Service Authority",
+    "SCEG": "Dominion Energy South Carolina",
+    "SCL": "Seattle City Light",
+    "SEC": "Seminole Electric Cooperative",
+    "SEPA": "Southeastern Power Administration",
+    "SIKE": "Sikeston Board of Municipal Utilities",
+    "SOCO": "Southern Company Services",
+    "SPA": "Southwestern Power Administration",
+    "SRP": "Salt River Project",
+    "SWPW": "Southwest Power Pool West",
+    "TAL": "City of Tallahassee",
+    "TEC": "Tampa Electric",
+    "TEPC": "Tucson Electric Power",
+    "TIDC": "Turlock Irrigation District",
+    "TPWR": "Tacoma Power",
+    "TVA": "Tennessee Valley Authority",
+    "WACM": "Western Area Power Administration, Rocky Mountain Region",
+    "WALC": "Western Area Power Administration, Desert Southwest Region",
+    "WAUE": "Western Area Power Administration, Upper Great Plains East",
+    "WAUW": "Western Area Power Administration, Upper Great Plains West",
+    "WWA": "NaturEner Wind Watch",
+    "YAD": "Alcoa Power Generating, Yadkin Division",
+}
+
+
+def balancing_authority_label(code: Any) -> str | None:
+    """ "Duke Energy Carolinas (DUK)" for a code `BALANCING_AUTHORITY_NAMES` names; `None` for any
+    other value, so a caller keeps its own reading of an ISO token or an unknown code."""
+    name = BALANCING_AUTHORITY_NAMES.get(str(code)) if code else None
+    return f"{name} ({code})" if name else None
+
+
 #: Organisation `type` (`GET /v1/meta/vocabularies` `organization_type`).
 ORGANIZATION_TYPE_LABELS: dict[str, str] = {
     "developer": "Developer",
@@ -498,3 +589,22 @@ def install(env: Any) -> None:
     # Number and date formats (docs/31 §4, audit 2026-10-07 UX-8) ride on the same call, so every
     # environment that can render `_macros.html` has them.
     formatting.install(env)
+
+
+#: The public site's section names (docs/16 §3.1, U-6): the one place they live, so renaming a section
+#: is a one-line change. `partials/_sections.html` reads them through the `section_labels` Jinja global
+#: (nav, masthead, footer, list headers, record breadcrumbs) and the page routes read them for the
+#: JSON-LD breadcrumbs, so the visible and structured breadcrumbs cannot disagree. They are the
+#: coordinator's recommendation pending the owner's ratification (docs/16 §7 question 1); routes, the
+#: API and the data model keep `proposal`, `opportunity`, `asset` and `interconnection point`.
+SECTION_LABELS: dict[str, str] = {
+    "map": "Map",
+    "projects": "Projects",
+    "companies": "Companies",
+    "rfps": "RFPs & funding",
+    "infrastructure": "Infrastructure",
+    "alerts": "Alerts",
+    "about": "About & sources",
+    "assets": "Plants, pipelines & lines",
+    "points": "Grid connection points",
+}

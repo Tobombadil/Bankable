@@ -178,8 +178,15 @@ instant. *Why:* WCAG 2.2 SC 2.3.3; a moving table is unreadable.
 Admin (`admin.` host, `docs/20` §7). Canonical routes: `/proposals`, `/proposals/{slug}`, `/opportunities`,
 `/opportunities/{slug}`, `/organizations/{slug}`, `/map`, `/search`, `/feeds/*`, `/alerts`, `/account`,
 `/docs/api`; slugs per `docs/21` §3.1; merged slugs 301 to the survivor (US-201 AC3). Primary nav is identical on
-all public and Pro pages (Proposals · Opportunities · Map · Feed · Alerts · API); admin nav is `docs/20` §8's
-list in that order; depth ≤ 3 to any record; breadcrumbs on record pages. *Why:* stable URLs are the SEO asset.
+all public and Pro pages: six sections, **Map · Projects · Companies · RFPs & funding · Infrastructure · Alerts**
+(2026-10-21, `docs/16` §3.1, replacing Proposals · Opportunities · Map · Feed · Alerts · API), then Sign in and
+search. The names change, not the routes: Projects is `/proposals`, RFPs & funding `/opportunities`, Infrastructure
+`/assets` with `/interconnection-points` as its second tab. The current section is marked with `aria-current`. Feed
+and API are reached from each list's "View as" switch and the footer; About & sources from the masthead and footer.
+The section names are the coordinator's recommendation pending the owner (`docs/16` §7 question 1) and live in one
+template (`docs/30` §1). Admin nav is `docs/20` §8's list in that order; depth ≤ 3 to any record; breadcrumbs on
+record pages (list pages carry none: the nav marks them). *Why:* stable URLs are the SEO asset; names that say supply
+versus demand let a first-time reader tell the two lists apart before clicking.
 
 **D-17 Every filter, sort, tab and map viewport lives in the URL** as `docs/23` §7 parameters; a copied URL
 reproduces the view on the same tier; no filter state held only in local storage. *Why:* US-102 AC2; sharing

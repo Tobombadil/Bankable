@@ -25,7 +25,7 @@ from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import QueryParams
 from starlette.types import Scope
@@ -35,7 +35,7 @@ from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
 from web.head_requests import HeadAsGetMiddleware
-from web.labels import PLANT_FAMILY_LABELS
+from web.labels import PLANT_FAMILY_LABELS, SECTION_LABELS
 from web.list_subject import list_subject, subject_hidden_fields
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
@@ -174,6 +174,19 @@ class _StaticFiles(StaticFiles):
 
 
 app.mount("/static", _StaticFiles(directory=str(WEB_ROOT / "static")), name="static")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    """Pages declare their icons in base.html, but feed readers, crawlers and the admin pages ask for
+    /favicon.ico directly, which answered 404 (review of lane w1-nav, docs/16 U-24)."""
+    return FileResponse(
+        WEB_ROOT / "static" / "img" / "favicon.ico",
+        media_type="image/x-icon",
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
 # Sprint 3 "login and registration surface": /login, /register, /logout, /verify, /account (own
 # router in web/auth.py -- see that module's docstring for why it keeps its own Jinja2Templates
 # rather than importing this one).
@@ -903,7 +916,8 @@ def proposal_detail(request: Request, slug: str) -> Response:
             "report": report_context(record["public_id"], record["name"], path),
             "jsonld": [
                 breadcrumb_jsonld(
-                    request, [("Home", "/"), ("Proposals", "/proposals"), (record["name"], path)]
+                    request,
+                    [("Home", "/"), (SECTION_LABELS["projects"], "/proposals"), (record["name"], path)],
                 )
             ],
         },
@@ -1000,7 +1014,7 @@ def opportunity_detail(request: Request, slug: str) -> Response:
             "jsonld": [
                 breadcrumb_jsonld(
                     request,
-                    [("Home", "/"), ("Opportunities", "/opportunities"), (record["title"], path)],
+                    [("Home", "/"), (SECTION_LABELS["rfps"], "/opportunities"), (record["title"], path)],
                 )
             ],
         },

@@ -259,3 +259,146 @@ def test_load_retirements_sets_plant_status_and_creates_no_proposal(tmp_path: Pa
         assert status["6155"] == "retired" and status["3122"] == "retired"  # Rush Island, Homer City
         assert status["6166"] == "retiring" and status["2828"] == "operating"
         assert session.scalar(select(func.count()).select_from(Proposal)) == 0
+
+
+# ------------------------------------------------- EIA-860M plant operator edges (docs/16 U-3)
+def _write_plants_parquet(tmp_path: Path, extra_operators: dict[str, str] | None = None) -> Any:
+    """The recorded August 2026 EIA-860M trim through the context builder's own `aggregate_plants`,
+    written where `load_plants_layer` reads it. `extra_operators` adds one plant per entry
+    (`source_plant_id` -> operator name), copied from the first recorded row. An `owner_name`
+    column rides along, as a later plants file might carry one: it must not become an edge."""
+    import pandas as pd
+
+    from conftest import fixture_path
+    from pipeline.connectors.base import to_parquet_safe
+    from pipeline.connectors.us_eia_860m_retirements.test_connector import FIXTURE, MONTH1
+    from pipeline.context.eia_plants import aggregate_plants
+    from pipeline.context.retirements import parse_generator_sheets
+
+    sheets = parse_generator_sheets(fixture_path(FIXTURE).read_bytes())
+    plants = aggregate_plants(
+        sheets.operating, retrieved_at=MONTH1, retired=sheets.retired, as_of=sheets.as_of
+    )
+    extra = []
+    for plant_id, operator in (extra_operators or {}).items():
+        row = plants.iloc[0].to_dict()
+        row.update(source_plant_id=plant_id, name=f"Plant {plant_id}", operator_name=operator)
+        extra.append(row)
+    plants = pd.concat([plants, pd.DataFrame(extra)], ignore_index=True) if extra else plants
+    plants["owner_name"] = "Somebody Who Owns Nothing Here LLC"
+    path = context_layers.context_dir(tmp_path) / context_layers.PLANTS_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    to_parquet_safe(plants).to_parquet(path, index=False)  # as `pipeline/context/eia_plants.py` writes it
+    return plants
+
+
+def _store() -> Any:
+    from services.db.session import get_engine, get_sessionmaker, init_db
+
+    engine = get_engine("sqlite+pysqlite:///:memory:")
+    init_db(engine)
+    return get_sessionmaker(engine)()
+
+
+def test_plant_operator_edges_carry_the_eia_860m_source_url_retrieved_at_and_licence(tmp_path: Path) -> None:
+    """docs/16 §5: no power plant was linked to its operator (0 of 16,472). Each plant now has one
+    `operator` edge to the organisation its EIA-860M row names, carrying that source, the row's
+    URL and `retrieved_at`, and the source's licence, as every Atlas operator edge does."""
+    import pandas as pd
+    from sqlalchemy import select
+
+    from services.db.models import Asset, AssetOwner, Licence, Organization, Source
+
+    plants = _write_plants_parquet(tmp_path)
+    with _store() as session:
+        context_layers.load_plants_layer(session, tmp_path)
+        source = session.get(Source, "us.eia.860m")
+        assert source is not None
+        licence = session.get(Licence, source.licence_id)
+        assert licence is not None and licence.reuse_class == "open"
+        rows = session.execute(
+            select(Asset.source_asset_id, AssetOwner, Organization.name_canonical)
+            .join(AssetOwner, AssetOwner.asset_id == Asset.id)
+            .join(Organization, Organization.id == AssetOwner.organization_id)
+        ).all()
+        by_plant = {plant_id: (edge, org_name) for plant_id, edge, org_name in rows}
+        # One edge per plant, and none from the owner column.
+        assert len(rows) == len(by_plant) == len(plants) == 9
+        for plant in plants.itertuples():
+            edge, org_name = by_plant[plant.source_plant_id]
+            assert edge.role == "operator"
+            assert edge.source_id == "us.eia.860m" and edge.licence_id == source.licence_id
+            assert edge.source_url == plant.source_url == "https://www.eia.gov/electricity/data/eia860m/"
+            assert pd.Timestamp(edge.retrieved_at).tz_localize(None) == plant.retrieved_at.tz_localize(None)
+            assert edge.owner_name_raw == org_name == plant.operator_name
+            assert edge.share_pct is None
+
+
+def test_a_second_plants_load_writes_no_new_edge_organisation_or_alias(tmp_path: Path) -> None:
+    from sqlalchemy import func, select
+
+    from services.db.models import AssetOwner, Organization, OrganizationAlias
+
+    # A second spelling of one recorded operator: one organisation, two aliases.
+    _write_plants_parquet(tmp_path, {"990001": "Sand Point Generating LLC"})
+
+    def counts(session: Any) -> tuple[int, ...]:
+        return tuple(
+            session.scalar(select(func.count()).select_from(model))
+            for model in (Organization, OrganizationAlias, AssetOwner)
+        )
+
+    with _store() as session:
+        context_layers.load_plants_layer(session, tmp_path)
+        first = counts(session)
+        edge_ids = set(session.scalars(select(AssetOwner.id)))
+        context_layers.load_plants_layer(session, tmp_path)
+        assert counts(session) == first == (9, 10, 10)  # 9 operators, 10 spellings, 10 plants
+        assert set(session.scalars(select(AssetOwner.id))) == edge_ids
+
+
+def test_an_operator_that_is_a_curated_child_rolls_up_to_its_parent_and_a_stale_name_does_not(
+    tmp_path: Path,
+) -> None:
+    """The plants a utility subsidiary operates reach its group's page through the curated groups
+    (`developer_parents.yaml`, docs/22 §24), which the context load applies after the edges. A
+    name the parent's own filing no longer lists (Duke's 2023 renewables sale, Dominion's gas
+    transmission sale, NextEra's deconsolidated partnership) is linked to nobody."""
+    from sqlalchemy import select
+
+    from pipeline.normalize import org_key
+    from services.db.models import AssetOwner, Organization
+    from services.ingest.organizations import load_group_parents
+
+    operators = {
+        "990001": "Alabama Power Co",
+        "990002": "Duke Energy Indiana, LLC",
+        "990003": "Virginia Electric & Power Co",
+        "990004": "AES Indiana",
+        "990005": "Duke Energy DEGS Happy Jack",
+        "990006": "Dominion Energy Transmission, Inc.",
+        "990007": "NextEra Energy Partners LP",
+    }
+    _write_plants_parquet(tmp_path, operators)
+    with _store() as session:
+        context_layers.load_plants_layer(session, tmp_path)
+        load_group_parents(session)
+        orgs = {org_key(o.name_canonical): o for o in session.scalars(select(Organization))}
+
+        def parent_of(operator: str) -> str | None:
+            org = orgs[org_key(operator)]
+            role = session.scalar(select(AssetOwner.role).where(AssetOwner.organization_id == org.id))
+            assert role == "operator", operator
+            parent = session.get(Organization, org.parent_org_id) if org.parent_org_id else None
+            return parent.name_canonical if parent else None
+
+        assert parent_of("Alabama Power Co") == "The Southern Company"
+        assert parent_of("Duke Energy Indiana, LLC") == "Duke Energy Corporation"
+        assert parent_of("Virginia Electric & Power Co") == "Dominion Energy, Inc."
+        assert parent_of("AES Indiana") == "The AES Corporation"
+        for stale in (
+            "Duke Energy DEGS Happy Jack",
+            "Dominion Energy Transmission, Inc.",
+            "NextEra Energy Partners LP",
+        ):
+            assert parent_of(stale) is None, stale

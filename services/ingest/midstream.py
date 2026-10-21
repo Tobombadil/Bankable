@@ -73,7 +73,12 @@ from services.ids import public_id as make_public_id
 from services.ids import unique_slug
 from services.ingest.assets import ASSET_TYPE_SOURCE_IDS, resolve_source_id
 from services.ingest.loader import upsert_licence_and_source
-from services.ingest.ownership import _build_norm_org_index, _resolve_organization
+from services.ingest.ownership import (
+    StoredOrganizationSlugs,
+    _alias_keys,
+    _build_norm_org_index,
+    _resolve_organization,
+)
 
 DEFAULT_DB_PATH = pathlib.Path("web/.data/dev.db")
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -123,6 +128,7 @@ class EdgesLoadResult:
     organizations_created: int = 0
     edges_written: int = 0
     edges_by_role: dict[str, int] = field(default_factory=dict)
+    edges_removed: int = 0
 
     def as_report(self) -> dict[str, object]:
         return {
@@ -131,6 +137,7 @@ class EdgesLoadResult:
             "unmatched_asset_ids": sorted(set(self.unmatched_asset_ids)),
             "organizations_created": self.organizations_created,
             "edges_written": self.edges_written,
+            "edges_removed": self.edges_removed,
             "edges_by_role": dict(sorted(self.edges_by_role.items())),
         }
 
@@ -182,7 +189,9 @@ def load_operator_edges(
 
     now = utcnow()
     norm_index = _build_norm_org_index(session)
+    alias_keys = _alias_keys(session)
     created_counter = [0]
+    seen: set[tuple[str, str, str]] = set()
 
     for row in rows:
         asset = assets.get(str(row.get("source_asset_id")))
@@ -202,8 +211,10 @@ def load_operator_edges(
                 now=retrieved_at,
                 created_counter=created_counter,
                 source_url=source_url,
+                alias_keys=alias_keys,
             )
             key = (str(asset.id), str(org.id), role)
+            seen.add(key)
             edge = existing_edges.get(key)
             if edge is None:
                 edge = AssetOwner(
@@ -222,6 +233,15 @@ def load_operator_edges(
             edge.retrieved_at = retrieved_at
             result.edges_written += 1
             result.edges_by_role[role] = result.edges_by_role.get(role, 0) + 1
+
+    # The frame is the source's current statement for every asset it carries: an edge this source
+    # wrote for one of those assets that the frame no longer states (a plant sold to a new operator,
+    # an operator name dropped) is withdrawn, so the seller's page stops claiming the plant. Assets
+    # absent from the frame keep their edges (review of lane w1-operators, 2026-10-21).
+    for key, edge in existing_edges.items():
+        if key not in seen:
+            session.delete(edge)
+            result.edges_removed += 1
 
     result.organizations_created = created_counter[0]
     session.commit()
@@ -341,9 +361,7 @@ def _get_or_create_parent(
     if org is not None:
         return org, False
     org_id = new_uuid()
-    slug = unique_slug(
-        name, make_public_id("org", org_id), set(session.scalars(select(Organization.slug))), bare_first=True
-    )
+    slug = unique_slug(name, make_public_id("org", org_id), StoredOrganizationSlugs(session), bare_first=True)
     org = Organization(
         id=org_id,
         public_id=make_public_id("org", org_id),

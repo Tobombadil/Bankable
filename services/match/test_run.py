@@ -96,7 +96,7 @@ def test_full_run_writes_one_match_and_two_events(db: Session, world: dict[str, 
     p1, rfp = world["p1"], world["rfp"]
     assert (match.proposal_id, match.opportunity_id) == (p1.id, rfp.id)  # type: ignore[attr-defined]
     assert match.created_by == "rule"
-    assert match.rule_set_version == "match-rules@v1"
+    assert match.rule_set_version == load_rules().version == "match-rules@v2"
     assert match.rationale_text == "storage, TX, 50–550 MW, due in 45 days"
     assert float(match.score) == 1.0
     assert match.rationale["rules_failed"] == []
@@ -172,11 +172,55 @@ def test_first_run_without_a_watermark_is_full(db: Session, world: dict[str, obj
 def test_a_new_rule_set_version_forces_a_full_run(db: Session, world: dict[str, object]) -> None:
     run_matches(db, full=True)
     db.commit()
-    v2 = dataclasses.replace(load_rules(), version="match-rules@v2")
-    report = run_matches(db, rules=v2)
+    nxt = dataclasses.replace(load_rules(), version="match-rules@next")
+    report = run_matches(db, rules=nxt)
     assert report.mode == "full"
     (match,) = _active(db)
-    assert match.rule_set_version == "match-rules@v2"
+    assert match.rule_set_version == "match-rules@next"
+
+
+def test_the_v2_gate_reads_the_stored_title(db: Session, world: dict[str, object]) -> None:
+    """match-rules@v2: the store's `title` reaches the eligibility gate, and a match the gate now
+    rejects is removed with the gate's reason in both timelines."""
+    run_matches(db, full=True)
+    db.commit()
+    rfp = world["rfp"]
+    rfp.title = "Graduate Fellowship in Battery Storage"  # type: ignore[attr-defined]
+    db.commit()
+    report = run_matches(db, full=True)
+    assert (report.removed, report.active_total) == (1, 0)
+    removed = _events(db, "match_removed")
+    assert {e.subject_type for e in removed} == {"proposal", "opportunity"}
+    assert removed[0].after["reason"] == "rules failed: eligibility"
+    assert (
+        removed[0]
+        .after["rationale_text"]
+        .startswith("not project-eligible: funds or hires people, not projects (Fellowship); storage, TX")
+    )
+
+
+def test_the_v2_inputs_come_from_the_store(db: Session, world: dict[str, object]) -> None:
+    """`kind` reaches rule J and `identifiers` reach the relevance check: a country-only tender with
+    no size and no deadline is region-unknown (0.675, no match) where a federal FOA is national
+    (0.765, a match); a notice whose CPV codes are all fuels is not energy-relevant."""
+    rfp = world["rfp"]
+    rfp.jurisdiction, rfp.capacity_sought_mw, rfp.due_at = "US", None, None  # type: ignore[attr-defined]
+    rfp.kind = "tender"  # type: ignore[attr-defined]
+    db.commit()
+    facts = run_mod.opportunity_facts(rfp)  # type: ignore[arg-type]
+    assert (facts.kind, facts.title) == ("tender", "Test RFP 1")
+    assert run_matches(db, full=True).active_total == 0
+    rfp.kind = "foa"  # type: ignore[attr-defined]
+    db.commit()
+    assert run_matches(db, full=True).active_total == 2  # US-wide: the TX and the CA storage rows
+    match = next(m for m in _active(db) if m.proposal_id == world["p1"].id)  # type: ignore[attr-defined]
+    assert float(match.score) == 0.765 and match.rationale_text.startswith("storage, US-wide")
+    rfp.identifiers = {"cpv": ["09134100"]}  # type: ignore[attr-defined]
+    db.commit()
+    assert run_mod.opportunity_facts(rfp).programme_codes == ("cpv:09134100",)  # type: ignore[arg-type]
+    assert run_matches(db, full=True).active_total == 0
+    removed = [e for e in _events(db, "match_removed") if e.subject_type == "proposal"]
+    assert removed[-1].after["rationale_text"].startswith("not energy-relevant (fuel purchase: cpv:09134100)")
 
 
 def test_a_deadline_expires_without_any_row_changing(db: Session, world: dict[str, object]) -> None:
@@ -301,7 +345,7 @@ def test_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_the_committed_gate_keeps_every_event_off_every_tier(db: Session, world: dict[str, object]) -> None:
-    """`match-rules@v1` has `publish: false` (data/match_rules.yaml): matches are still computed and
+    """The committed rule set has `publish: false` (data/match_rules.yaml): matches are still computed and
     stored, and their events are written with no public or published stamp, adds and removals alike."""
     assert load_rules().publish is False
     report = run_matches(db, full=True)

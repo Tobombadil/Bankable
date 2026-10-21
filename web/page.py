@@ -307,6 +307,7 @@ templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 # The same four register the private beta's header link (web/beta.py; off unless SITE_ACCESS=basic).
 templates.env.globals["beta_feedback_href"] = feedback_href
 templates.env.globals["asset_version"] = ASSET_VERSION
+templates.env.globals["section_labels"] = labels.SECTION_LABELS
 templates.env.globals["cdn"] = CDN_ASSETS  # UX-19: `_macros.html` cdn_script / cdn_style
 templates.env.filters["group_source_rows"] = group_source_rows  # UX-11: one Sources row per register
 labels.install(templates.env)

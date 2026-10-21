@@ -1033,6 +1033,15 @@ where it has a record and the curated loader refuses to overwrite a GLEIF one. T
 GLEIF publishes no Level 2 record for any of the nine Tallgrass children — so every curated rule still does
 work.
 
+EIA-860M operator edges landed 2026-10-21 (docs/16 U-3; before then no power plant had one, though the list above
+named the source). `services/ingest/context_layers.py::load_plants_layer` passes each plant's `operator_name` (the
+workbook's Entity Name) through the same `load_operator_edges` and resolver as the Atlas strings: one `operator`
+edge per plant under `us.eia.860m`, with the row's `source_url` and `retrieved_at`, that source's licence, and NULL
+`share_pct` and `as_of`. EIA-860M names no owner, so the step reads no owner column. It runs before the EIA-860
+owner shares and the organisation graph, so an owner spelling resolves to the operator's organisation and the
+curated groups (docs/22 §24.6) roll a utility subsidiary's plants up to its parent. On the 2026-10-09 data root:
+16,472 edges, 6,598 organisations created at that step, 18.6 s.
+
 ### 3.21 `ui_event` — identifier-free interaction counters (added 2026-09-14)
 
 The context layer's purpose is engagement, so it ships with a measurement. A row is an allowlisted `name`

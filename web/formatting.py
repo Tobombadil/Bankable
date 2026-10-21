@@ -123,21 +123,41 @@ _SHORT_WORDS = frozenset(
     shop side silo six sky snow soda sol son spa span spur star stem step sun sur swan swap tail tall tank tea
     teal team tech ten tern the tide tie tin to toad top tor tow town toy tree tres trim troy true tule twin
     two una unit up vale van vega vest via view vine wade wall ward warm wash watt wave way weir well west
-    wet whey wild will wind wing wire wish wolf wood wool yard yew yolo zeta zeus
+    wet whey wild will wind wing wire wish with wolf wood wool yard yew yolo zeta zeus
     """.split()
 )
 #: Short words set in lower case after the first word ("Bank of the West").
-_LOWER_AFTER_FIRST = frozenset({"and", "at", "by", "for", "in", "of", "on", "the", "to"})
+_LOWER_AFTER_FIRST = frozenset({"and", "at", "by", "for", "in", "of", "on", "the", "to", "with"})
 #: Abbreviations a reader expects in mixed case rather than capitals.
 _ABBREVIATIONS = {"INC": "Inc", "LTD": "Ltd", "CORP": "Corp", "BROS": "Bros"}
 #: Longer acronyms that must not become a word ("Ercot").
 _LONG_ACRONYMS = frozenset({"CAISO", "ERCOT", "ISONE", "LADWP", "NYISO", "NYSEG", "NYSERDA", "USACE"})
+#: Company names whose own spelling the rules above cannot reach (docs/16 U-22): a capital inside
+#: the word ("NEXTERA" read "Nextera"), or a short name that is a word, not an acronym ("DUKE" was
+#: kept in capitals as one). Keyed by the word in capitals; each value is the spelling the company
+#: itself uses. Curated, so it stays small: a name belongs here only when a register files it in
+#: capitals in the store (EIA-860 and GHGRP owner and parent names, an organisation alias) and the
+#: ordinary rules print it wrongly. Checked against the 2026-10-20 store.
+_NAME_SPELLINGS = {
+    "ARCLIGHT": "ArcLight",
+    "DUKE": "Duke",
+    "GENON": "GenOn",
+    "IDACORP": "IDACORP",
+    "KOCH": "Koch",
+    "NEXTERA": "NextEra",
+    "ONEOK": "ONEOK",
+    "SCOTTISHPOWER": "ScottishPower",
+    "TRANSCANADA": "TransCanada",
+    "XCEL": "Xcel",
+}
 _ROMAN = re.compile(r"^(?=[IVX]+$)X{0,3}(?:IX|IV|V?I{0,3})$")
 _LETTER_RUN = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]+(?![A-Za-z0-9])")
 
 
 def _readable_word(word: str, *, first: bool, after_apostrophe: bool) -> str:
     upper = word.upper()
+    if upper in _NAME_SPELLINGS:
+        return _NAME_SPELLINGS[upper]
     if len(word) == 1:
         # An initial ("R.E.", "UNIT A") stays a capital; the "s" of a possessive does not.
         return word.lower() if after_apostrophe and upper in ("S", "T", "D") else word
@@ -159,8 +179,10 @@ def readable_name(value: Any) -> str:
     §2.6 item 7). Only a name with no lower-case letter is changed, so a name its register already
     sets in mixed case is printed exactly as filed. Acronyms of four letters or fewer stay in
     capitals unless they are an ordinary word (`_SHORT_WORDS`), and so do Roman numerals and
-    letters joined to digits (`TX16`, `CO2`). For display only: search, URLs and the stored name
-    are unchanged, and the page shows the name as filed once beside it."""
+    letters joined to digits (`TX16`, `CO2`). A company in `_NAME_SPELLINGS` takes its own
+    spelling (`NEXTERA ENERGY INC` -> `NextEra Energy Inc`, `DUKE ENERGY CORP` -> `Duke Energy
+    Corp`). For display only: search, URLs and the stored name are unchanged, and the page shows
+    the name as filed once beside it."""
     if value is None:
         return ""
     text = str(value)

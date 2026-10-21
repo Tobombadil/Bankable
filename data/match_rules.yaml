@@ -1,18 +1,23 @@
 # Proposal <-> opportunity matching rules (docs/10 US-401 AC1: "the rule set is a versioned config
 # file"). Loaded by `services/match/rules.py`, applied by `services/match/engine.py`, measured by
-# `services/match/eval.py` against `data/eval/match_labels.csv` (docs/22 "Proposal–opportunity
-# matching v1"). Bump `rule_set_version` whenever a rule, weight or threshold changes: every stored
-# match records the version that produced it, and a re-run under a new version re-evaluates every
-# pair (`services/match/run.py`).
+# `services/match/eval.py` against `data/eval/match_labels.csv` (docs/22 §21 "Proposal–opportunity
+# matching v1", §25 "Matching v2"). Bump `rule_set_version` whenever a rule, weight, threshold or
+# term list changes: every stored match records the version that produced it, and a re-run under a
+# new version re-evaluates every pair (`services/match/run.py`).
 #
 # An opportunity's `technologies` list is split on `|` first: the extractors store a multi-technology
 # notice as one pipe-joined element (`["solar_pv|nuclear"]`).
 #
-# A pair is a match when ALL FOUR rules pass (US-401 AC1) and the weighted score is at least
-# `threshold`. Each rule yields a credit in [0, 1]: 1.0 for a clean pass, a smaller value for a pass
-# on incomplete evidence (a national programme, an unstated capacity window, no stated deadline),
-# 0 for a fail. `score = sum(weight_i * credit_i) / sum(weight_i)`.
-rule_set_version: match-rules@v1
+# A pair is a match when ALL FOUR rules pass (US-401 AC1), the eligibility gate passes (v2, below)
+# and the weighted score is at least `threshold`. Each rule yields a credit in [0, 1]: 1.0 for a
+# clean pass, a smaller value for a pass on incomplete evidence (a national programme, an unstated
+# capacity window, no stated deadline), 0 for a fail. `score = sum(weight_i * credit_i) /
+# sum(weight_i)`. The gate has no weight: it never moves a score.
+#
+# v1 -> v2 (2026-10-21, docs/22 §25): the eligibility gate (`rules.eligibility`), `ccs` mapped and
+# `microgrid` / `metering` / `load` excluded (`rules.technology`), and `national_kinds`
+# (`rules.jurisdiction`). Weights, threshold, size window and timing are unchanged.
+rule_set_version: match-rules@v2
 
 # Public display gate (coordinator decision, 2026-09-26). docs/10 US-401 AC3 sets the bar at
 # precision >= 0.7 at the default threshold; this rule set measured 0.250 (5/20, 95 % CI
@@ -23,12 +28,19 @@ rule_set_version: match-rules@v1
 # match route returns an empty list with `matches_withheld` to every caller but an operator.
 # Operators see everything and the CRM lead hand-off still works. Set `true` only for a rule set
 # whose own measurement clears AC3.
+# v2 does NOT meet AC3 (docs/22 §25.5). It measured 6/6 = 1.000 (95 % CI 0.610-1.000) on the
+# held-out half of the independent labels of 2026-10-20, but that sample has 82 pairs (62 held out),
+# below AC3's 100; the decisive rules (`people`, rule J) were written with test-half notices known
+# (6/18 = 0.333 without both); every predicted pair comes from one notice; the CI lower bound is
+# 0.61. Stays `false` until a fresh blind draw of at least 100 pairs measures the rule set.
 publish: false
 
 # Set a priori, before any label existed: a pair on full evidence scores 1.0, and 0.70 still admits
 # one rule passing on its weakest credit. `services/match/eval.py --sweep` on the `tune` half of
 # data/eval/match_labels.csv could not move it -- that half holds no positive pair, and every pair
-# the rules accept there scores 0.865 -- so it stands untuned. docs/22 §21 has the numbers.
+# the rules accept there scores 0.865 -- so it stands untuned. docs/22 §21 has the numbers. v2 did
+# not tune it either: the tune half still holds no positive pair, and v2 accepts none of its pairs
+# at any threshold from 0.50 to 0.95 (docs/22 §25.4).
 threshold: 0.70
 
 weights:
@@ -62,12 +74,33 @@ rules:
       efficiency: [efficiency]
       heat: [heat, solar_thermal, geothermal]
       ev_charging: [ev_charging]
+      # v2: the opportunity extractor's `ccs` (carbon capture, CCUS, CO2 removal) meets the EPA
+      # Class VI wells' `co2_geologic_sequestration` (68 proposals in the 2026-10-20 store).
+      ccs: [ccs, co2_geologic_sequestration]
+    # v2: vocabulary deliberately left out of matching. Each is recognised (so the vocabulary test
+    # in services/match/test_rules.py knows it is not an oversight) and fails the technology rule
+    # with its own reason:
+    # - microgrid (opportunity; "microgrid|mini-grid|off-grid|rural electrification"): a buyer's
+    #   distribution-level system for its own communities, bid by EPC contractors; no proposal
+    #   technology is a microgrid, and mapping it to solar/storage would put every utility-scale
+    #   solar queue row in the country against a rural electrification tender.
+    # - metering (opportunity; "smart meter|metering|AMI"): a utility buying meters. No project.
+    # - load (proposal; data centres and large-load requests): a consumer, not a project that
+    #   answers a solicitation for supply; no opportunity token describes demand for load.
+    excluded_tokens: [microgrid, metering, load]
   jurisdiction:
     # ISO 3166-2 on both sides (`US-TX`), or ISO 3166-1 for a country-level row (`US`). A different
     # country fails. Credits for the passes that are not an exact region match:
     national_credit: 0.8      # the opportunity is country-wide (`US`) and the proposal is in it
-    unresolved_credit: 0.5    # the proposal carries only a country (no state/region known)
+    unresolved_credit: 0.5    # one side carries only a country (no state/region known)
     adjacent_credit: 0.5      # neighbouring US states (the table below); "AZ/NV adjacent"
+    # v2 (docs/22 §25.2 rule J): a country-only jurisdiction means "country-wide" only for these
+    # opportunity kinds -- federal funding opportunities, programmes, loan programmes, national
+    # auctions. A single buyer's tender or procurement notice that states only its country did not
+    # have its region extracted; it passes on `unresolved_credit`, like a proposal with no region.
+    # Evidence: the tune-half notices of Scottish Water (Scotland only) and SSEN Distribution
+    # (north of Scotland, central southern England) are stored as `GB` and v1 credited them GB-wide.
+    national_kinds: [foa, program, loan_program, auction]
     adjacency:
       US-AL: [US-FL, US-GA, US-MS, US-TN]
       US-AR: [US-LA, US-MO, US-MS, US-OK, US-TN, US-TX]
@@ -130,3 +163,95 @@ rules:
     unknown_status_credit: 0.5   # `status = unknown`: not known to be closed
     no_deadline_credit: 0.5      # open with no stated `due_at`
     proposal_excluded_states: [withdrawn, cancelled, built]
+  eligibility:
+    # v2 gate (docs/22 §25.2), unweighted. A notice can match a project only when
+    # (a) it is about energy at all: `services/match/relevance.py` (shared with the API for the
+    #     docs/16 U-7 default view; its own version, `opportunity-relevance@v1`), and
+    # (b) what it funds or buys is something a project's sponsor could apply for or bid WITH THIS
+    #     PROJECT: the first class below that claims the notice decides (`services/match/
+    #     eligibility.py`); a notice no class claims is eligible.
+    # A class claims a notice when one of its `terms` (case-insensitive regexes) occurs in the
+    # title or summary, or when the notice states CPV codes and every one of them starts with a
+    # `cpv_all_in` prefix. `summary` is null for every current opportunity connector, so on today's
+    # data the terms read the title only.
+    #
+    # Provenance of each term, because the test half must not have informed any (docs/22 §25.2):
+    #   [A] a priori: the categories the coordinator named before this rule set existed ("people,
+    #       training, scholarships, staff, pure research, studies or planning"; docs/22 §21.5) and
+    #       their plain synonyms, or the public-procurement vocabulary for what a contract buys;
+    #   [T] a tune-half row of data/eval/match_labels.csv (named in the comment).
+    require_energy_relevance: true
+    classes:
+      - name: people
+        eligible: false
+        reason: funds or hires people, not projects
+        terms:
+          - '\bscholarships?\b'           # [A]
+          - '\bfellowships?\b'            # [A]
+          - '\btraining\b'                # [A]
+          - '\btrainees?\b'               # [A]
+          - '\bworkforce\b'               # [A]
+          - '\binternships?\b'            # [A]
+          - '\bapprenticeships?\b'        # [A]
+          - '\bstudents?\b'               # [A]
+          - '\bteaching\b'                # [A]
+          - '\bcurricul(um|a)\b'          # [A]
+          - '\bstaff(ing)?\b'             # [A] "staff"; v1 tune: grants.gov "Staff Support to Tribal ..."
+          - '\brecruitment\b'             # [A]
+          - '\bcapacity[\s-]+building\b'  # [A]
+          - '\bdelegates?\b'              # [T] tune ocds-h6vhtk-0775ad: DESNZ hires IEA delegates
+        cpv_all_in: ['80', '796']         # [A] CPV 80 education and training; 796 recruitment, personnel
+      - name: project_offtake
+        eligible: true
+        reason: buys energy or capacity from projects
+        # [A] Checked before the exclusions below: "supply of electricity under a PPA" is a
+        # project's market, not a supplier's.
+        terms:
+          - '\bpower\s+purchase\b'
+          - '\bppas?\b'
+          - '\boff-?take\b'
+          - '\bcontracts?\s+for\s+difference\b'
+          - '\bcapacity\s+(auction|market|solicitation)s?\b'
+          - '\ball[\s-]source\b'
+      - name: research
+        eligible: false
+        reason: funds research, not projects
+        terms:
+          - '\bresearch\b'                # [A] "pure research"
+          - '\br\s*&\s*d\b'               # [A]
+          # [A] Also hits NIH's "(Clinical Trial Not Allowed)" title suffix: the meaning is
+          # inverted, the verdict is not (the notice is research funding either way).
+          - '\bclinical\s+trials?\b'
+          - '\bbroad\s+agency\s+announcements?\b'  # [A] the US research solicitation
+          - '\bbaa\b'                     # [A]
+          - '\binvestigators?\b'          # [A] NIH / DoD investigator awards
+        cpv_all_in: ['73']                # [A] CPV 73 research and development services
+      - name: studies_planning
+        eligible: false
+        reason: funds studies or planning, not projects
+        terms:
+          - '\bstud(y|ies)\b'             # [A]
+          - '\bfeasibility\b'             # [A]
+          - '\bplanning\b'                # [A]
+          - '\bassessments?\b'            # [A]
+          - '\baudits?\b'                 # [A]
+          - '\bsurveys?\b'                # [A]
+          - '\btechnical\s+assistance\b'  # [A]
+          - '\badvisory\b'                # [A]
+        cpv_all_in: ['71241', '7141', '90712', '793']  # [A] feasibility/advisory, urban and environmental planning, research/surveys
+      - name: goods_services
+        eligible: false
+        reason: buys goods or services for the buyer, which suppliers bid, not projects
+        terms:
+          - '\bsupply\s+(of|and|&)'       # [T] tune ocds-h6vhtk-07809d "FW Supply & Deliver – LV & MV Cables"
+          - '\bsupplies\b'                # [A]
+          - '\bprovision\s+of\b'          # [T] tune ocds-h6vhtk-07834a "Provision of Motor Control Centres ..."
+          - '\bframework\b'               # [T] both tune notices are multi-supplier framework agreements
+          - '\bmaintenance\b'             # [A]
+          - '\bservicing\b'               # [A]
+          - '\brepairs?\b'                # [A]
+          - '\bspare\s+parts\b'           # [A]
+          - '\bsoftware\b'                # [A]
+          - '\bconsult(ancy|ant|ants|ing)\b'  # [A]
+          - "\\bowner'?s\\s+engineer\\b"  # [A]
+          - '\bsupervision\b'             # [A]

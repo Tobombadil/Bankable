@@ -142,6 +142,75 @@ def test_operator_edges_rerun_writes_no_duplicates(session):
     assert len(session.scalars(select(Organization)).all()) == 1
 
 
+def test_a_new_operator_replaces_the_old_one_and_absent_assets_keep_theirs(session):
+    """Review of lane w1-operators: EIA-860M reloads monthly, so a plant sold to a new operator
+    kept the seller's edge and the seller's page kept claiming it. The frame is the source's
+    current statement for the assets it carries; an asset missing from the frame is left alone."""
+    load_assets(session, pipelines_frame(), "gas_pipeline")
+    load_operator_edges(session, pipelines_frame(), "gas_pipeline")
+
+    sold = pipelines_frame().iloc[[0]].copy()
+    sold["operator_name"] = "Tallgrass Energy Partners"
+    result = load_operator_edges(session, sold, "gas_pipeline")
+
+    assert result.edges_removed == 1 and result.as_report()["edges_removed"] == 1
+    edges = {
+        (session.get(Asset, e.asset_id).source_asset_id, e.owner_name_raw)
+        for e in session.scalars(select(AssetOwner))
+    }
+    assert edges == {
+        ("rockies-express-pipeline-interstate", "Tallgrass Energy Partners"),
+        ("rockies-express-entrega-interstate", "ROCKIES EXPRESS PIPELINE, LLC"),
+    }
+
+    unnamed = pipelines_frame().iloc[[1]].copy()
+    unnamed["operator_name"] = None
+    assert load_operator_edges(session, unnamed, "gas_pipeline").edges_removed == 1
+    assert {e.owner_name_raw for e in session.scalars(select(AssetOwner))} == {"Tallgrass Energy Partners"}
+
+
+def test_operator_edges_read_the_alias_table_once_per_load_not_once_per_row(session):
+    """The EIA-860M plants (docs/16 U-3) name one operator on up to 243 rows: the alias check is
+    answered from one read per load (`ownership._alias_keys`), not one query per row, each of
+    which also flushed the row before it. The spellings still land once each, and a re-run adds
+    no alias, organisation or edge."""
+    from sqlalchemy import event, func
+
+    from services.db.models import OrganizationAlias
+
+    plants = pd.DataFrame(
+        {
+            "source_id": "us.eia.860m",
+            "source_asset_id": str(1000 + i),
+            "name": f"Fleet Solar {i}",
+            "operator_name": "Fleet Operator LLC" if i % 3 else "FLEET OPERATOR, L.L.C.",
+            "lon": -97.0,
+            "lat": 32.0,
+            "state_code": "US-TX",
+            "country": "US",
+            "source_url": "https://www.eia.gov/electricity/data/eia860m/",
+            "retrieved_at": "2026-10-09T19:51:59Z",
+        }
+        for i in range(12)
+    )
+    load_assets(session, plants, "power_plant")
+    seen: list[str] = []
+    event.listen(session.get_bind(), "before_cursor_execute", lambda conn, cursor, sql, *a: seen.append(sql))
+
+    def counts() -> tuple[int, ...]:
+        return tuple(
+            session.scalar(select(func.count()).select_from(m))
+            for m in (Organization, OrganizationAlias, AssetOwner)
+        )
+
+    load_operator_edges(session, plants, "power_plant")
+    alias_reads = [s for s in seen if s.lstrip().startswith("SELECT") and "FROM organization_alias" in s]
+    assert len(alias_reads) == 2  # the resolver index, and the alias keys
+    assert counts() == (1, 2, 12)
+    load_operator_edges(session, plants, "power_plant")
+    assert counts() == (1, 2, 12)
+
+
 def test_owner_and_operator_roles_from_one_string_share_one_organisation(session):
     load_assets(session, processing_frame(), "gas_processing_plant")
     result = load_operator_edges(session, processing_frame(), "gas_processing_plant")

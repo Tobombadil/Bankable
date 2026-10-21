@@ -7,15 +7,15 @@ Two callers, one path: `web/dev_up.py` when it builds a local store, and the sch
 `context_build` has rebuilt the files (docs/64 §7). It lives here rather than in `web/` because
 the worker image carries `services` and `pipeline` but not `web`.
 
-Order (`load_context_layers`): the EIA-860M plants first, then the retirements onto them, then the
-asset files with their operator edges, the ethanol plants (merged across two registries), the
-EIA-860 owner shares, the GHGRP shares, the derived features, the curated parents and last the
-organisation graph, because each step reads what the steps before it created. Every input is
-optional: a file that is absent is one log line, never a failure of the steps after it, so a data
-root holding only some layers loads those. Every load is idempotent, so a repeat changes nothing.
-Writes no proposal-opportunity match: the matcher is `services.match.run`, which the scheduler runs
-after each resolve pass (`match_tick`) and which `services.ingest` may not import (it reads the
-API's visibility rules; infra/importlinter.ini).
+Order (`load_context_layers`): the EIA-860M plants first, with their operator edges, then the
+retirements onto them, then the asset files with their operator edges, the ethanol plants (merged
+across two registries), the EIA-860 owner shares, the GHGRP shares, the derived features, the
+curated parents and last the organisation graph, because each step reads what the steps before it
+created. Every input is optional: a file that is absent is one log line, never a failure of the
+steps after it, so a data root holding only some layers loads those. Every load is idempotent, so
+a repeat changes nothing. Writes no proposal-opportunity match: the matcher is
+`services.match.run`, which the scheduler runs after each resolve pass (`match_tick`) and which
+`services.ingest` may not import (it reads the API's visibility rules; infra/importlinter.ini).
 """
 
 from __future__ import annotations
@@ -86,15 +86,46 @@ def expected_files() -> list[str]:
     ]
 
 
+#: The plants frame's columns the operator edges read. EIA-860M names each plant's operator (its
+#: "Entity Name") and no owner, so the frame passes `operator_name` alone: an `owner_name` column
+#: added to the plants file later could not turn into owner edges under the EIA-860M source.
+PLANT_OPERATOR_COLUMNS = ("source_id", "source_asset_id", "operator_name", "source_url", "retrieved_at")
+
+
+def plant_operator_frame(plants: pd.DataFrame) -> pd.DataFrame:
+    """The plants frame as `load_operator_edges` reads it: `source_plant_id` is the asset's
+    `source_asset_id` (`services/ingest/plants.py` stores it under that name)."""
+    if "source_plant_id" in plants.columns and "source_asset_id" not in plants.columns:
+        plants = plants.rename(columns={"source_plant_id": "source_asset_id"})
+    return plants[[c for c in PLANT_OPERATOR_COLUMNS if c in plants.columns]]
+
+
 def load_plants_layer(session: Session, data_dir: pathlib.Path) -> None:
     """The existing-plants context layer (docs/00-PLAN.md 2026-09-14/15 owner decision), through the
-    plants ingest lane's own `load_plants_parquet(session, path)`."""
+    plants ingest lane's own `load_plants_parquet(session, path)`, then each plant's `operator` edge.
+
+    **Operator edges** (docs/16 U-3 and §5): every plant row names its operator, and before
+    2026-10-21 none became an edge, so no power plant was linked to a company as its operator (0 of
+    16,472) and a company page counted only the plants it holds owner shares in. The edges go
+    through the midstream lane's `load_operator_edges`, the path the Atlas layers already use: the
+    same organisation resolver and alias rules, one edge per (plant, organisation, role), carrying
+    the frame's own `us.eia.860m` source, row URL, `retrieved_at` and that source's licence. They
+    are written before the EIA-860 owner shares and the organisation graph, so an owner spelling
+    resolves to the operator's organisation, and the curated groups (`load_organization_graph`)
+    roll a subsidiary's plants up to its parent. Idempotent like every other step."""
     parquet_path = context_dir(data_dir) / PLANTS_FILE
     if not parquet_path.exists():
         log.info("plants context layer: %s not found, skipping", parquet_path)
         return
     report = load_plants_parquet(session, parquet_path)
     log.info("plants context layer: loaded from %s (%s)", parquet_path, report)
+    edges = load_operator_edges(session, plant_operator_frame(pd.read_parquet(parquet_path)), "power_plant")
+    summary = {k: v for k, v in edges.as_report().items() if k != "unmatched_asset_ids"}
+    log.info(
+        "plants context layer: operator edges (%s, %d plants unmatched)",
+        summary,
+        len(edges.unmatched_asset_ids),
+    )
 
 
 def load_retirements(
