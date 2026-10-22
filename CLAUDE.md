@@ -7,8 +7,9 @@ Then read the document for the phase you are working in. Do not re-derive what t
 A platform that continuously discovers energy and infrastructure **proposals** (supply: interconnection queues,
 permits, dockets, announcements) and **opportunities** (demand: RFPs, funding, tenders, large-load requests),
 fuses them into one lifecycle record per real-world project, publishes them (delayed free / live paid / API),
-and syndicates to social channels. It stands alone; the existing Bankable deal workflow at bankablehq.com is a
-later consideration for integration, not a foundation (owner, 2026-09-12).
+and syndicates to social channels. It stands alone, and hands deals to the existing Bankable deal workflow at bankablehq.com for origination and
+syndication (owner, 2026-10-22; it was "a later consideration" on 2026-09-12). The site is organised by phase:
+Prospect (one base map, every lifecycle state including operating and retiring), Originate, Syndicate.
 
 ## Non-negotiable guardrails
 - Never scrape private aggregators (Interconnection.fyi, Cleanview, Energy Adepto, BidNet, Halcyon, Enverus).
