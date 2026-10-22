@@ -254,6 +254,9 @@ public-sector or utility procurement.
 **Market | My pipeline**. Market is the flat Find nav below and all a signed-out visitor sees; My pipeline (Build a
 deal, later Get funded) appears once signed in, as a two-way switch at the top of the header. The nav table and
 wireframes in §2.3 show Market; the implementation lane adds the switch.
+**Copy rule (owner, same day):** "Market intelligence" wherever there is room (page titles, meta descriptions, About,
+the signed-out header line, pricing, social cards, JSON-LD, the first mention in prose); "Market" in the switch,
+breadcrumbs and any 360px row; never "Marketplace".
 
 **Asked by the owner, verbatim:** "Could we split the site into each phase of development? from Prospecting (Map of
 prospective development sites and what makes them valuable), Origination (Bankable style; data goes from the map into
