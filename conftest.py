@@ -190,6 +190,8 @@ LATENCY_TESTS = (
     "tests/test_api_geo_performance_full_store.py",
     "tests/test_api_assets_lines.py::test_national_and_regional_views_over_3000_synthetic_lines_are_small_and_warm_fast",
     "services/api/test_org_portfolio.py::test_a_large_group_portfolio_answers_within_the_list_budget",
+    "services/api/test_org_stats.py::test_the_list_answers_within_the_budget_and_the_refresh_is_bounded",
+    "services/api/test_org_stats.py::test_the_list_answers_within_the_budget_on_a_copy_of_the_full_store",
 )
 
 

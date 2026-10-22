@@ -161,18 +161,77 @@ def test_context_load_reads_the_connector_data_root_in_one_transaction(
         return {"files_loaded": 0}
 
     monkeypatch.setenv("INFRAQUE_DATA_DIR", str(tmp_path))
-    assert jobs.context_load_job(fake_load, _session_factory=_Factory()) == {"files_loaded": 0}
+    refreshed: list[Any] = []
+
+    def fake_refresh(factory: Any) -> dict[str, Any]:
+        refreshed.append(factory)
+        return {"written": 0}
+
+    factory = _Factory()
+    report = jobs.context_load_job(fake_load, _session_factory=factory, _refresh=fake_refresh)
+    assert report == {"files_loaded": 0, "organization_stats": {"written": 0}}
     assert seen == [tmp_path]
+    assert refreshed == [factory]  # after the load's transaction, on the same store
 
 
 def test_context_load_on_an_empty_data_root_reports_every_file_missing(tmp_path: pathlib.Path) -> None:
     """The real loader over a data root with no context file: nothing fails, every expected file is
-    reported missing, and the curated organisation files (which ship with the code) still apply."""
+    reported missing, and the curated organisation files (which ship with the code) still apply.
+    The companies index's figures are refreshed over what it loaded (one row per organisation,
+    scope and tier)."""
     from services.ingest import context_layers
 
-    report = jobs.context_load_job(_session_factory=_Factory(), _data_root=tmp_path)
+    factory = _Factory()
+    report = jobs.context_load_job(_session_factory=factory, _data_root=tmp_path)
     assert report["files_loaded"] == 0
     assert report["files_missing"] == context_layers.expected_files()
+    with factory() as session:
+        from services.db.models import Organization
+
+        listed = session.query(Organization).filter(Organization.merged_into_id.is_(None)).count()
+    assert report["organization_stats"]["rows"] == 4 * listed
+    assert "error" not in report["organization_stats"]
+
+
+def test_a_stats_refresh_failure_is_reported_never_raised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The figures are derived and withheld by the API when it cannot vouch for them, so a defect in
+    them must not fail the pass that ran first (`jobs.refresh_organization_stats`)."""
+    import services.api.org_stats_refresh as org_stats_job
+
+    def broken(session_factory: Any, *, if_stale: bool = False) -> dict[str, Any]:
+        raise RuntimeError("figure defect")
+
+    monkeypatch.setattr(org_stats_job, "run", broken)
+    assert jobs.refresh_organization_stats(_Factory()) == {"error": "RuntimeError"}
+    assert jobs.org_stats_tick_job(_Factory()) == {"error": "RuntimeError"}
+
+
+def test_the_stats_tick_refreshes_only_a_stale_table() -> None:
+    from services.db.models import Organization
+
+    factory = _Factory()
+    with factory() as session:
+        session.add(
+            Organization(
+                public_id="org_tick",
+                slug="tick-co",
+                name_canonical="Tick Co",
+                name_normalised="tick co",
+                type="developer",
+                country="US",
+            )
+        )
+        session.commit()
+    assert jobs.org_stats_tick_job(factory)["inserted"] == 4  # never refreshed: stale
+    assert jobs.org_stats_tick_job(factory) == {"skipped": "current"}
+
+
+def test_the_stats_tick_is_registered_under_the_store_wide_lock(scheduler_app: Any) -> None:
+    task = scheduler_app.app.tasks["org_stats_tick"]
+    assert (task.queue, task.queueing_lock, task.lock) == ("resolve", "org_stats_tick", "resolve")
+    periodic = scheduler_app.app.periodic_registry.periodic_tasks
+    assert ("tick_org_stats", "tick:org_stats") in periodic
+    assert scheduler_app.ORG_STATS_CRON == "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
 
 
 def test_the_task_bodies_call_their_jobs_and_an_already_queued_successor_is_not_an_error(

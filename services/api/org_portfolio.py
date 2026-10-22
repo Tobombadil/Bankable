@@ -70,7 +70,7 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from services.api.assets import _status_filter_values, organization_edge_filters
@@ -186,13 +186,16 @@ def headline_statuses(request: Request) -> tuple[str, ...]:
     return tuple(s for s in ASSET_STATUSES if s in set(asked))
 
 
-def _held_assets(
-    db: Session, holder_ids: list[Any]
-) -> tuple[dict[Any, _Held], dict[str, _Register], dict[str, _Register]]:
-    """Every counted asset, and the asset and ownership registers behind them, from one query."""
-    stmt = (
+def edge_statement(holder_ids: list[Any] | None) -> Select[Any]:
+    """The counted edges joined to their assets: those `holder_ids` hold, or (`None`) every
+    visible edge in the store, for `services/api/org_stats.py`'s one pass over all companies. The
+    visibility clauses are the same either way (`organization_edge_filters`)."""
+    holder_clause, *edge_clauses = organization_edge_filters(holder_ids or [])
+    filters = edge_clauses if holder_ids is None else [holder_clause, *edge_clauses]
+    return (
         select(
             AssetOwner.asset_id,
+            AssetOwner.organization_id.label("holder_id"),
             AssetOwner.role,
             AssetOwner.share_pct,
             AssetOwner.source_id.label("edge_source_id"),
@@ -210,12 +213,20 @@ def _held_assets(
         )
         .join(Asset, Asset.id == AssetOwner.asset_id)
         .join(Organization, Organization.id == AssetOwner.organization_id)
-        .where(*organization_edge_filters(holder_ids))
+        .where(*filters)
     )
+
+
+def fold_edges(
+    rows: Iterable[Any],
+) -> tuple[dict[Any, _Held], dict[str, _Register], dict[str, _Register]]:
+    """Every counted asset over `rows` (`edge_statement`'s), and the asset and ownership registers
+    behind them: the module docstring's rules, in one place for this endpoint and the companies
+    index's statistics."""
     held: dict[Any, _Held] = {}
     asset_registers: dict[str, _Register] = {}
     ownership_registers: dict[str, _Register] = {}
-    for r in db.execute(stmt):
+    for r in rows:
         asset = held.get(r.asset_id)
         if asset is None:
             asset = held[r.asset_id] = _Held(
@@ -233,6 +244,13 @@ def _held_assets(
             r.asset_id, r.edge_retrieved_at, r.edge_licence_id
         )
     return held, asset_registers, ownership_registers
+
+
+def _held_assets(
+    db: Session, holder_ids: list[Any]
+) -> tuple[dict[Any, _Held], dict[str, _Register], dict[str, _Register]]:
+    """Every counted asset, and the asset and ownership registers behind them, from one query."""
+    return fold_edges(db.execute(edge_statement(holder_ids)))
 
 
 def _ranked(

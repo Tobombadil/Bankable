@@ -78,6 +78,25 @@
   {%- if free_alerts %} <span class="save-alert__hint">Free: a daily or weekly email of what changed.</span>{% endif %}</p>
 {%- endmacro %}
 
+{#- A sortable column heading (`web/list_sort.py`). `s` is the heading's entry
+    from `sort_headers`: a link to the view sorted by this column (its first order, or the reverse
+    when it already sorts the view), the current order as an arrow and `aria-sort`, and the order a
+    click gives as the tooltip. `nofollow`: a crawler needs one order of a list, not six. Below
+    720px the sortable headings are the row of "Sort by" links over the compact rows (styles.css).
+    Without an entry (a partial rendered on its own) it is a plain heading. -#}
+{% macro sort_th(label, s, num=False, short=None) -%}
+{%- if not s -%}
+<th scope="col"{% if num %} class="num"{% endif %}>{{ label }}</th>
+{%- else -%}
+<th scope="col" class="sortable{% if num %} num{% endif %}{% if s.direction %} is-sorted{% endif %}"{% if s.aria_sort %} aria-sort="{{ s.aria_sort }}"{% endif %}><a class="sort-link" href="{{ s.href }}" title="{{ s.hint }}" rel="nofollow">
+  {%- if short %}<span class="sort-link__long">{{ label }}</span><span class="sort-link__short" aria-hidden="true">{{ short }}</span>{% else %}{{ label }}{% endif %}
+  {%- if s.direction == 'desc' %}<svg class="sort-link__icon" aria-hidden="true" width="10" height="12" viewBox="0 0 10 12"><path d="M5 11 1 5h8z" fill="currentColor"/></svg>
+  {%- elif s.direction == 'asc' %}<svg class="sort-link__icon" aria-hidden="true" width="10" height="12" viewBox="0 0 10 12"><path d="M5 1 1 7h8z" fill="currentColor"/></svg>
+  {%- else %}<svg class="sort-link__icon sort-link__icon--idle" aria-hidden="true" width="10" height="12" viewBox="0 0 10 12"><path d="M5 0 1.5 4.5h7zM5 12 1.5 7.5h7z" fill="currentColor"/></svg>{% endif -%}
+  <span class="visually-hidden">{% if s.direction %}, sorted {{ 'descending' if s.direction == 'desc' else 'ascending' }}{% endif %}. {{ s.hint }}</span></a></th>
+{%- endif -%}
+{%- endmacro %}
+
 {#- Designer audit D-8 / docs/30 §2: "View as: Map · List" beside the results, each a link carrying
     the current query, so a reader moves between the two views of one result set without losing
     the filters. The current view is `aria-current="page"`; the heavier rule is its visible echo. -#}

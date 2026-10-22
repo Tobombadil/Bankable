@@ -8,7 +8,7 @@
   <h1>{{ sections.heading.rfps }}</h1>
   {#- One line (docs/16 §3.1, U-17) that says which side of the market the rows are. docs/30 §4.5: a
       developer submits a project from here to have it matched (US-1001). -#}
-  <p>Demand side: buyers and funders asking for projects. Open notices, soonest deadline first. Developing a project? <a href="/submit">Submit it for review</a> to have it matched against these.</p>
+  <p>Demand side: buyers and funders asking for projects. Open {{ 'energy ' if relevance != 'all' }}notices, soonest deadline first. Developing a project? <a href="/submit">Submit it for review</a> to have it matched against these.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 
@@ -18,6 +18,7 @@
     <label for="f-kind">Kind</label>
     <select id="f-kind" name="kind">
       <option value="">All</option>
+      {#- Only kinds with notices in this view (web/app.py::opportunity_kind_options). -#}
       {% for value, label in kind_options %}<option value="{{ value }}" {% if filters.get('kind') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
   </div>
@@ -39,6 +40,10 @@
       {% for t in technologies %}<option value="{{ t }}" {% if filters.get('technologies') == t %}selected{% endif %}>{{ t | technology_label }}</option>{% endfor %}
     </select>
   </div>
+  {#- The scope and the order the reader chose (the switch over the rows, a heading click), so
+      applying a filter keeps both. -#}
+  {% if relevance == 'all' %}<input type="hidden" name="relevance" value="all">{% endif %}
+  {% if sort_param %}<input type="hidden" name="sort" value="{{ sort_param }}">{% endif %}
   <button class="filter-bar__submit" type="submit">Apply filters</button>
   {% if filters.get('kind') or filters.get('jurisdiction') or filters.get('technologies') or (filters.get('status') and filters.get('status') != 'open') %}
   <a class="filter-bar__clear" href="/opportunities">Clear all</a>

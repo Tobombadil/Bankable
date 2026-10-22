@@ -46,6 +46,11 @@ from services.api.geo import GeoLicence, GeoRow, build_geo_feature_collection
 from services.api.grid_operators import iso_filter_values
 from services.api.listing import listed_clause, listed_param
 from services.api.merged_redirect import merged_redirect_or_404
+from services.api.opportunity_relevance import (
+    OPPORTUNITY_VIEW_FILTERS,
+    energy_relevant_clause,
+    relevance_param,
+)
 from services.api.orgtree import scope_ids_select, scope_param
 from services.api.pagination import paginate
 from services.api.params import (
@@ -158,7 +163,15 @@ PROPOSAL_VIEW_FILTERS = {"sponsor_scope", "listed"}
 #: clock passes it (a future one) -- a cursor frozen into a filter. `validate_saved_search_query`
 #: refuses it with a message pointing at `last_changed[from]` (services/api/pro.py).
 SYNC_FILTERS = {"updated_since"}
-PROPOSAL_SORT_ALLOWLIST = {"last_changed", "first_seen", "capacity_mw", "name_canonical"}
+#: `proposed_online_date` (2026-10-22, lane list-sort): the Projects list's "Online" column sorts on
+#: a click; NULL dates page last either way (`services/api/pagination.py::paginate`).
+PROPOSAL_SORT_ALLOWLIST = {
+    "last_changed",
+    "first_seen",
+    "capacity_mw",
+    "name_canonical",
+    "proposed_online_date",
+}
 #: The `include` expansions a list implements (docs/23 §7): `count` only. `sources`, `matches` and
 #: `events` are not built on any list, so they are refused, never ignored.
 LIST_INCLUDES = frozenset({"count"})
@@ -1260,18 +1273,34 @@ def list_opportunities(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS | SYNC_FILTERS)
+    check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS | OPPORTUNITY_VIEW_FILTERS | SYNC_FILTERS)
     # Before the CSV branch, so `Accept: text/csv` refuses a cross-currency budget sort with the
     # same 400 instead of a failed export.
     check_budget_sort(
         request.query_params.get("sort"), request.query_params.get("budget_currency"), request.url.path
     )
+    relevance = relevance_param(request)
     if wants_csv(request):
+        # The export path builds its statement from the stored filters (`services/api/exports.py`),
+        # which do not evaluate relevance; a file of every notice under an `energy` request would
+        # be a silent widening, so it is refused instead. `all` is what an export holds anyway.
+        if relevance == "energy":
+            raise validation_error(
+                "relevance",
+                "relevance=energy applies to the list page only; a CSV export holds every notice the other "
+                "filters select",
+                request.url.path,
+            )
         return _csv_list_response(request, db, ctx, "opportunity")
     limit = page_limit(request)
     include = include_values(request, LIST_INCLUDES)
     field, ascending = sort_spec(request, OPPORTUNITY_SORT_ALLOWLIST, "due_at")
     stmt = _opportunity_query_with_filters(request, db, ctx.entitlement)
+    # docs/16 U-7: `relevance=energy`, the RFPs & funding page's default view
+    # (`services/api/opportunity_relevance.py`); the same clause narrows the rows and the count.
+    relevant = energy_relevant_clause(db, stmt) if relevance == "energy" else None
+    if relevant is not None:
+        stmt = stmt.where(relevant)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
@@ -1285,7 +1314,8 @@ def list_opportunities(
     data = [serialize_opportunity(o, entitlement=ctx.entitlement) for o in rows]
     meta = build_meta("opportunity", tier=ctx.entitlement)
     if "count" in include:
-        meta.update(exact_total(db, _opportunity_query_with_filters(request, db, ctx.entitlement)))
+        counted = _opportunity_query_with_filters(request, db, ctx.entitlement)
+        meta.update(exact_total(db, counted if relevant is None else counted.where(relevant)))
     return build_list_envelope(
         data,
         meta=meta,

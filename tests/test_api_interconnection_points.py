@@ -420,7 +420,21 @@ def test_list_filters_and_sorts(client: TestClient, world: dict[str, Any]) -> No
     assert _get(client, "/v1/interconnection-points", cursor="not-a-cursor").status_code == 400
 
 
-@pytest.mark.parametrize("sort", ["-active_mw", "active_mw", "name", "-voltage_kv", "voltage_kv"])
+@pytest.mark.parametrize(
+    "sort",
+    [
+        "-active_mw",
+        "active_mw",
+        "name",
+        "-voltage_kv",
+        "voltage_kv",
+        # The project-count headings (lane list-sort, 2026-10-22): integer keys, ties broken by id.
+        "-active_count",
+        "active_count",
+        "-withdrawn_count",
+        "-built_count",
+    ],
+)
 def test_cursor_paging_walks_every_point_once(client: TestClient, world: dict[str, Any], sort: str) -> None:
     seen: list[str] = []
     cursor = None
@@ -434,6 +448,23 @@ def test_cursor_paging_walks_every_point_once(client: TestClient, world: dict[st
         if not cursor:
             break
     assert len(seen) == len(set(seen)) == 3
+
+
+@pytest.mark.parametrize("bucket", ["active", "withdrawn", "built"])
+def test_a_count_sort_orders_by_the_count_the_row_shows(
+    client: TestClient, world: dict[str, Any], bucket: str
+) -> None:
+    """The list's project-count columns sort on a click (lane list-sort): the key is the same
+    visible-proposal bucket the row's `totals` print, so the order never disagrees with the numbers."""
+    for sort, descending in ((f"-{bucket}_count", True), (f"{bucket}_count", False)):
+        resp = _get(client, "/v1/interconnection-points", sort=sort)
+        assert resp.status_code == 200, resp.text
+        counts = [p["totals"][f"{bucket}_count"] for p in resp.json()["data"]]
+        assert counts == sorted(counts, reverse=descending) and len(counts) == 3, (sort, counts)
+    # ERCOT's Bearkat holds the only withdrawn and the only built project in the world.
+    if bucket != "active":
+        top = _get(client, "/v1/interconnection-points", sort=f"-{bucket}_count").json()["data"][0]
+        assert top["name"] == "59903 Bearkat 345kV"
 
 
 def test_a_cursor_with_a_bad_tiebreaker_is_a_400(client: TestClient, world: dict[str, Any]) -> None:

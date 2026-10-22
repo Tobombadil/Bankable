@@ -51,7 +51,6 @@ from services.api.idempotency import IdempotentReplay, idempotency_guard, replay
 from services.api.lifecycle import vocabulary as lifecycle_vocabulary
 from services.api.pagination import paginate
 from services.api.params import (
-    LIST_COMMON,
     check_allowed,
     csv_param,
     include_values,
@@ -90,7 +89,6 @@ from services.api.visibility import (
     gated_proposal,
     opportunity_public_filter,
     opportunity_visibility_filter,
-    organization_visibility_filter,
     proposal_public_filter,
     proposal_visibility_filter,
     visible_organization_or_404,
@@ -242,7 +240,6 @@ from services.api.records import (  # noqa: E402
     check_budget_sort,
     currency_values,
     exact_total,
-    instant_filter,
 )
 from services.api.records import router as records_router  # noqa: E402
 
@@ -257,6 +254,11 @@ app.include_router(org_pipeline_router)
 from services.api.org_portfolio import router as org_portfolio_router  # noqa: E402
 
 app.include_router(org_portfolio_router)
+# The companies index (2026-10-22, lane org-stats): search, filters and sorting by size over each
+# organisation's figures in `organization_stats` (migration 0038), the portfolio's and pipeline's own.
+from services.api.organizations import router as organizations_router  # noqa: E402
+
+app.include_router(organizations_router)
 
 # Proposal <-> opportunity matches (docs/10 US-401-403): the two record-scoped public lists, the Pro
 # cross-entity list, match detail and per-user dismissal. The rows are written by
@@ -396,60 +398,8 @@ app.add_middleware(RequestContextMiddleware)
 
 
 # ------------------------------------------------------------------------------------ organizations
-@app.get("/v1/organizations")
-def list_organizations(request: Request, db: Session = Depends(get_db)) -> Any:
-    check_allowed(
-        request,
-        LIST_COMMON | {"type", "country", "jurisdiction", "is_curated_issuer", "slug", "updated_since"},
-    )
-    limit = page_limit(request)
-    include = include_values(request, LIST_INCLUDES)
-    field, ascending = sort_spec(request, {"name_canonical"}, "name_canonical")
-    stmt = select(Organization).where(
-        Organization.merged_into_id.is_(None), *organization_visibility_filter()
-    )
-    qp = request.query_params
-    if v := qp.get("slug"):
-        stmt = stmt.where(Organization.slug == v)
-    if v := qp.get("type"):
-        stmt = stmt.where(Organization.type.in_(csv_param(v)))
-    if v := qp.get("country"):
-        stmt = stmt.where(Organization.country.in_(csv_param(v)))
-    if v := qp.get("jurisdiction"):
-        # The organisation's own sub-national jurisdiction (ISO 3166-2), where a source states one;
-        # NULL matches nothing, as on the record lists. Country-level filtering is `country`.
-        stmt = stmt.where(Organization.jurisdiction.in_(csv_param(v)))
-    if v := qp.get("updated_since"):
-        # api/openapi.yaml `UpdatedSince`: for organisations the sync column is `updated_at`, which
-        # moves on every write to the row (a rename, a merge, a new parent link) where `last_changed`
-        # is set by the loaders; it is never earlier than `last_changed`, so a client that pages
-        # with the largest `last_changed` it has seen as its next cursor misses nothing.
-        stmt = stmt.where(Organization.updated_at >= instant_filter("updated_since", v, request.url.path))
-    if v := qp.get("is_curated_issuer"):
-        stmt = stmt.where(Organization.is_curated_issuer.is_(v.lower() == "true"))
-    if v := qp.get("q"):
-        like = f"%{v.lower()}%"
-        stmt = stmt.where(func.lower(Organization.name_canonical).like(like))
-    rows, next_cursor, has_more = paginate(
-        db,
-        stmt,
-        sort_column=getattr(Organization, field),
-        id_column=Organization.id,
-        ascending=ascending,
-        cursor=qp.get("cursor"),
-        limit=limit,
-        instance=request.url.path,
-    )
-    data = [serialize_organization(o) for o in rows]
-    meta = build_meta(lag_days=0)
-    if "count" in include:  # documented (docs/23 §7) and accepted, but ignored until 2026-10-07
-        meta.update(exact_total(db, stmt))
-    return build_list_envelope(
-        data,
-        meta=meta,
-        licence_summary=build_licence_summary([]),
-        page=build_page(next_cursor, None, has_more),
-    )
+# `GET /v1/organizations` (the companies index) lives in `services/api/organizations.py` since
+# 2026-10-22 (lane org-stats), mounted above with the other routers.
 
 
 def _counts_for_org(

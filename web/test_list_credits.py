@@ -285,9 +285,11 @@ def test_a_load_list_sorts_by_name_and_has_no_capacity_column(client: TestClient
     web_app.state.api_client._transport.responses["/v1/proposals"] = proposals
     html = client.get("/proposals?kind=load").text
     assert calls[0]["sort"] == "name_canonical"
-    assert "Capacity (MW)</th>" not in html and "sorted by name, A to Z by default" in html
+    heading = '<span class="sort-link__long">Capacity (MW)</span>'
+    assert heading not in html and "sorted by name, A to Z by default" in html
     calls.clear()
     html = client.get("/proposals?kind=generation").text
-    assert calls[0]["sort"] == "-capacity_mw" and "Capacity (MW)</th>" in html
+    # The heading is a sort link (lane list-sort), so its label sits inside the link.
+    assert calls[0]["sort"] == "-capacity_mw" and heading in html
     js = (Path(__file__).resolve().parent / "static" / "js" / "map.js").read_text(encoding="utf-8")
     assert 'p.technology === "load" && !p.capacity_mw ? ""' in js  # the drawer drops the row too

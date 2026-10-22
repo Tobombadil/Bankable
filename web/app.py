@@ -18,7 +18,7 @@ import logging
 import os
 import pathlib
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from os import PathLike
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -36,6 +36,16 @@ from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
 from web.head_requests import HeadAsGetMiddleware
 from web.labels import PLANT_FAMILY_LABELS, SECTION_LABELS
+from web.list_sort import (
+    OPPORTUNITY_COLUMNS,
+    OPPORTUNITY_OTHER,
+    PROPOSAL_COLUMNS,
+    PROPOSAL_OTHER,
+    chosen_sort,
+    sort_caption,
+    sort_headers,
+    valid_sort,
+)
 from web.list_subject import list_subject, subject_hidden_fields
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
@@ -728,7 +738,12 @@ def proposals_list(request: Request) -> HTMLResponse:
     # lane L11), and "sorted by capacity" over a blank column read as a defect. It sorts by name
     # and drops the column (docs/30 §5.3 note); any other view keeps capacity, largest first.
     load_view = is_load_view(qp)
-    params["sort"] = qp.get("sort") or ("name_canonical" if load_view else "-capacity_mw")
+    # Lane list-sort (2026-10-22): the headings sort on a click (`web/list_sort.py`); a token no heading or
+    # API field sorts by falls back to the default rather than reaching the API as a 400.
+    sort = valid_sort(
+        qp.get("sort"), PROPOSAL_COLUMNS, "name_canonical" if load_view else "-capacity_mw", PROPOSAL_OTHER
+    )
+    params["sort"] = sort
     params["cursor"] = qp.get("cursor")
     params["include"] = "count"
     # docs/31 §5.9: an impossible capacity range is said inline, not sent to the API and answered
@@ -767,7 +782,10 @@ def proposals_list(request: Request) -> HTMLResponse:
         # UX-4: the registers behind the rows on this page, from the API's own licence summary.
         "credits": page_credits(envelope),
         "load_view": load_view,
-        "sort_caption": "sorted by name, A to Z" if load_view else "sorted by capacity, largest first",
+        "sort_caption": sort_caption(sort, PROPOSAL_COLUMNS, PROPOSAL_OTHER),
+        "sort_headers": sort_headers("/proposals", qp, PROPOSAL_COLUMNS, sort),
+        # Kept by the filter form, so a filter change keeps the order the reader chose.
+        "sort_param": chosen_sort(qp.get("sort"), PROPOSAL_COLUMNS, PROPOSAL_OTHER),
         "total": envelope["meta"].get("total"),
         "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
         "has_more": envelope["page"]["has_more"],
@@ -925,19 +943,90 @@ def proposal_detail(request: Request, slug: str) -> Response:
     return count_page_view(request, response, "proposal")
 
 
+#: docs/16 U-7 (decision 2026-10-22): RFPs & funding opens on the notices
+#: `services/match/relevance.py` judges energy-relevant (API `relevance=energy`); `?relevance=all`
+#: is the "All notices" switch. Any other value reads as the default, never as a 400.
+OPPORTUNITY_RELEVANCE_ALL = "all"
+
+
+def opportunity_relevance(qp: QueryParams) -> str:
+    return "all" if (qp.get("relevance") or "").strip().lower() == OPPORTUNITY_RELEVANCE_ALL else "energy"
+
+
+def _opportunity_total(api: ApiClient, params: Mapping[str, str | None]) -> int | None:
+    """`meta.total` for `params` (one `limit=1&include=count` call), or `None` if the API cannot say."""
+    query = {k: v for k, v in params.items() if k not in ("cursor", "sort", "include") and v is not None}
+    try:
+        envelope = api.get("/v1/opportunities", params={**query, "limit": 1, "include": "count"})
+        return int(envelope["meta"].get("total") or 0)
+    except (ApiError, httpx.HTTPError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _opportunity_exists(api: ApiClient, params: Mapping[str, str | None]) -> bool | None:
+    """Whether `params` select at least one notice (one `limit=1` call, no count query), or `None`
+    if the API cannot say."""
+    query = {k: v for k, v in params.items() if k not in ("cursor", "sort", "include") and v is not None}
+    try:
+        return bool(api.get("/v1/opportunities", params={**query, "limit": 1})["data"])
+    except (ApiError, httpx.HTTPError, KeyError, TypeError):
+        return None
+
+
+def opportunity_kind_options(
+    api: ApiClient, params: Mapping[str, str | None], kinds: Sequence[str], selected: str | None
+) -> list[tuple[str, str | None]]:
+    """The Kind filter's options, `(value, label)`: each kind with at least one notice in this view,
+    every other filter kept (2026-10-22: the RFP kind was offered with no open notice behind it, so
+    picking it emptied the list). The kind in force stays offered either way. One `limit=1` call per
+    kind; if any cannot answer, every kind is offered, as before. No count in the label: the select
+    sits outside the rows an htmx filter change swaps, so a number there would go stale."""
+    base = {k: v for k, v in params.items() if k != "kind"}
+    present = {kind: _opportunity_exists(api, {**base, "kind": kind}) for kind in kinds}
+    if any(found is None for found in present.values()):
+        return [(kind, opportunity_kind_label(kind)) for kind in kinds]
+    return [(kind, opportunity_kind_label(kind)) for kind in kinds if present[kind] or kind == selected]
+
+
+def _relevance_switch(qp: QueryParams, relevance: str, totals: Mapping[str, int | None]) -> dict[str, Any]:
+    """The "Energy-related · All notices" links over the rows: each the current view in that scope,
+    without the page cursor, with its count."""
+    kept = [(k, v) for k, v in qp.multi_items() if k not in ("relevance", "cursor") and v != ""]
+    return {
+        "current": relevance,
+        "energy": {
+            "href": "/opportunities" + ("?" + urlencode(kept) if kept else ""),
+            "count": totals["energy"],
+        },
+        "all": {"href": "/opportunities?" + urlencode([*kept, ("relevance", "all")]), "count": totals["all"]},
+    }
+
+
 @app.get("/opportunities", response_class=HTMLResponse)
 def opportunities_list(request: Request) -> HTMLResponse:
     api = get_api(request)
     qp = request.query_params
     status_param = opportunity_status_param(qp)
+    relevance = opportunity_relevance(qp)
+    sort = valid_sort(qp.get("sort"), OPPORTUNITY_COLUMNS, "due_at", OPPORTUNITY_OTHER)
     params: dict[str, str | None] = {
         name: qp[name] for name in OPPORTUNITY_PASSTHROUGH_FILTERS if qp.get(name)
     }
     params["status"] = status_param
+    if relevance == "energy":
+        params["relevance"] = "energy"
+    params["sort"] = sort
     params["cursor"] = qp.get("cursor")
     params["include"] = "count"
     envelope = api.get("/v1/opportunities", params=params)
     vocab = api.get("/v1/meta/vocabularies")["data"]
+    # The other scope's count, for the switch: "Energy-related 307 · All notices 624".
+    other = {k: v for k, v in params.items() if k != "relevance"}
+    if relevance == "all":
+        other["relevance"] = "energy"
+    total = envelope["meta"].get("total")
+    other_total = _opportunity_total(api, other)
+    relevance_totals = {relevance: total, ("all" if relevance == "energy" else "energy"): other_total}
 
     records = [flatten_opportunity(e) for e in envelope["data"]]
     empty_facets = (
@@ -953,15 +1042,25 @@ def opportunities_list(request: Request) -> HTMLResponse:
         if not records and not qp.get("cursor")
         else []
     )
+    # The all-notices view is not a duplicate of the energy view, so it is its own canonical URL; an
+    # explicit `relevance=energy` (or any other value) is the default page and names no scope. `sort`
+    # is kept as on /proposals and /assets: a cursor only means something under its order.
     canonical_path = "/opportunities" + canonical_query(
-        qp, (*OPPORTUNITY_PASSTHROUGH_FILTERS, "status", "cursor")
+        qp,
+        (
+            *OPPORTUNITY_PASSTHROUGH_FILTERS,
+            "status",
+            *(("relevance",) if relevance == OPPORTUNITY_RELEVANCE_ALL else ()),
+            "sort",
+            "cursor",
+        ),
     )
     context = {
         "records": records,
         "credits": page_credits(envelope),  # UX-4
         "feed_href": feed_href("opportunity", qp),  # UX-6
         "feed_alternate": {"title": "These opportunities (RSS)", "href": feed_href("opportunity", qp)},
-        "total": envelope["meta"].get("total"),
+        "total": total,
         "total_is_estimate": envelope["meta"].get("total_is_estimate", False),
         "has_more": envelope["page"]["has_more"],
         "next_cursor": envelope["page"]["next_cursor"],
@@ -969,7 +1068,17 @@ def opportunities_list(request: Request) -> HTMLResponse:
         "querystring": querystring_without(qp, "cursor"),
         "save_alert_href": save_alert_href("opportunity", qp),
         "delayed": delayed_notice(request, "opportunity"),
-        "kind_options": [(v["value"], opportunity_kind_label(v["value"])) for v in vocab["opportunity_kind"]],
+        "relevance": relevance,
+        "relevance_switch": _relevance_switch(qp, relevance, relevance_totals),
+        "sort_caption": sort_caption(sort, OPPORTUNITY_COLUMNS, OPPORTUNITY_OTHER),
+        "sort_headers": sort_headers("/opportunities", qp, OPPORTUNITY_COLUMNS, sort),
+        "sort_param": chosen_sort(qp.get("sort"), OPPORTUNITY_COLUMNS, OPPORTUNITY_OTHER),
+        # The filter form is not part of an htmx swap, so its options are built for a full page only.
+        "kind_options": []
+        if is_htmx(request)
+        else opportunity_kind_options(
+            api, params, [v["value"] for v in vocab["opportunity_kind"]], qp.get("kind")
+        ),
         "statuses": [v["value"] for v in vocab["opportunity_status"]],
         # The opportunity vocabulary, not the proposal one: `solar` matches no tagged notice.
         "technologies": [v["value"] for v in vocab.get("opportunity_technology", [])],

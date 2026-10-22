@@ -310,10 +310,29 @@ def test_the_project_list_has_a_linked_company_column(client: TestClient) -> Non
     ]
     _install({"/v1/proposals": (200, _list(rows))})
     html = client.get("/proposals").text
-    table = html[html.index('<table class="record-table">') :].split("</table>")[0]
-    heads = re.findall(r'<th scope="col"[^>]*>([^<]+)</th>', table)
-    assert heads[:3] == ["Status", "Name", "Company"]
-    cells = re.findall(r'<td data-label="Company">(.*?)</td>', table, re.S)
+    table = html[html.index('<table class="record-table') :].split("</table>")[0]
+    # A sortable heading is a link with an arrow and words for a screen reader (lane list-sort);
+    # its visible label is what the reader sees as the column name.
+    heads = [
+        re.sub(
+            r"<[^>]+>",
+            "",
+            re.sub(r'<span class="(visually-hidden|sort-link__short)"[^>]*>.*?</span>', "", th),
+        )
+        for th in re.findall(r'<th scope="col"[^>]*>(.*?)</th>', table, re.S)
+    ]
+    # docs/16 §4.1 and U-10's column order: what it is, how big, where, who, when, from where.
+    assert heads == [
+        "Status",
+        "Name",
+        "Technology",
+        "Capacity (MW)",
+        "Location",
+        "Company",
+        "Proposed online",
+        "Source",
+    ]
+    cells = re.findall(r'<td data-label="Company"[^>]*>(.*?)</td>', table, re.S)
     assert cells == [
         '<a href="/organizations/invenergy-services-llc">Invenergy Services LLC</a>',
         "—",
@@ -384,7 +403,7 @@ def test_the_rfp_list_links_a_linked_issuer(client: TestClient) -> None:
     _install({"/v1/opportunities": (200, _list([_opportunity()]))})
     html = client.get("/opportunities").text
     link = '<a href="/organizations/arizona-public-service">Arizona Public Service Company</a>'
-    assert f'<td data-label="Issuer">{link}</td>' in html
+    assert re.search(rf'<td data-label="Issuer"[^>]*>{re.escape(link)}</td>', html)
 
 
 # ---------------------------------------------------------------------------- a grid point

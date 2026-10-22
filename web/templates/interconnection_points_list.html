@@ -40,12 +40,8 @@
     <label for="f-poi-q">Name or bus number</label>
     <input id="f-poi-q" type="search" name="q" placeholder="e.g. Whirlwind" value="{{ filters.get('q', '') }}">
   </div>
-  <div class="filter-field">
-    <label for="f-poi-sort">Sort</label>
-    <select id="f-poi-sort" name="sort" data-not-filter>
-      {% for token, label in sorts %}<option value="{{ token }}" {% if token == sort %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-  </div>
+  {#- The order is chosen by clicking a column heading (web/list_sort.py); the form keeps it. -#}
+  {% if sort_param %}<input type="hidden" name="sort" value="{{ sort_param }}">{% endif %}
   <button class="filter-bar__submit" type="submit">Apply filters</button>
   {% if filters.get('iso') or filters.get('kind') or filters.get('jurisdiction') or filters.get('min_active_mw') or filters.get('q') %}
   <a class="filter-bar__clear" href="/interconnection-points">Clear all</a>

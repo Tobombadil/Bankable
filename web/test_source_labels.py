@@ -187,6 +187,12 @@ def _cell_for(body: str, source_id: str) -> str:
     return cells[0]
 
 
+def _is_mono(cell: str) -> bool:
+    """The cell's own class list names `mono` (it also carries the compact-row classes)."""
+    match = re.match(r'<td data-label="Source"(?: class="([^"]*)")?', cell)
+    return bool(match and "mono" in (match.group(1) or "").split())
+
+
 def _link_text(cell: str) -> str:
     match = re.search(r"<a [^>]*>(.*?)</a>", cell, flags=re.S)
     assert match, cell
@@ -200,7 +206,7 @@ def test_proposal_list_prints_the_short_name_linked_as_before(web_client: TestCl
     icis = _cell_for(body, "us.epa.echo.icis_air")
     assert _link_text(icis) == "EPA ICIS-Air"
     assert 'rel="noopener nofollow"' in icis
-    assert 'class="mono"' not in icis  # a name is prose; only an identifier is set in mono
+    assert not _is_mono(icis)  # a name is prose; only an identifier is set in mono
     assert _link_text(_cell_for(body, "us.iso.ercot.gen_queue")) == "ERCOT"
     assert ">us.epa.echo.icis_air<" not in body
 
@@ -209,7 +215,7 @@ def test_proposal_list_falls_back_to_the_id_for_an_unnamed_source(web_client: Te
     _install([_proposal("u", UNKNOWN)], [])
     cell = _cell_for(web_client.get("/proposals").text, UNKNOWN)
     assert _link_text(cell) == UNKNOWN
-    assert 'class="mono"' in cell
+    assert _is_mono(cell)
 
 
 def test_opportunity_list_prints_the_short_name_and_falls_back(web_client: TestClient) -> None:

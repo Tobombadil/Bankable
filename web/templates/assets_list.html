@@ -77,12 +77,8 @@
     <label for="f-q">Name or operator</label>
     <input id="f-q" type="search" name="q" placeholder="e.g. Rockies Express" value="{{ filters.get('q', '') }}">
   </div>
-  <div class="filter-field">
-    <label for="f-sort">Sort</label>
-    <select id="f-sort" name="sort" data-not-filter>
-      {% for token, label in sorts %}<option value="{{ token }}" {% if token == sort %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-  </div>
+  {#- The order is chosen by clicking a column heading (web/list_sort.py); the form keeps it. -#}
+  {% if sort_param %}<input type="hidden" name="sort" value="{{ sort_param }}">{% endif %}
   <button class="filter-bar__submit" type="submit">Apply filters</button>
   {% if filters.get('asset_type') or filters.get('state') or filters.get('q') or filters.get('technology') %}
   <a class="filter-bar__clear" href="/assets">Clear all</a>
