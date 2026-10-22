@@ -235,6 +235,10 @@
   <aside class="map-side" aria-label="Proposals, regions and existing assets in view">
     <a id="in-view-list" tabindex="-1"></a>
     <h2>In view</h2>
+    {#- docs/17 M-5: what the proposals in view are, by status family and stated capacity, so a touch
+        screen, which never shows a cluster's hover card, has the same information (D-10). map.js
+        fills it once proposals load; it is not live (the region below announces each move). -#}
+    <p class="in-view-summary" id="in-view-summary" hidden></p>
     <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
     <ul class="in-view-list" id="in-view-items"></ul>
     <p id="lines-note" class="in-view-list__unplaced" hidden></p>

@@ -108,8 +108,13 @@
   // more" button, not every row (at 400px it was 11,181px of county names below the map).
   var IN_VIEW_PAGE = 25;
   var WORLD_BBOX = [-179, -85, 179, 85];
-  var WORLD_CENTER = [-98.5, 39.8];
-  var WORLD_ZOOM = 3.2;
+  // docs/17 M-7: with no view in the link the map fits the contiguous US (the lower 48) to the
+  // canvas with 16px to spare, rather than opening at a fixed centre and zoom. The fixed z3.2 showed
+  // North Dakota to the Gulf on a 358px phone canvas, with California and the Northeast cut off.
+  var CONUS_BOUNDS = [[-124.8, 24.4], [-66.9, 49.4]];
+  var HOME_PADDING_PX = 16;
+  // The camera that fit, once the map exists (`homeCamera`); the URL never carries it.
+  var homeView = null;
 
   // ---- the viewport in the URL (frontend audit F7; docs/04 D-17) ----
   // `center=<lng>,<lat>&zoom=<z>` beside the filter parameters, written with replaceState after
@@ -124,8 +129,9 @@
     return { center: [c[0], c[1]], zoom: z };
   }
   function isDefaultView(view) {
-    return Math.abs(view.center[0] - WORLD_CENTER[0]) < 0.001 && Math.abs(view.center[1] - WORLD_CENTER[1]) < 0.001 &&
-      Math.abs(view.zoom - WORLD_ZOOM) < 0.01;
+    if (!homeView) return false;
+    return Math.abs(view.center[0] - homeView.center[0]) < 0.001 && Math.abs(view.center[1] - homeView.center[1]) < 0.001 &&
+      Math.abs(view.zoom - homeView.zoom) < 0.01;
   }
   function appendView(params, view) {
     if (!view || isDefaultView(view)) return;
@@ -850,24 +856,76 @@
     return assetColors[type] || plantColors.other;
   }
 
+  // docs/17 M-3: on a touch screen one finger scrolls the page and two move the map (MapLibre's
+  // cooperative gestures, with its "Use two fingers to move the map" hint, styled in styles.css).
+  // The canvas otherwise took every one-finger swipe (`touch-action: none`), so a reader who had
+  // scrolled to the map could not scroll past it. A mouse drags the map as before. The single-pointer
+  // ways round stay: the zoom and region buttons, a tap on a cluster, the in-view list (D-14).
+  var coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+  function isCoarsePointer() { return !!(coarsePointer && coarsePointer.matches); }
+
+  // M-7: the padding the national view keeps. 16px all round, and on a wide screen, where the open
+  // key lies over the canvas (top left, docs/31 §5.17), its width as well, so the key never covers
+  // the West Coast of the view it opened on. A key that is closed, or not over the canvas, adds nothing.
+  function homePadding() {
+    var pad = { top: HOME_PADDING_PX, right: HOME_PADDING_PX, bottom: HOME_PADDING_PX, left: HOME_PADDING_PX };
+    var keyPanel = document.querySelector("#map-key:not([hidden]) .map-key__panel");
+    if (!keyPanel) return pad;
+    var m = mapEl.getBoundingClientRect();
+    var k = keyPanel.getBoundingClientRect();
+    var overCanvas = k.width > 0 && k.height > 0 && k.left < m.right && k.right > m.left && k.top < m.bottom && k.bottom > m.top;
+    var left = Math.round(k.right - m.left) + HOME_PADDING_PX;
+    if (overCanvas && m.width - left - HOME_PADDING_PX >= m.width / 2) pad.left = left;
+    return pad;
+  }
+
+  // With no view in the link the camera here is a placeholder: the fit to the lower 48 replaces it
+  // (`firstHome`, below) before the first frame, once the key is open or closed for this width.
   var map = new maplibregl.Map({
     container: "map",
     style: Basemap.fallbackStyle(mapColors),
-    center: filters.view ? filters.view.center : WORLD_CENTER,
-    zoom: filters.view ? filters.view.zoom : WORLD_ZOOM,
-    attributionControl: false
+    center: filters.view ? filters.view.center : [-95.85, 37.9],
+    zoom: filters.view ? filters.view.zoom : 3,
+    attributionControl: false,
+    cooperativeGestures: isCoarsePointer()
   });
   map.dragRotate.disable();
   map.touchZoomRotate.disableRotation();
+  if (coarsePointer && coarsePointer.addEventListener) {
+    coarsePointer.addEventListener("change", function (e) {
+      if (e.matches) map.cooperativeGestures.enable(); else map.cooperativeGestures.disable();
+    });
+  }
   window.__map = map; // exposed for the Playwright smoke test only
   window.__mapIdle = false;
   map.once("idle", function () { window.__mapIdle = true; });
 
+  // The national view for this canvas, as a camera: written to `homeView`, so `isDefaultView` knows
+  // it and the URL stays clean while the map shows it.
+  function homeCamera() {
+    var cam = map.cameraForBounds(CONUS_BOUNDS, { padding: homePadding() });
+    if (!cam) return null;
+    var c = maplibregl.LngLat.convert(cam.center);
+    homeView = { center: [c.lng, c.lat], zoom: cam.zoom };
+    return homeView;
+  }
+  function goHome(duration) {
+    var cam = homeCamera();
+    // Already there (Reset on the national view, a key toggle that changes no padding): no move, so
+    // no refetch either.
+    if (cam && !isAtHome()) map.flyTo({ center: cam.center, zoom: cam.zoom, duration: duration });
+  }
+  // The map shows the national view it last fitted: nobody has moved it since the load or Reset.
+  function isAtHome() {
+    if (!homeView || map.isMoving()) return false;
+    var c = map.getCenter();
+    return isDefaultView({ center: [c.lng, c.lat], zoom: map.getZoom() });
+  }
+
   document.getElementById("zoom-in").addEventListener("click", function () { map.zoomIn({ duration: motionMs(200) }); });
   document.getElementById("zoom-out").addEventListener("click", function () { map.zoomOut({ duration: motionMs(200) }); });
-  document.getElementById("zoom-reset").addEventListener("click", function () {
-    map.flyTo({ center: WORLD_CENTER, zoom: WORLD_ZOOM, duration: motionMs(600) });
-  });
+  // "Reset" fits the lower 48 again, for the canvas as it is now (a turned phone, a resized window).
+  document.getElementById("zoom-reset").addEventListener("click", function () { goHome(motionMs(600)); });
 
   // ---- task item 3: regional quick views ----
   document.querySelectorAll(".region-btn").forEach(function (btn) {
@@ -883,9 +941,11 @@
   // Restore a `region=` view from a shared/reloaded URL on load, instantly (this is page setup,
   // not a user-initiated jump, so it does not re-emit `map.region_jumped`). A `center`/`zoom` in
   // the link is more precise than the region it started from, so it wins.
+  var viewRestored = !!filters.view;
   if (filters.region && !filters.view) {
     var restoreBtn = document.querySelector('.region-btn[data-region="' + filters.region + '"]');
     if (restoreBtn) {
+      viewRestored = true;
       var restoreBbox = restoreBtn.getAttribute("data-bbox").split(",").map(Number);
       map.jumpTo({ center: [(restoreBbox[0] + restoreBbox[2]) / 2, (restoreBbox[1] + restoreBbox[3]) / 2] });
       map.fitBounds([[restoreBbox[0], restoreBbox[1]], [restoreBbox[2], restoreBbox[3]]], { duration: 0, padding: 24 });
@@ -941,7 +1001,9 @@
       var props = {
         region_level: f.properties.region_level, region_id: f.properties.region_id, name: regionName(f.properties),
         count: f.properties.count, region_opacity: regionOpacity(f.properties.region_level, f.properties.count),
-        region_grade: f.properties.region_level === "county" ? "area" : "broad"
+        region_grade: f.properties.region_level === "county" ? "area" : "broad",
+        // For the summary a tap opens (docs/17 M-2/M-5): the region's statuses and stated capacity.
+        lifecycle_state_counts: f.properties.lifecycle_state_counts, capacity_mw_sum: f.properties.capacity_mw_sum
       };
       out.push({ type: "Feature", geometry: f.geometry, properties: props });
       var polygon = regionPolygonCache[key];
@@ -1106,11 +1168,28 @@
     p.ring_size = mw >= 1000 ? 1.0 : mw >= 250 ? 0.8 : mw >= 50 ? 0.62 : 0.5;
   }
 
+  // docs/17 §1: under a fast zoom the asset requests for views already left kept running, and the
+  // one API worker answered `/api/assets/geo` with 503. As the proposals fetch does, a new view
+  // aborts the request it supersedes (an aborted fetch is silent), and an answer that is not 2xx
+  // keeps the last-known layer instead of drawing an empty one from the problem body.
+  function supersede(previous) {
+    if (previous) previous.abort();
+    return typeof AbortController === "function" ? new AbortController() : null;
+  }
+  function geoJson(r) {
+    if (r.ok) return r.json();
+    var err = new Error("asset geo request failed");
+    err.status = r.status;
+    throw err;
+  }
+
   var retiredFetchSeq = 0;
+  var retiredAbort = null;
   function refetchRetired() {
     var seq = ++retiredFetchSeq;
-    fetch(retiredGeoUrl(currentBbox(), currentZoom()))
-      .then(function (r) { return r.json(); })
+    retiredAbort = supersede(retiredAbort);
+    fetch(retiredGeoUrl(currentBbox(), currentZoom()), retiredAbort ? { signal: retiredAbort.signal } : undefined)
+      .then(geoJson)
       .then(function (envelope) {
         if (seq !== retiredFetchSeq) return;
         var fc = envelope.data || {};
@@ -1122,7 +1201,7 @@
         if (map.getSource("retired-plants")) map.getSource("retired-plants").setData(latestRetired);
         render();
       })
-      .catch(function () { /* keep the last-known layer (docs/31 §6 error state) */ });
+      .catch(function () { /* aborted for a newer view, or failed: keep the last-known layer (docs/31 §6) */ });
   }
 
   // Annotates one asset feature in place with what the layers and the in-view list read:
@@ -1167,11 +1246,14 @@
   }
 
   var assetsFetchSeq = 0;
+  var assetsAbort = null;
   function refetchAssets() {
     var seq = ++assetsFetchSeq;
+    assetsAbort = supersede(assetsAbort);
+    var init = assetsAbort ? { signal: assetsAbort.signal } : undefined;
     var urls = assetsGeoUrls(filters, currentBbox(), currentZoom());
     Promise.all(urls.map(function (u) {
-      return fetch(u).then(function (r) { return r.json(); }).then(function (envelope) { return envelope.data || {}; });
+      return fetch(u, init).then(geoJson).then(function (envelope) { return envelope.data || {}; });
     }))
       .then(function (collections) {
         if (seq !== assetsFetchSeq) return; // a newer viewport's answer already landed
@@ -1208,7 +1290,7 @@
         render();
       })
       .catch(function () {
-        // Same error-state rule as the proposals fetch: keep whatever was last drawn.
+        // Aborted for a newer view (silent), or failed: keep whatever was last drawn, as the proposals fetch does.
       });
   }
 
@@ -1269,10 +1351,15 @@
   var mapKeyToggle = document.getElementById("map-key-toggle");
   var narrowKey = window.matchMedia ? window.matchMedia("(max-width: 719px)") : null;
   var mapKeyChosen = false;
+  // M-7: while the map still shows the national view, opening or closing the key fits it again, so
+  // the open key never lies over the West Coast and a closed one leaves no empty band. A view the
+  // reader has moved stays where it is.
   function setMapKeyOpen(open) {
+    var refit = isAtHome();
     mapKeyToggle.setAttribute("aria-expanded", open ? "true" : "false");
     mapKey.hidden = !open;
     if (open && typeof syncKeyFocusable === "function") syncKeyFocusable();
+    if (refit) goHome(motionMs(300));
   }
   if (mapKey && mapKeyToggle) {
     mapKeyToggle.hidden = false;
@@ -1287,6 +1374,21 @@
         if (!mapKeyChosen) setMapKeyOpen(!e.matches);
       });
     }
+  }
+  // M-7: the first view, once the key is open or closed for this width (its width is part of the
+  // padding where it lies over the canvas). A view or region in the link wins, as before; the home
+  // camera is still worked out, so moving back to it clears `center`/`zoom` from the URL.
+  var firstHome = homeCamera();
+  if (!viewRestored && firstHome) map.jumpTo({ center: firstHome.center, zoom: firstHome.zoom });
+  // A canvas with no size yet has no fit (`cameraForBounds` gives none), and without one every move
+  // would write `center`/`zoom` to the URL. Fit once it has a size.
+  if (!firstHome) {
+    map.on("resize", function fitOnceSized() {
+      var cam = homeView || homeCamera();
+      if (!cam) return;
+      map.off("resize", fitOnceSized);
+      if (!viewRestored) map.jumpTo({ center: cam.center, zoom: cam.zoom });
+    });
   }
   // With the existing-asset or retired-plant layer on, the key is compact, so it no longer grows
   // over the West Coast (it reached the map's foot at 1440x900): the status key becomes the strip of
@@ -1332,6 +1434,63 @@
   }
   function plural(n, noun) { return fmtCount(n) + " " + noun + (n === 1 || /more$/.test(noun) ? "" : "s"); }
   function fmtCount(n) { return Number(n || 0).toLocaleString("en-US"); }
+
+  // docs/17 M-5: a cluster's status breakdown and capacity sum were on a hover card only, which a
+  // touch screen never shows (D-10). The in-view header and a region's summary say them in words:
+  // one part per lifecycle family, most first, in the key's words and with its glyph, then the
+  // stated capacity. GW from 1,000 MW, through the one MW formatter.
+  var FAMILY_WORDS = {
+    neutral: "announced or unknown", progress: "in process", committed: "contracted",
+    success: "built", danger: "withdrawn or cancelled"
+  };
+  var REGION_PLACED_BY = { county: "by county", state: "by state", country: "by country" };
+  function fmtCapacity(mw) { return mw >= 1000 ? fmtMWNumber(mw / 1000) + " GW" : fmtMW(mw); }
+  function breakdownParts(stateCounts, capacityMw) {
+    var byFamily = {};
+    Object.keys(stateCounts).forEach(function (state) {
+      var n = Number(stateCounts[state]) || 0;
+      if (n > 0) byFamily[familyOf(state)] = (byFamily[familyOf(state)] || 0) + n;
+    });
+    var parts = FAMILIES.filter(function (f) { return byFamily[f]; })
+      .sort(function (a, b) { return byFamily[b] - byFamily[a] || FAMILIES.indexOf(a) - FAMILIES.indexOf(b); })
+      .map(function (f) {
+        return "<span class=\"in-view-summary__family in-view-summary__family--" + f + "\">" +
+          "<svg class=\"legend__icon\" width=\"12\" height=\"12\" aria-hidden=\"true\"><use href=\"#icon-" + f + "\"></use></svg>" +
+          "<span class=\"tnum\">" + fmtCount(byFamily[f]) + "</span> " + FAMILY_WORDS[f] + "</span>";
+      });
+    if (capacityMw > 0) parts.push("<span class=\"tnum\">" + esc(fmtCapacity(capacityMw)) + "</span>");
+    return parts;
+  }
+  var inViewSummary = document.getElementById("in-view-summary");
+  // The header line: how many proposals the drawn markers stand for (a cluster for its `count`, a
+  // point for one), their families and capacity, and any more placed only by area.
+  function renderInViewSummary(regionPlaced) {
+    if (!inViewSummary || !hasLoadedOnce) return;
+    var total = 0;
+    var states = {};
+    var capacity = 0;
+    function add(state, n) { states[state || "unknown"] = (states[state || "unknown"] || 0) + n; }
+    latestCollection.features.forEach(function (f) {
+      var p = f.properties;
+      if (p.feature_kind === "cluster") {
+        var n = Number(p.count) || 0;
+        var counts = propObj(p.lifecycle_state_counts);
+        total += n;
+        if (counts && Object.keys(counts).length) Object.keys(counts).forEach(function (s) { add(s, Number(counts[s]) || 0); });
+        else add(p.dominant_lifecycle_state, n);
+        capacity += Number(p.capacity_mw_sum) || 0;
+      } else if (p.feature_kind === "proposal") {
+        total += 1;
+        add(p.lifecycle_state, 1);
+        capacity += Number(p.capacity_mw) || 0;
+      }
+    });
+    var parts = ["<strong class=\"in-view-summary__count\">" + esc(plural(total, "proposal")) + " in view</strong>"]
+      .concat(breakdownParts(states, capacity));
+    if (regionPlaced) parts.push(esc(plural(regionPlaced, "more")) + " placed by county or region");
+    inViewSummary.innerHTML = parts.join(" &middot; ");
+    inViewSummary.hidden = false;
+  }
   // US state postal codes by FIPS prefix, so a county reads "Douglas County, GA" rather than
   // "Douglas (county)": there are 30 Douglas counties (designer D-14).
   var STATE_BY_FIPS = {
@@ -1444,6 +1603,14 @@
         a.href = regionListUrl(p);
         a.textContent = regionName(p);
         item.appendChild(a);
+        // The summary a tap on the region opens, from the keyboard (docs/17 M-2, D-14).
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "details-btn";
+        btn.textContent = "Details";
+        btn.setAttribute("aria-label", "Details for " + regionName(p));
+        btn.addEventListener("click", function () { openRegionDrawer(p, regionName(p)); });
+        item.appendChild(btn);
         var meta = document.createElement("span");
         meta.className = "meta";
         meta.textContent = Number(p.count || 0) + " proposal" + (Number(p.count) === 1 ? "" : "s") + " placed at this region";
@@ -1571,6 +1738,7 @@
     });
     var regionPlaced = 0;
     latestRegionFeatures.forEach(function (f) { regionPlaced += Number(f.properties.count) || 0; });
+    renderInViewSummary(regionPlaced);
     var liveText = plural(proposalsInView, "proposal") + " in view";
     if (regionPlaced) liveText += ", and " + plural(regionPlaced, "more") + " placed by county or region";
     liveText += ".";
@@ -1648,7 +1816,7 @@
       paint: { "text-color": regionColors.line, "text-halo-color": mapColors.land, "text-halo-width": 1.5 }
     }, "clusters");
 
-    map.on("click", "region-fill", function (e) { onRegionClick(e.features[0].properties); });
+    // A click or tap is `onMapClick`'s (one action per tap, docs/17 M-2); hover stays per layer.
     map.on("mouseenter", "region-fill", function (e) {
       map.getCanvas().style.cursor = "pointer";
       showRegionTooltip(e);
@@ -1656,24 +1824,22 @@
     map.on("mouseleave", "region-fill", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
   }
 
-  // Task item 1's click rule: county -> the filtered list; state -> the filtered list; country ->
-  // pan the map via the matching quick-view region button when this deploy has one for it (so a
-  // country click stays on the map, matching that button's own behaviour), else the filtered list.
+  // A region's own list: county -> `county_fips`, state or country -> `jurisdiction`. Since docs/17
+  // M-2 a tap on a region no longer goes there at once (a tap on a plant in a shaded county used to
+  // leave the map): it opens the region's summary in the drawer, which links here.
   function regionListUrl(p) {
     if (p.region_level === "county") return "/proposals?county_fips=" + encodeURIComponent(p.region_id);
     return "/proposals?jurisdiction=" + encodeURIComponent(p.region_id);
   }
-  function onRegionClick(p) {
-    if (p.region_level === "county" || p.region_level === "state") {
-      window.location.href = regionListUrl(p);
-    } else {
-      var btn = document.querySelector('.region-btn[data-region="' + String(p.region_id).toLowerCase() + '"]');
-      if (btn) { btn.click(); } else { window.location.href = regionListUrl(p); }
-    }
+  // A country with a quick-view button of its own (task item 3) can still be shown on the map from
+  // its summary, as a click on it used to do.
+  function regionJumpButton(p) {
+    if (p.region_level !== "country" || p.region_id == null) return null;
+    return document.querySelector('.region-btn[data-region="' + String(p.region_id).toLowerCase().replace(/[^a-z0-9_-]/g, "") + '"]');
   }
 
   function showRegionTooltip(e) {
-    var p = e.features[0].properties;
+    var p = mostSpecificRegion(e.point, e.features, 0).properties; // the region a click here opens
     hideTooltip();
     tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
       .setLngLat(e.lngLat)
@@ -1900,17 +2066,13 @@
       paint: { "text-color": ["get", "color"], "text-opacity": 0.85, "text-halo-color": mapColors.land, "text-halo-width": 1 }
     }, "clusters");
 
-    map.on("click", "plant-points", function (e) { openAssetDrawer(e.features[0].properties); });
+    // Clicks and taps on these layers are `onMapClick`'s (docs/17 M-2): a plant or a line opens the
+    // asset drawer, a cluster zooms in. Hover stays per layer.
     map.on("mouseenter", "plant-points", function (e) { map.getCanvas().style.cursor = "pointer"; showAssetTooltip(e, e.features[0].geometry.coordinates); });
     map.on("mouseleave", "plant-points", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
-    map.on("click", "asset-lines-hit", function (e) { openAssetDrawer(e.features[0].properties); });
     map.on("mouseenter", "asset-lines-hit", function () { map.getCanvas().style.cursor = "pointer"; });
     map.on("mousemove", "asset-lines-hit", function (e) { showAssetTooltip(e, e.lngLat); });
     map.on("mouseleave", "asset-lines-hit", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
-    map.on("click", "plant-clusters", function (e) {
-      var f = e.features[0];
-      map.easeTo({ center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2), duration: motionMs(600) });
-    });
   }
 
   var RETIRED_LAYER_IDS = ["retired-clusters", "retired-cluster-count", "retired-points", "retired-labels"];
@@ -1974,15 +2136,11 @@
       },
       paint: { "text-color": ["get", "color"], "text-halo-color": mapColors.land, "text-halo-width": 1.2 }
     }, "clusters");
-    map.on("click", "retired-points", function (e) { openAssetDrawer(e.features[0].properties); });
+    // Clicks and taps are `onMapClick`'s (docs/17 M-2); hover stays per layer.
     map.on("mouseenter", "retired-points", function (e) { map.getCanvas().style.cursor = "pointer"; showAssetTooltip(e, e.features[0].geometry.coordinates); });
     map.on("mouseleave", "retired-points", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
     map.on("mouseenter", "retired-clusters", function (e) { map.getCanvas().style.cursor = "pointer"; showRetiredClusterTooltip(e); });
     map.on("mouseleave", "retired-clusters", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
-    map.on("click", "retired-clusters", function (e) {
-      var f = e.features[0];
-      map.easeTo({ center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2), duration: motionMs(600) });
-    });
   }
 
   // Says what a dashed ring is without a click, as a proposals cluster's tooltip does (D-10).
@@ -2022,6 +2180,89 @@
       group.hidden = picked.indexOf(group.getAttribute("data-legend-type")) === -1;
     });
     syncKeyCompact();
+  }
+
+  // ---- one tap, one action (docs/17 M-2) ----
+  // MapLibre runs a layer's click handler for every layer with a feature under the point. With one
+  // handler per layer, a tap on a proposal cluster zoomed in and also opened the transmission line
+  // beneath it, and a tap on a plant in a shaded county left the map for that county's list. One
+  // handler now asks what lies under the click and acts on the first hit in this order, nearest
+  // the point within a tier (a region tier picks its own way, `mostSpecificRegion`). A finger is
+  // wider than a cursor, so for a touch the question covers a box 8px each side of the tap; for a
+  // mouse it is the point itself, as before.
+  var TAP_SLOP_PX = 8;
+  var CLICK_ORDER = [
+    { layers: ["points"], act: function (f) { openDrawer(f.properties); } },
+    { layers: ["clusters"], act: zoomIntoCluster },
+    { layers: ["plant-points", "plant-clusters"], act: openAssetOrZoom },
+    { layers: ["retired-points", "retired-clusters"], act: openAssetOrZoom },
+    { layers: ["asset-lines-hit"], act: function (f) { openAssetDrawer(f.properties); } },
+    {
+      layers: ["region-fill"], pick: mostSpecificRegion,
+      act: function (f) { openRegionDrawer(f.properties, f.properties.name); }
+    }
+  ];
+  // A state or country placement is a near-transparent wash over the whole area, so a county shaded
+  // inside it lies beneath that wash, and the topmost polygon under a tap was the state's (lane
+  // m-behaviour review: a tap in Calaveras County opened California). The most specific level wins:
+  // county, then state, then country. Among regions of that level, one that holds the point itself
+  // beats one that only meets the touch box; after that, the topmost.
+  var REGION_LEVEL_RANK = { county: 0, state: 1, country: 2 };
+  function regionRank(f) {
+    var rank = REGION_LEVEL_RANK[f.properties.region_level];
+    return rank == null ? 3 : rank;
+  }
+  function mostSpecificRegion(point, features, slop) {
+    var rank = Math.min.apply(null, features.map(regionRank));
+    var level = features.filter(function (f) { return regionRank(f) === rank; });
+    if (level.length > 1 && slop) {
+      var under = map.queryRenderedFeatures(point, { layers: ["region-fill"] })
+        .filter(function (f) { return regionRank(f) === rank; });
+      if (under.length) return under[0];
+    }
+    return level[0];
+  }
+  function isClusterKind(kind) { return kind === "cluster" || kind === "asset_cluster" || kind === "plant_cluster"; }
+  function zoomIntoCluster(f) {
+    map.easeTo({ center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2), duration: motionMs(600) });
+  }
+  function openAssetOrZoom(f) {
+    if (isClusterKind(f.properties.feature_kind)) zoomIntoCluster(f);
+    else openAssetDrawer(f.properties);
+  }
+  // The click's own pointer where the browser names it; else the page's primary pointer.
+  function clickIsTouch(e) {
+    var type = e.originalEvent && e.originalEvent.pointerType;
+    if (type) return type === "touch";
+    return isCoarsePointer();
+  }
+  function nearest(point, features) {
+    var best = features[0];
+    var bestDistance = Infinity;
+    features.forEach(function (f) {
+      if (!f.geometry || f.geometry.type !== "Point") return;
+      var at = map.project(f.geometry.coordinates);
+      var d = (at.x - point.x) * (at.x - point.x) + (at.y - point.y) * (at.y - point.y);
+      if (d < bestDistance) { best = f; bestDistance = d; }
+    });
+    return best;
+  }
+  function onMapClick(e) {
+    var layers = [];
+    CLICK_ORDER.forEach(function (tier) {
+      tier.layers.forEach(function (id) { if (map.getLayer(id)) layers.push(id); });
+    });
+    var slop = clickIsTouch(e) ? TAP_SLOP_PX : 0;
+    var where = slop ? [[e.point.x - slop, e.point.y - slop], [e.point.x + slop, e.point.y + slop]] : e.point;
+    var hits = map.queryRenderedFeatures(where, { layers: layers });
+    for (var i = 0; i < CLICK_ORDER.length; i++) {
+      var tier = CLICK_ORDER[i];
+      var inTier = hits.filter(function (f) { return tier.layers.indexOf(f.layer.id) !== -1; });
+      if (inTier.length) {
+        tier.act(tier.pick ? tier.pick(e.point, inTier, slop) : nearest(e.point, inTier));
+        return;
+      }
+    }
   }
 
   map.on("load", function () {
@@ -2100,14 +2341,9 @@
       paint: { "text-color": cssVar("--text") || "#16324f", "text-halo-color": mapColors.land, "text-halo-width": 1.4 }
     });
 
-    map.on("click", "clusters", function (e) {
-      var f = map.queryRenderedFeatures(e.point, { layers: ["clusters"] })[0];
-      var targetZoom = f.properties.expands_to_zoom || (map.getZoom() + 2);
-      map.easeTo({ center: f.geometry.coordinates, zoom: targetZoom, duration: motionMs(600) });
-    });
     map.on("mouseenter", "clusters", function (e) { map.getCanvas().style.cursor = "pointer"; showClusterTooltip(e); });
     map.on("mouseleave", "clusters", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
-    map.on("click", "points", function (e) { openDrawer(e.features[0].properties); });
+    map.on("click", onMapClick);
     map.on("mouseenter", "points", function () { map.getCanvas().style.cursor = "pointer"; });
     map.on("mouseleave", "points", function () { map.getCanvas().style.cursor = ""; });
 
@@ -2327,6 +2563,14 @@
       })
       .catch(function () { /* the feature's own rows stay */ });
   }
+  // A region's summary (docs/17 M-2): its name, how many proposals the source places there and how,
+  // their statuses and stated capacity, and its list. From a tap on the region, or the Details
+  // button on its in-view row (the keyboard path, D-14).
+  function openRegionDrawer(rawProps, name) {
+    lastFocused = document.activeElement;
+    drawer.renderRegion(rawProps, name || regionName(rawProps));
+    drawer.open();
+  }
   function buildDrawer() {
     var el = document.createElement("div");
     el.id = "map-drawer";
@@ -2392,6 +2636,7 @@
         (source.attribution_text ? "<br><span class=\"drawer-source__credit\">" + esc(source.attribution_text) + "</span>" : "") + "</p>";
     }
     function render(p, source) {
+      el.setAttribute("aria-label", "Record detail");
       body.innerHTML =
         "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
         "<dl class=\"drawer-fields\">" +
@@ -2411,6 +2656,7 @@
     // points with the asset's fields"): the rows present depend on the type and on which fields
     // the feature actually carries -- an absent value drops its row rather than printing "—".
     function renderAsset(p) {
+      el.setAttribute("aria-label", "Record detail");
       var type = assetTypeOf(p);
       var isLine = p.feature_kind === "asset_line";
       var techs = propObj(p.technologies) || {};
@@ -2453,6 +2699,25 @@
         sourceHtml(source) +
         (pageUrl ? "<a class=\"drawer-open-link\" href=\"" + pageUrl + "\">Open asset page &rarr;</a>" : "");
     }
-    return { open: open, close: close, render: render, renderAsset: renderAsset, renderPlant: renderAsset };
+    // A region is many records, each with its own source: the summary says where those are rather
+    // than naming one (D-2), and leads to the list, where every row carries its source.
+    function renderRegion(p, name) {
+      // Named for what it holds: a summary of many records, not one record's detail.
+      el.setAttribute("aria-label", "Region summary");
+      var how = REGION_PLACED_BY[p.region_level] || "by area";
+      var parts = breakdownParts(propObj(p.lifecycle_state_counts) || {}, Number(p.capacity_mw_sum) || 0);
+      var jump = regionJumpButton(p);
+      body.innerHTML =
+        "<h2>" + esc(name) + "</h2>" +
+        "<p class=\"drawer-region\"><strong class=\"tnum\">" + esc(plural(Number(p.count) || 0, "proposal")) + "</strong> the source places " +
+        esc(how) + ", not at a site." + (parts.length ? "<br>" + parts.join(" &middot; ") : "") + "</p>" +
+        "<p class=\"drawer-source\"><span class=\"drawer-source__label\">Sources</span>" +
+        "Each proposal’s source, licence and retrieved date are on the list and on its record.</p>" +
+        (jump ? "<button type=\"button\" class=\"button-secondary drawer-region__jump\">Show " + esc(jump.textContent.trim()) + " on the map</button><br>" : "") +
+        "<a class=\"drawer-open-link\" href=\"" + safeUrl(regionListUrl(p)) + "\">Open the list &rarr;</a>";
+      var jumpBtn = body.querySelector(".drawer-region__jump");
+      if (jumpBtn) jumpBtn.addEventListener("click", function () { close(); jump.click(); });
+    }
+    return { open: open, close: close, render: render, renderAsset: renderAsset, renderPlant: renderAsset, renderRegion: renderRegion };
   }
 })();

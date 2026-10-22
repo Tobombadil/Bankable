@@ -19,7 +19,18 @@ import hashlib
 from pathlib import Path
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
-VERSIONED_ASSETS: tuple[str, ...] = ("css/styles.css", "js/map.js")
+#: Every file a template links with `?v={{ asset_version }}`: a change to any one of them must change
+#: the version, or browsers keep the old copy (mobile-behaviour review, 2026-10-22: basemap.js and
+#: asset_map.js changed while the version only hashed styles.css and map.js).
+VERSIONED_ASSETS: tuple[str, ...] = (
+    "css/styles.css",
+    "css/admin.css",
+    "js/map.js",
+    "js/basemap.js",
+    "js/asset_map.js",
+    "js/report.js",
+    "js/site.js",
+)
 
 
 def compute_asset_version(static_root: Path = STATIC_ROOT) -> str:

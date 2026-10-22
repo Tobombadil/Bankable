@@ -1630,6 +1630,649 @@ def test_map_key_starts_closed_below_720px_and_opens_from_the_keyboard(server: o
             browser.close()
 
 
+# ============================================================================================
+# Mobile review 2026-10-21 (docs/17): one tap does one thing (M-2), one finger scrolls the page past
+# a map on a touch screen (M-3), the in-view header carries a cluster's breakdown (M-5), the default
+# view fits the lower 48 (M-7), and an asset request for a view already left is aborted (§1).
+
+#: A phone as docs/17 measured it: 390x844, touch, coarse pointer.
+PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
+_EMPTY_GEO = json.dumps({"data": {"type": "FeatureCollection", "features": [], "totals": {}}, "meta": {}})
+
+
+def _cluster(lon: float, lat: float, counts: dict[str, int], mw: float, expands_to: int) -> dict[str, Any]:
+    return {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [lon, lat]},
+        "properties": {
+            "feature_kind": "cluster",
+            "count": sum(counts.values()),
+            "dominant_lifecycle_state": max(counts, key=lambda k: counts[k]),
+            "lifecycle_state_counts": counts,
+            "capacity_mw_sum": mw,
+            "expands_to_zoom": expands_to,
+        },
+    }
+
+
+_TARRANT = {
+    "type": "Feature",
+    "geometry": {"type": "Point", "coordinates": [-97.2, 32.77]},
+    "properties": {
+        "feature_kind": "region",
+        "region_level": "county",
+        "region_id": "48439",
+        "name": "Tarrant",
+        "count": 4,
+        "lifecycle_state_counts": {"filed": 2, "studied": 1, "contracted": 1},
+        "capacity_mw_sum": 791.6,
+    },
+}
+_TARRANT_POLYGON = json.dumps(
+    {
+        "data": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[-97.6, 32.55], [-97.0, 32.55], [-97.0, 33.0], [-97.6, 33.0], [-97.6, 32.55]]
+                        ],
+                    },
+                    "properties": {"region_id": "48439"},
+                }
+            ],
+        }
+    }
+)
+_PLANT = {
+    "type": "Feature",
+    "geometry": {"type": "Point", "coordinates": [-97.33, 32.75]},
+    "properties": {
+        "feature_kind": "asset",
+        "asset_type": "power_plant",
+        "name": "WAL266",
+        "public_id": "ast_wal266",
+        "technology": "gas_cc",
+        "capacity_mw": 120,
+        "status": "operating",
+        "state_code": "TX",
+        "county_name": "Tarrant",
+        "source": {
+            "source_name": "EIA-860M",
+            "source_url": "https://www.eia.gov/electricity/data/eia860m/",
+            "retrieved_at": "2026-10-19T00:00:00Z",
+            "reuse_class": "open",
+        },
+    },
+}
+_LINE = {
+    "type": "Feature",
+    "geometry": {"type": "LineString", "coordinates": [[-104.0, 40.0], [-96.0, 40.0]]},
+    "properties": {
+        "feature_kind": "asset_line",
+        "asset_type": "transmission_line",
+        "name": "Antelope Valley Station - Red 345 kV",
+        "public_id": "ast_line_av",
+        "voltage_kv": 345,
+    },
+}
+
+
+def _assets_router(points: list[dict[str, Any]], lines: list[dict[str, Any]]) -> Any:
+    """`/api/assets/geo` as the map asks it: plants on their own request, the other types on a
+    second, retired plants on a third (map.js `assetsGeoUrls`, `retiredGeoUrl`)."""
+
+    def answer(route: Route) -> None:
+        query = parse_qs(urlsplit(route.request.url).query)
+        if "retired" in query.get("status", [""])[0]:
+            features: list[dict[str, Any]] = []
+        elif query.get("asset_type") == ["power_plant"]:
+            features = points
+        else:
+            features = lines
+        body = {
+            "data": {"type": "FeatureCollection", "features": features, "totals": {"records": len(features)}}
+        }
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    return answer
+
+
+def _stub_map(
+    page: Any, proposals: str, *, points: Any = (), lines: Any = (), regions: str | None = None
+) -> None:
+    _install_offline_routes(page)
+    _ok_ui_events(page)
+    page.route(
+        "**/api/proposals/geo?**",
+        lambda r: r.fulfill(status=200, content_type="application/json", body=proposals),
+    )
+    page.route("**/api/assets/geo?**", _assets_router(list(points), list(lines)))
+    page.route(
+        "**/api/geo/regions?**",
+        lambda r: r.fulfill(status=200, content_type="application/json", body=regions or _EMPTY_GEO),
+    )
+
+
+def _rendered(*layers: str) -> str:
+    return "() => window.__map && " + " && ".join(
+        f"window.__map.queryRenderedFeatures({{layers: ['{layer}']}}).length > 0" for layer in layers
+    )
+
+
+def _map_on_top(page: Any) -> None:
+    """Scrolls the page so the map's top edge is at the top of the screen (docs/17 §2.1 row 3)."""
+    page.evaluate(
+        "window.scrollTo(0, document.getElementById('map').getBoundingClientRect().top + window.scrollY)"
+    )
+    page.wait_for_timeout(100)
+
+
+def _screen_point(page: Any, lnglat: list[float]) -> list[float]:
+    return page.evaluate(
+        "(ll) => { const p = window.__map.project(ll);"
+        " const r = document.getElementById('map').getBoundingClientRect();"
+        " return [r.left + p.x, r.top + p.y]; }",
+        lnglat,
+    )
+
+
+_DRAWER_IS_OPEN = "() => document.getElementById('map-drawer').classList.contains('is-open')"
+# After a tap: the drawer opened, or the page left the map (what a tap on a region used to do).
+_LEFT_OR_OPENED = (
+    "() => location.pathname !== '/' || document.getElementById('map-drawer').classList.contains('is-open')"
+)
+
+
+def _drawer_open(page: Any) -> bool:
+    return bool(page.evaluate(_DRAWER_IS_OPEN))
+
+
+def test_a_tap_on_a_cluster_lying_over_a_line_only_zooms(server: object) -> None:
+    """docs/17 §2.2 / M-2: a tap on a proposal cluster zoomed in and also opened the drawer for the
+    transmission line beneath it, which then covered the zoomed map. One tap now does one thing."""
+    proposals = _geo_envelope([_cluster(-100.0, 40.0, {"filed": 9}, 900.0, 6)], records=9, clustered=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_context(**PHONE).new_page()
+            _stub_map(page, proposals, lines=[_LINE])
+            page.goto(BASE_URL + "/?center=-100,40&zoom=4")
+            page.wait_for_function(_rendered("clusters", "asset-lines-hit"), timeout=30000)
+            _map_on_top(page)
+            under = page.evaluate(
+                "(ll) => { const p = window.__map.project(ll);"
+                " return window.__map.queryRenderedFeatures(p).map((f) => f.layer.id); }",
+                [-100.0, 40.0],
+            )
+            assert "clusters" in under and "asset-lines-hit" in under, under  # the line does lie beneath
+            x, y = _screen_point(page, [-100.0, 40.0])
+            page.touchscreen.tap(x, y)
+            page.wait_for_function("() => window.__map.getZoom() > 5.99 && !window.__map.isMoving()")
+            page.wait_for_timeout(300)
+            assert not _drawer_open(page), page.inner_text("#map-drawer")
+            assert page.evaluate("document.getElementById('map-drawer').hidden") is True
+        finally:
+            browser.close()
+
+
+def test_a_tap_on_a_plant_in_a_shaded_county_opens_the_plant_and_stays_on_the_map(server: object) -> None:
+    """docs/17 §2.2 / M-2: a tap on power plant WAL266 in Fort Worth opened nothing and left the map
+    for `/proposals?county_fips=48439`, because the shaded Tarrant County lay under it."""
+    proposals = _geo_envelope([_TARRANT], records=4)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_context(**PHONE).new_page()
+            _stub_map(page, proposals, points=[_PLANT], regions=_TARRANT_POLYGON)
+            page.goto(BASE_URL + "/?center=-97.33,32.75&zoom=11")
+            page.wait_for_function(_rendered("plant-points", "region-fill"), timeout=30000)
+            _map_on_top(page)
+            x, y = _screen_point(page, [-97.33, 32.75])
+            page.touchscreen.tap(x, y)
+            page.wait_for_function(_LEFT_OR_OPENED)
+            assert page.evaluate("location.pathname") == "/"
+            assert page.inner_text("#map-drawer h2") == "WAL266"
+            source = page.inner_text("#map-drawer .drawer-source")  # provenance stays in the drawer
+            assert "EIA-860M" in source and "Open licence" in source and "retrieved 19 Oct 2026" in source
+        finally:
+            browser.close()
+
+
+def test_a_tap_on_a_region_opens_its_summary_and_the_list_link_and_the_keyboard_reaches_it(
+    server: object,
+) -> None:
+    """docs/17 M-2: a region tap opens the drawer with what the area holds and a link to its list,
+    instead of navigating; the region's in-view row opens the same summary from the keyboard (D-14)."""
+    proposals = _geo_envelope([_TARRANT], records=4)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_context(**PHONE).new_page()
+            _stub_map(page, proposals, points=[_PLANT], regions=_TARRANT_POLYGON)
+            page.goto(BASE_URL + "/?center=-97.33,32.75&zoom=11")
+            page.wait_for_function(_rendered("plant-points", "region-fill"), timeout=30000)
+            _map_on_top(page)
+            x, y = _screen_point(page, [-97.33, 32.70])  # inside the county, 170px from the plant
+            page.touchscreen.tap(x, y)
+            page.wait_for_function(_LEFT_OR_OPENED)
+            assert page.evaluate("location.pathname") == "/"
+            assert page.inner_text("#map-drawer h2") == "Tarrant County, TX"
+            summary = page.inner_text("#map-drawer .drawer-region")
+            assert summary.startswith("4 proposals the source places by county, not at a site."), summary
+            assert "3 in process · 1 contracted · 791.6 MW" in summary, summary
+            link = page.locator("#map-drawer .drawer-open-link")
+            assert link.inner_text() == "Open the list →"
+            assert link.get_attribute("href") == "/proposals?county_fips=48439"
+            assert "on the list and on its record" in page.inner_text("#map-drawer .drawer-source")
+
+            page.keyboard.press("Escape")
+            page.wait_for_function("() => document.getElementById('map-drawer').hidden")
+            details = page.get_by_role("button", name="Details for Tarrant County, TX")
+            details.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_function(_DRAWER_IS_OPEN)
+            assert page.inner_text("#map-drawer h2") == "Tarrant County, TX"
+            assert page.evaluate("document.activeElement.id") == "drawer-close"
+            page.keyboard.press("Escape")
+            page.wait_for_function("() => document.getElementById('map-drawer').hidden")
+            focused = page.evaluate("document.activeElement.getAttribute('aria-label')")
+            assert focused == "Details for Tarrant County, TX", focused
+            # The dialog is named for what it holds: a region's summary, then a record again.
+            assert page.get_attribute("#map-drawer", "aria-label") == "Region summary"
+            _map_on_top(page)  # focus went back to the row's Details button, below the map
+            x, y = _screen_point(page, [-97.33, 32.75])
+            page.touchscreen.tap(x, y)
+            page.wait_for_function(_DRAWER_IS_OPEN)
+            assert page.inner_text("#map-drawer h2") == "WAL266"
+            assert page.get_attribute("#map-drawer", "aria-label") == "Record detail"
+        finally:
+            browser.close()
+
+
+_TEXAS = {
+    "type": "Feature",
+    "geometry": {"type": "Point", "coordinates": [-99.3, 31.4]},
+    "properties": {
+        "feature_kind": "region",
+        "region_level": "state",
+        "region_id": "US-TX",
+        "name": "US-TX",
+        "count": 7,
+        "lifecycle_state_counts": {"announced": 7},
+        "capacity_mw_sum": 0,
+    },
+}
+_TEXAS_POLYGON = json.dumps(
+    {
+        "data": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[-106.6, 25.8], [-93.5, 25.8], [-93.5, 36.5], [-106.6, 36.5], [-106.6, 25.8]]
+                        ],
+                    },
+                    "properties": {"region_id": "US-TX"},
+                }
+            ],
+        }
+    }
+)
+
+
+def _regions_by_level(bodies: dict[str, str]) -> Any:
+    """`/api/geo/regions` answered per `level`, as map.js asks it (one request per level)."""
+
+    def answer(route: Route) -> None:
+        level = parse_qs(urlsplit(route.request.url).query).get("level", [""])[0]
+        route.fulfill(status=200, content_type="application/json", body=bodies.get(level, _EMPTY_GEO))
+
+    return answer
+
+
+_REGION_LEVELS_AT = (
+    "(ll) => window.__map.queryRenderedFeatures(window.__map.project(ll), {layers: ['region-fill']})"
+    ".map((f) => f.properties.region_level)"
+)
+
+
+def test_a_tap_on_a_county_inside_a_state_placement_opens_the_county(server: object) -> None:
+    """Review of lane m-behaviour: where a state is placed as a region too, its near-transparent wash
+    lies over the shaded county, and the region tier took the topmost polygon, so a tap or click in
+    Calaveras County opened California. The most specific region under the pointer now wins (county
+    over state over country); away from the county, the state's wash still opens the state."""
+    # The state comes after the county, so its wash is drawn on top: the order that showed the bug.
+    proposals = _geo_envelope([_TARRANT, _TEXAS], records=11)
+    in_county, in_state = [-97.3, 32.78], [-98.5, 32.75]
+    both_drawn = (
+        "() => window.__map && new Set(window.__map.queryRenderedFeatures({layers: ['region-fill']})"
+        ".map((f) => f.properties.region_level)).size === 2"
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for device, how in ((PHONE, "tap"), ({"viewport": DESKTOP_VIEWPORT}, "click")):
+                page = browser.new_context(**device).new_page()
+                _stub_map(page, proposals)
+                page.route(
+                    "**/api/geo/regions?**",
+                    _regions_by_level({"state": _TEXAS_POLYGON, "county": _TARRANT_POLYGON}),
+                )
+                # z6: the county is about 55 px across, and the state point 80 px west of it is on a
+                # 358 px phone canvas.
+                page.goto(BASE_URL + "/?center=-97.33,32.75&zoom=6")
+                page.wait_for_function(both_drawn, timeout=30000)
+                _map_on_top(page)
+                under = page.evaluate(_REGION_LEVELS_AT, in_county)
+                assert under == ["state", "county"], under  # the state's wash is the topmost polygon
+
+                for lnglat, expected in ((in_county, "Tarrant County, TX"), (in_state, "Texas")):
+                    x, y = _screen_point(page, lnglat)
+                    if how == "tap":
+                        page.touchscreen.tap(x, y)
+                    else:
+                        page.mouse.click(x, y)
+                    page.wait_for_function(_LEFT_OR_OPENED)
+                    assert page.evaluate("location.pathname") == "/"
+                    assert page.inner_text("#map-drawer h2") == expected, (how, lnglat)
+                    assert page.get_attribute("#map-drawer", "aria-label") == "Region summary"
+                    page.keyboard.press("Escape")
+                    page.wait_for_function("() => document.getElementById('map-drawer').hidden")
+                page.context.close()
+        finally:
+            browser.close()
+
+
+def test_a_country_summary_still_offers_the_country_s_quick_view(server: object) -> None:
+    """Before docs/17 M-2 a click on a country placement with a quick-view button of its own moved the
+    map there. Its summary now offers the same move, and taking it closes the drawer."""
+    country = {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [-98.5, 39.8]},
+        "properties": {
+            "feature_kind": "region",
+            "region_level": "country",
+            "region_id": "US",
+            "name": "US",
+            "count": 2,
+            "lifecycle_state_counts": {"announced": 2},
+            "capacity_mw_sum": 0,
+        },
+    }
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _stub_map(page, _geo_envelope([country], records=2))
+            page.goto(BASE_URL + "/?center=-20,30&zoom=3")
+            details = page.locator("#in-view-items li[data-group='regions'] .details-btn")
+            details.wait_for(timeout=30000)
+            details.click()
+            page.wait_for_function(_DRAWER_IS_OPEN)
+            assert "2 proposals the source places by country, not at a site." in page.inner_text(
+                "#map-drawer"
+            )
+            assert "2 announced or unknown" in page.inner_text("#map-drawer .drawer-region")
+            assert page.get_attribute("#map-drawer .drawer-open-link", "href") == "/proposals?jurisdiction=US"
+            jump = page.get_by_role("button", name="Show United States on the map")
+            jump.click()
+            page.wait_for_function("() => document.getElementById('map-drawer').hidden")
+            page.wait_for_function("() => location.search.includes('region=us')", timeout=10000)
+            page.wait_for_function("() => !window.__map.isMoving()")
+            centre = page.evaluate("() => window.__map.getCenter().lng")
+            assert -105 < centre < -90, centre  # the United States quick view, not mid-Atlantic
+        finally:
+            browser.close()
+
+
+def _touch_swipe_up(page: Any, cdp: Any, x: float, y: float, distance: float) -> None:
+    """One finger, upward, through CDP `Input.dispatchTouchEvent` (docs/17 §1's method)."""
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+    for step in range(1, 11):
+        point = {"x": x, "y": y - distance * step / 10}
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [point]})
+        page.wait_for_timeout(16)
+    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+    page.wait_for_timeout(500)
+
+
+_SCROLL_AND_CENTRE = "(name) => [window.scrollY, window[name].getCenter().lng, window[name].getCenter().lat]"
+
+
+def test_a_one_finger_swipe_on_a_map_scrolls_the_page_on_touch_and_a_mouse_drag_pans(server: object) -> None:
+    """docs/17 §2.3 / M-3: a one-finger swipe on the home map panned it 12.7 degrees and scrolled the
+    page 0px, and on the 287px company and asset mini-maps the same. On a touch screen one finger now
+    scrolls the page (two move the map, with MapLibre's hint in the site's tokens); a mouse drags."""
+    proposals = _geo_envelope([_in_view_feature("swipe-one", "solar", -100.0)], records=1)
+    spacer = '<div style="height: 1600px"></div></main>'
+    mini = _mini_map_page().replace("</main>", spacer)
+    mini_url = BASE_URL + "/e2e-mini-map"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            context = browser.new_context(**PHONE)
+            page = context.new_page()
+            _stub_map(page, proposals)
+            page.goto(BASE_URL + "/?center=-100,40&zoom=4")
+            page.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            _map_on_top(page)
+            box = page.locator("#map").bounding_box()
+            before = page.evaluate(_SCROLL_AND_CENTRE, "__map")
+            _touch_swipe_up(
+                page, context.new_cdp_session(page), box["x"] + box["width"] / 2, box["y"] + 400, 250
+            )
+            after = page.evaluate(_SCROLL_AND_CENTRE, "__map")
+            assert after[0] - before[0] > 150, (before, after)  # the page scrolled
+            assert after[1:] == before[1:], (before, after)  # the map did not move
+            assert page.evaluate("window.__map.cooperativeGestures.isEnabled()") is True
+            # MapLibre's hint, in the site's tokens: the words on a surface label, no black wash.
+            hint = page.evaluate(
+                "() => { const s = document.querySelector('#map .maplibregl-cooperative-gesture-screen');"
+                " const m = s.querySelector('.maplibregl-mobile-message');"
+                " const probe = document.createElement('div'); probe.style.background = 'var(--surface)';"
+                " document.body.appendChild(probe); const surface = getComputedStyle(probe).backgroundColor;"
+                " probe.remove();"
+                " return [getComputedStyle(s).backgroundColor, getComputedStyle(m).backgroundColor, surface,"
+                " getComputedStyle(m).display, m.textContent, s.getAttribute('aria-hidden')]; }"
+            )
+            wash, label, surface, display, words, hidden = hint
+            assert wash == "rgba(0, 0, 0, 0)" and label == surface and display == "block", hint
+            assert words == "Use two fingers to move the map" and hidden == "true", hint
+
+            mini_page = context.new_page()
+            _install_offline_routes(mini_page)
+            mini_page.route(mini_url, lambda r: r.fulfill(content_type="text/html", body=mini))
+            mini_page.goto(mini_url)
+            mini_page.wait_for_function(
+                "() => window.__assetMap && window.__assetMap.loaded()", timeout=15000
+            )
+            mbox = mini_page.locator("#asset-map").bounding_box()
+            before = mini_page.evaluate(_SCROLL_AND_CENTRE, "__assetMap")
+            cdp = context.new_cdp_session(mini_page)
+            _touch_swipe_up(
+                mini_page, cdp, mbox["x"] + mbox["width"] / 2, mbox["y"] + mbox["height"] - 20, 200
+            )
+            after = mini_page.evaluate(_SCROLL_AND_CENTRE, "__assetMap")
+            assert after[0] - before[0] > 100, (before, after)
+            assert after[1:] == before[1:], (before, after)
+            assert mini_page.evaluate("window.__assetMap.cooperativeGestures.isEnabled()") is True
+            context.close()
+
+            # A mouse on a desktop drags the map, as before; nothing is cooperative there.
+            desk = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _stub_map(desk, proposals)
+            desk.goto(BASE_URL + "/?center=-100,40&zoom=4")
+            desk.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            assert desk.evaluate("window.__map.cooperativeGestures.isEnabled()") is False
+            dbox = desk.locator("#map").bounding_box()
+            before = desk.evaluate(_SCROLL_AND_CENTRE, "__map")
+            x, y = dbox["x"] + dbox["width"] * 0.7, dbox["y"] + dbox["height"] * 0.6
+            desk.mouse.move(x, y)
+            desk.mouse.down()
+            desk.mouse.move(x - 200, y - 100, steps=10)
+            desk.mouse.up()
+            desk.wait_for_timeout(300)
+            after = desk.evaluate(_SCROLL_AND_CENTRE, "__map")
+            assert after[0] == before[0], (before, after)
+            assert after[1] - before[1] > 5, (before, after)  # dragged left: the centre moved east
+        finally:
+            browser.close()
+
+
+def test_the_in_view_header_says_what_is_in_view_by_status_and_capacity(server: object) -> None:
+    """docs/17 §2.4 / M-5: a cluster's status breakdown and capacity sum were on a hover card only,
+    and a touch screen never shows one. The in-view header now says them for everything in view."""
+    proposals = _geo_envelope(
+        [
+            _cluster(-100.0, 40.0, {"filed": 25, "studied": 5, "announced": 10}, 5000.0, 6),
+            _in_view_feature("header-one", "solar", -101.0),
+            _in_view_feature("header-two", "solar", -99.0),
+            {**_TARRANT, "properties": {**_TARRANT["properties"], "count": 3}},
+        ],
+        records=45,
+        clustered=False,
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_context(**PHONE).new_page()
+            _stub_map(page, proposals)
+            page.goto(BASE_URL + "/?center=-100,39&zoom=5")
+            summary = page.locator("#in-view-summary")
+            summary.wait_for(timeout=30000)
+            # 40 in the cluster and two points; 5,000 + 2 x 12 MW; the county's three named apart.
+            assert summary.inner_text() == (
+                "42 proposals in view · 32 in process · 10 announced or unknown · 5 GW"
+                " · 3 more placed by county or region"
+            )
+            assert summary.get_attribute("aria-live") is None  # the live region announces moves
+            assert page.locator("#in-view-summary svg use").evaluate_all(
+                "(uses) => uses.map((u) => u.getAttribute('href'))"
+            ) == ["#icon-progress", "#icon-neutral"]
+        finally:
+            browser.close()
+
+
+def test_with_no_view_in_the_link_the_map_fits_the_lower_48_and_reset_returns_there(server: object) -> None:
+    """docs/17 §2.1 / M-7: the map opened at z3.2 on -98.5, 39.8, which on a 358px canvas showed North
+    Dakota to the Gulf with both coasts cut off. It now fits the contiguous US with 16px to spare (and,
+    where the open key lies over the canvas, clear of it); "Reset" fits it again; the URL stays clean."""
+    conus = {"west": -124.8, "south": 24.4, "east": -66.9, "north": 49.4}
+    bounds = (
+        "() => { const b = window.__map.getBounds(); return {west: b.getWest(), south: b.getSouth(),"
+        " east: b.getEast(), north: b.getNorth(), zoom: window.__map.getZoom()}; }"
+    )
+    proposals = _geo_envelope([_in_view_feature("fit-one", "solar", -100.0)], records=1)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_context(**PHONE).new_page()
+            _stub_map(page, proposals)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            home = page.evaluate(bounds)
+            assert home["west"] <= conus["west"] and home["east"] >= conus["east"], home
+            assert home["south"] <= conus["south"] and home["north"] >= conus["north"], home
+            assert 1.8 < home["zoom"] < 2.3, home  # docs/17: "about z 2.1 at 358 px"
+            page.evaluate("window.__map.jumpTo({center: [-80, 35], zoom: 6})")
+            page.wait_for_function("() => location.search.includes('zoom=6.00')", timeout=10000)
+            page.click("#zoom-reset")
+            page.wait_for_function("() => !location.search.includes('center=')", timeout=10000)
+            assert abs(page.evaluate(bounds)["zoom"] - home["zoom"]) < 0.01
+
+            wide = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _stub_map(wide, proposals)
+            wide.goto(BASE_URL + "/")
+            wide.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            view = wide.evaluate(bounds)
+            assert view["west"] <= conus["west"] and view["east"] >= conus["east"], view
+            # The open key lies over the canvas, top left; the West Coast is drawn clear of it.
+            coast, key_right = wide.evaluate(
+                "() => { const r = document.getElementById('map').getBoundingClientRect();"
+                " const k = document.querySelector('.map-key__panel').getBoundingClientRect();"
+                " return [r.left + window.__map.project([-124.8, 40]).x, k.right]; }"
+            )
+            assert coast > key_right, (coast, key_right)
+            assert "center=" not in wide.url
+
+            # On the untouched view, closing the key fits the map to the whole canvas and opening it
+            # fits it clear of the key again, so a reopened key never lies over the West Coast.
+            mid = browser.new_page(viewport={"width": 1024, "height": 768})
+            _stub_map(mid, proposals)
+            mid.goto(BASE_URL + "/")
+            mid.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            opened = mid.evaluate(bounds)["zoom"]
+            for press, open_after in ((1, False), (2, True)):
+                mid.click("#map-key-toggle")
+                mid.wait_for_function("() => !window.__map.isMoving()")
+                mid.wait_for_timeout(400)  # past the URL's 300 ms debounce
+                assert mid.evaluate("!document.getElementById('map-key').hidden") is open_after, press
+                assert "center=" not in mid.url, (press, mid.url)
+                zoom = mid.evaluate(bounds)["zoom"]
+                if not open_after:
+                    assert zoom > opened + 0.05, (opened, zoom)  # the key's band is map again
+            assert abs(zoom - opened) < 0.01, (opened, zoom)
+            coast, key_right = mid.evaluate(
+                "() => { const r = document.getElementById('map').getBoundingClientRect();"
+                " const k = document.querySelector('.map-key__panel').getBoundingClientRect();"
+                " return [r.left + window.__map.project([-124.8, 40]).x, k.right]; }"
+            )
+            assert coast > key_right, (coast, key_right)
+        finally:
+            browser.close()
+
+
+def test_a_newer_view_aborts_the_asset_requests_of_the_one_it_replaces(server: object) -> None:
+    """docs/17 §1: under a fast zoom the asset and retired-plant requests for views already left kept
+    running, and the one API worker answered `/api/assets/geo` with 503. As the proposals request
+    already was, each is now aborted when a newer view supersedes it, without a word on the page."""
+    proposals = _geo_envelope([_in_view_feature("abort-one", "solar", -100.0)], records=1)
+    held: list[Route] = []
+    failed: list[str] = []
+
+    def assets(route: Route) -> None:
+        if parse_qs(urlsplit(route.request.url).query).get("zoom") == ["4"]:
+            held.append(route)  # the first view's requests: never answered, so only an abort ends them
+            return
+        route.fulfill(status=200, content_type="application/json", body=_EMPTY_GEO)
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _stub_map(page, proposals)
+            page.route("**/api/assets/geo?**", assets)
+            page.on(
+                "requestfailed",
+                lambda r: failed.append(r.url) if "/api/assets/geo" in r.url else None,
+            )
+            page.goto(BASE_URL + "/?center=-100,40&zoom=4")
+            page.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
+            deadline = time.monotonic() + 15
+            while len(held) < 3 and time.monotonic() < deadline:
+                page.wait_for_timeout(100)
+            # Existing assets: plants and the other types on two requests; retired plants on a third.
+            assert len(held) == 3, [r.request.url for r in held]
+            page.evaluate("window.__map.jumpTo({center: [-90, 35], zoom: 7})")
+            deadline = time.monotonic() + 15
+            while len(failed) < 3 and time.monotonic() < deadline:
+                page.wait_for_timeout(100)
+            assert sorted(failed) == sorted(r.request.url for r in held)
+            assert page.locator("#map-error").is_hidden()
+            for route in held:
+                with contextlib.suppress(PlaywrightError):
+                    route.fulfill(status=200, content_type="application/json", body=_EMPTY_GEO)
+        finally:
+            browser.close()
+
+
 _PMTILES_PROOF_DB_PATH = REPO_ROOT / "web" / ".data" / "pmtiles-proof-test.db"
 _PMTILES_PROOF_PORT = 8798
 _PMTILES_PROOF_BASE_URL = f"http://127.0.0.1:{_PMTILES_PROOF_PORT}"

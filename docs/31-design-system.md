@@ -212,6 +212,25 @@ navigation is unchanged. The in-view list sits under the map, not over it as the
 store with the dev-preview label: 634 → 554 px at 1024×768, 741 → 661 px at 768×1024, 761 → 680 px at 720×900
 (`docs/30` §5.1).
 
+**As built on touch screens, and the map's default view (2026-10-21, lane m-behaviour; `docs/17` M-3, M-7):**
+- *Gestures.* Where `(pointer: coarse)` matches, the home map and the asset and company mini-maps use MapLibre's
+  cooperative gestures: one finger scrolls the page, two fingers pan, a pinch zooms. A one-finger swipe on a map
+  shows MapLibre's hint, "Use two fingers to move the map", as a `--surface` label with `--border`, `--radius-2`
+  and `--shadow-1`, in place of MapLibre's black wash with white text (its timing is MapLibre's; the global
+  reduced-motion rule makes the fade instant). A mouse drags the map as before. The single-pointer ways round are
+  unchanged (zoom and region buttons, a tap on a cluster, the in-view list), so SC 2.5.1 and 2.5.7 stand. Measured
+  at 390×844, touch, on a copy of the dev store, with a 250 px upward swipe on the home canvas: the page scrolled
+  0 px and the map moved 16° before; the page scrolled 235–321 px (two runs) and the map did not move after. On
+  the Grand Coulee mini-map the page scrolled 178 px (0 px in `docs/17` §2.3).
+- *Default view.* With no `center`/`zoom` (or `region`) in the link, the map fits the contiguous US
+  (−124.8, 24.4 to −66.9, 49.4) with 16 px padding, instead of a fixed z 3.2 on −98.5, 39.8. Where the open key
+  lies over the canvas (from 720 px), its width is added to the left padding, so the key does not cover the West
+  Coast (§5.17). "Reset" fits the same box again, for the canvas as it is then, and so does "Key" while the map
+  still shows that view (§5.17, with the cost on canvases under about 1,000 px). While the map shows that view the
+  URL carries no `center`/`zoom`. Measured: 390×844 opens at z 1.98 showing −127.7° to −64.0° (before: z 3.2,
+  −112.1° to −84.9°, both coasts cut off); 1440×900 opens at z 3.12 with the coast right of the key (before:
+  z 3.2, the key over California).
+
 No fixed width wider than the viewport at any breakpoint; only tables, the map canvas, and code blocks may
 scroll horizontally, each inside its own `overflow-x` container — the page body never scrolls horizontally
 (D-32).
@@ -378,6 +397,32 @@ overlay for the dominant technology; hover/focus reveals a breakdown tooltip (`l
 
 **As built (2026-10-06, audit UX lane; owner to ratify):** the shape-by-precision anatomy above was never drawn (the map drew circles, with a thicker stroke for licence-limited precision). Markers are now small status chips: the lifecycle family's fill, a family-coloured ring and the family glyph, so status is never colour alone (D-5); licence-limited precision keeps a second, wider ring (D-9) and the drawer states the precision in words (`precision_note`); the technology badge sits beside the marker from zoom 9; clusters show the dominant family's glyph above the count. Marker contrast in dark mode is 6.32–7.88:1 (`web/test_map_a11y.py`). Either this section is rewritten to match, or the shapes are drawn; until the owner decides, the as-built chips stand.
 
+**One tap, one action (2026-10-21, lane m-behaviour; `docs/17` M-2):** one `map.on("click")` handler
+(`onMapClick`) acts on the first hit in this order: proposal point › proposal cluster (zooms in) › existing-asset
+point or cluster › retired point or cluster › asset line › region (opens its summary, §5.8). Within a tier it takes
+the feature nearest the point. A touch asks for features in a box 8 px each side of the tap, because a finger is
+wider than a cursor; a mouse asks at the point itself, as before. Before, every layer's own click handler ran: a
+tap on a proposal cluster also opened the transmission line beneath it, and a tap on a plant in a shaded county
+left the map for that county's list (`docs/17` §2.2). Hover cards and the pointer cursor stay per layer.
+In the region tier the most specific level wins (map.js `mostSpecificRegion`): county, then state, then country.
+Among regions of that level, one that holds the tapped point beats one that only meets the touch box; after that,
+the topmost. A state or country placement's wash covers the whole area and is drawn over any county shaded inside
+it, so taking the topmost polygon opened the state. On a copy of the dev store at 1440×900, a click in the shaded
+Calaveras County, CA (under it: California's wash, then the county) opened "California" before and opens
+"CALAVERAS County, CA" now. The region hover card picks the same way where the pointer enters the region layer; it
+is not redrawn as the pointer moves on from a state's wash into a county inside it (as before).
+
+**The breakdown on touch (2026-10-21, lane m-behaviour; `docs/17` M-5).** D-10 asks for the cluster breakdown on
+hover or focus, without a click. A touch screen never shows a hover card, so the breakdown also lives in the in-view
+header (`#in-view-summary`, under "In view"). On every device that header says what the drawn markers stand for (a
+cluster for its `count`, a point for one): the number in view, one part per lifecycle family (most first, with the
+key's glyph and words), the stated capacity (GW from 1,000 MW, through `fmtMWNumber`), then any proposals placed only
+by area. On the dev store at the national view: "2,229 proposals in view · 1,595 in process · 561 announced or
+unknown · 73 contracted · 277.1 GW · 1,909 more placed by county or region". It is not a live region; the existing
+`aria-live` line still announces each move. A region's name, count and breakdown are in its drawer summary (§5.8). The
+desktop hover cards are unchanged and use the themed popup rules (`styles.css`, owner report 2026-10-21). D-10's own
+text in `docs/04` is not changed here.
+
 ### 5.8 Detail drawer
 
 **Anatomy:** `role="dialog"`, focus trap, close control (`×` + `Escape`), canonical fields, status chip (§5.1),
@@ -386,6 +431,24 @@ tier, "Open full record" link.
 **States:** loading (skeleton of the same layout); error (RFC 9457 banner inside the drawer, close still works);
 open/closed (200ms open, 150ms close, D-15); reduced-motion (instant, no easing).
 **Rule satisfied:** D-12, D-14, D-15.
+
+**Region summary (2026-10-21, lane m-behaviour; `docs/17` M-2).** A tap or click anywhere in a shaded county opens
+its summary in the drawer. So does one anywhere in a state or country placement: the hit area is the whole
+near-transparent wash inside the dashed outline, not the outline alone, so a tap on empty map in a state that is
+placed as a region opens that state. A county inside such a state opens the county (§5.7). It used to go straight to
+the region's list. The dialog is named "Region summary" (a record's or asset's stays "Record detail"). The summary
+holds:
+- the region's name ("Tarrant County, TX");
+- "N proposals the source places by county, not at a site.";
+- its status parts and stated capacity (§5.7);
+- a Sources line: each proposal's source, licence and retrieved date are on the list and on its record. A region is
+  many records, so the line names none (D-2);
+- "Open the list →", to `/proposals?county_fips=` or `?jurisdiction=`.
+
+A country with a quick-view button of its own also offers "Show {region} on the map", which is what a click on it
+used to do. The region's row in the in-view list has a Details button that opens the same summary from the keyboard
+(D-14). Dialog, focus trap, focus return and motion are as for a record. Record drawers are unchanged and keep their
+source line.
 
 ### 5.9 Filter bar
 
@@ -532,6 +595,24 @@ Without scripts it is not shown and the key stays open.
 No new tokens; the classes above are the additions. Measurements and the axe runs: `docs/30` §5.1.
 **Rule satisfied:** D-5 (shape and words with every hue), D-10, D-14; SC 2.1.1 (the scrolling panel is
 reachable), SC 2.5.8, SC 4.1.2.
+
+**The key and the default view (2026-10-21, lane m-behaviour; `docs/17` M-7).** The national view fits the lower 48
+(§3). Where the open key lies over the canvas, which is from 720 px, map.js `homePadding` adds the key's width to
+the fit's left padding. The key therefore sits over ocean, not California, as this section's anatomy intends. A key
+that is closed, or not over the canvas, adds nothing. The key itself is unchanged.
+- *Opening or closing the key.* While the map still shows the national view, "Key" fits it again for the new state
+  (`setMapKeyOpen`, 300 ms, instant under reduced motion), so a reopened key never lies over the West Coast and a
+  closed one leaves no empty band. A view the reader has moved stays where it is; "Reset" then fits for the key as it
+  is. The URL stays clean throughout. Before this, the fit was worked out only on load and on Reset.
+- *The trade-off.* The padding is taken only while at least half the canvas is left beside the key. The key is
+  about 300 px wide, so on a canvas under about 1,000 px the lower 48 is drawn small, with open Pacific on the left.
+  Measured on a copy of the dev store, key open, then closed: 720×900 (678 px canvas) z 2.15, the lower 48 across
+  54% of the canvas, west edge −171.6°, then z 2.97 and 95%; 900×900 z 2.73, 64%, then z 3.33, 96%; 1024×768
+  z 3.02, 68%, then z 3.48, 93%; 1100×900 (690 px canvas beside the Filters column) z 2.20, 55%, then z 3.00, 95%;
+  1280×800 z 2.76, 64%, then z 3.35, 96%; 1440×900 z 3.12, 70%, then z 3.60, 97%. With the key open the coast is at x 316, right of
+  the key's edge at 300, at every one of these sizes. This is deliberate: the alternative is the key over
+  Washington, Oregon and northern California on first load. A smaller national view is the cost, and "Key" removes
+  it.
 
 ## 6. Empty, loading and error states — cross-component rule
 

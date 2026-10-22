@@ -790,6 +790,17 @@ h3 { font-size: var(--text-4); }
 .in-view-list li { border-bottom: 1px solid var(--border); padding: var(--space-2) 0; }
 .in-view-list a { text-decoration: none; color: var(--text); font-weight: 600; }
 .in-view-list .meta { display: block; font-size: var(--text-1); color: var(--text-muted); }
+/* docs/17 M-5: the in-view header in words: proposals in view, their status families (the key's
+   glyph and words) and stated capacity; a region's summary in the drawer uses the same parts. */
+.in-view-summary { margin: 0 0 var(--space-2); font-size: var(--text-1); color: var(--text-muted); }
+.in-view-summary__count { color: var(--text); font-weight: 600; }
+.in-view-summary__family { white-space: nowrap; }
+.in-view-summary__family .legend__icon { vertical-align: -1px; margin-inline-end: var(--space-1); }
+.in-view-summary__family--neutral .legend__icon { color: var(--family-neutral-text); }
+.in-view-summary__family--progress .legend__icon { color: var(--family-progress-text); }
+.in-view-summary__family--committed .legend__icon { color: var(--family-committed-text); }
+.in-view-summary__family--success .legend__icon { color: var(--family-success-text); }
+.in-view-summary__family--danger .legend__icon { color: var(--family-danger-text); }
 .unplaced-group summary { cursor: pointer; font-weight: 600; padding: var(--space-2) 0; }
 .in-view-list__unplaced { font-size: var(--text-1); color: var(--text-muted); padding: var(--space-2) 0; margin: 0; }
 /* Legend: icon + label per family, never colour alone (D-5) -- reuses the chip icon set. */
@@ -827,6 +838,18 @@ a.button-secondary:visited { color: var(--link); }
 .maplibregl-popup.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--surface); }
 .maplibregl-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--surface); }
 .maplibregl-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--surface); }
+/* docs/17 M-3: MapLibre's cooperative-gesture hint ("Use two fingers to move the map"), shown on a
+   touch screen when one finger swipes the home map or a mini-map (map.js, asset_map.js). MapLibre
+   paints a black wash with white 1.4em text; here the wash is gone and the words sit on a surface
+   label, as a hover card does. One class more than MapLibre's selectors, as for the cards above.
+   MapLibre keeps it 1s, then fades it over 1s; the reduced-motion rule makes the fade instant. */
+.maplibregl-canvas-container .maplibregl-cooperative-gesture-screen {
+  background: transparent; color: var(--text); font-size: var(--text-2); padding: var(--space-4);
+}
+.maplibregl-canvas-container .maplibregl-cooperative-gesture-screen > div {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
+  box-shadow: var(--shadow-1); padding: var(--space-2) var(--space-3); text-align: center;
+}
 .map-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
 .map-controls button {
   font: inherit; min-width: 2.25rem; min-height: 2.25rem; border-radius: var(--radius-2);
@@ -977,6 +1000,10 @@ a.button-secondary:visited { color: var(--link); }
   letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: var(--space-1);
 }
 .map-drawer .drawer-open-link { display: inline-block; margin-top: var(--space-4); font-weight: 600; }
+/* A region's summary (docs/17 M-2): the count and its status parts, then "Open the list". A
+   country with a quick view of its own also offers to show it on the map (`.button-secondary`). */
+.drawer-region { margin: var(--space-4) 0 0; font-size: var(--text-2); line-height: 1.7; }
+.drawer-region__jump { margin-top: var(--space-4); }
 
 /* ---------- 9. Detail pages (D-18, D-26) ---------- */
 .breadcrumbs { font-size: var(--text-1); color: var(--text-muted); margin-bottom: var(--space-3); }
