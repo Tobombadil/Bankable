@@ -1006,3 +1006,37 @@ def test_an_env_file_others_can_read_or_a_missing_one_is_refused(
     result = run("deploy.sh", "staging", "sha-x", env=base)
     expect(result.returncode != 0 and "SOPS_AGE_KEY" in result.stderr, "the sops path still needs its key")
     expect(not any(ln.startswith(("ssh ", "scp ", "sops ")) for ln in calls(log)), "nothing ran")
+
+
+def test_a_failed_health_check_on_the_same_tag_restarts_the_pipeline_and_names_the_service(
+    shims: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    """2026-10-22, deploy-beta #21: the target tag was already running (`current-tag` the same), the
+    health check timed out with "statuses: healthy unhealthy", and with no rollback to run the
+    workers and scheduler step 3 had stopped stayed stopped, so ingestion halted until the next good
+    deploy. The failure now restarts them as they were and asks each service for its healthcheck."""
+    log, env = shims
+    result = run(
+        "deploy.sh",
+        "production",
+        GOOD,
+        env=_single(env)
+        | {
+            "FAKE_PREVIOUS_TAG": GOOD,
+            "FAKE_HEALTH": "healthy unhealthy",
+            "HEALTH_TIMEOUT_SECONDS": "0",
+            "HEALTH_INTERVAL_SECONDS": "0",
+        },
+    )
+    output = result.stdout + result.stderr
+    expect(result.returncode == 1, output)
+    expect("nothing to roll back automatically" in output, output)
+    expect("restarted the stopped workers and scheduler" in output, output)
+    lines = calls(log)
+    stopped = first_index(lines, "stop scheduler")
+    after = lines[stopped:]
+    expect(any(" start scheduler" in ln for ln in after), after)
+    expect(any(" start worker" in ln for ln in after), after)
+    expect(not any("up -d --no-build scheduler" in ln for ln in after), "no new scheduler was started")
+    expect(any("{{.State.Health.Status}}{{range .State.Health.Log}}" in ln for ln in lines), lines)
+    expect(not any(" logs " in ln for ln in lines), "service logs never reach the CI log")

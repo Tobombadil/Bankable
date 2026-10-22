@@ -355,3 +355,7 @@
   - The proposal list's Status disclosure is still right-aligned on phones.
   - iOS Safari is unverified for the filter chevron.
 - 2026-10-22 coordinator (PR #87 CI, gitleaks `generic-api-key`): four recorded CT DEEP pages in `pipeline/connectors/us_rfp/fixtures/` carried the ct.gov site's own embedded analytics key (an `ipmeta.io` plugin `apiKey` in the page chrome). It is a third party's public page value, not an Inframation secret. It is replaced with `redacted-site-search-key`. Extraction never reads that script; the connector tests pass unchanged.
+- 2026-10-22 coordinator (deploy-beta #21 failed at "deploy on the server"): the target tag `sha-530dd8e` was already running, because the release images for 7238820 were not built yet. The api/web health check timed out with "statuses: healthy unhealthy". `infra/scripts/deploy.sh` had no rollback to run for an unchanged tag, so the workers and scheduler that step 3 stopped stayed stopped, and ingestion halted. Two changes:
+  - On any failure after step 3 with no rollback, `on_error` now restarts what step 3 stopped, as it was (`restart_stopped`).
+  - A health timeout now prints each container's healthcheck status and last check outputs, never its logs, because the CI log is public and request logs carry addresses.
+  - Test: `infra/test_scripts.py::test_a_failed_health_check_on_the_same_tag_restarts_the_pipeline_and_names_the_service`, which fails without the change.
