@@ -1,0 +1,106 @@
+State of New Jersey
+[letterhead names removed]
+Commissioners
+NOTICE OF EXTENSION OF THE FINAL APPLICATION DEADLINE FOR
+PHASE 1, TRANCHE 2 OF THE GARDEN STATE ENERGY STORAGE
+PROGRAM, (GSESP)1
+IN THE MATTER OF THE GARDEN STATE ENERGY STORAGE PROGRAM
+PHASE 1, TRANCHE 2
+Docket No. QO25120634
+PLEASE TAKE NOTICE that the New Jersey Board of Public Utilities (“NJBPU” or “Board”) Staff (“Staff”) hereby notifies
+all interested parties and members of the public that the Final Application deadline for Tranche 2 of Phase 1 of the Garden
+State Energy Storage Program (“GSESP”) has been extended to 11:59 p.m. ET on October 5, 2026.
+This extension is intended to ensure that applicants with projects in PJM Cycle 1 remain eligible for the Tranche 2
+solicitation. New Jersey law requires that projects proceeding through a normal PJM interconnection cycle must at least
+be in the process of undergoing a Phase 1 interconnection study at the time of Final Application to qualify for the Tranche
+2 solicitation.2 Given PJM’s recent decision to delay the start of Phase 1 review for Cycle 1 projects until September 28,
+2026, all Cycle 1 projects would be disqualified from participating in Tranche 2 if the Final Application deadline remained
+August 7, 2026. Therefore, pursuant to the authority the Board granted Staff in the March 4, 2026, Order initiating the
+Tranche 2 solicitation,3 Staff is hereby extending the Tranche 2 Final Application deadline to October 5, 2026, to ensure
+an adequate pool of eligible projects participates in the solicitation.
+Phase 1, Tranche 2 is open to qualifying stand-alone energy storage projects, as well as solar-plus-storage projects that
+are ineligible for storage incentives under the Board’s Successor Solar Incentive (“SuSI”) Program. By Order dated March
+4, 2026, the Board initiated Tranche 2 of Phase 1 of the GSESP, with the solicitation window opening on May 20, 2026,
+and originally closing on August 7, 2026. As a result of this extension, Staff expects a corresponding delay in the Board’s
+decision on the outcome of the solicitation. Staff expect to bring their recommendations for the Board’s consideration to
+a Board Agenda meeting at the end of Q4 2026. Table 1 below reflects the updated schedule for Tranche 2:
+1 Not a paid legal advertisement.
+2 N.J.S.A. 48:3-121.3(b)(3)(b).
+3 See In re the Garden State Energy Storage Program Phase 1, Tranche 2, BPU Docket No. QO25120634, at 8,
+25, Order dated March 4, 2026 (“Tranche 2 Launch Order”).
+State of New Jersey
+[letterhead names removed]
+Commissioners
+Table 1. GSESP 2026 Tranche 2 Transmission-Scale Procurement Schedule (Updated July 2026)
+Event Date
+Posting of draft application instructions April 30, 2026
+Publication of application instructions and eligibility May 20, 2026
+requirements; pre-qualification window opens
+Deadline for submission of pre- June 10, 2026
+qualification materials to receive a
+guaranteed review for deficiency and opportunity
+for correction
+Pre-qualification deficiencies will be reported to June 26, 2026
+bidders by this date for correction
+Deadline for bidder’s question submissions July 1, 2026
+Revised Deadline for final bid submission* October 5, 2026
+Anticipated Board decision on bids December 2026
+Background
+On June 18, 2025, the Board established the GSESP and approved the launch of Tranche 1.4 The purpose of
+the GSESP is to incentivize eligible transmission-scale energy storage systems through a competitive solicitation
+process, supporting the expansion of energy storage in New Jersey to meet the Clean Energy Act of 2018
+(“CEA”)5 mandate of deploying 2,000 MW of energy storage by 2030.6 The GSESP also implements P.L. 2025, c.136,
+which directs the Board to award incentives for at least 350 MW of transmission-scale storage through a Tranche 1
+solicitation and at least 1,000 MW of transmission-scale storage across Tranche 1 and Tranche 2 solicitations.7
+On January 20, 2026, Governor Sherrill issued Executive Order No. 2,8 which, in relevant part directed the Board to
+accelerate the development of transmission-scale energy storage in order to alleviate the current capacity shortage and
+lower electricity costs in response to the State’s utility affordability emergency.
+‑
+‑
+4 In re the Garden State Energy Storage Program (“GSESP”) Pursuant to P.L. 2018, c.17, BPU Docket No.
+QO22080540, Order dated June 18, 2025,
+5 P.L. 2018, c.17.
+6 See N.J.S.A. 48:3-87.8. All megawatt or MW values in this Notice are in alternating current or “AC.”
+7 N.J.S.A. 48:3-121.3(a)(2).
+8 Exec. Order No. 2 (Jan. 20, 2026), 58 N.J.R. 1041(a) (Feb. 17, 2026).
+State of New Jersey
+[letterhead names removed]
+Commissioners
+T he Board awarded three (3) projects with a combined nameplate or installed capacity of 355 MW under Tranche 1 by
+O rder dated March 4, 2026.9 The Board launched Tranche 2 in a separate Order that same day.10 Tranche 2 aims to
+a ward an additional 645 MW of storage capacity, enabling the State to achieve the statutory requirement of 1,000 MW of
+transmission-scale storage under Phase 1.
+For each solicitation, the Board sets the solicitation window during which projects must prequalify by demonstrating that
+they satisfy the applicable maturity requirements and tranche-specific eligibility criteria. In the March 4, 2026, Order, the
+Board established a prequalification period beginning on May 20, 2026, and a Final Application deadline of August 7,
+2026. Eligible applicants seeking Tranche 2 incentives must submit both an administratively complete pre-qualification
+and a Final Application. Projects that submitted a prequalification application by June 10, 2026, were guaranteed a review
+for deficiencies and an opportunity to correct those deficiencies before the Final Application deadline. Timely completed
+prequalification applications were reviewed, and applicants were notified of any deficiencies by June 26, 2026. After the
+Final Application deadline, no revisions to Final Applications or prequalification materials will be accepted.
+On July 24, 2026, PJM posted a revised schedule delaying the commencement of its Phase 1 interconnection study of
+projects in Cycle 1 until September 28, 2026, resulting in the Phase 1 review beginning after the previously established
+Tranche 2 Final Application deadline of August 7, 2026. Because New Jersey law requires that projects proceeding
+through a normal PJM interconnection cycle must at least be in the process of undergoing a Phase 1 interconnection
+study at the time of final application to qualify for the Tranche 2 solicitation,11 all Cycle 1 projects would be disqualified
+from participation in Tranche 2 if the final application deadline remained August 7, 2026. Therefore, pursuant to the
+authority the Board granted Staff in the March 4, 2026, Order initiating the Tranche 2 solicitation,12 Staff is hereby
+extending the Tranche 2 Final Application deadline to October 5, 2026, to ensure an adequate pool of eligible projects
+participates in the solicitation. As a result of this extension, Staff expects a corresponding delay in the Board's decision
+on the outcome of the solicitation and expects to bring its recommendations for the Board’s consideration to a Board
+Agenda meeting at the end of 2026.
+Interested parties may submit Prequalification Applications and Final Applications here.
+[signature removed]
+Secretary of the Board
+44 South Clinton Ave., 1st Floor
+P.O. Box 350
+Trenton, NJ 08625-0350
+Phone: [removed]
+Email: [removed]
+Dated: July 30, 2026
+9 In re the Garden State Energy Storage Program (“GSESP”) Pursuant to P.L. 2018, c.17, BPU Docket No.
+QO22080540, Order dated March 4, 2026.
+10 In re the Garden State Energy Storage Program Phase 1, Tranche 2, BPU Docket No. QO25120634, Order
+dated March 4, 2026.
+11 N.J.S.A. 48:3-121.3(b)(3)(b).
+12 See Tranche 2 Launch Order at 8, 25.

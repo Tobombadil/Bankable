@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Contact — Inframation{% endblock %}
+{% block meta_description %}How to reach the people who run Inframation: general questions, corrections, privacy, and site owners.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Contact</h1>
+  <p>Inframation is run by {% if controller.name %}<strong id="contact-operator">{{ controller.name }}</strong>{% else %}a small team; the legal entity will be named here{% endif %}. A person reads every message.</p>
+</div>
+
+<section id="contact-channels">
+  <dl>
+    <dt>General questions and feedback</dt>
+    <dd><a href="mailto:{{ contact_email }}" id="contact-email">{{ contact_email }}</a></dd>
+    <dt>A record is wrong</dt>
+    <dd>Use "Report a problem" on the record's own page, so the report reaches us with the record attached.</dd>
+    <dt>A project we are missing</dt>
+    <dd><a href="/submit">Submit it</a>, with a link to the public source.</dd>
+    <dt>Privacy, or a record that names you</dt>
+    <dd><a href="/privacy/request">Privacy request form</a>, or <a href="mailto:{{ privacy_email }}">{{ privacy_email }}</a>. See the <a href="/privacy">privacy notice</a>.</dd>
+    <dt>You run a site our reader visits</dt>
+    <dd>See <a href="/bot">our data reader</a>, or write to the general address above.</dd>
+    <dt>Postal address</dt>
+    <dd id="contact-address">{% if controller.address %}{{ controller.address }}{% else %}Not yet published on this page. Ask at the email address above.{% endif %}</dd>
+  </dl>
+</section>
+{% endblock %}

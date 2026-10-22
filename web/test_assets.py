@@ -30,3 +30,15 @@ def test_rendered_pages_reference_versioned_assets() -> None:
         html = client.get("/privacy").text
     assert f'/static/css/styles.css?v={ASSET_VERSION}"' in html
     assert '/static/css/styles.css"' not in html, "an unversioned reference would defeat the point"
+
+
+def test_every_file_a_template_versions_is_in_the_version_hash() -> None:
+    """A template that links `static/<file>?v={{ asset_version }}` relies on the hash covering that
+    file; basemap.js and asset_map.js were left out (mobile-behaviour review, 2026-10-22)."""
+    templates = Path(__file__).resolve().parent / "templates"
+    linked: set[str] = set()
+    for path in templates.rglob("*.html"):
+        linked |= set(
+            re.findall(r"/static/([\w/.-]+)\?v=\{\{ asset_version \}\}", path.read_text(encoding="utf-8"))
+        )
+    assert linked and linked <= set(VERSIONED_ASSETS), sorted(linked - set(VERSIONED_ASSETS))

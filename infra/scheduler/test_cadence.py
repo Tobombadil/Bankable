@@ -15,6 +15,7 @@ from infra.scheduler.cadence import (
     annual_run_month,
     bucket_for_cadence,
     is_due,
+    poll_cadence,
     queue_for_source,
     queueing_lock_for,
     release_month,
@@ -193,8 +194,10 @@ def test_an_annual_source_without_release_month_keeps_the_january_default() -> N
 
 
 def test_every_annual_source_runs_in_exactly_one_month() -> None:
+    # The bucket the scheduler uses is the poll cadence's: an annual source polled more often (the
+    # us.rfp.* issuers, `poll: daily`) is not on the annual tick at all.
     for source in _manifest().values():
-        if "cadence" in source and bucket_for_cadence(str(source["cadence"])).bucket == "annual":
+        if "cadence" in source and bucket_for_cadence(poll_cadence(source)).bucket == "annual":
             months = [m for m in range(1, 13) if is_due(source, "annual", m)]
             assert months == [annual_run_month(source)], source["id"]
 
@@ -230,3 +233,28 @@ def test_manifest_release_months_are_valid_and_only_on_annual_sources() -> None:
         if line.strip().startswith("release_month:"):
             above = text[i - 1].strip()
             assert above.startswith("# release_month:") and "http" in above, f"line {i + 1}: {above!r}"
+
+
+def test_the_curated_issuer_rfp_sources_are_polled_daily_on_the_plain_queue() -> None:
+    """US-303 tranche 1 (docs/28 §8.1): each cleared issuer is its own manifest row, served by
+    `pipeline/connectors/us_rfp`, polled daily although its solicitations come about once a year
+    (the `poll` override), on the plain `fetch` queue. The umbrella `us.utility_rfps` stays a
+    manifest entry only, with no `poll` override."""
+    manifest = _manifest()
+    rfp = {sid: s for sid, s in manifest.items() if s.get("connector_module") == "us_rfp"}
+    assert sorted(rfp) == sorted(
+        [
+            "us.rfp.pso",
+            "us.rfp.appalachian_power",
+            "us.rfp.swepco",
+            "us.rfp.indiana_michigan_power",
+            "us.rfp.ct_deep",
+            "us.rfp.nj_bpu",
+        ]
+    )
+    for sid, source in rfp.items():
+        assert poll_cadence(source) == "daily", sid
+        assert schedule_for_source(source) == CRON_BY_BUCKET["daily"], sid
+        assert is_due(source, "daily", 10) and not is_due(source, "weekly", 10), sid
+        assert queue_for_source(source) == "fetch", sid
+    assert "poll" not in manifest["us.utility_rfps"]

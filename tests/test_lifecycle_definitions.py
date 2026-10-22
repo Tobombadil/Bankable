@@ -28,7 +28,9 @@ import yaml
 from services.api.lifecycle import (
     DEFINITIONS_PATH,
     PRE_CONSTRUCTION,
+    SOURCES_PATH,
     connectors_by_status_key,
+    family_source_id,
     mapped_states,
     status_map_paths,
     vocabulary,
@@ -36,6 +38,7 @@ from services.api.lifecycle import (
 from services.db.models import LIFECYCLE_STATES, OPPORTUNITY_STATUSES
 
 DOCUMENT = yaml.safe_load(DEFINITIONS_PATH.read_text(encoding="utf-8"))
+SOURCES = yaml.safe_load(SOURCES_PATH.read_text(encoding="utf-8"))
 
 
 def test_every_lifecycle_state_has_a_published_definition() -> None:
@@ -84,11 +87,39 @@ def test_status_key_scan_matches_the_real_connector_classes() -> None:
                 module_path = path
                 break
         assert module_path is not None, status_key
-        module = importlib.import_module(f"pipeline.connectors.{module_path.parent.name}.connector")
-        connector = module.Connector
-        assert connector.status_key == status_key
-        assert connector.source_id == entry["source_id"]
-        assert connector.kind == entry["kind"]
+        package = module_path.parent.name
+        module = importlib.import_module(f"pipeline.connectors.{package}.connector")
+        factory = getattr(module, "connector_class_for", None)
+        if factory is None:
+            connector = module.Connector
+            assert connector.status_key == status_key
+            assert connector.source_id == entry["source_id"]
+            assert connector.kind == entry["kind"]
+            continue
+        # A registry-driven family (`pipeline/connectors/us_rfp`): every manifest row naming the
+        # module binds a class with this status key and kind, and the page's id is their parent.
+        rows = [s for s in SOURCES["sources"] if s.get("connector_module") == package]
+        assert rows, package
+        assert entry["source_id"] == family_source_id(package)
+        assert {s.get("parent") for s in rows} == {entry["source_id"]}
+        for row in rows:
+            connector = factory(row["id"])
+            assert connector.source_id == row["id"]
+            assert connector.status_key == status_key
+            assert connector.kind == entry["kind"]
+
+
+def test_the_curated_rfp_mappings_are_opportunity_statuses_with_rows() -> None:
+    """The six curated RFP issuers share one module and one status map (`utility_rfp`). Their
+    mappings belong to the opportunity vocabulary, from a source that produces rows; read as a
+    proposal source with no connector, they were listed under the proposal states as withheld."""
+    vocab = vocabulary()
+    lifecycle_keys = {m["status_key"] for s in vocab["lifecycle_states"] for m in s["maps_from"]}
+    assert "utility_rfp" not in lifecycle_keys
+    rfp = [
+        m for s in vocab["opportunity_statuses"] for m in s["maps_from"] if m["status_key"] == "utility_rfp"
+    ]
+    assert rfp and all(m["rows_published"] and m["source_id"] == "us.utility_rfps" for m in rfp)
 
 
 def test_every_status_map_file_is_read() -> None:

@@ -94,6 +94,7 @@ local RustFS container.
 | `mdb.worldbank.procnotices` | opportunity | Procurement notices, `sector.sector_code` energy codes, 14-day window |
 | `us.ferc.elibrary` | document | eLibrary `AdvancedSearch` JSON backend, ER/CP docket filings, 30-day window |
 | `us.permits_dashboard` | proposal | FAST-41 Permitting Dashboard full milestone CSV, energy/transmission sectors |
+| `us.rfp.pso`, `us.rfp.appalachian_power`, `us.rfp.swepco`, `us.rfp.indiana_michigan_power`, `us.rfp.ct_deep`, `us.rfp.nj_bpu` | opportunity (`rfp`) | One registry-driven module, `us_rfp` (manifest `connector_module`), for the issuers `data/vendored/rfp_issuers/issuers.yaml` clears (docs/28 §8.1): AEP Energy Provider RFPs pages, CT DEEP news releases, NJ BPU public notices; generation solicitations only. The AEP four are `noncommercial` (published only under `PLATFORM_POSTURE=noncommercial`) |
 
 SPP, ISO-NE, PJM and MISO are deliberately **not** implemented this sprint (`docs/13` §6).
 

@@ -59,7 +59,7 @@ def session(responses: list[Any], **kw: Any) -> tuple[PoliteSession, StubSession
 def test_user_agent_is_browser_like_names_the_platform_and_carries_a_contact_url():
     ua = user_agent()
     assert ua.startswith("Mozilla/5.0")
-    assert "Bankable" in ua
+    assert "Inframation" in ua
     assert "/bot" in ua and "contact" in ua
     assert DOMAIN_PLACEHOLDER in USER_AGENT_TEMPLATE  # the placeholder lives in the template
     assert "{" not in ua and "}" not in ua  # and never reaches the wire (WAFs reject it)
@@ -252,7 +252,7 @@ def test_a_plain_403_is_a_failure_not_a_block_and_not_retried():
 
 
 def test_robots_rules_naming_our_bot_win_over_the_wildcard():
-    robots = StubResponse(200, b"User-agent: *\nAllow: /\n\nUser-agent: Bankable\nDisallow: /\n")
+    robots = StubResponse(200, b"User-agent: *\nAllow: /\n\nUser-agent: Inframation\nDisallow: /\n")
     ps, stub, _ = session([robots, StubResponse()])
     with pytest.raises(HttpBlocked):
         ps.get("https://example.invalid/anything")
@@ -267,7 +267,7 @@ def test_robots_wildcard_is_the_fallback_when_our_bot_is_not_named():
 
 
 def test_robots_allow_for_our_bot_overrides_a_wildcard_disallow():
-    robots = StubResponse(200, b"User-agent: *\nDisallow: /\n\nUser-agent: Bankable\nAllow: /\n")
+    robots = StubResponse(200, b"User-agent: *\nDisallow: /\n\nUser-agent: Inframation\nAllow: /\n")
     ps, _, _ = session([robots, StubResponse()])
     assert ps.allowed_by_robots("https://example.invalid/data.csv")
 
@@ -275,5 +275,5 @@ def test_robots_allow_for_our_bot_overrides_a_wildcard_disallow():
 def test_the_robots_token_comes_from_the_sessions_user_agent():
     from pipeline.connectors.http import robots_token
 
-    assert robots_token(user_agent()) == "Bankable"
+    assert robots_token(user_agent()) == "Inframation"
     assert robots_token("Mozilla/5.0 (compatible; OtherBot/1.0; +https://x.example/bot)") == "OtherBot"

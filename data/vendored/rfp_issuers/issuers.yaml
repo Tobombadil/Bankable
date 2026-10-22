@@ -31,6 +31,13 @@
 #                       capture by the build script; an empty list means nothing could be quoted
 #   robots            : robots.txt URL and what it said on read_on
 #   public_records_law: named from general knowledge for public bodies; not retrieved; counsel to confirm
+#   connector         : what pipeline/connectors/us_rfp reads for this row (added 2026-10-21 with the
+#                       tranche-1 connector; only cleared rows with automated_reading: allowed carry one):
+#                       extractor (aep_energy_rfps | news_release_index | notice_table_pdf), listing_url ({year}
+#                       is the current year), issuer (the organisation name records carry), issuer_type,
+#                       jurisdiction (ISO 3166-2, or US for a multi-state issuer), kind, link_only_hosts
+#                       (never fetched), classify_ignore (phrases the classifier strips first) and per-run caps.
+#                       A row without this block is never fetched.
 #
 # Re-read every terms_url at least quarterly and before any change of verdict: most of these pages say
 # the issuer may change the terms at any time without notice.
@@ -692,6 +699,14 @@ issuers:
   read_on: '2026-10-21'
   confidence: moderate-high
   attribution: 'Source: Appalachian Power (AEP), Energy RFPs'
+  connector:
+    extractor: aep_energy_rfps
+    listing_url: https://www.appalachianpower.com/business/b2b/energy-rfps/
+    issuer: Appalachian Power Company
+    issuer_type: utility
+    jurisdiction: US
+    kind: rfp
+    max_detail_pages: 8
   listing_status_2026_10_21: verified
   notes: 'Footer on the listing page reads "Use of this site constitutes acceptance of the AEP Terms and Conditions."
     Credit line: "Source: Appalachian Power (AEP), Energy RFPs". Class is noncommercial: publishable only while
@@ -727,6 +742,14 @@ issuers:
   read_on: '2026-10-21'
   confidence: moderate-high
   attribution: 'Source: Public Service Company of Oklahoma (AEP), Energy RFPs'
+  connector:
+    extractor: aep_energy_rfps
+    listing_url: https://www.psoklahoma.com/business/b2b/energy-rfps/
+    issuer: Public Service Company of Oklahoma
+    issuer_type: utility
+    jurisdiction: US-OK
+    kind: rfp
+    max_detail_pages: 8
   listing_status_2026_10_21: verified
   notes: 'Same AEP terms and page template as Appalachian Power. Credit: "Source: Public Service Company of Oklahoma
     (AEP), Energy RFPs".'
@@ -761,6 +784,14 @@ issuers:
   read_on: '2026-10-21'
   confidence: moderate-high
   attribution: 'Source: SWEPCO (AEP), Energy RFPs'
+  connector:
+    extractor: aep_energy_rfps
+    listing_url: https://www.swepco.com/business/b2b/energy-rfps/
+    issuer: Southwestern Electric Power Company
+    issuer_type: utility
+    jurisdiction: US
+    kind: rfp
+    max_detail_pages: 8
   listing_status_2026_10_21: verified
   notes: 'Same AEP terms and page template. Credit: "Source: SWEPCO (AEP), Energy RFPs".'
 - id: us.rfp.indiana_michigan_power
@@ -794,6 +825,14 @@ issuers:
   read_on: '2026-10-21'
   confidence: moderate-high
   attribution: 'Source: Indiana Michigan Power (AEP), Energy RFPs'
+  connector:
+    extractor: aep_energy_rfps
+    listing_url: https://www.indianamichiganpower.com/business/b2b/energy-rfps/
+    issuer: Indiana Michigan Power Company
+    issuer_type: utility
+    jurisdiction: US
+    kind: rfp
+    max_detail_pages: 8
   listing_status_2026_10_21: verified
   notes: 'Same AEP terms and page template. Credit: "Source: Indiana Michigan Power (AEP), Energy RFPs".'
 - id: us.rfp.georgia_power
@@ -2116,6 +2155,19 @@ issuers:
   public_records_law: Connecticut Freedom of Information Act (C.G.S. § 1-200 et seq.); named from general knowledge,
     not retrieved (counsel to confirm)
   attribution: 'Source: Connecticut Department of Energy and Environmental Protection'
+  connector:
+    extractor: news_release_index
+    listing_url: https://portal.ct.gov/deep/news-releases/news-releases---{year}
+    issuer: Connecticut Department of Energy and Environmental Protection
+    issuer_type: agency
+    jurisdiction: US-CT
+    kind: rfp
+    link_only_hosts: [www.dpuc.state.ct.us]
+    classify_ignore: [Department of Energy and Environmental Protection, Energy & Environmental Protection]
+    first_run_lookback_days: 365
+    overlap_days: 7
+    max_pages: 25
+    max_detail_pages: 10
   listing_status_2026_10_21: verified
   notes: 'Read news releases on portal.ct.gov automatically. RFP documents sit on www.dpuc.state.ct.us, whose robots.txt
     disallows everything: link to them, never fetch them. Credit: "Source: Connecticut Department of Energy and
@@ -2157,6 +2209,15 @@ issuers:
   public_records_law: New Jersey Open Public Records Act (N.J.S.A. 47:1A-1 et seq.); named from general knowledge,
     not retrieved (counsel to confirm)
   attribution: 'Source: New Jersey Board of Public Utilities'
+  connector:
+    extractor: notice_table_pdf
+    listing_url: https://www.nj.gov/bpu/newsroom/public/
+    issuer: New Jersey Board of Public Utilities
+    issuer_type: agency
+    jurisdiction: US-NJ
+    kind: rfp
+    lookback_days: 400
+    max_documents: 10
   listing_status_2026_10_21: partial
   notes: 'Statewide use policy permits copying and distribution of State information. The row has no single listing
     page: read the BPU public notices index and orders. Credit: "Source: New Jersey Board of Public Utilities".'

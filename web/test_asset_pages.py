@@ -1176,7 +1176,11 @@ def test_map_script_draws_asset_lines_and_the_new_point_types() -> None:
     assert 'params.set("asset_type"' in source
     assert '"/assets/by-id/" + encodeURIComponent(String(p.public_id))' in source
     assert "showAssetTooltip" in source and 'map.on("mousemove", "asset-lines-hit"' in source
-    assert 'map.on("click", "asset-lines-hit"' in source and "renderAsset" in source
+    # A click on a line opens the asset drawer through the map's one click handler (docs/17 M-2).
+    click_order = source.split("var CLICK_ORDER = [", 1)[1].split("];", 1)[0]
+    line_tier = '{ layers: ["asset-lines-hit"], act: function (f) { openAssetDrawer(f.properties); } }'
+    assert line_tier in click_order
+    assert 'map.on("click", onMapClick);' in source and "renderAsset" in source
     assert 'btn.className = "details-btn"' in source  # in-view rows open the drawer by keyboard
     assert 'appendGroupName("Regions (' in source  # region records reachable from the list
     assert "data-legend-type" in source

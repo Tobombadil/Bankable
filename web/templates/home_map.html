@@ -16,14 +16,21 @@
     current the sources are is said once, in the masthead link (`masthead_modifier` keeps it below
     720px on this page); the tier notice block is not repeated here. The source list is in the
     attribution line under the map. -#}
+{#- docs/17 M-6: below 720px the lede is its first sentence; the rest, with how to use the map, is
+    behind "About this map" (map.js wires it; keyed on `.js`, so without scripts it is all shown).
+    The full stop is drawn only while the rest is closed. On a touch screen map.js says "Tap"
+    for "Click" (`data-touch-words`). -#}
 <div class="map-intro">
   <h1 class="map-intro__title">{{ map_heading }}</h1>
-  <p class="map-intro__lede">Projects from public grid-queue and permit filings in the US and GB, matched across registers: every claim linked to its source, every status change dated, and <a href="/alerts">alerts</a> when something you follow moves. <strong>Click a cluster to zoom in, or a dot to open its record.</strong></p>
+  <p class="map-intro__lede" id="map-intro-lede">Projects from public grid-queue and permit filings in the US and GB, matched across registers<span class="map-intro__more" id="map-intro-more">: every claim linked to its source, every status change dated, and <a href="/alerts">alerts</a> when something you follow moves. <strong data-touch-words="Tap a cluster to zoom in, or a dot to open its record.">Click a cluster to zoom in, or a dot to open its record.</strong></span><span class="map-intro__stop" aria-hidden="true">.</span> <button type="button" class="map-intro__about" id="map-intro-about" aria-expanded="false" aria-controls="map-intro-more">About this map</button></p>
 </div>
 {{ m.preview_banner(delayed) }}
 
 {{ m.filter_toggle("map-filters") }}
 <form id="map-filters" class="filter-bar filter-bar--map" data-collapse aria-label="Map filters" data-passthrough="{{ passthrough_filters|join(',') }}">
+  {#- docs/17 M-11: below 720px the open bar is taller than the screen, so "Show the map" is at its top
+      as well as its foot (site.js wires every `data-filter-done`). Not drawn from 720px. -#}
+  <button type="button" class="filter-bar__done filter-bar__done--top" data-filter-done>Show the map</button>
   <div class="filter-field">
     <label for="mf-technology">Technology</label>
     <select id="mf-technology" name="technology">
@@ -115,43 +122,58 @@
 
 {#- One status row: how many match, the lifecycle notice, saving the search and the view switch.
     The save link sits with the result it saves (as on the list page), so it is in view at 400px
-    while the filters are collapsed, and the filter bar stays one row at 1440px. -#}
+    while the filters are collapsed, and the filter bar stays one row at 1440px. Below 720px
+    (docs/17 M-6) the count and the notice's short form share one line, the notice itself opens
+    from "Why?" (`_map_notice.html`), and the save link and the view switch share the next. -#}
 <div class="map-status">
   <p class="result-count" id="map-result-count" aria-hidden="true">Loading proposals&hellip;</p>
   {#- docs/31 §6 error state: the RFC 9457 title and request id, a retry, and the list as a way on
       (map.js fills it; designer D-11 found the map stuck on "Loading proposals…" for good). -#}
   <div class="map-error" id="map-error" role="alert" hidden></div>
   <div id="map-notice">{% include "_map_notice.html" %}</div>
+  <div class="map-status__actions">
   {% if save_alert_href %}<a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>{% endif %}
   {{ m.view_switch("map", "/", list_href, feed_href) }}
+  </div>
 </div>
 
 <div class="map-layout">
   <div>
     <div class="map-frame">
     {#- Zoom and region jumps sit on the map, top left, as map controls do, so nothing stands
-        between the filters and the canvas (D-3). -#}
+        between the filters and the canvas (D-3). Below 720px (docs/17 M-1) the controls are one
+        column of 44px buttons on the map's right edge (`.map-overlay__rail`): zoom in, zoom out,
+        "Jump to" (the region jumps and "Whole map", which stands in for Reset) and "Key"; the key
+        itself opens under the map, in the page, not over it. From 720px the rail and the "Jump to"
+        wrapper lay out as if absent (`display: contents`) and the controls are as before. -#}
     <div class="map-overlay">
+    <div class="map-overlay__rail">
     <div class="map-controls map-controls--zoom" role="group" aria-label="Map zoom">
       <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
       <button type="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
       <button type="button" id="zoom-reset" aria-label="Reset view">Reset</button>
     </div>
     {% if regions %}
-    <div class="map-controls map-controls--regions" role="group" aria-label="Jump to region">
-      {% for r in regions %}
-      <button type="button" class="region-btn" data-region="{{ r.code }}" data-bbox="{{ r.bbox }}">{{ r.label }}</button>
-      {% endfor %}
+    <div class="map-controls map-controls--jump">
+      <button type="button" class="map-jump__toggle" id="map-jump-toggle" aria-expanded="false" aria-controls="map-regions" hidden>Jump to</button>
+      <div class="map-controls map-controls--regions" id="map-regions" role="group" aria-label="Jump to region">
+        {% for r in regions %}
+        <button type="button" class="region-btn" data-region="{{ r.code }}" data-bbox="{{ r.bbox }}">{{ r.label }}</button>
+        {% endfor %}
+        <button type="button" class="map-jump__home" id="map-jump-home">Whole map</button>
+      </div>
     </div>
     {% endif %}
     <div class="map-controls map-controls--key">
       <button type="button" id="map-key-toggle" aria-expanded="true" aria-controls="map-key" hidden>Key</button>
     </div>
+    </div>
     {#- The map key (review 2026-10-10 §2.6 item 2: it sat under the map, below the fold at 1440x900
-        and 400x800). It is drawn on the map under the zoom controls, top left, where the default
-        view has ocean rather than the dense Northeast: a panel from 720px, a strip of short labels
-        below that. The page ground behind the words keeps every hue at the contrast measured for it
-        on --bg. "Key" (map.js) hides and shows it. -#}
+        and 400x800). From 720px it is drawn on the map under the zoom controls, top left, where the
+        default view has ocean rather than the dense Northeast. Below 720px it opens under the map
+        frame, in the page (docs/17 M-1: over the canvas it covered 28% of the map), as a strip of
+        short labels whose layer sections start closed. The page ground behind the words keeps every
+        hue at the contrast measured for it on --bg. "Key" (map.js) hides and shows it. -#}
     <div class="map-key" id="map-key">
     <div class="map-key__panel" role="group" aria-label="Map key">
         {#- Designer D-2: the legend names only marks the map draws -- each proposal and each cluster
@@ -174,7 +196,8 @@
            the type, hue is secondary (D-5). #}
         <div class="legend legend--plants legend--assets" id="plants-legend" aria-hidden="true" hidden>
           {#- With a layer on the key is compact (map.js `syncKeyCompact`): each layer's key is a
-              section that closes, so the panel can be made smaller still. Open on arrival. -#}
+              section that closes, so the panel can be made smaller still. Open on arrival from
+              720px; below it map.js closes them, so the status strip shows first (docs/17 M-1). -#}
           <details class="map-key__section" open>
           <summary class="map-key__section-name">Existing assets</summary>
           <div class="map-key__section-body">
@@ -235,6 +258,10 @@
   <aside class="map-side" aria-label="Proposals, regions and existing assets in view">
     <a id="in-view-list" tabindex="-1"></a>
     <h2>In view</h2>
+    {#- docs/17 M-5: what the proposals in view are, by status family and stated capacity, so a touch
+        screen, which never shows a cluster's hover card, has the same information (D-10). map.js
+        fills it once proposals load; it is not live (the region below announces each move). -#}
+    <p class="in-view-summary" id="in-view-summary" hidden></p>
     <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
     <ul class="in-view-list" id="in-view-items"></ul>
     <p id="lines-note" class="in-view-list__unplaced" hidden></p>

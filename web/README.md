@@ -245,8 +245,9 @@ against the full load):
 
 ### Cluster count at the default zoom
 
-The home page's default view (zoom 3, continental-US-scale bbox from `web/static/js/map.js`'s
-initial `WORLD_CENTER`/`WORLD_ZOOM`) renders **22 clusters** — visually confirmed in
+The home page's default view as measured then (zoom 3, the continental-US-scale bbox of
+`web/static/js/map.js`'s fixed initial view; since docs/17 M-7 the view fits `CONUS_BOUNDS` instead,
+about zoom 3.1 at 1440 wide) rendered **22 clusters** — visually confirmed in
 `web/screenshots/home-desktop.png` — matching `services/README.md`'s own measurement of 22 clusters
 at zoom 3 over the same bbox on the same full load. This replaces the earlier three-circle defect
 (`cell_deg = 360 / 2**zoom` covered the whole continental US in 2-6 cells at zoom 3); the backend's
@@ -638,7 +639,7 @@ dependency. Both URLs are quoted from `https://protomaps.github.io/basemaps-asse
 `spreet`-built spritesheet and keeping both in lockstep with whichever `@protomaps/basemaps`
 version this app pins — real ongoing maintenance for assets Protomaps already publishes and
 versions specifically for basemaps consumers, at a scale this app has no way to shrink (below).
-Measured (Playwright network log, this app's own default `WORLD_ZOOM` view, the map page's first
+Measured (Playwright network log, the default view at the time (a fixed zoom, before docs/17 M-7 fitted `CONUS_BOUNDS`), the map page's first
 paint, `/tmp/measure_glyphs.py`-style capture): 3 glyph range requests (`Noto Sans
 Regular`/`Medium`/`Italic`, range `0-255`, the only fontstacks this app's flavor/options actually
 reference) at **76,044 / 77,628 / 79,344 bytes = 233,016 bytes (≈ 227.6 KiB) total**, plus the

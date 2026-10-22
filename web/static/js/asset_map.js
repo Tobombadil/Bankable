@@ -56,6 +56,10 @@
   var TILE_URL = container.getAttribute("data-tile-url") || "";
   var TILE_MODE = container.getAttribute("data-tile-mode") || "dev";
   var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // docs/17 M-3: on a touch screen one finger scrolls the page past the map and two move it
+  // (MapLibre's cooperative gestures and its hint, styled in styles.css). A one-finger swipe on the
+  // 287px map used to move the map and never the page. The zoom buttons stay; a mouse drags as before.
+  var coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
 
   // Replace the static SVG with the canvas container only once MapLibre is known to be present.
   container.innerHTML = "";
@@ -68,9 +72,15 @@
     attributionControl: false,
     scrollZoom: false,
     dragRotate: false,
-    pitchWithRotate: false
+    pitchWithRotate: false,
+    cooperativeGestures: !!(coarsePointer && coarsePointer.matches)
   });
   map.touchZoomRotate.disableRotation();
+  if (coarsePointer && coarsePointer.addEventListener) {
+    coarsePointer.addEventListener("change", function (e) {
+      if (e.matches) map.cooperativeGestures.enable(); else map.cooperativeGestures.disable();
+    });
+  }
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   window.__assetMap = map; // for the browser smoke test only
 

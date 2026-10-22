@@ -36,7 +36,11 @@ The status maps are keyed by a connector's `status_key` ("caiso", "eia860m"), no
 this module reads *textually* rather than by importing thirteen connector modules (and, through
 them, pandas and the HTTP stack) into the API process on a page render. A text scan can drift
 from the classes it scans, so `tests/test_lifecycle_definitions.py` imports the real connector
-classes and asserts the scan agrees with them.
+classes and asserts the scan agrees with them. One module, `pipeline/connectors/us_rfp`, serves a
+family of manifest rows (`connector_module` in `data/sources.yaml`) and binds `source_id` per row,
+so the file holds no literal id; its status map answers for the family's shared `parent`
+(`family_source_id`, 2026-10-21). Without that it read as a proposal source with no connector and
+its opportunity mappings were listed under the proposal states as withheld.
 
 Two status-map entries — `spp` and `isone` — have no connector at all. Their sources are withheld
 pending licence clearance, so the mapping is written and produces no rows. They are reported with
@@ -59,6 +63,7 @@ _ROOT = pathlib.Path(__file__).resolve().parents[2]
 DEFINITIONS_PATH = _ROOT / "data" / "vocabulary" / "lifecycle_states.yaml"
 STATUS_MAP_PATHS = (_ROOT / "pipeline" / "status_map.yaml",)
 CONNECTOR_ROOT = _ROOT / "pipeline" / "connectors"
+SOURCES_PATH = _ROOT / "data" / "sources.yaml"
 
 #: The claim the published page makes about granularity (module docstring). Asserted against
 #: `LIFECYCLE_STATES` by the drift test, so it cannot name a state that no longer exists.
@@ -69,24 +74,45 @@ _STATUS_KEY_RE = re.compile(r'^\s*status_key:\s*ClassVar\[str\]\s*=\s*"([^"]+)"'
 _KIND_RE = re.compile(r'^\s*kind:\s*ClassVar\[Kind\]\s*=\s*"([^"]+)"', re.MULTILINE)
 
 
+def family_source_id(package: str) -> str | None:
+    """The id a registry-driven family module answers for on this page, or None when no manifest
+    row names `package` in `connector_module`. Such a module (`pipeline/connectors/us_rfp`) binds
+    one class per manifest row, so its `source_id` is not a literal in the file; the page shows the
+    family's shared `parent` (`us.utility_rfps` for the six curated RFP issuers), else the first
+    row's id."""
+    document = yaml.safe_load(SOURCES_PATH.read_text(encoding="utf-8")) or {}
+    rows = [
+        s
+        for s in document.get("sources") or []
+        if isinstance(s, dict) and s.get("connector_module") == package and s.get("id")
+    ]
+    if not rows:
+        return None
+    parents = {str(s.get("parent") or "") for s in rows}
+    if len(parents) == 1 and "" not in parents:
+        return parents.pop()
+    return str(rows[0]["id"])
+
+
 @functools.lru_cache(maxsize=1)
 def connectors_by_status_key() -> dict[str, dict[str, str]]:
     """`{"caiso": {"source_id": ..., "kind": "proposal"}, ...}`, read as text from the connector
     modules (module docstring explains why text and not an import).
 
     A connector that declares no `status_key` does no status harmonisation and contributes
-    nothing. Pinned against the real classes by the drift test."""
+    nothing. A module whose `source_id` is bound per manifest row (`family_source_id`) answers
+    for its family. Pinned against the real classes by the drift test."""
     out: dict[str, dict[str, str]] = {}
     for path in sorted(CONNECTOR_ROOT.glob("*/connector.py")):
         text = path.read_text(encoding="utf-8")
         source_id = _SOURCE_ID_RE.search(text)
         status_key = _STATUS_KEY_RE.search(text)
         kind = _KIND_RE.search(text)
-        if source_id and status_key:
-            out[status_key.group(1)] = {
-                "source_id": source_id.group(1),
-                "kind": kind.group(1) if kind else "proposal",
-            }
+        if not status_key:
+            continue
+        sid = source_id.group(1) if source_id else family_source_id(path.parent.name)
+        if sid:
+            out[status_key.group(1)] = {"source_id": sid, "kind": kind.group(1) if kind else "proposal"}
     return out
 
 

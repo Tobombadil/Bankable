@@ -2,10 +2,28 @@
     the filters map.js has just applied, by `/api/proposals/notice` -- one template for both, so the
     wording cannot drift between first paint and a filter change. Nothing when the link names its
     own `lifecycle_state` (the page then says nothing it did not choose). -#}
+{#- docs/17 M-6: below 720px the notice was three lines between the count and the map. There the
+    count and a short form of it ("Active only.") share one line, and the notice itself, with what it
+    hides, opens from "Why?" (map.js keeps it open across a filter change). From 720px, and without
+    scripts, the short form is not drawn and the notice reads as before.
+    A coverage note (`iso_gap_notes`: this ISO's own queue has no rows here; what is listed for it
+    comes from EIA-860M) is provenance, not a reason something is hidden, so it is never behind
+    "Why?": it shows at every width, between the short form and what "Why?" opens (docs/17 §6,
+    D-2/D-34: the source on every screen). -#}
 {% import "_macros.html" as m %}
+{%- set lifecycle_line = not lifecycle_explicit -%}
+{%- if lifecycle_line or unlisted_notice %}
+<p class="map-notice__brief">
+  {%- if lifecycle_line %}{{ 'Withdrawn included.' if include_withdrawn else 'Active only.' }}
+  {%- else %}Some proposals hidden.{% endif %} <button type="button" class="map-notice__why" aria-expanded="false" aria-controls="map-notice-detail">Why?</button></p>
+{%- endif %}
 {%- for note in iso_gap_notes or [] %}<p class="view-notice view-notice--gap" role="note">{{ note }} <a href="/methodology#withheld">Which registers are withheld</a>.</p>{% endfor -%}
-{%- if not lifecycle_explicit %}{{ m.active_states_notice(breakdown, include_withdrawn, built_href=built_href) }}{% endif -%}
+{%- if lifecycle_line or unlisted_notice %}
+<div class="map-notice__detail" id="map-notice-detail">
+{%- if lifecycle_line %}{{ m.active_states_notice(breakdown, include_withdrawn, built_href=built_href) }}{% endif -%}
 {{- m.unlisted_notice(unlisted_notice) -}}
+</div>
+{%- endif %}
 {#- docs/31 §6 (designer D-11): when nothing matches in any state, name the filter that emptied the
     map and link to the map without it (`web/app.py::map_empty_facets`). -#}
 {%- if empty_facets %}

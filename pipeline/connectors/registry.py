@@ -12,7 +12,10 @@
   from docs/02 §7, else 1 rps.
 
 Connector modules live at `pipeline/connectors/<source_id with '.' -> '_'>/connector.py`
-(docs/04 E-1; dots are not importable) and expose a class named `Connector`.
+(docs/04 E-1; dots are not importable) and expose a class named `Connector`. A family of sources
+served by one registry-driven module names it in the manifest (`connector_module`), and the module
+exposes `connector_class_for(source_id)` instead, which builds the class for an id it clears and
+raises `RegistrationError` for any other (`pipeline/connectors/us_rfp`, docs/28 §10).
 """
 
 from __future__ import annotations
@@ -66,6 +69,7 @@ _RPS_PATTERNS = (
 )
 _PER_N_SEC = re.compile(r"(?:one|1)\s*(?:request\s*)?per\s*(\d+)\s*s(?:ec|econds)?\b", re.I)
 _PER_MIN = re.compile(r"(\d+)\s*(?:requests?|connections?|calls?|req)?\s*(?:per|/)\s*min", re.I)
+_MODULE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class RegistrationError(Exception):
@@ -153,6 +157,13 @@ class SourceEntry:
 
     @property
     def module_name(self) -> str:
+        """The connector package: the id with `.`/`-` as `_`, or the manifest's `connector_module`
+        for a source served by a registry-driven family (`us_rfp` serves every cleared
+        `us.rfp.*` issuer, docs/28 §10). A value that is not a package name is ignored, so the source
+        lists as unimplemented rather than importing an arbitrary path."""
+        family = str(self.raw.get("connector_module") or "")
+        if _MODULE_RE.match(family):
+            return family
         return self.id.replace(".", "_").replace("-", "_")
 
     @property
@@ -267,7 +278,10 @@ class Registry:
         if not src.implemented:
             raise RegistrationError(f"{source_id} is unimplemented (manifest entry only)")
         module = importlib.import_module(f"pipeline.connectors.{src.module_name}.connector")
-        cls: type[Connector] = module.Connector
+        # A family module builds the class for each id it serves (and refuses the ids it does not
+        # clear); a one-source module exposes its class as `Connector`.
+        factory = getattr(module, "connector_class_for", None)
+        cls: type[Connector] = factory(source_id) if callable(factory) else module.Connector
         if cls.source_id != source_id:
             raise RegistrationError(f"{module.__name__} declares {cls.source_id}, expected {source_id}")
         return cls
