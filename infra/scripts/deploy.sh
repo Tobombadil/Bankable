@@ -236,6 +236,10 @@ wait_healthy() { # <host> <service...>: every replica reports a healthy healthch
     fi
     if (( $(date +%s) >= deadline )); then
       log "health check timed out after ${health_timeout}s (statuses: ${statuses:-none})"
+      # Which service, and what its own healthcheck said (2026-10-22: "healthy unhealthy" named
+      # neither). The healthcheck's output only, never the service's logs: this log is a CI log, and
+      # request logs carry visitors' addresses.
+      remote_compose "$host" "ps -q $* | xargs docker inspect -f '{{.Name}}: {{.State.Health.Status}}{{range .State.Health.Log}} | exit {{.ExitCode}}: {{printf \"%.160s\" .Output}}{{end}}'" || true
       return 1
     fi
     sleep "$health_interval"
@@ -280,6 +284,12 @@ on_error() {
     INFRAQUE_NO_AUTO_ROLLBACK=1 "$repo_root/infra/scripts/rollback.sh" "$environment" "$previous_tag" || true
   else
     log "FAILED (rc=$rc); nothing to roll back automatically (previous tag: '${previous_tag:-none}')"
+    if (( rollback_armed )); then
+      # Step 3 stopped the workers and the scheduler; with no rollback to restart them, ingestion
+      # stayed off until the next good deploy (2026-10-22). Put them back as they were.
+      restart_stopped
+      log "restarted the stopped workers and scheduler as they were"
+    fi
   fi
   exit "$rc"
 }
