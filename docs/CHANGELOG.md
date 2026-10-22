@@ -354,3 +354,4 @@
   - A touch tap can leave a line's hover card on screen.
   - The proposal list's Status disclosure is still right-aligned on phones.
   - iOS Safari is unverified for the filter chevron.
+- 2026-10-22 coordinator (PR #87 CI, gitleaks `generic-api-key`): four recorded CT DEEP pages in `pipeline/connectors/us_rfp/fixtures/` carried the ct.gov site's own embedded analytics key (an `ipmeta.io` plugin `apiKey` in the page chrome). It is a third party's public page value, not an Inframation secret. It is replaced with `redacted-site-search-key`. Extraction never reads that script; the connector tests pass unchanged.
