@@ -250,6 +250,11 @@ public-sector or utility procurement.
 
 ### 2.1 Phases: the site by stage of development (added 2026-10-22)
 
+**Amended the same day (owner, decisions log 2026-10-22, "The site has two modes"):** above the phases sit two modes,
+**Market | My pipeline**. Market is the flat Find nav below and all a signed-out visitor sees; My pipeline (Build a
+deal, later Get funded) appears once signed in, as a two-way switch at the top of the header. The nav table and
+wireframes in §2.3 show Market; the implementation lane adds the switch.
+
 **Asked by the owner, verbatim:** "Could we split the site into each phase of development? from Prospecting (Map of
 prospective development sites and what makes them valuable), Origination (Bankable style; data goes from the map into
 deal builder), Syndication (built deals in bankable style now showcased), Operation (actively tracking sites under

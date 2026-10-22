@@ -599,7 +599,9 @@ an owner decision to proceed, and the privacy notice is updated.
 ## 9. Open questions for the owner
 
 **Answered by the owner, 2026-10-22** (decisions log): (1) counts by pillar only, no single score in v1; (2) the
-workspace is **"My deals"** in the menu and on its pages (the map layer's "Your projects" line reads "Your deals"); (3)
+workspace is **"My pipeline"** in the menu, the private half of the site's two modes "Market | My pipeline"
+(owner, later the same day, amending "My deals"); each item in it is a deal, and the map layer's line reads "Your
+pipeline"; (3)
 invitations start as a copied private link, no email; (4) a departing collaborator's notes stay, shown as "Former
 member". Questions 5 to 7 stay open; the v1 limits in 6 stand as defaults until the owner says otherwise.
 
