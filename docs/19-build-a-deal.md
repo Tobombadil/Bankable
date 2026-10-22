@@ -307,6 +307,7 @@ like any other.
 # services/projects/authz.py
 Action = Literal["read", "edit", "invite", "manage_members", "delete", "leave"]
 
+
 def authorize(db: Session, ctx: AuthContext, project_public_id: str, action: Action) -> ProjectAccess:
     """The only way any code reaches a private project. Returns (project, member, role) when the
     signed-in user holds a role that allows `action` (§2.6 table); raises the same `not_found`
