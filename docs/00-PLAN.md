@@ -279,6 +279,8 @@ Sprint 3 is billing, admin and launch. Decisions that shape it:
 
 Owner-only actions carried forward: task #4 legal items; free API keys (EIA v2, SAM.gov, NRC, regulations.gov);
 LinkedIn Marketing Developer Platform application; Bluesky account; cloud accounts and tokens for the first deploy.
+**Since 2026-10-22 the owner's action list is `docs/66-owner-actions.md`** (the desk list: registrations, letters,
+browser look-ups, deploys); agents keep it current.
 
 Engineering follow-ups queued for Sprint 3 (no decision needed): loader bulk-insert pass (≈100 rows/s today);
 NESO geography via a substation or postcode gazetteer; EIA exact-point promotion into the loader; the FERC
