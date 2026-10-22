@@ -17,15 +17,23 @@ Map · Feed · Alerts · API**~~, then ~~**Map · Proposals · Opportunities · 
 About & sources · Pricing · Alerts · Sign in**~~ (as built 2026-10-07, audit UX-7) — **as built 2026-10-21
 (`docs/16` §3.1, U-6): Map · Projects · Companies · RFPs & funding · Infrastructure · Alerts**, then Pricing (only
 under the `commercial` posture, below), Sign in and the search box. Routes are unchanged: `/`, `/proposals`,
-`/organizations`, `/opportunities`, `/assets`, `/alerts`. **Infrastructure** is one H1, "Existing infrastructure",
+`/organizations`, `/opportunities`, `/assets`, `/alerts`. **Changed 2026-10-22 (§2.1–§2.8, owner's phase decision):**
+these six are the first phase, **Find** (the owner's "Prospect"), of a site organised by development phase. **Site
+finder** (`/site-finder`) becomes the second link on the day its page ships with results, giving seven. The two later
+phases, **Build a deal** and **Get funded** (the owner's "Originate" and "Syndicate"), happen in Bankable and are not
+nav items: Build a deal is an action on eligible records, and Get funded is not linked from Inframation at all.
+Operations is not a section: operating, retiring and retired assets are the later lifecycle states on the one base map
+and in the lists (§2.5). **Infrastructure** is one H1, "Existing infrastructure",
 over two tabs that are plain links to their own URLs, *Plants, pipelines & lines* (`/assets`) and *Grid connection
 points* (`/interconnection-points`), in a `<nav aria-label="Infrastructure sections">`, not a `role="tablist"`
 (`docs/16` §3.2). The link to the current page carries `aria-current="page"`; the link to the section holding it (a
 record page, the other Infrastructure tab) carries `aria-current="true"`; weight and an underline are the visible echo.
 **About & sources** is reference, not a destination: a utility link in the masthead beside the freshness line, in the
-Menu panel below 720px (where the masthead is hidden), and in the footer. The names are the coordinator's
-recommendation pending the owner's ratification (`docs/16` §7 question 1), so they live in one template,
-`web/templates/partials/_sections.html`, which the nav, masthead, footer and list headers read: a rename is one line.
+Menu panel below 720px (where the masthead is hidden), and in the footer. The names were the coordinator's
+recommendation pending the owner's ratification (`docs/16` §7 question 1); **the owner ratified them on 2026-10-22**
+(`docs/00-PLAN.md`, "The section names stand"). They live in one place, `web/labels.py` `SECTION_LABELS`, read by
+`web/templates/partials/_sections.html` (nav, masthead, footer, list headers) and by the routes' JSON-LD: a rename is
+one line.
 Feed and API are not nav items: every list's "View as" switch carries its RSS twin, and the footer links **API and
 feeds** (`/docs/api`). Depth ≤ 3 clicks to any record (D-16); breadcrumbs on every record page. The five list pages
 carry none (from 2026-10-21; `/proposals` and `/opportunities` never did): the nav marks where the reader is, and the
@@ -53,8 +61,65 @@ reason are recorded here. Section names (nav, list H1s, tab labels) are read fro
 | Interconnection point (docs/21 §3.24) | **Grid connection point(s)** | Grid points, Grid interconnection points, Interconnection points | This doc never named it; the nav said "Grid points" and the page "Grid interconnection points". Chosen as plain words that fit the nav; the URL `/interconnection-points` and the entity name are unchanged, and the proposal field "Connects at" already uses the verb. From 2026-10-21 the second Infrastructure tab; the list's empty state still says "interconnection points" (`partials/_interconnection_point_rows.html`). |
 | Lifecycle state | **Status** (the filter), with the legend's groups: Announced · In process · Contracted · Built or operating · Withdrawn or cancelled · Status unknown | Lifecycle (on public pages) | Groups, not the eleven tokens, as the map legend already does (docs/31 §1.2). |
 | Location | Open | — | "Jurisdiction" (proposals), "State" (asset filter), "Location" (asset list) still all hold `US-TX`; not settled in this lane. |
+| Development phase (added 2026-10-22, §2.2) | **Find · Build a deal · Get funded**, on About (`/about#deals`) and in the record action; never a nav item while only one phase has a page on Inframation | Prospect, Originate, Syndicate (on public pages) | The owner's words stay the internal names: decision rows, `docs/18`, code keys (`prospect`, `originate`, `syndicate`). Reader words in `web/labels.py` `PHASE_LABELS`. Reason and desk test in §2.2. |
+| The finder and its results (added 2026-10-22) | **Site finder** (nav, H1); a result is a **candidate site** | Sites (for finder results), Powered land finder | "Site" already names `/sites/{id}`, the records that sit at one physical site (docs/21 §3.25). A finder result is a corridor band, not a parcel and not a site record, so it is a *candidate* site. The finder lane names its own page parts. |
+| The hand-off to Bankable (added 2026-10-22) | Heading **Build a deal**; link **Start a deal in Bankable ↗** | Originate, Send to deal builder | Names the destination, because the link leaves the site (§2.6). |
 
 ### 1.1 Public sitemap
+
+**Updated 2026-10-22 (§2.1–§2.7).** The public site grouped by development phase. Routes are as built on
+2026-10-22, plus `/site-finder` (being built by the site finder lane) and the `#deals` section of `/about`. Dashed
+edges leave Inframation.
+
+```mermaid
+flowchart TD
+  subgraph FIND["Find (the owner's 'Prospect'): Inframation"]
+    H["/ : the base map, every lifecycle state (US-104)<br/>/map answers 301 to /"]
+    SF["/site-finder (new; in the nav once it has results)"]
+    P["/proposals : Projects"]
+    ORGS["/organizations : Companies"]
+    O["/opportunities : RFPs & funding"]
+    A["/assets and /interconnection-points : Infrastructure (two URL tabs)"]
+    PD["/proposals/{slug}"]
+    SD["/sites/{id}"]
+    OD["/opportunities/{slug}"]
+    AD["/assets/{slug}"]
+    IPD["/interconnection-points/{id}"]
+    ORG["/organizations/{slug}"]
+  end
+  subgraph DEAL["Build a deal, then Get funded ('Originate', 'Syndicate'): Bankable, bankablehq.com"]
+    BK["/assessment until the bridge exists;<br/>the hand-off route of docs/18 §3 after it"]
+    BKF["showroom, funder pipeline, roadshow:<br/>signed in, invited funders only"]
+  end
+  H --> SF & P & ORGS & O & A
+  H -.->|"marker, cluster or region"| DR["drawer; bottom sheet below 720px (D-12)"]
+  DR --> PD & AD & OD
+  P --> PD --> SD
+  O --> OD
+  A --> AD & IPD
+  ORGS --> ORG
+  PD & OD & AD & SD --> ORG
+  SF -.->|"Start a deal in Bankable"| BK
+  PD -.->|"Start a deal in Bankable (§2.6 rules)"| BK
+  OD -.->|"open RFPs only"| BK
+  AD -.->|"retiring and retired plants only"| BK
+  BK --> BKF
+  H --> S["/search?q= (US-103)"]
+  H --> AL["/alerts, /alerts/new : Alerts, across phases"]
+  H --> AB["/about (#sources, #deals), /methodology, /attribution"]
+  H --> F["/feeds/* in RSS and JSON, /docs/api (US-503, US-704)"]
+  H --> U["/pricing (by URL under noncommercial), /submit, /login, /account,<br/>/privacy, /legal/reuse, /legal/api-licence, /contact, /bot"]
+  PD --> RPT["POST /report (US-204)"]
+  H --> RB["/robots.txt, /sitemap.xml, /sitemaps/{n}.xml"]
+```
+
+What changed from the 2026-09-12 diagram (updated 2026-09-19), which is in git history: the nodes are grouped by
+phase; `/interconnection-points`, `/sites/{id}`, `/methodology`, `/attribution`, `/about`, `/alerts` and the utility
+pages are drawn as built (they were missing); `/plans` is `/pricing` and `/legal/privacy` is `/privacy`, as built;
+the drawer is a bottom sheet below 720px (`docs/17` M-4, built 2026-10-22); `/site-finder` and the Bankable edges are
+new. The 2026-09-12 diagram is kept below, folded and superseded, only so its user-story references stay findable.
+
+<details><summary>Superseded: the 2026-09-12 sitemap</summary>
 
 ```mermaid
 flowchart TD
@@ -84,9 +149,14 @@ flowchart TD
   O --> INT
 ```
 
-Every node is reachable from `/` in ≤ 3 clicks; `/map` is the landing surface per the owner's map-first decision
-(`docs/00-PLAN.md`, US-104), with `/proposals` and `/search` as co-equal entries into the same filtered result set
-(D-4) — the map is not "browse" with search as a separate mode, it is one more view of the same query.
+</details>
+
+Every node is reachable from `/` in ≤ 3 clicks; `/` (the map) is the landing surface per the owner's map-first
+decision (`docs/00-PLAN.md`, US-104), with `/proposals` and `/search` as co-equal entries into the same filtered result
+set (D-4) — the map is not "browse" with search as a separate mode, it is one more view of the same query. From
+2026-10-22 the map is also the one base map of the Find phase: projects in every lifecycle state and the existing
+infrastructure they connect to, so operating, retiring and retired assets are reached on it and in the lists, not in a
+section of their own (§2.5).
 
 ### 1.2 Pro (live) sitemap
 
@@ -141,33 +211,435 @@ without `operator`/`owner` role and the `admin.` host's second factor (S-2).
 D-8…D-14 govern this. The nav bar is not "Proposals, Opportunities, **Map**" with Map as a third list — Map is
 the home route (`/`), carrying the same filter rail `/proposals` and `/search` render inline. List ↔ map ↔ feed
 preserve `?kind=&technology=&lifecycle_state=&jurisdiction=&bbox=…` verbatim (D-17, US-104 AC2); a "View as: Map ·
-List · Feed" control sits beside the filter bar, not in a menu (US-104 AC1–AC2).
+List · Feed" control sits beside the filter bar, not in a menu (US-104 AC1–AC2). **Changed 2026-10-22 (decision rows
+"The home map drops its In view side panel" and "The home map keeps 'what is in view'"; being built by the home map
+panel lane):** the home map loses its "View as" row; its RSS link moves into "Save this search as an alert", and the
+list pages keep their switch and their feed link. The map is also the one base map of the Find phase, and the site
+finder (`/site-finder`) is a second map-shaped entry beside it, with search (§2.1, §2.3).
 
 Placement precedence (D-8, US-104 AC1): `exact` → marker; `county_centroid` → centroid marker, visibly labelled;
 state-only → state aggregate marker plus a side-list row; no geography → "Unplaced (N)", never dropped. Validated
-as a shipped pattern by Interconnection.fyi's county/state toggle (`docs/30` §2.3).
+as a shipped pattern by Interconnection.fyi's county/state toggle (`docs/30-design-references` §2.3). **Changed
+2026-10-22:** the side list is gone from the home map; "what is in view" is one floating panel that summarises at
+national and multi-state zooms and lists projects once zoomed in (a bar under the map on phones). Where that panel
+shows the unplaced count is the home map panel lane's choice; the rule that an unplaced record is never dropped
+stands, and the Projects list carries every record.
 
 Restricted-precision (D-9, US-104 AC3): a record whose only geometry provenance is `restricted`/`unknown` never
 renders an exact point on public or Pro surfaces regardless of source precision — county centroid, drawer states
-"location shown at county level (source licence)" (`docs/30` §7, §2.13).
+"location shown at county level (source licence)" (`docs/30-design-references` §7, §2.13).
 
 Clustering (D-10, US-104 AC4): ≤500 visible records → individual focusable markers; above it, server clusters
 from `/v1/proposals/geo?bbox&zoom` carrying `{count, lifecycle_state_counts, technology_counts, capacity_mw_sum}`.
 Glyph = size (count) + chip colour/label (dominant lifecycle family) + shared icon (dominant technology,
-consolidated per Flightradar24, `docs/30` §2.12) — never a bespoke icon per fine-grained value.
+consolidated per Flightradar24, `docs/30-design-references` §2.12) — never a bespoke icon per fine-grained value.
 
 Selection (D-12): marker, cluster-row or polygon opens a drawer, not a navigation — `role="dialog"`, focus trap,
-fields, chip, Sources, last three events, D-3 line, link to the full record; `Escape`/close returns focus.
+fields, chip, Sources, last three events, D-3 line, link to the full record; `Escape`/close returns focus. **Changed
+2026-10-22 (`docs/17` M-2, M-4; built):** below 720px the drawer is a bottom sheet (`docs/31` §5.8), and one tap does
+one thing (one click dispatcher with a priority order; a region tap no longer leaves the map).
 
 Keyboard/screen-reader path (D-14, US-104 AC5): a synchronised "in view" list, reachable by skip link — arrow
 keys pan, `+`/`-` zoom, `Enter` opens the focused marker, roving tabindex ≤500 rendered, `aria-live="polite"`
 announces "N proposals, M opportunities in view" debounced 500ms; above 500, the list is the primary path.
+**Retired 2026-10-22 (owner: "Lets not optimize on keyboard users for now. Lets assume all users have a mouse or are
+on mobile"):** D-14's in-view list and its keyboard-path tests are retired, not skipped. The Projects list is the
+text equivalent of the map, and the map's label points to it. The floating panel that returns "what is in view" is
+built for mouse and phone users; keyboard-only and screen-reader optimisation stays deferred, to revisit before any
+public-sector or utility procurement.
+
+### 2.1 Phases: the site by stage of development (added 2026-10-22)
+
+**Asked by the owner, verbatim:** "Could we split the site into each phase of development? from Prospecting (Map of
+prospective development sites and what makes them valuable), Origination (Bankable style; data goes from the map into
+deal builder), Syndication (built deals in bankable style now showcased), Operation (actively tracking sites under
+development, operating, decommissioning or repowering)", then "consider putting operations under the prosposector or
+just as one base map". With it, the owner's priorities for this design: "Leave the highest priority to be a good
+experience for the average user not the marginal disabled user"; mouse and phone users first; early credibility, so
+no empty sections.
+
+**Decision rows this section applies** (`docs/00-PLAN.md`, all 2026-10-22 unless dated): "The site is organised by
+development phase: Prospect, Originate, Syndicate. Operations is not a fourth section" (a section shows in the
+navigation only once it has something in it; until the hand-off exists, Originate is an action on records, not a
+tab); "Bankable is the origination and syndication half"; "Prospecting layers"; "Powered-land site finding is a
+product goal"; "The site finder ranks corridors by a prospect score"; "The home map keeps 'what is in view', as one
+floating panel"; "The section names stand"; "The responsive floor is 360px"; and, from 2026-10-21, "Company matching
+and subscriptions are free" (the owner: "I need something to give me early credibility") and "Matching targets
+developers first".
+
+**Status: proposed by the design lane, pending the owner's yes (2026-10-22).** Nothing in this section ships until the
+owner confirms it and the decisions log records it.
+
+| # | Proposal | Where argued |
+|---|---|---|
+| 1 | The phases are shown to readers as **Find · Build a deal · Get funded**. "Prospect, Originate, Syndicate" stay the internal names. | §2.2 |
+| 2 | The nav stays flat and holds only the sections that have pages on Inframation, all of them Find's: **Map · Site finder · Projects · Companies · RFPs & funding · Infrastructure · Alerts**, then Sign in and search. Site finder joins on the day its page has results. No phase labels in the nav while only one phase has pages here. | §2.3 |
+| 3 | RFPs & funding is a Find list. An open RFP's page is one of the doorways to Build a deal. | §2.4 |
+| 4 | Operations is the later lifecycle states on the one base map and in the lists: the map's Status control covers projects and existing infrastructure; Infrastructure gains a Status control. No section, no URL. | §2.5 |
+| 5 | Build a deal, before the bridge: a short "Build a deal" block with **Start a deal in Bankable ↗** on candidate sites, retiring and retired plants, projects and open RFPs, only where every source is open- or attribution-class. It opens Bankable's own start page and says that nothing is carried across yet. Get funded: not linked from Inframation at all. | §2.6 |
+| 6 | Every current URL keeps working. New: `/site-finder`, the `#deals` section of `/about`. No phase URLs and no new redirects. | §2.7 |
+| 7 | Four lanes. The navigation lane goes first; it touches none of the files the home map, site finder and wave 2 lanes hold. | §2.8 |
+
+### 2.2 The phase words: a desk test
+
+The reader is a first-time visitor: a developer or IPP first (2026-10-21), then infrastructure investors
+(`docs/51`), utilities, landowners and the press. Nielsen Norman Group's rule for category names is the test:
+"Descriptive category names that people understand are better than made-up words or internal jargon", and categories
+must not overlap (Loranger and Dykes, "5 Tips for Avoiding Confusing Category Names", 2013, reviewed 2024,
+https://www.nngroup.com/articles/category-names-suck/).
+
+| Criterion | Prospect · Originate · Syndicate (owner's) | Find · Build a deal · Fund | **Find · Build a deal · Get funded** (chosen) | Explore · Deals · Capital |
+|---|---|---|---|---|
+| Plain to a first-time visitor | Low. "Originate" and "syndicate" are finance words; to many readers a "prospect" is a sales lead | High | High | Medium. "Explore" says nothing a nav does not already say |
+| One meaning to developers and to investors | No. At a developer or IPP, "origination" is offtake sales: a "Head of PPA Origination" at a renewables IPP is responsible for "Originating, structuring and negotiating long-term PPAs" (https://climatechangejobs.com/jobs/444042150-head-of-ppa-origination-renewables-ipp, retrieved 2026-10-22; other PPA originator postings found the same day read alike, a sample, not a survey). In lending, a syndicated loan is "an arrangement whereby a group of lenders (the syndicate) … provide funds to a borrower" (Ropes & Gray, "Legal Lingo: What Is A Syndicated Loan?", 18 January 2023, https://www.mondaq.com/uk/project-financeppp-amp-pfi/1272364/legal-lingo-what-is-a-syndicated-loan). Neither is "build a deal in Bankable" or "show finished deals to capital partners" | Mostly. "Fund" reads three ways: an investor's "fund this", a developer's "get funding", and the noun "a fund" | Yes. Both later words name the developer's step, and developers are the first customer | "Deals" yes; "Capital" is a thing, not a step |
+| Distinct from the section names | Yes | No. "Fund" sits beside "RFPs & funding", whose grants and loans are Find records | Mostly. "Get funded" brushes "funding"; the About section separates public funding notices (listed here) from private capital (in Bankable) in one sentence | Yes |
+| Continuity with Bankable | Bankable never prints these words. Its own copy says Analyze, Certify, Route, Fund and "Get Bankable. Get Funded." (Bankable repository, github.com/Tobombadil/bankablehq, `src/components/landing/HeroSection.tsx` and `src/pages/Signup.tsx`, read 2026-10-22) | "Fund" is Bankable's last step | "Get funded" is Bankable's tagline, so the hand-off reads as one journey across two sites | None |
+| Tone, given `docs/18` §4 (general solicitation) | "Syndicate" suggests offering participations | Neutral | Neutral. It names the developer's goal, not an offer to investors | Neutral |
+
+**Chosen: Find · Build a deal · Get funded.** The owner's words stay right as internal names: the decisions log,
+`docs/18` and code keys keep `prospect`, `originate`, `syndicate`; public pages print `PHASE_LABELS`. **Confidence:
+medium.** This is a desk test against stated criteria, not a test with readers. The cheap check is a first-click test
+with the beta testers (`docs/65`): show the About section and a record's Build a deal block and ask "where would you go
+to put a deal together for this site?". A change is one line in `web/labels.py`.
+
+### 2.3 The navigation at 1440px and at 360px
+
+**Which items.** The rule is the decision row's: a section is in the nav only once its page has something in it.
+
+- **Find** has pages here: Map, Site finder (once it has results), Projects, Companies, RFPs & funding, Infrastructure.
+- **Build a deal** has no page on Inframation, before or after the bridge: the deal lives in Bankable. It is an action
+  on records (§2.6). A nav link to Bankable's start page would be the same link with no record behind it.
+- **Get funded** is Bankable's showroom, funder pipeline and roadshow: signed in and by invitation. A link would take
+  almost every visitor to a sign-in wall, and it would read as a public listing of deals seeking investment, which
+  `docs/18` §4 rules out until counsel has read it. Not linked.
+- **Alerts** tracks records in any phase (the owner's "actively tracking sites under development, operating,
+  decommissioning or repowering"), so it follows the Find sections rather than sitting in one.
+- **No phase labels.** With one phase in the nav, a label over it adds a word and no choice. A flat row of named
+  top-level sections is the pattern `docs/30-design-references` adapts from Stripe's docs (D-16). A three-step
+  "Find › Build a deal › Get funded" strip in the header was considered and rejected: two of its three steps would
+  leave the site or end at a sign-in, it costs a row on every page, and a step strip above a working screen is a
+  marketing device (D-7).
+
+**Order: Map · Site finder · Projects · Companies · RFPs & funding · Infrastructure · Alerts**, then Pricing (only
+under `commercial`), Sign in and search, as today. The order of the six is the one the owner let stand on
+2026-10-22 ("do what will create the best product"); `docs/16` §3.1's reasons for it (Companies third, as the join
+between projects, RFPs and assets) do not change with phases. Site finder goes second because it is the other
+map-shaped Find tool, and powered land for large loads is the use the owner will sell first.
+
+**Words.** The six keep their names. The new one is **Site finder** (names table, §1).
+
+**At 1440px**, measured (method below). The header stays 103px; the nav is 723px wide (633px today) and stays on one
+row with the search box.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ INFRAMATION REGISTER · PUBLIC EDITION             ALL N SCHEDULED SOURCES FETCHED ON SCHEDULE    ABOUT & SOURCES │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Inframation  Map  Site finder  Projects  Companies  RFPs & funding  Infrastructure  Alerts  Sign in  [Search…]   │
+│                   ━━━━━━━━━━━ the current section: weight and underline (aria-current)                           │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  Find (Prospect): Map … Infrastructure · across phases: Alerts · Build a deal and Get funded: not in the nav
+```
+
+**At 360px.** The links sit behind Menu, as today (`docs/31` §3). The open panel is the seven links, Sign in, the
+search box and About & sources, in that order. Only Site finder is new. The home page keeps its one-line source
+freshness link above the bar (`masthead--keep`).
+
+```
+┌──────────────────────────────────┐    ┌──────────────────────────────────┐
+│ (home only) SOURCE FRESHNESS LINK│    │ (home only) SOURCE FRESHNESS LINK│
+├──────────────────────────────────┤    ├──────────────────────────────────┤
+│ Inframation              [Menu]  │    │ Inframation              [Menu]  │
+└──────────────────────────────────┘    ├──────────────────────────────────┤
+  closed: bar 65px                      │ Map                     41→44 px │
+                                        │ Site finder                      │
+                                        │ Projects                         │
+                                        │ Companies                        │
+                                        │ RFPs & funding                   │
+                                        │ Infrastructure                   │
+                                        │ Alerts                           │
+                                        │ Sign in                          │
+                                        │ [Search by name, sponsor…][Go]   │
+                                        │ About & sources                  │
+                                        └──────────────────────────────────┘
+                                          open: panel 474px (433px today)
+```
+
+**Measured.** Headless Chromium 141 rendering `/login` from this branch through the in-process app, with
+`web/static` served as built and no API (so the masthead reads "Source fetch dates"); the Site finder link injected
+second; one run per width. Header height in px; the "One row from" row brackets the width from which the header
+is a single row.
+
+| Width | Six links (today) | Seven (with Site finder) | Seven, plus a later "Your deals" link in the bar |
+|---|---:|---:|---:|
+| 1440 | 103 | 103 | 103 |
+| 1280 | 103 | 103 | 168 |
+| One row from | 1150–1180 | 1230–1260 | 1300–1340 |
+| 1080, 1024 | 168 | 168 | 168 |
+| 720 | 225 (links one row) | 274 (links two rows) | 274 |
+| 390 and 360, Menu open | panel 433 | panel 474 | panel 515 |
+
+What that costs: the fold budgets hold (map top ≤ 450px at 1440×900 and ≤ 600px at 1024×768, `web/test_e2e.py`),
+because neither width changes. From about 1165 to 1240px the search box drops to its own row (+65px), and from 720 to
+about 770px the links take two rows (+49px). Both are accepted: those desktop and tablet widths are a minority beside
+1280, 1366, 1440 and 1536, and hiding the links behind Menu at tablet widths would cost more than the height, because
+hidden navigation gets used less on desktop as well as on phones (Pernice and Budiu, "How to Make Navigation (Even a
+Hamburger) Discoverable on Mobile", 2016, https://www.nngroup.com/articles/find-navigation-mobile-even-hamburger/).
+The frontend lane may narrow the search field at 1080–1279px if the header then stays one row from 1165px; measure
+before and after. Phone menu rows are 41px as built; `docs/17` M-10 asks for 44px, which makes the open panel about
+498px, ending near 563px on an 800px screen. A later "Your deals" link (§2.6) goes in the masthead's utility row
+beside About & sources, not in the bar, because in the bar it moves the one-row threshold to about 1320px.
+
+### 2.4 Where each page sits
+
+| Page | URL | Phase | Reached from | Change |
+|---|---|---|---|---|
+| Map (home) | `/` (`/map` answers 301) | Find: the one base map, every lifecycle state | Nav "Map", wordmark | Status control covers existing infrastructure (§2.5, C1) |
+| Site finder | `/site-finder` | Find | Nav "Site finder", second, once it has results | New (site finder lane). Its results are candidate sites, each with Build a deal (§2.6) |
+| Projects | `/proposals`, `/proposals/{slug}`, `/sites/{id}` | Find | Nav "Projects"; record pages mark it `aria-current="true"` | Project pages gain Build a deal (§2.6) |
+| Companies | `/organizations`, `/organizations/{slug}` | Find | Nav "Companies" | None. A company is not a deal |
+| RFPs & funding | `/opportunities`, `/opportunities/{slug}` | Find | Nav "RFPs & funding" | Open notices gain Build a deal (§2.6) |
+| Infrastructure | `/assets`, `/interconnection-points`, their records | Find, including the operating and end-of-life states | Nav "Infrastructure"; two URL tabs | Status control on `/assets` (§2.5, C2); retiring and retired plants gain Build a deal |
+| Alerts | `/alerts`, `/alerts/new` | Across phases | Nav "Alerts"; "Follow" and "Save this search" | None |
+| Search | `/search` | Across phases | Header search box | None |
+| About & sources | `/about` | Reference | Masthead, Menu panel, footer | New section `#deals`: the three phases in plain words (§2.6) |
+| Methodology, attribution, reuse, API and feeds, privacy, contact, bot, pricing, submit, sign-in and account | as today | Utility | Footer and page links | None |
+| Bankable | `bankablehq.com/assessment` (until the bridge) | Build a deal; Get funded beyond it | The Build a deal block only | Off-site |
+
+**RFPs & funding is a Find list, not the doorway to Originate.** Four reasons. (1) It lists public records discovered
+from registers, filtered and sorted like Projects; reading and screening them is prospecting, and the decision row
+already names "RFPs & funding" among Prospect's lists. (2) A nav group "Build a deal" whose only item was a list would
+promise a deal builder and deliver a table. (3) Funding notices (grants, loans, programmes) are also screening
+inputs, beside the incentive layers the "Prospecting layers" row adds. (4) The doorway is the record, not the list:
+an open RFP's page is where a developer decides to respond, so that is where Build a deal sits. Bankable's own RFP tab
+(`/engage?tab=rfp`, signed in) may later be fed from this list through the bridge (`docs/18` §1); that changes
+nothing here.
+
+### 2.5 Operations: the later lifecycle states on the one base map
+
+**What the data holds.** A project's lifecycle runs unknown, announced, filed, studied, permitted, contracted, under
+construction, built, withdrawn, cancelled (`data/vocabulary/lifecycle_states.yaml`); there is no "operating",
+"retiring" or "repowering" project state. Operating and end-of-life states belong to existing assets: EIA-860M gives
+operating 25,625, standby 2,221, retiring 531 and retired 7,324 generator records (`us.eia.860m.retirements`, verified
+2026-10-07 in `data/sources.yaml`). Repowering has no state anywhere: it is a new queue request at an existing plant,
+which the site rules mark (`expansion_marker`, `services/sites/rules.py`; `docs/21` §3.25). "Decommissioning" is
+EIA's retiring and retired; the site uses EIA's words.
+
+**How a visitor reaches each state.**
+
+| State | Record | On the map | In a list | On a record page |
+|---|---|---|---|---|
+| Under construction | Project | Status: In process (on by default) | Projects, Status | Status chip and timeline |
+| Built | Project | Status: Built or operating (off by default) | Projects, Status | Status chip |
+| Operating, standby | Plant, pipeline, line | "Existing assets" layer (on by default); C1 moves it into Status | Infrastructure; C2 adds Status: Operating, Standby | Asset page status |
+| Retiring, retired | Power plant | "Retired & retiring plants" layer (on by default); C1 moves it into Status | Infrastructure, C2: Retiring, Retired (`/assets?asset_type=power_plant&status=retiring,retired` already answers, with no control on the page) | Asset page; Build a deal (§2.6) |
+| Repowering, expansion | A new project at an existing plant | Not filterable yet | Not filterable yet | The plant's Nearby proposals; the project's "At this site" names the relationship |
+
+**C1, the map (after the home map panel lane lands; `home_map.html`, `map.js`).** The Status disclosure becomes the
+one lifecycle control. Under its project groups (Announced, In process, Contracted, Built or operating, Withdrawn or
+cancelled, Status unknown, unchanged), a second group, **Existing infrastructure**, holds the two layer boxes that sit
+outside it today: "Plants, pipelines and lines" (the Existing assets layer) and "Retiring and retired plants". The
+summary reads, for the default, "Status: active projects, existing, retiring". The URL grammar does not change: the
+project rows write `lifecycle_state`, the infrastructure rows `layer_plants`, `layer_retired` and `asset_type` (D-17).
+The floating panel's breakdown uses the same group names.
+
+**C2, Infrastructure (now; `assets_list.html`, `web/assets_pages.py`).** A Status control, Operating · Standby ·
+Retiring · Retired, writing the `status` parameter `/assets` already forwards (`ASSET_INDEX_FILTERS`, lane R1). Default:
+all statuses, as today.
+
+**C3, repowering (later; API lane).** A filter for projects at an existing plant (a site that holds an operating,
+standby or retiring plant, or a member with `expansion_marker`). It needs an API parameter. It is a filter, not a
+status and not a section.
+
+### 2.6 Build a deal and Get funded before the Bankable bridge
+
+**What Bankable offers a newcomer today** (its code, github.com/Tobombadil/bankablehq, branch `main`, read
+2026-10-22). Its public "Get Started" button goes to `/assessment`, a sign-up flow that asks the visitor's role
+(Sponsor, Funder, Counterparty, Advisor, Service) and, for a sponsor, company, sector, location and capex, then
+creates the project (`src/pages/Assessment.tsx`). Signed in, its nav is Projects (`/dashboard`, `/manage`, `/show`),
+Pipeline for funders (`/fund`) and Community (`/engage`, with an RFP tab). `/projects`, `/marketplace` and `/rfp`
+now redirect to `/show` and `/engage` (`src/App.tsx`), so `docs/18` §1's route list and §3's proposed
+`/projects/new` intake need checking against the code.
+
+**Decision: shown before the bridge, as a link to Bankable's start page with a plain note.** Hidden was the
+alternative. It is rejected because the decision row makes Originate "an action on records" until the hand-off
+exists; the link leads to a working page, not an empty one; and the owner wants the loop now. The cost is that the
+visitor retypes the facts, and the note says so, so no promise is broken.
+
+**Where.** After the record's key facts (the field grid or summary strip), before the timeline, matches and Sources,
+at every width. On a phone it is in the page flow, not sticky. Not in the map drawer: the drawer is a preview, and its
+"Open full record" leads to the block.
+
+**Which records.**
+
+| Record | Shown when | First line |
+|---|---|---|
+| Candidate site (site finder result) | Always, once the finder is public | "Pursuing this site?" |
+| Power plant (asset page) | Status retiring or retired | "A retiring plant's site and grid connection can host a new project." |
+| Project (proposal page) | Any status except withdrawn and cancelled | "Is this your project?" |
+| RFP or funding notice (opportunity page) | Status announced, open or reinstated | "Responding to this?" |
+| Company, grid connection point, operating asset, site record (`/sites/{id}`), lists, search, map drawer | Never before the bridge | — |
+
+**Licence rule.** The block shows only when every source behind the record is reuse class `open` or `attribution`.
+It is the test the bridge will apply to each field (`docs/18` §3), so the action never appears now on a record it
+could not serve later. It also keeps a link to a commercial service off pages built from `noncommercial` rows, which
+is the use `docs/26` §3 (ii) and (iii) worry about ("directed towards commercial advantage"). Today it hides the block
+on the four AEP utilities' RFPs (class `noncommercial`) and on records from sources whose terms are not yet recorded.
+
+**Anatomy and words** (link mode). A ruled aside, not a card: a section heading, one paragraph, one secondary button
+(`docs/31` §5.16: outlined, sentence case), one muted note. No Bankable colours or logo (D-7, D-19). The arrow and
+"in Bankable" say the link leaves the site; it opens in the same tab, so Back returns.
+
+```
+── Build a deal ─────────────────────────────────────────────────────
+Is this your project? Bankable turns it into a deal: a data room, a
+bankability score and a route to the funders it works with. Bankable
+is run by the team behind Inframation.
+
+[ Start a deal in Bankable ↗ ]          ← 44px tall below 720px, full width
+
+Nothing on this page is sent to Bankable yet. Paste this page's link
+into your deal so funders can trace each fact to its source.
+─────────────────────────────────────────────────────────────────────
+```
+
+The affiliation sentence is there because a page recommending a service run by the same people should say so; the
+owner confirms the wording, and the legal lane can confirm it is enough.
+
+**Link and settings.** `BANKABLE_START_URL`, default `https://bankablehq.com/assessment` (Bankable's own "Get
+Started"), with `utm_source=inframation&utm_medium=referral&utm_campaign=build-a-deal&utm_content={record kind}`. No
+record identifier and no personal data in the URL. `BANKABLE_HANDOFF` is `off` (nothing rendered anywhere), `link`
+(this section, the default) or `bridge` (the `docs/18` hand-off: a form post that creates the hand-off record and
+redirects to Bankable; the note line goes). In bridge mode a signed-in reader who has started a deal sees **Your deals
+in Bankable ↗** in the masthead's utility row.
+
+**About, `#deals`.** One numbered list in the filing idiom: **1. Find**, here: the map, the site finder and the lists,
+every fact with its source. **2. Build a deal**, in Bankable: a data room, a bankability score and a route to
+funders. **3. Get funded**, in Bankable: it shows finished deals to the funders it invites; public grants and loans are
+listed here, under RFPs & funding. Then the affiliation sentence and one link to Bankable. No link to Bankable's
+showroom or funder pages.
+
+**Get funded.** Not linked from Inframation, before or after the bridge, until counsel has read `docs/18` §4. After
+that, a record may say it is listed in Bankable only with the deal owner's consent (`docs/18` §2).
+
+### 2.7 URLs
+
+- **Every current URL keeps working and keeps its meaning.** No route is renamed or moved: `/`, `/map` (301 to `/`),
+  `/proposals`, `/proposals/{slug}`, `/sites/{id}`, `/opportunities`, `/opportunities/{slug}`, `/organizations`,
+  `/organizations/{ident}`, `/assets`, `/assets/{slug}`, `/assets/by-id/{public_id}`, `/interconnection-points`,
+  `/interconnection-points/{id}`, `/search`, `/alerts`, `/alerts/new`, `/about`, `/methodology`, `/attribution`,
+  `/docs/api`, `/feeds/{name}.{fmt}`, `/pricing`, `/submit`, `/login`, `/register`, `/account`, `/privacy`,
+  `/legal/reuse`, `/legal/api-licence`, `/contact`, `/bot`, `/sitemap.xml`, `/sitemaps/{n}.xml`, `/robots.txt`.
+- **New:** `/site-finder` (the site finder lane; any result permalinks are that lane's, under `/site-finder/`) and the
+  `#deals` anchor on `/about`. `/site-finder` joins the sitemap when it is public.
+- **Bridge mode only, later:** `POST /handoff` on the site (creates the hand-off, answers 303 to Bankable; disallowed
+  in `robots.txt`) and `GET /v1/handoff/{id}` on the API (`docs/18` §3).
+- **Redirects:** none new. No `/prospect`, `/originate`, `/syndicate` or `/operations`: a phase is not a page, and a
+  redirect would invite links to a section that does not exist. A campaign that names a phase links to `/` or
+  `/about#deals`.
+- **Parameters:** none new. C1 reuses `lifecycle_state`, `layer_plants`, `layer_retired`, `asset_type`; C2 reuses
+  `status`.
+
+### 2.8 Implementation plan for the frontend lanes
+
+**Lane A, navigation (now).** It touches none of the files named below as held by other lanes, except as noted there.
+
+1. `web/labels.py`: add `"site_finder": "Site finder"` to `SECTION_LABELS` after `"map"`, and a new table beside it.
+   The comment above `SECTION_LABELS` drops "pending the owner's ratification" and cites the 2026-10-22 row.
+
+   ```python
+   #: The development phases (docs/00-PLAN.md 2026-10-22; docs/30 §2.2): the owner's names as keys, the
+   #: words a reader sees as values. Printed on /about#deals and in the Build a deal block; never in the
+   #: primary nav while only one phase has pages on Inframation.
+   PHASE_LABELS: dict[str, str] = {"prospect": "Find", "originate": "Build a deal", "syndicate": "Get funded"}
+   ```
+2. Jinja globals, registered wherever `section_labels` is today (`web/page.py` line 310, `web/auth.py` 94,
+   `web/legal.py` 58, `web/pricing.py` 256, `web/admin/shell.py` 53): `phase_labels`, and `section_live(key)`, one
+   helper in `web/page.py` that is true for every section except `site_finder`, which reads the site finder lane's
+   switch (proposed name `SITE_FINDER_ENABLED`; the finder lane owns it and turns it on only when the page has
+   results).
+3. `web/templates/partials/_sections.html`: `href` gains `"site_finder": "/site-finder"`; `primary` becomes
+   `["map", "site_finder", "projects", "companies", "rfps", "infrastructure", "alerts"]`; `holds` gains
+   `"site_finder": ["/site-finder"]`; the header comment says the names were ratified on 2026-10-22, every primary
+   section is in the Find phase, Alerts spans phases, and a section is listed only while `section_live` holds. No
+   phase grouping markup.
+4. `web/templates/base.html`: the primary loop becomes `{%- for key in sections.primary if section_live(key) %}`; its
+   comment "Six destinations" becomes "The sections with something in them, in order (docs/30 §2.3)". No Bankable
+   link anywhere in the header.
+5. Breadcrumbs: no phase level (a phase has no page, and a `BreadcrumbList` item needs a URL); "Home" stays the
+   first crumb. `web/templates/organization_detail.html` line 18 hard-codes `<a href="/organizations">Companies</a>`:
+   read `sections.href.companies` and `sections.label.companies`. `web/organizations.py` line 839 hard-codes
+   `("Companies", "/organizations")`: read `labels.SECTION_LABELS["companies"]`. A finder result page, if there is
+   one, is "Home / Site finder / {name}".
+6. JSON-LD `ItemList` names follow the section names (the §1 names table left them "to the lanes that own them"):
+   `web/app.py` line 825 "Proposals" and line 982 "Opportunities", `web/assets_pages.py` line 233 "Assets",
+   `web/interconnection_points.py` line 210 and `web/organizations.py` line 476 read `SECTION_LABELS` ("Projects",
+   "RFPs & funding", "Plants, pipelines & lines", "Grid connection points", "Companies").
+7. Tests that pin the nav (found by grepping `web/test_*.py` for the section names):
+   - `web/test_layout_states.py` line 672 `PRIMARY` and line 720
+     `test_the_primary_nav_is_six_sections_in_order_and_marks_where_the_reader_is`: run with the finder switch off
+     (the six, as today) and on (seven, `/site-finder` second and marked `page` on `/site-finder`); slice by
+     `len(PRIMARY)`, not 6; drop the count from the name.
+   - Same file, line 748 `test_a_link_is_marked_on_its_page_and_on_every_page_its_section_holds`: add
+     `("site_finder", "/site-finder", ' aria-current="page"')` and `("map", "/site-finder", "")`.
+   - Same file, line 757 `test_a_section_is_named_in_one_place`: "Site finder" and the three phase words appear once
+     in `labels.py` and in no template; add `organization_detail.html` to the record templates checked for
+     `>Companies</a>` and `organizations.py` to the modules checked for `("Companies", "/`.
+   - `web/test_e2e.py` line 2936 `SECTIONS` and line 2948 `test_nav_is_six_sections_with_…`: `SECTIONS` follows the
+     switch; the `[:6]` slices at lines 2968 and 3008 become `[:len(SECTIONS)]`; add a 360px run (D-32 since
+     2026-10-22) beside the 400px one.
+   - `web/test_paid_tiers_posture.py` line 121, `hrefs[:6] == ["/", "/proposals", …]`: the same list with
+     `/site-finder` second when the switch is on.
+   - `web/test_seo.py` line 547, `item_list["name"] == "Assets"`: becomes "Plants, pipelines & lines"; add the
+     `ItemList` name for `/proposals` and `/opportunities`.
+   - New: no page's primary nav or masthead links to `bankablehq.com` (Build a deal is not a nav item; Get funded is
+     never linked), and no Site finder link renders while the switch is off.
+
+**Lane B, the Build a deal block (after the owner confirms the start URL and the affiliation sentence).** A partial
+`web/templates/partials/_build_a_deal.html`; includes in `proposal_detail.html`, `asset_detail.html` and
+`opportunity_detail.html`; the `#deals` section in `about.html`; settings and one eligibility helper in `web/page.py`
+(record kind, state, the reuse classes of its sources, `BANKABLE_HANDOFF`); one rule set at the end of
+`web/static/css/styles.css`. Tests: shown and hidden by record kind, state and reuse class; nothing when `off`; the
+UTM parameters and no record identifier in link mode; the note line in link mode only. The site finder lane includes
+the same partial in its results once both have landed.
+
+**Lane C, operations.** C2 now (`assets_list.html`, `web/assets_pages.py`). C1 after the home map panel lane lands.
+C3 waits for an API parameter.
+
+**Lane D, the bridge** (`docs/18`), later: `POST /handoff`, `bridge` mode, "Your deals in Bankable".
+
+**Files other lanes hold now; these lanes wait for them.**
+
+| Lane holding them | Files | Who waits |
+|---|---|---|
+| Home map panel | `web/templates/home_map.html`, `web/static/js/map.js` (and probably the map rules in `web/static/css/styles.css` and `web/templates/_map_notice.html`) | C1 |
+| Site finder | `web/templates/site_finder.html`, `web/static/js/site_finder.js`, its route module and switch | Lane A reads the switch by name only; the finder lane includes Lane B's partial later |
+| Wave 2 pages | The companies and RFP list templates, `web/templates/organizations_list.html` and `web/templates/opportunities_list.html`, with their row partials `partials/_organization_rows.html` and `partials/_opportunity_rows.html` | Nobody touches them. Ask the coordinator whether wave 2 also holds `web/organizations.py`, `organization_detail.html` or `opportunity_detail.html`: if so, Lane A items 5 and 6 for Companies and Lane B's opportunity include wait for it |
+| Shared | `web/static/css/styles.css`, `web/templates/base.html` | Lane A needs no CSS. Lane B appends one rule set. Confirm no other lane has `base.html` open before Lane A edits it |
+
+**Docs that need matching edits, outside this lane:** `docs/04` D-16 (names six sections and calls them pending the
+owner; becomes seven when the finder ships); `docs/18` §1 and §3 (Bankable's routes as the code has them; `/assessment`
+as the natural place to read a hand-off); `docs/26` §3 (iii), whose Bankable row says the workflow "must not be built
+at all" under the `noncommercial` posture, against the 2026-10-22 row that lets commercial-reuse fields cross.
+
+### 2.9 Standards check (`docs/04`)
+
+| Rule | This design |
+|---|---|
+| D-16 one nav on public and Pro; current section marked | Holds. A seventh section on a switch. D-16's text is out of date when the finder ships (above) |
+| D-17 every filter in the URL | C1 and C2 reuse existing parameters |
+| D-2, D-34 provenance on every data element | The Build a deal block carries no data. Sources panels are unchanged. Under the bridge, every value carries its source, URL, date and licence (`docs/18` §3) |
+| D-3, D-28 tier notice | Unchanged; nothing is delayed on any tier since 2026-09-21 |
+| D-7 banned patterns | No step strip, no card, no hero, no borrowed Bankable styling |
+| D-30 WCAG 2.2 AA | The owner deferred keyboard-only and screen-reader optimisation (2026-10-22). Nothing here removes a route that exists: links stay links, Menu stays a disclosure, the new button is a link with its destination in its name |
+| D-32 360px | Menu panel 474px at 360×800 with seven links; no sideways scroll at 360 or 390 on the measured page (`/login`) |
 
 ## 3. Page inventory
 
 | Page | Surface | Purpose | PRD stories | API reads | Tier-gated elements |
 |---|---|---|---|---|---|
 | `/map` (home) | Public/Pro | Map-first browse, filters, in-view list | US-104, US-101, US-102 | `GET /v1/proposals/geo`, `/v1/opportunities` (polygon) | D-3 delay banner (public); exact points withheld for restricted sources (D-9) at any tier |
+| `/site-finder` (added 2026-10-22, being built) | Public/Pro | Candidate sites for powered land: corridor bands near 69 kV-and-up lines and substations, outside the FEMA floodplain; later the prospect score. In the nav, second, once it has results (§2.3). Each result offers Build a deal (§2.6) | None yet (decision rows of 2026-10-22) | The site finder lane's | Screening grade labelled on every value; the prospect score stays off until its back-test passes |
 | `/proposals` | Public/Pro | Filtered, sorted list | US-101, US-102, US-103 | `GET /v1/proposals` | No age test on any tier since 2026-09-21 (US-101 AC3); gated-source rows never present (AC4) |
 | `/proposals/{slug}` | Public/Pro | Canonical record, provenance, timeline | US-201, US-202, US-203, US-204 | `GET /v1/proposals/{id}`, `/events`, `/sources`, `/matches` | US-201 AC4 banner states the page is live (no delay on any tier); Sources panel omits gated rows (D-27); `field_provenance` Pro+ only |
 | `/opportunities` | Public/Pro | Filtered, sorted opportunity list | US-301 | `GET /v1/opportunities` | Same tier rules as US-101 AC3–4 |
@@ -765,6 +1237,11 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 | IA-1 | `/` is the map route rather than a separate marketing landing page, since US-104 makes the map primary and D-7 bans a marketing hero above a working screen | US-104, `docs/04` D-7 | `docs/31` home-screen component budget |
 | IA-2 | Admin nav order follows the `docs/23` §4 endpoint grouping literally (Sources → Records → Resolution/Extraction → Tasks → Posts → Users/Customers → Keys/Costs/Audit) since no separate admin IA exists yet | `docs/23` §4 | `docs/20` §8 if that doc states a different order |
 | IA-3 | The `/submit` intake route is reachable from both `/proposals` and `/opportunities` list toolbars (developer vs. utility framing) rather than a single generic entry, since US-1001 and US-1003 are separate forms with different fields | US-1001, US-1003 | Nav component in `docs/31` |
+| IA-4 (2026-10-22) | Bankable's `/assessment` is the right pre-bridge landing for "Start a deal in Bankable": it is Bankable's public "Get Started" and creates a sponsor's project. Read in Bankable's code, not tested live | github.com/Tobombadil/bankablehq `src/App.tsx`, `src/components/landing/Header.tsx`, `src/pages/Assessment.tsx`, read 2026-10-22 | §2.6 link target; `BANKABLE_START_URL` changes it without code |
+| IA-5 (2026-10-22) | Bankable ignores unknown query parameters, so the UTM parameters cannot break its start page | React Router passes query strings through; `Assessment.tsx` reads none | §2.6 |
+| IA-6 (2026-10-22) | "Bankable is run by the team behind Inframation" is true, and the owner accepts it on public pages | `docs/18` §6 A2 (the owner owns or controls Bankable) | §2.6 copy; the owner confirms before Lane B ships |
+| IA-7 (2026-10-22) | The site finder lane ships `/site-finder` as a server-rendered page behind a switch it turns on only when the page has results | The decision rows of 2026-10-22; the rule that a section shows only once it has something in it | §2.3, §2.8 Lane A item 2 |
+| IA-8 (2026-10-22) | Desktop windows between about 1165 and 1240px, and tablets between 720 and 770px, are few enough that a taller header there costs less than hiding the links | Common laptop widths are 1280 and up; not measured on Inframation's traffic, which does not exist yet | §2.3; revisit with analytics |
 
 ## 8. Change history
 
@@ -790,3 +1267,9 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 - 2026-10-11 — as built (frontend-developer, lane U, owner decision): §5.1 records no register lists any more are
   hidden from the map and the list on a view of active states, with the `unlisted=include` toggle, the hidden-records
   line and its measured cost.
+- 2026-10-22 — design (product-designer, lane ia-phases, owner's phase decision): new §2.1–§2.9, the site by
+  development phase (reader words Find · Build a deal · Get funded; a flat nav of the sections with pages, Site finder
+  second once live; operations as lifecycle states on the one base map; the Build a deal block before the Bankable
+  bridge; URLs; the implementation plan and the files other lanes hold); §1 nav paragraph and names table (three
+  rows); §1.1 sitemap redrawn by phase and as built; §2 marked where the 2026-10-22 decisions changed it (view row,
+  side list, bottom sheet, D-14 retired); §3 `/site-finder` row; §7 IA-4 to IA-8.
