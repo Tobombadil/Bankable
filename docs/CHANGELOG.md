@@ -359,3 +359,4 @@
   - On any failure after step 3 with no rollback, `on_error` now restarts what step 3 stopped, as it was (`restart_stopped`).
   - A health timeout now prints each container's healthcheck status and last check outputs, never its logs, because the CI log is public and request logs carry addresses.
   - Test: `infra/test_scripts.py::test_a_failed_health_check_on_the_same_tag_restarts_the_pipeline_and_names_the_service`, which fails without the change.
+- 2026-10-22 coordinator: docs/18-bankable-bridge.md drafted: what the Bankable app already has (observed from its preview bundle), the phase map, a pull-based hand-off, licence and securities flags, and what is needed from the owner.
