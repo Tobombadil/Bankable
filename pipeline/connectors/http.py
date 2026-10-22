@@ -7,7 +7,7 @@
   `Retry-After` is honoured.
 - robots.txt is honoured for every GET a connector marks as robots-relevant (HTML pages and files
   served from a site; API endpoints declare `honour_robots = False`). Rules are evaluated for our
-  own product token first (`robots_token(...)`, read from the session's User-Agent: `Bankable`),
+  own product token first (`robots_token(...)`, read from the session's User-Agent: `Inframation`),
   with the `*` group as the fallback — the standard robots.txt precedence, which the stdlib
   parser only applies when it is handed the token rather than the full browser-like UA string
   (audit 2026-09-18 item 4). A disallowed URL raises `HttpBlocked`; a robots.txt that cannot be
@@ -42,7 +42,7 @@ import requests
 DOMAIN_PLACEHOLDER = "domain-placeholder.invalid"
 USER_AGENT_TEMPLATE = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36 "
-    f"Bankable/0.2 (+https://{DOMAIN_PLACEHOLDER}/bot; contact https://{DOMAIN_PLACEHOLDER}/contact)"
+    f"Inframation/0.2 (+https://{DOMAIN_PLACEHOLDER}/bot; contact https://{DOMAIN_PLACEHOLDER}/contact)"
 )
 
 
@@ -71,7 +71,7 @@ _TOKEN_RE = re.compile(r"([A-Za-z][A-Za-z0-9_-]*)/[0-9][0-9.]*\s*(?:\(\+|;\s*\+)
 
 def robots_token(ua: str) -> str:
     """The product token robots.txt groups name us by: the `Name/version` immediately before the
-    `+https://...` contact URL (`Bankable` in the UA above). Falls back to the first token."""
+    `+https://...` contact URL (`Inframation` in the UA above). Falls back to the first token."""
     m = _TOKEN_RE.search(ua)
     if m:
         return m.group(1)

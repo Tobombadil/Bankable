@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Our data reader — Inframation{% endblock %}
+{% block meta_description %}What Inframation's data reader is, what it reads, the rules it follows, and how to ask it to stop.{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Our data reader</h1>
+  <p>Inframation lists energy projects, RFPs and infrastructure from public registers. A small program reads those registers on a schedule. This page is where its User-Agent points, so a site owner can see who we are and how to reach us.</p>
+</div>
+
+<section id="identity">
+  {{ m.section_heading("1.", "How it identifies itself") }}
+  <p>Every request carries this User-Agent, with the product token <code>Inframation</code>:</p>
+  <p><code id="bot-user-agent">{{ user_agent }}</code></p>
+</section>
+
+<section id="rules">
+  {{ m.section_heading("2.", "The rules it follows") }}
+  <ul>
+    <li>It reads only sources whose terms we have read and recorded. The list, with each source's licence, is on <a href="/about">About &amp; sources</a>.</li>
+    <li>On websites it follows robots.txt. Rules for <code>Inframation</code> come first, then the <code>*</code> group.</li>
+    <li>It sends about one request per second to a host, usually far fewer: most sources are read once a day, week or month.</li>
+    <li>It never signs in, never registers on a bid or procurement portal, and never solves or works around a CAPTCHA or other challenge. A refused or challenged request stops that run.</li>
+    <li>It shows facts with a link back and the source's credit line, never a copy of your documents.</li>
+  </ul>
+</section>
+
+<section id="stop">
+  {{ m.section_heading("3.", "Asking it to stop") }}
+  <p>Add this to your robots.txt and the next run will respect it:</p>
+  <pre><code>User-agent: Inframation
+Disallow: /</code></pre>
+  <p>Or write to <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>, and we will stop reading your site and remove what we hold from it within five business days. <a href="/contact">Other ways to reach us</a>.</p>
+</section>
+{% endblock %}

@@ -38,7 +38,9 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from pipeline.connectors.http import user_agent
 from services.api.common import DOMAIN
+from services.social.editorial import product_identity
 from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
@@ -119,6 +121,25 @@ def _is_same_origin(request: Request) -> bool:
 
 def _csrf_rejection() -> PlainTextResponse:
     return PlainTextResponse("Forbidden: this request did not come from the same site.", status_code=403)
+
+
+# ------------------------------------------------------------------------------- contact, bot
+@router.get("/contact", response_class=HTMLResponse)
+def contact(request: Request) -> HTMLResponse:
+    """Where the reader's User-Agent and every outbound letter point (docs/39 §0.3: it answered 404)."""
+    context = {
+        "contact_email": product_identity()[2],
+        "privacy_email": PRIVACY_EMAIL,
+        "controller": controller_identity(),
+    }
+    return templates.TemplateResponse(request, "legal/contact.html", context)
+
+
+@router.get("/bot", response_class=HTMLResponse)
+def bot(request: Request) -> HTMLResponse:
+    """The page the data reader's User-Agent names (`pipeline/connectors/http.py`; docs/39 §0.3)."""
+    context = {"contact_email": product_identity()[2], "user_agent": user_agent(DOMAIN)}
+    return templates.TemplateResponse(request, "legal/bot.html", context)
 
 
 # --------------------------------------------------------------------------------------- privacy

@@ -50,13 +50,13 @@ that paid plans may come later, and a recipient could read that as promoting the
 - [ ] **Channel register.** docs/13 §0: a channel "is **inactive** until the owner records" a row. The register
       lives in `docs/63` §6 and is empty. §0.4 has a proposed row, for the coordinator to add with your
       sign-off. The PJM request in `docs/37` needs the same row.
-- [ ] **The reader's contact links.** Every automated-reading paragraph says our reader names itself with a
+- [x] **The reader's contact links.** *Done 2026-10-22: `/bot` and `/contact` now answer 200 (`web/legal.py`, `web/test_contact_bot.py`); the original finding follows.* Every automated-reading paragraph says our reader names itself with a
       contact link. `pipeline/connectors/http.py` sends `Bankable/0.2 (+https://inframation.io/bot; contact
       https://inframation.io/contact)` after a browser-like prefix. On 2026-10-21 both
       <https://inframation.io/bot> and <https://inframation.io/contact> answered **404** (one GET each, to our own
       site), and no route for either exists in `web/`. Do not send a draft that offers the automated reader until
       both answer 200, or until you change that sentence to point at a page that exists.
-- [ ] **The reader's name.** The product token in that User-Agent is `Bankable`, not Inframation. An issuer that
+- [x] **The reader's name.** *Done 2026-10-22: the product token is now `Inframation` (`pipeline/connectors/http.py`); the original finding follows.* The product token in that User-Agent is `Bankable`, not Inframation. An issuer that
       looks for us in its logs or writes a robots.txt rule will need the token. Either the token is renamed first
       (a pipeline change, not this lane's), or each draft gains one sentence: "Our reader identifies itself as
       Bankable, our working name."

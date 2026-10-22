@@ -880,7 +880,7 @@ def test_aep_fetch_is_polite_and_reads_only_the_listing_its_pages_and_the_terms(
         PSO_LISTING + "AllSource2026",
     ]
     for _url, headers in session.calls:
-        assert "Bankable/0.2 (+https://" in headers["User-Agent"] and "/contact)" in headers["User-Agent"]
+        assert "Inframation/0.2 (+https://" in headers["User-Agent"] and "/contact)" in headers["User-Agent"]
     assert c.http.rate_limits == {"www.psoklahoma.com": 0.5, "www.aep.com": 0.5}
     assert snap.meta["notes"] == {"missing": [f"404 {PSO_LISTING}2025-SPP-Capacity-RFP"]}
     assert snap.meta["terms_check"]["missing"] == [] and snap.meta["items_kept"] == 2
@@ -898,7 +898,7 @@ def test_robots_disallowing_the_listing_blocks_the_run(tmp_path: pathlib.Path) -
 
 
 def test_robots_disallowing_a_per_rfp_page_skips_it() -> None:
-    robots = (200, b"User-agent: Bankable\nDisallow: /business/b2b/energy-rfps/AllSource2026\n", {})
+    robots = (200, b"User-agent: Inframation\nDisallow: /business/b2b/energy-rfps/AllSource2026\n", {})
     c, session = make("us.rfp.pso", _pso_routes(**{"https://www.psoklahoma.com/robots.txt": robots}))
     snap = c.fetch()
     assert PSO_LISTING + "AllSource2026" not in session.urls()
