@@ -38,6 +38,7 @@ from starlette.datastructures import QueryParams
 from web import labels
 from web.api_client import ApiClient, ApiError, ApiNotFound
 from web.labels import data_notes, labelled_attributes
+from web.list_sort import ASSET_COLUMNS, ASSET_OTHER, chosen_sort, sort_caption, sort_headers, valid_sort
 from web.page import (
     LINE_ASSET_TYPES,
     _asset_extras,
@@ -89,15 +90,12 @@ ASSET_INDEX_FILTERS = (
     "retirement_year[gte]",
     "retirement_year[lte]",
 )
-#: `sort=` tokens `services/api/assets.py::ASSET_SORT_ALLOWLIST` accepts, with the words the
-#: control shows. Capacity descending is the default: the biggest thing is the most interesting
-#: row on an index of infrastructure. Length is *not* an API sort field, so a pipeline's mileage
-#: shows in its row but never orders the list; name ascending is the tiebreak a reader can reach.
-ASSET_INDEX_SORTS = (
-    ("-capacity_mw", "Capacity, largest first"),
-    ("name", "Name, A to Z"),
-    ("-last_changed", "Recently changed"),
-)
+#: The `sort=` order is chosen by clicking the Name and Capacity headings (lane list-sort, 2026-10-22;
+#: `web/list_sort.py::ASSET_COLUMNS`); any other token `services/api/assets.py::ASSET_SORT_ALLOWLIST`
+#: accepts (`-last_changed`, the old "Recently changed" option) still sorts a linked view. Capacity
+#: descending is the default: the biggest thing is the most interesting row on an index of
+#: infrastructure. Length is *not* an API sort field, so a pipeline's mileage shows in its row but
+#: never orders the list.
 ASSET_INDEX_DEFAULT_SORT = "-capacity_mw"
 #: A line asset carries no `capacity_mw`, so a capacity sort over a pipeline-only view orders it
 #: by nothing at all. `length_miles` is not in the API's sort allowlist, so the honest default for
@@ -179,9 +177,7 @@ def assets_list(request: Request) -> HTMLResponse:
     api = get_api(request)
     qp = request.query_params
     selected_types = set((qp.get("asset_type") or "").split(",")) - {""}
-    sort = qp.get("sort") or _asset_index_default_sort(selected_types)
-    if sort not in {token for token, _label in ASSET_INDEX_SORTS}:
-        sort = _asset_index_default_sort(selected_types)
+    sort = valid_sort(qp.get("sort"), ASSET_COLUMNS, _asset_index_default_sort(selected_types), ASSET_OTHER)
     params: dict[str, str | None] = {name: qp[name] for name in ASSET_INDEX_FILTERS if qp.get(name)}
     params["sort"] = sort
     params["cursor"] = qp.get("cursor")
@@ -217,9 +213,11 @@ def assets_list(request: Request) -> HTMLResponse:
         # The corrected count for a type whose rows out-number its assets (docs/24); `None` for
         # every other view, argued in `web/viewmodels.py::asset_count_note` and the template.
         "count_note": count_note,
-        "sorts": ASSET_INDEX_SORTS,
         "sort": sort,
-        "sort_caption": next(label.lower() for token, label in ASSET_INDEX_SORTS if token == sort),
+        "sort_caption": sort_caption(sort, ASSET_COLUMNS, ASSET_OTHER),
+        "sort_headers": sort_headers("/assets", qp, ASSET_COLUMNS, sort),
+        # Kept by the filter form, so a filter change keeps the order a heading click chose.
+        "sort_param": chosen_sort(qp.get("sort"), ASSET_COLUMNS, ASSET_OTHER),
         "description": _asset_index_description(selected_types, counts, qp),
         "has_more": page["has_more"],
         "next_cursor": page["next_cursor"],

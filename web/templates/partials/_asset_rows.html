@@ -12,15 +12,19 @@
   {%- endif -%}
 </p>
 {% if records %}
+{#- Sortable Name and Capacity headings (`web/list_sort.py`); compact two-line
+    rows below 720px (docs/16 U-10): the name, then type · technology · capacity · length · place ·
+    operator · source. -#}
+{%- set sh = sort_headers or {} %}
 <div class="table-scroll">
-<table class="record-table">
+<table class="record-table record-table--compact">
   <caption class="visually-hidden">Registry assets matching the current filters, {{ sort_caption }}.</caption>
   <thead>
     <tr>
-      <th scope="col">Name</th>
+      {{ m.sort_th("Name", sh.name) }}
       <th scope="col">Type</th>
       <th scope="col">Technology</th>
-      <th scope="col" class="num">Capacity</th>
+      {{ m.sort_th("Capacity", sh.capacity, num=True) }}
       <th scope="col" class="num">Length (miles)</th>
       <th scope="col">Location</th>
       <th scope="col">Operator</th>
@@ -29,19 +33,21 @@
   </thead>
   <tbody>
     {% for r in records %}
+    {%- set tech = r.technology_label or r.line_class or (r.technology | technology_label) %}
+    {%- set place = r.states or r.state or r.country %}
     <tr>
-      <td data-label="Name">{% if r.slug %}<a class="row-link" href="/assets/{{ r.slug }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
-      <td data-label="Type">{{ r.type_label }}{% if r.status in ('retired', 'retiring') %} <span class="row-status">({{ r.status_label | lower }}{% if r.retirement_year %} {{ r.retirement_year }}{% endif %})</span>{% endif %}</td>
-      <td data-label="Technology">{{ r.technology_label or r.line_class or (r.technology | technology_label) or '—' }}</td>
-      <td data-label="Capacity" class="num tnum">
+      <td data-label="Name" class="cell-title">{% if r.slug %}<a class="row-link" href="/assets/{{ r.slug }}">{{ r.name }}</a>{% else %}{{ r.name }}{% endif %}</td>
+      <td data-label="Type" class="cell-meta">{{ r.type_label }}{% if r.status in ('retired', 'retiring') %} <span class="row-status">({{ r.status_label | lower }}{% if r.retirement_year %} {{ r.retirement_year }}{% endif %})</span>{% endif %}</td>
+      <td data-label="Technology" class="cell-meta{% if not tech %} is-empty{% endif %}">{{ tech or '—' }}</td>
+      <td data-label="Capacity" class="num tnum cell-meta{% if r.capacity_mw is none and not r.fuel_fields %} is-empty{% endif %}">
         {%- if r.capacity_mw is not none %}{{ r.capacity_mw | mw }} MW
         {%- elif r.fuel_fields %}{{ r.fuel_fields[0].value }}
         {%- else %}—{% endif -%}
       </td>
-      <td data-label="Length (miles)" class="num tnum">{% if r.length_miles is not none %}{{ '{:,.0f}'.format(r.length_miles) }}{% else %}—{% endif %}</td>
-      <td data-label="Location">{{ r.states or r.state or r.country or '—' }}</td>
-      <td data-label="Operator">{% if r.operator.slug %}<a href="/organizations/{{ r.operator.slug }}">{{ r.operator.name }}</a>{% else %}{{ r.operator.name or '—' }}{% endif %}</td>
-      <td data-label="Source"{% if not r.source_label %} class="mono"{% endif %}>{% if r.source_url %}<a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a>{% else %}{{ r.source_label or r.source_id or '—' }}{% endif %}</td>
+      <td data-label="Length (miles)" class="num tnum cell-meta{% if r.length_miles is none %} is-empty{% endif %}">{% if r.length_miles is not none %}{{ '{:,.0f}'.format(r.length_miles) }}<span class="cell-unit"> miles</span>{% else %}—{% endif %}</td>
+      <td data-label="Location" class="cell-meta{% if not place %} is-empty{% endif %}">{{ place or '—' }}</td>
+      <td data-label="Operator" class="cell-meta{% if not r.operator.name %} is-empty{% endif %}">{% if r.operator.slug %}<a href="/organizations/{{ r.operator.slug }}">{{ r.operator.name }}</a>{% else %}{{ r.operator.name or '—' }}{% endif %}</td>
+      <td data-label="Source" class="cell-meta{% if not r.source_label %} mono{% endif %}">{% if r.source_url %}<a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a>{% else %}{{ r.source_label or r.source_id or '—' }}{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>

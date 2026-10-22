@@ -3,7 +3,8 @@
 #
 # Field guide
 #   category : generation_queue | load_queue | permit | regulatory_docket | funding | procurement |
-#              registry | planning | news | aggregator | social_channel
+#              registry | planning | news | aggregator | social_channel | market_price (wholesale,
+#              retail and contract prices; context data, never proposals; docs/29, 2026-10-22)
 #   access   : api | bulk_file | html | js_app | pdf | rss | email | wsdl
 #   reuse    : open (public domain / open licence) | attribution (open with credit) |
 #              noncommercial (reuse granted for noncommercial purposes only — CC BY-NC, a state site's
@@ -16,6 +17,12 @@
 #              Must be no more permissive than the docs/13-legal-data-rights.md §6 rule for the
 #              source; scripts/check_manifest_licences.py enforces it (2026-09-18). restricted and
 #              unknown sources are always `none`.
+#   notice   : optional, a statement the source's terms require on every copy (a copyright notice, a
+#              no-endorsement statement), verbatim. Rendered after `attribution` and any
+#              `changes_statement` wherever the credit is (pipeline/connectors/registry.py
+#              `credit_text`). The docs/13 §6 rule names it first as `notice "..."`; R5 of
+#              scripts/check_manifest_licences.py requires the two to match exactly (2026-10-22,
+#              docs/13 §6.4).
 #   (there is no lag field: nothing this manifest declares is time-delayed on any tier. The ISO
 #              change-event lag was removed on 2026-09-21 — owner, docs/00-PLAN.md decisions log —
 #              along with its knob, because a dormant per-source delay an admin could switch back on
@@ -35,6 +42,13 @@
 #              comment above it. The scheduler runs the source on the 2nd of the *following* month
 #              (infra/scheduler/cadence.py `annual_run_month`); without the field an annual source
 #              runs in January, as before 2026-09-27. infra/scheduler/test_cadence.py validates it.
+#   status   : optional; `pending` = terms read and recorded, nothing built: no connector, so the
+#              registry lists the source as unimplemented and nothing is fetched, stored or published
+#              until the coordinator clears the row and a lane builds it (docs/29, 2026-10-22).
+#              `reuse` and `publication` on a pending row record the ceiling the terms allow, not a
+#              promise to publish; a row withheld by its terms is `none` as usual. `excluded` = recorded
+#              so the source is never picked up, first- or second-hand (paid exchange data, private
+#              PPA indices, re-hosts); nothing is planned for it.
 #
 # Reuse of US federal government works is public domain (17 U.S.C. §105). ISO/RTO and state sites are
 # NOT federal works: each carries its own terms and is recorded individually below.
@@ -1219,6 +1233,12 @@ sources:
   reuse: noncommercial
   publication: derived_only
   attribution: 'Source: Public Service Company of Oklahoma (AEP), Energy RFPs'
+  # AEP Terms and Conditions (https://www.aep.com/terms/, re-read 2026-10-22): "Any copy you make must
+  # include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights
+  # reserved." Verbatim (the page renders the year with no space after the hyphen). When AEP's page moves
+  # the year, the us_rfp terms check pauses this issuer until this line and the terms_quote in
+  # data/vendored/rfp_issuers/issuers.yaml are updated together (docs/13 §6.4).
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   licence_url: "https://www.aep.com/terms/"
   # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
   # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
@@ -1233,6 +1253,30 @@ sources:
     Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
     the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
     classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+    TERMS RE-READ 2026-10-22 (legal-compliance lane; https://www.aep.com/terms/, HTTP 200, 82,120 bytes, the
+    capture behind docs/39 §7.3). Quoted verbatim, beyond the two passages under `license`, which is left as
+    read on 2026-10-21 because the licence_id is a digest of that field and the terms themselves did not
+    change: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric
+    Power Company, Inc., all rights reserved." Under "No Implied Licenses": "Nothing contained herein shall
+    be construed as conferring by implication, estoppel, or otherwise any license or right under any patent,
+    trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third
+    party." Under "Information Provided by You": "Any information provided by you to AEP, including but not
+    limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be
+    non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be
+    free to reproduce, use, disclose, and distribute the information to others without limitation." The page
+    builds the year as a separate value, so it renders "1996-2026" with no space; a plain-text extraction of
+    the same capture shows "1996- 2026". `notice` carries the copyright notice and renders after the credit
+    on every surface (docs/13 §6.4); before 2026-10-22 it rendered nowhere.
+    BASIS OF THE CLASS (inference, moderate confidence, not legal advice): these terms grant no general
+    noncommercial licence. They grant copying "for your personal use only" and, "If attribution to AEP is
+    included", "limited quotations from the content"; they bar copying "for redistribution to third parties
+    for commercial purposes" without written permission, and license nothing by implication. The
+    `noncommercial` class therefore rests on the limited-quotations sentence read with that bar, not on a
+    noncommercial grant, which is why publication is `derived_only` (the title as posted, facts and a link
+    back) and no AEP document or table is reproduced. Whether a running list of RFPs is "limited quotations"
+    is open (docs/39 §7.6 item 3). Anything sent to AEP, the docs/39 §7.4.1 letter included, is
+    "non-confidential" under the last clause.
 
 - id: us.rfp.appalachian_power
   name: Appalachian Power (AEP) - Energy Provider RFPs
@@ -1261,6 +1305,12 @@ sources:
   reuse: noncommercial
   publication: derived_only
   attribution: 'Source: Appalachian Power (AEP), Energy RFPs'
+  # AEP Terms and Conditions (https://www.aep.com/terms/, re-read 2026-10-22): "Any copy you make must
+  # include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights
+  # reserved." Verbatim (the page renders the year with no space after the hyphen). When AEP's page moves
+  # the year, the us_rfp terms check pauses this issuer until this line and the terms_quote in
+  # data/vendored/rfp_issuers/issuers.yaml are updated together (docs/13 §6.4).
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   licence_url: "https://www.aep.com/terms/"
   # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
   # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
@@ -1275,6 +1325,30 @@ sources:
     Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
     the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
     classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+    TERMS RE-READ 2026-10-22 (legal-compliance lane; https://www.aep.com/terms/, HTTP 200, 82,120 bytes, the
+    capture behind docs/39 §7.3). Quoted verbatim, beyond the two passages under `license`, which is left as
+    read on 2026-10-21 because the licence_id is a digest of that field and the terms themselves did not
+    change: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric
+    Power Company, Inc., all rights reserved." Under "No Implied Licenses": "Nothing contained herein shall
+    be construed as conferring by implication, estoppel, or otherwise any license or right under any patent,
+    trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third
+    party." Under "Information Provided by You": "Any information provided by you to AEP, including but not
+    limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be
+    non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be
+    free to reproduce, use, disclose, and distribute the information to others without limitation." The page
+    builds the year as a separate value, so it renders "1996-2026" with no space; a plain-text extraction of
+    the same capture shows "1996- 2026". `notice` carries the copyright notice and renders after the credit
+    on every surface (docs/13 §6.4); before 2026-10-22 it rendered nowhere.
+    BASIS OF THE CLASS (inference, moderate confidence, not legal advice): these terms grant no general
+    noncommercial licence. They grant copying "for your personal use only" and, "If attribution to AEP is
+    included", "limited quotations from the content"; they bar copying "for redistribution to third parties
+    for commercial purposes" without written permission, and license nothing by implication. The
+    `noncommercial` class therefore rests on the limited-quotations sentence read with that bar, not on a
+    noncommercial grant, which is why publication is `derived_only` (the title as posted, facts and a link
+    back) and no AEP document or table is reproduced. Whether a running list of RFPs is "limited quotations"
+    is open (docs/39 §7.6 item 3). Anything sent to AEP, the docs/39 §7.4.1 letter included, is
+    "non-confidential" under the last clause.
 
 - id: us.rfp.swepco
   name: Southwestern Electric Power Company (AEP) - Energy Provider RFPs
@@ -1303,6 +1377,12 @@ sources:
   reuse: noncommercial
   publication: derived_only
   attribution: 'Source: SWEPCO (AEP), Energy RFPs'
+  # AEP Terms and Conditions (https://www.aep.com/terms/, re-read 2026-10-22): "Any copy you make must
+  # include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights
+  # reserved." Verbatim (the page renders the year with no space after the hyphen). When AEP's page moves
+  # the year, the us_rfp terms check pauses this issuer until this line and the terms_quote in
+  # data/vendored/rfp_issuers/issuers.yaml are updated together (docs/13 §6.4).
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   licence_url: "https://www.aep.com/terms/"
   # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
   # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
@@ -1317,6 +1397,30 @@ sources:
     Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
     the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
     classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+    TERMS RE-READ 2026-10-22 (legal-compliance lane; https://www.aep.com/terms/, HTTP 200, 82,120 bytes, the
+    capture behind docs/39 §7.3). Quoted verbatim, beyond the two passages under `license`, which is left as
+    read on 2026-10-21 because the licence_id is a digest of that field and the terms themselves did not
+    change: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric
+    Power Company, Inc., all rights reserved." Under "No Implied Licenses": "Nothing contained herein shall
+    be construed as conferring by implication, estoppel, or otherwise any license or right under any patent,
+    trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third
+    party." Under "Information Provided by You": "Any information provided by you to AEP, including but not
+    limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be
+    non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be
+    free to reproduce, use, disclose, and distribute the information to others without limitation." The page
+    builds the year as a separate value, so it renders "1996-2026" with no space; a plain-text extraction of
+    the same capture shows "1996- 2026". `notice` carries the copyright notice and renders after the credit
+    on every surface (docs/13 §6.4); before 2026-10-22 it rendered nowhere.
+    BASIS OF THE CLASS (inference, moderate confidence, not legal advice): these terms grant no general
+    noncommercial licence. They grant copying "for your personal use only" and, "If attribution to AEP is
+    included", "limited quotations from the content"; they bar copying "for redistribution to third parties
+    for commercial purposes" without written permission, and license nothing by implication. The
+    `noncommercial` class therefore rests on the limited-quotations sentence read with that bar, not on a
+    noncommercial grant, which is why publication is `derived_only` (the title as posted, facts and a link
+    back) and no AEP document or table is reproduced. Whether a running list of RFPs is "limited quotations"
+    is open (docs/39 §7.6 item 3). Anything sent to AEP, the docs/39 §7.4.1 letter included, is
+    "non-confidential" under the last clause.
 
 - id: us.rfp.indiana_michigan_power
   name: Indiana Michigan Power (AEP) - Energy Provider RFPs
@@ -1345,6 +1449,12 @@ sources:
   reuse: noncommercial
   publication: derived_only
   attribution: 'Source: Indiana Michigan Power (AEP), Energy RFPs'
+  # AEP Terms and Conditions (https://www.aep.com/terms/, re-read 2026-10-22): "Any copy you make must
+  # include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights
+  # reserved." Verbatim (the page renders the year with no space after the hyphen). When AEP's page moves
+  # the year, the us_rfp terms check pauses this issuer until this line and the terms_quote in
+  # data/vendored/rfp_issuers/issuers.yaml are updated together (docs/13 §6.4).
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   licence_url: "https://www.aep.com/terms/"
   # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
   # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
@@ -1359,6 +1469,30 @@ sources:
     Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
     the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
     classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+    TERMS RE-READ 2026-10-22 (legal-compliance lane; https://www.aep.com/terms/, HTTP 200, 82,120 bytes, the
+    capture behind docs/39 §7.3). Quoted verbatim, beyond the two passages under `license`, which is left as
+    read on 2026-10-21 because the licence_id is a digest of that field and the terms themselves did not
+    change: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric
+    Power Company, Inc., all rights reserved." Under "No Implied Licenses": "Nothing contained herein shall
+    be construed as conferring by implication, estoppel, or otherwise any license or right under any patent,
+    trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third
+    party." Under "Information Provided by You": "Any information provided by you to AEP, including but not
+    limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be
+    non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be
+    free to reproduce, use, disclose, and distribute the information to others without limitation." The page
+    builds the year as a separate value, so it renders "1996-2026" with no space; a plain-text extraction of
+    the same capture shows "1996- 2026". `notice` carries the copyright notice and renders after the credit
+    on every surface (docs/13 §6.4); before 2026-10-22 it rendered nowhere.
+    BASIS OF THE CLASS (inference, moderate confidence, not legal advice): these terms grant no general
+    noncommercial licence. They grant copying "for your personal use only" and, "If attribution to AEP is
+    included", "limited quotations from the content"; they bar copying "for redistribution to third parties
+    for commercial purposes" without written permission, and license nothing by implication. The
+    `noncommercial` class therefore rests on the limited-quotations sentence read with that bar, not on a
+    noncommercial grant, which is why publication is `derived_only` (the title as posted, facts and a link
+    back) and no AEP document or table is reproduced. Whether a running list of RFPs is "limited quotations"
+    is open (docs/39 §7.6 item 3). Anything sent to AEP, the docs/39 §7.4.1 letter included, is
+    "non-confidential" under the last clause.
 
 - id: us.rfp.ct_deep
   name: Connecticut DEEP - energy procurements announced in DEEP news releases
@@ -1602,6 +1736,14 @@ sources:
   reuse: noncommercial
   publication: raw_ok
   licence_url: "https://www.rrc.texas.gov/site-policies/"
+  # The RRC Site Policies say copiers "must follow" the State Website Linking and Privacy Policy, whose
+  # copying paragraph requires the agency, "its Web address, the date the information was copied" and "a
+  # statement that neither the site owner nor the information, as it is presented on the site owner's Web
+  # site, is endorsed by the State or any state agency" (quoted in full in `notes`, 2026-10-22). Agency and
+  # address are the credit; the statement is `notice`; the date copied is each record's `retrieved_at`,
+  # printed beside the credit (docs/13 §6.4).
+  attribution: 'Source: Railroad Commission of Texas, https://www.rrc.texas.gov'
+  notice: 'Neither Inframation nor this information, as presented on Inframation, is endorsed by the State of Texas or any state agency.'
   tier: 3
   effort: M
   probe: {method: GET}
@@ -1658,6 +1800,43 @@ sources:
     rename). The PDF's document metadata names its RRC author; the connector never reads metadata. The
     best of the six primacy states by a distance: a genuine machine-readable table, an application-level
     status vocabulary with the RRC's own legend, a well count and an injection interval per application.
+
+    COPYING CONDITIONS, re-read 2026-10-22 (legal-compliance lane; Site Policies HTTP 200, 68,255 bytes, the
+    capture behind docs/39 §7.3). The Site Policies, verbatim: "Entities or individuals who copy information
+    from the RRC website or link to the RRC website must follow Sections 3 and 5 of The State Website Linking
+    and Privacy Policy entitled, “Linking to State Agency Websites” and “Copying Information from State
+    Agency Websites,” respectively." And: "Because of the harm to State computer systems, including, but not
+    limited to, the partial or total alteration or damage to data, or the interruption of computer services
+    to other users, the RRC does not consent to access to its computer system by “robots,” denial of service
+    attacks, or any other automated process that results in severe degradation of system performance." The
+    state policy itself: DIR's page
+    (https://dir.texas.gov/resource-library-item/state-website-linking-and-privacy-policy) answered a 403
+    challenge page ("Just a moment...") on 2026-10-22, at about 18:24 UTC (docs/39 §7.3) and once more at
+    18:49 UTC, and was not retried further or bypassed. The text used is a state agency's reproduction, the
+    Texas Board of Architectural Examiners (https://www.tbae.texas.gov/links-privacy-policy/, read
+    2026-10-22), where the paragraph is headed "Copying and Use of Information by Web Site Owners Linking to
+    State Agency Sites" and is unnumbered, so it is secondary until read on DIR's site: "Use of the
+    information must identify the state agency that is the source of the information, its Web address, the
+    date the information was copied from the state agency’s Web site by the site owner and must be
+    accompanied by a statement that neither the site owner nor the information, as it is presented on the
+    site owner’s Web site, is endorsed by the State or any state agency." And: "To protect the intellectual
+    property of state agencies, copied information must reflect the copyright, trademark, service mark or
+    other intellectual property rights of the state agency whose protected information is being used by the
+    site owner." HOW THIS ROW MEETS THEM (2026-10-22): agency and web address in `attribution`, the
+    no-endorsement statement in `notice`, both rendered with the credit on every surface (record pages,
+    API `attribution_text`, feeds, alerts, /attribution, /legal/reuse; a `noncommercial` row is never in a bulk
+    or CSV export); the date copied is each record's
+    `retrieved_at` (the record page prints "Retrieved <date>" after the credit; the API carries
+    `retrieved_at` beside `attribution_text`). Until then the live Class VI records carried only "Source:
+    Railroad Commission of Texas", with no web address and no statement. `license` is left as read on
+    2026-09-25 because the licence_id is a digest of that field and the terms did not change; changing it
+    would leave the events already loaded under the old licence row, whose credit a refresh does not reach.
+    INFERENCE (not legal advice): the robots sentence is conditional on "severe degradation of system
+    performance", and a weekly read at 0.5 rps is well outside it. The intellectual-property sentence binds
+    "protected information"; the records carry facts (operator, project, county, status, dates) and link to
+    the RRC's own PDF unaltered, so no RRC copyright line is rendered. Counsel to confirm both, and which of
+    the RRC's noncommercial grant and the state paragraph (which has no noncommercial limit) governs
+    (docs/39 §7.6 item 4); the class stays `noncommercial`.
 
 - id: us.wv.dep.class_vi
   name: West Virginia DEP — UIC programme (Class VI)
@@ -1745,6 +1924,11 @@ sources:
   reuse: noncommercial
   publication: raw_ok
   licence_url: "https://www.rrc.texas.gov/site-policies/"
+  # Same Site Policies and the same state copying paragraph as us.tx.rrc.class_vi (quoted in `notes`,
+  # 2026-10-22): agency and web address in the credit, the no-endorsement statement as `notice`, the
+  # date copied as each record's `retrieved_at` (docs/13 §6.4).
+  attribution: 'Source: Railroad Commission of Texas, https://www.rrc.texas.gov'
+  notice: 'Neither Inframation nor this information, as presented on Inframation, is endorsed by the State of Texas or any state agency.'
   tier: 3
   effort: L
   probe: {method: GET}
@@ -1772,6 +1956,20 @@ sources:
     consult, with docs/26 §5's runbook as the named backstop), and docs/13 §7 item 15 keeps the underlying
     question open as a recommendation rather than a blocker. No connector exists yet for this source; nothing
     changes about ingestion, only the register.
+
+    COPYING CONDITIONS, re-read 2026-10-22 (legal-compliance lane; the full set, with the DIR 403 and the
+    secondary source of the state text, is in us.tx.rrc.class_vi's notes). The Site Policies, verbatim:
+    "Entities or individuals who copy information from the RRC website or link to the RRC website must
+    follow Sections 3 and 5 of The State Website Linking and Privacy Policy entitled, “Linking to State
+    Agency Websites” and “Copying Information from State Agency Websites,” respectively." The state
+    paragraph, from the Texas Board of Architectural Examiners' reproduction
+    (https://www.tbae.texas.gov/links-privacy-policy/, read 2026-10-22; DIR's own page answered a 403
+    challenge and was not bypassed): "Use of the information must identify the state agency that is the
+    source of the information, its Web address, the date the information was copied from the state agency’s
+    Web site by the site owner and must be accompanied by a statement that neither the site owner nor the
+    information, as it is presented on the site owner’s Web site, is endorsed by the State or any state
+    agency." The same `attribution` and `notice` as us.tx.rrc.class_vi; they render once a connector loads
+    rows. `license` is unchanged, so the licence_id is too.
 
 - id: us.nd.dmr.oilgas
   name: North Dakota DMR Oil & Gas Division — well data (Basic and Premium services), hearing dockets, GIS map server
@@ -3708,6 +3906,726 @@ sources:
     Coastal subset of the 2017 HIFLD substations layer, re-attributed by NOAA. Even if the CC0 statement governs,
     republishing it would re-open a layer DHS has since restricted; recorded so it is not picked up by accident.
     See docs/13 section 2.19.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# L. ENERGY PRICES — wholesale (ISO/RTO, GB, EU), retail and industrial, and contract (PPA) prices
+# Owner request 2026-10-22: "let's layer in energy prices across the map whenever possible covering
+# realtime and or day ahead and purchase agreements wherever we can find them". Research lane only:
+# every row below is `status: pending` (terms read and quoted, nothing built). Terms, measurements
+# and the build plan: docs/29-energy-prices.md; register rows: docs/13 §6. All retrievals 2026-10-22
+# unless stated, platform user-agent, robots.txt honoured, no challenge bypassed.
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.iso.ercot.prices
+  name: ERCOT settlement point prices and LMPs — real-time 15-minute and day-ahead hourly, resource nodes, hubs and load zones
+  jurisdiction: US-TX
+  category: market_price
+  operator: ERCOT
+  url: https://www.ercot.com/mp/data-products/data-product-details?id=NP6-905-CD
+  access: api
+  auth: >-
+    none for the public MIS document list (last 7 days of each report, the route the ERCOT queue
+    connector already uses); a free ERCOT API account, registered by a person, for the archive at
+    api.ercot.com ("Accounts registered by "bots" or other automated methods are not permitted")
+  format: zip of csv per interval (NP6-905-CD real-time SPP, report type 12301; NP4-190-CD day-ahead SPP, 12331; NP6-788-CD SCED LMP; NP4-160-SG settlement point list, 10008; NP6-785-ER and NP4-180-ER annual hub and zone history)
+  cadence: 15-min
+  poll: daily
+  rate_limit_rps: 0.4
+  license: >-
+    ERCOT Website User Agreement (last updated 07/20/2023), https://www.ercot.com/help/terms, retrieved
+    2026-10-22T19:07:46Z, clause 5: "The publicly available contents of this website may be used,
+    reproduced, and redistributed, provided that the contents are not modified and that you maintain all
+    copyright and other notices contained in the contents, including this Agreement. Notwithstanding the
+    foregoing, raw data provided in public portions of this website may be used, reproduced, and
+    redistributed in compilations, charts, and analyses without maintaining such notices." Terms of Use
+    for ERCOT API, https://www.ercot.com/help/terms/data-portal, retrieved 2026-10-22T19:08:27Z: "You may
+    not download the same report from the Data Access Portal more than three times within a 12-month
+    period"; no redistribution restriction beyond the website agreement.
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: ERCOT"
+  licence_url: "https://www.ercot.com/help/terms"
+  status: pending
+  tier: 1
+  effort: M
+  probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=12301"}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.1. Public API limit "30 requests per minute" and "regions outside the United States of America are restricted" (developer.ercot.com/applications/pubapi/known-limits/, 19:08:58Z); archive "retained for at least 7 years". Settlement point list (doc 1288962582, CIM_Oct_ML3, 254,175 bytes, sha256 aad449c0…d0abb2): 19,514 electrical buses, 1,043 resource nodes at 710 substations, hubs HB_HOUSTON/NORTH/PAN/SOUTH/WEST plus HB_BUSAVG and HB_HUBAVG, load zones; no coordinates.'}
+  notes: >-
+    The cleanest ISO grant: raw data may be redistributed in compilations and analyses with no delay, so the
+    trailing statistics and a latest-price readout are both allowed. Store every downloaded file once
+    (the three-downloads-a-year rule). ERCOT publishes no node coordinates; placement is the node-location
+    lane's (docs/29 §5). Nodal market since 2010-12-01 (NP6-905-CD first run 2010-11-30).
+
+- id: us.iso.caiso.oasis_prices
+  name: CAISO OASIS locational marginal prices — day-ahead hourly, fifteen-minute and five-minute real-time, all pricing nodes
+  jurisdiction: US-CA
+  category: market_price
+  operator: California ISO
+  url: https://oasis.caiso.com/mrioasis/logon.do
+  access: api
+  auth: none
+  format: zip of csv or xml (SingleZip queries PRC_LMP, PRC_RTPD_LMP, PRC_INTVL_LMP; ATL_PNODE_MAP for the node list)
+  cadence: 15-min
+  poll: daily
+  rate_limit_rps: 0.2
+  license: >-
+    CAISO Terms of Use (last updated 10/02/2018), https://www.caiso.com/privacy-terms-of-use, retrieved
+    2026-10-22T19:07:50Z: "No material or information from this Website ... may be copied, reproduced,
+    republished, uploaded, posted, transmitted or distributed except (i) as authorized in these Terms of Use,
+    (ii) as expressly authorized in the materials and/or information contained on this Website, or (iii) as
+    expressly authorized in writing by the California ISO" and "Most of the materials and information ...
+    may be used by you provided that you keep intact all copyright, trademark and other proprietary notices
+    and that you credit the California ISO". API Terms of Use (08/22/2019), same page: "You may not use or
+    access the CAISO API for purposes of monitoring the availability, performance or functionality of any of
+    CAISO's systems or services or for any other benchmarking or competitive purposes."
+  reuse: attribution
+  publication: derived_only
+  attribution: "Source: California ISO"
+  licence_url: "https://www.caiso.com/privacy-terms-of-use"
+  status: pending
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.2. OASIS Interface Specification v5.1.2: an ALL or ALL_APNODES query "will return only 1-days'' worth of data for all nodes at a time"; error 1004 "Data can be requested for period of 31 days only"; error 1017 "Please select a maximum of 10 nodes or use the ALL option". No published request rate; 1 request per 5 s (gridstatus default) assumed. Not fetched: no OASIS price file was requested by this lane.'}
+  notes: >-
+    Same terms and the same register reading as us.iso.caiso.gen_queue (docs/13 §1.2): derived-only with the
+    credit, so twelve-month statistics publish and the raw interval price (a latest-price readout) does not
+    until CAISO authorises it in writing (docs/29 §7, lane P0). Includes the WEIM and EDAM areas CAISO prices.
+
+- id: us.iso.caiso.price_map
+  name: CAISO price map node positions and current prices (the feed behind caiso.com Today's Outlook, Prices)
+  jurisdiction: US-CA (and WEIM/EDAM areas)
+  category: market_price
+  operator: California ISO
+  url: https://wwwmobile.caiso.com/Web.Service.Chart/api/v3/ChartService/PriceContourMap1
+  access: api
+  auth: none
+  format: json
+  cadence: 15-min
+  poll: daily
+  rate_limit_rps: 0.2
+  license: >-
+    CAISO Terms of Use, as us.iso.caiso.oasis_prices (retrieved 2026-10-22T19:07:50Z). The page that loads
+    this feed, https://www.caiso.com/todays-outlook/prices (retrieved 2026-10-22T20:22:40Z), embeds
+    wwwmobile.caiso.com/Web.Service.Chart/pricecontourmap.html; caiso.com robots.txt: "Disallow:
+    /resources/*", "Allow: /".
+  reuse: attribution
+  publication: derived_only
+  attribution: "Source: California ISO"
+  licence_url: "https://www.caiso.com/privacy-terms-of-use"
+  status: pending
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: ok, rows: 14770, note: 'docs/29 §5.2. One GET 2026-10-22T20:22:47Z: 5,027,921 bytes, sha256 03cdbb00…bfcd2a; 14,770 nodes, each with a coordinate, type GEN 3,863 / LOAD 10,907, area CA 4,177 and 24 other WEIM/EDAM areas; current day-ahead, fifteen-minute and five-minute LMP and components per node. No trading hubs (TH_NP15 etc.) in the feed. Against EIA-860 2025 generator LMP designations (153 pairs): median 0.87 km, 120 within 10 km, maximum 812 km, so positions are display positions, not survey points.'}
+  notes: >-
+    The only ISO feed found that publishes a coordinate for every pricing node. Under derived-only the
+    coordinate is used to derive the node's county and is never served (docs/21 §8 restricted-precision
+    rule); serving the points needs CAISO's written authorisation (docs/29 §7).
+
+- id: us.iso.nyiso.prices
+  name: NYISO locational based marginal prices — day-ahead and real-time, zonal and generator, with NYISO's generator list
+  jurisdiction: US-NY
+  category: market_price
+  operator: NYISO
+  url: https://mis.nyiso.com/public/P-2Alist.htm
+  access: bulk_file
+  auth: none
+  format: csv (daily) and monthly zip archives (damlbmp_zone, damlbmp_gen, realtime_zone, realtime_gen); generator.csv
+  cadence: daily
+  rate_limit_rps: 0.5
+  license: >-
+    NYISO Legal Notice - Web Content, https://www.nyiso.com/legal-notice, retrieved 2026-10-22T19:07:52Z,
+    unchanged from docs/13 §1.5: "Access to this Web site does not confer any license or ownership interest
+    in either the form or content of the Web site ... and the NYISO hereby expressly reserves such rights and
+    property in its entirety. Downloading, republishing, retransmitting, reproducing, or other use of any image
+    or video on this website as a stand-alone file is strictly prohibited"; no data-reuse restriction.
+  reuse: attribution
+  publication: derived_only
+  attribution: "Source: NYISO"
+  licence_url: "https://www.nyiso.com/legal-notice"
+  status: pending
+  tier: 1
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: ok, rows: 832, note: 'docs/29 §2.5. generator.csv (20:21:12Z): 832 rows, 813 active, 563 active with NYISO latitude/longitude; 162 of the 250 without are external proxy buses (zones PJM, NPX, H Q, O H). Archives start 1999-11 (P-2A, P-2B, P-24A index pages, 20:43Z).'}
+  notes: >-
+    Same register reading as us.iso.nyiso.gen_queue: derived-only with credit, raw-ok candidate after counsel.
+    Zonal statistics for the eleven zones are tranche 1; generator-node statistics are tranche 2 (placement
+    via EIA-860, docs/29 §5), since NYISO's own coordinates are withheld under derived-only.
+
+- id: us.iso.miso.prices
+  name: MISO locational marginal prices — day-ahead and real-time, commercial pricing nodes and hubs
+  jurisdiction: US-MISO
+  category: market_price
+  operator: MISO
+  url: https://www.misoenergy.org/markets-and-operations/real-time--market-data/market-reports/
+  access: api
+  auth: none (public-api.misoenergy.org, docs.misoenergy.org market reports); key for the Data Exchange (data-exchange.misoenergy.org, sign-up)
+  format: json / csv
+  cadence: 15-min
+  poll: daily
+  license: >-
+    NOT RETRIEVED. https://www.misoenergy.org/meet-miso/legal-and-privacy/ answered HTTP 403 with a
+    Cloudflare challenge at 2026-10-22T19:07:50Z and 20:21:05Z (as on 2026-09-12 and 2026-10-11, docs/13
+    §1.7); www.misoenergy.org/robots.txt also answered 403 this time. The Data Exchange portal shows a sign-up
+    page and no terms (its /terms path 404). Not bypassed.
+  reuse: unknown
+  publication: none
+  status: pending
+  tier: 2
+  effort: M
+  probe: {method: GET, url: "https://public-api.misoenergy.org/api/MarketPricing/GetRealTimeFiveMinExPost/Current"}
+  verified: {date: 2026-10-22, result: terms_unreadable, rows: 2628, note: 'public-api answered 200 without a key (20:21:10Z): 2,628 CPNODEs in one five-minute interval, eight hubs (ARKANSAS, ILLINOIS, INDIANA, LOUISIANA, MICHIGAN, MINN, MS, TEXAS). Read once to size the node list; nothing stored.'}
+  notes: >-
+    No MISO price is published in any tier until a person reads the legal page in a browser and the terms are
+    quoted in docs/13 §1.7 (CLAUDE.md). Link out meanwhile.
+
+- id: us.iso.spp.prices
+  name: SPP Integrated Marketplace LMPs — day-ahead and real-time balancing market by settlement location and bus, hubs
+  jurisdiction: US-SPP
+  category: market_price
+  operator: Southwest Power Pool
+  url: https://portal.spp.org/
+  access: api
+  auth: none (portal.spp.org file-browser-api; pricecontourmap.spp.org ArcGIS services)
+  format: csv; ArcGIS feature JSON for hub and interface points
+  cadence: 15-min
+  poll: daily
+  license: >-
+    SPP Terms and Conditions, https://www.spp.org/terms-conditions/, retrieved 2026-10-22T19:07:51Z,
+    unchanged from docs/13 §1.4: "Permission is implicitly granted to copy and distribute (via computer
+    network or printed form) in whole or in part (with appropriate citation) EXCEPT when such materials will
+    be used, in whole or in part, within a commercial publication (printed or otherwise) or when the author(s)
+    or SPP will be quoted in commercial materials, forums or publications. Any commercial use of these
+    materials requires prior, express written authorization from the author(s) or a duly authorized officer
+    of SPP." External Systems Acceptable Use Policy (v3.0, latest revision 6/27/2014), retrieved
+    2026-10-22T20:20:25Z, sha256 641ba7ff…2c9a2658: users must get approval in advance for "polling of systems
+    at a frequency higher than necessary for basic reconciliation of data".
+  reuse: restricted
+  publication: none
+  status: pending
+  tier: 2
+  effort: M
+  probe: {method: GET, url: "https://pricecontourmap.spp.org/arcgis/rest/services/PCM?f=json"}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.4. The price contour map services answered 200: PCM/DA_Features and PCM/RTBM_Features carry point features for hubs (SPPNORTH_HUB, SPPSOUTH_HUB, SWPW_HUB), interfaces and DC ties only, not nodes. portal.spp.org is a JavaScript app; the file-browser API is the one gridstatus uses.'}
+  notes: >-
+    Kept `restricted` to match us.iso.spp.gen_queue, whose register row reads the same clause. The clause is a
+    noncommercial grant in substance; whether SPP rows move to the `noncommercial` class under the platform's
+    posture is an owner decision for both SPP rows together, and moving them adds SPP to the sources that must
+    grant commercial reuse before the posture flips (docs/29 §6). Link out meanwhile.
+
+- id: us.iso.isone.prices
+  name: ISO New England LMPs — day-ahead hourly and real-time five-minute and hourly, pricing nodes, hub and load zones
+  jurisdiction: US-ISONE
+  category: market_price
+  operator: ISO New England
+  url: https://www.iso-ne.com/markets-operations/iso-express
+  access: api
+  auth: none for ISO Express CSV on www.iso-ne.com; ISO Express account for webservices.iso-ne.com
+  format: csv / json
+  cadence: 15-min
+  poll: daily
+  license: >-
+    ISO New England Legal and Privacy, https://www.iso-ne.com/legal-privacy, retrieved
+    2026-10-22T19:07:52Z, unchanged from docs/13 §1.6: "By using this website, you signify your assent to
+    these Terms and Conditions" and "You are also hereby put on notice that the Content is protected by
+    copyright under United States laws. Any duplication of the Content or non-personal use may violate
+    copyright, trademark, and other laws", where the Content is "collectively with all information and data
+    on this website".
+  reuse: restricted
+  publication: none
+  status: pending
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.6. Pricing-node table page: "New England has over 1,000 pnodes"; the table gives load zone, reserve zone, RSP area and dispatch zone, no coordinates. Web services terms (account) not read.'}
+  notes: >-
+    Link out until ISO-NE grants permission in writing or counsel reads the clause the other way (docs/13 §7
+    item 6).
+
+- id: us.iso.pjm.prices
+  name: PJM LMPs — day-ahead and real-time, pricing nodes, hubs and zones (Data Miner 2)
+  jurisdiction: US-PJM
+  category: market_price
+  operator: PJM Interconnection
+  url: https://dataminer2.pjm.com/list
+  access: api
+  auth: api_key (Data Miner 2 subscription key via apiportal.pjm.com, accepting the Data Miner 2 terms)
+  format: json / csv
+  cadence: 15-min
+  poll: daily
+  license: >-
+    PJM API portal "Acceptable Terms of Use", https://apiportal.pjm.com/content/html_widgets/39vgb.html,
+    retrieved 2026-10-22T20:21:17Z: "Information and data contained in Data Miner 2 is for internal use only
+    and redistribution of information and or data contained in or derived from Data Miner 2 is strictly
+    prohibited without an effective PJM-issued Redistribution License." Data Miner 2 Terms of Use PDF
+    (md5 f2e554a41e5b40c9852fcfed05ca6fa5, unchanged since 2026-09-12): "Members may republish data, however
+    non-members are specifically prohibited from republishing data."
+  reuse: restricted
+  publication: none
+  status: pending
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.7. Every PJM LMP route found is Data Miner 2 (gridstatus PJM.get_lmp needs a PJM_API_KEY). Not fetched.'}
+  notes: >-
+    Link-out only: "PJM rows are not public until a licence exists" (CLAUDE.md). The licence request in
+    docs/37 covers the queue; prices would need the same Redistribution License or Associate Membership
+    route (docs/13 §1.3(d)).
+
+- id: gb.elexon.bmrs_prices
+  name: Elexon Insights Solution (BMRS) — system sell and buy prices per settlement period
+  jurisdiction: GB
+  category: market_price
+  operator: Elexon Limited
+  url: https://data.elexon.co.uk/bmrs/api/v1/balancing/settlement/system-prices/
+  access: api
+  auth: none ("All our APIs are public and no API key is required")
+  format: json / csv
+  cadence: daily
+  rate_limit_rps: 0.5
+  license: >-
+    Copyright: Licence to use BMRS open data,
+    https://www.elexon.co.uk/bsc/data/balancing-mechanism-reporting-agent/copyright-licence-bmrs-data/,
+    retrieved 2026-10-22T20:29:03Z: "Elexon Limited hereby grants You a worldwide, royalty-free, perpetual,
+    non-exclusive licence to Use the BMRS Data"; "You are free to: copy, publish, distribute and transmit
+    the BMRS Data; adapt the BMRS Data; exploit the BMRS Data, including commercially"; "When You Use BMRS
+    Data, You must always use the following attribution statement ...: Contains BMRS data © Elexon Limited
+    copyright and database right [year]. Where possible You must also contain a link to this licence."
+    "This licence does not cover the use of: personal data; third party rights that Elexon is not authorised
+    to licence" (list items the page sets on separate lines are joined with semicolons). BMRS API terms (page modified 2023-07-07): misuse includes "invoking the API more than once
+    in a half hour period for data that is only updated on a half hourly basis".
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Contains BMRS data © Elexon Limited copyright and database right 2026"
+  licence_url: "https://www.elexon.co.uk/bsc/data/balancing-mechanism-reporting-agent/copyright-licence-bmrs-data/"
+  status: pending
+  tier: 2
+  effort: S
+  probe: {method: GET, url: "https://data.elexon.co.uk/bmrs/api/v1/balancing/settlement/system-prices/2026-10-21?format=json"}
+  verified: {date: 2026-10-22, result: ok, rows: 48, note: 'docs/29 §2.8. 48 settlement periods for 2026-10-21 (systemSellPrice, systemBuyPrice, netImbalanceVolume). The licence ends automatically if the attribution or the no-endorsement and no-misrepresentation conditions are not met.'}
+  notes: >-
+    GB has one wholesale price zone, so this is a national readout, not a node layer. The [year] in the
+    credit is the year of the data shown. Market Index Data is a separate row (gb.elexon.market_index_data).
+
+- id: gb.elexon.market_index_data
+  name: Elexon Insights Solution (BMRS) — Market Index Data (MID) from the market index data providers
+  jurisdiction: GB
+  category: market_price
+  operator: Elexon Limited (data providers APXMIDP and N2EXMIDP)
+  url: https://data.elexon.co.uk/bmrs/api/v1/datasets/MID
+  access: api
+  auth: none
+  format: json / csv
+  cadence: daily
+  license: >-
+    The BMRS open data licence (as gb.elexon.bmrs_prices) excludes "third party rights that Elexon is not
+    authorised to licence". MID rows name their provider: a sample retrieved 2026-10-22T20:29:07Z carries
+    "dataProvider":"APXMIDP" (EPEX SPOT's GB market) and "dataProvider":"N2EXMIDP" (Nord Pool's N2EX). EPEX's
+    General Conditions of Data Use (1 November 2025) treat data "created or derived from Information Product"
+    as Information Product where the original prices "can be determined through calculation" (gb/eu rows
+    below). Whether MID is a third-party right outside Elexon's grant is not stated anywhere read.
+  reuse: restricted
+  publication: none
+  status: pending
+  tier: 3
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_unclear, note: 'docs/29 §2.8. Ask Elexon whether MID is covered by the BMRS open data licence before any use.'}
+  notes: >-
+    The only public GB day-ahead-like price; it is derived from the two exchanges' trades, which is why it is
+    held back until Elexon answers.
+
+- id: eu.entsoe.day_ahead_prices
+  name: ENTSO-E Transparency Platform — day-ahead prices per bidding zone (Transparency Regulation Art. 12.1.d)
+  jurisdiction: EU
+  category: market_price
+  operator: ENTSO-E (primary owners of the data are the nominated electricity market operators)
+  url: https://transparency.entsoe.eu/
+  access: api
+  auth: api_key (free security token, requested by email to transparency@entsoe.eu)
+  format: xml
+  cadence: daily
+  license: >-
+    General Terms and Conditions for the use of the ENTSO-E Transparency Platform (approved 29 March 2023,
+    applicable from 1 November 2023; attachment to
+    https://transparencyplatform.zendesk.com/hc/en-us/articles/40921911218961-Legal-Terms-and-Conditions,
+    article updated 2026-09-22, retrieved 2026-10-22T20:32:56Z, sha256 665d0862…6352b), clause 3.1: the Data
+    User shall "not cause prejudice to the copyright or related right on a Transparency Platform Data, which
+    may be owned by the concerned Primary Owner of Data. In case of a risk to cause prejudice to said right,
+    the Data User shall seek the prior agreement of the holder of the copyright or related right." The List
+    of Data Available for Free Re-use (last modified 18 October 2023, sha256 b21717e8…08ff9a) licenses listed
+    items under CC BY 4.0; day-ahead prices (Art. 12.1.d) are not on it.
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.9. The list covers Art. 12.1.a/b/c/g allocation and flow items and imbalance prices (data item 27), not 12.1.d. API rate limit (400 requests a minute) is reported by third parties only; not verified.'}
+  notes: >-
+    Day-ahead prices on the platform come from the exchanges (EPEX SPOT, Nord Pool and others), whose own terms
+    licence display and derived data for a fee, so this is link-out only. Imbalance prices are on the CC BY 4.0
+    list and could be a later, separate row.
+
+- id: eu.nordpool.market_data
+  name: Nord Pool day-ahead and intraday auction prices (including N2EX, GB)
+  jurisdiction: EU/GB/Nordics
+  category: market_price
+  operator: Nord Pool AS
+  url: https://www.nordpoolgroup.com/en/services/power-market-data-services/
+  access: api
+  auth: paid licence
+  format: various
+  cadence: daily
+  license: >-
+    Nord Pool terms and conditions for use of website,
+    https://www.nordpoolgroup.com/en/About-us/terms-and-conditions-for-useofwebsite/, retrieved
+    2026-10-22T20:30:42Z: "You may not republish, retransmit, redistribute or otherwise make the contents of
+    this website available to any other party or make the same available on any website ... without our
+    express prior written consent from Nord Pool." and "Nord Pool does not permit automatic extraction of
+    data". Redistribution licences FAQ (20:29:13Z): displaying market data on user interfaces and "Derived
+    market data which is then redistributed in the market" each require a licence with "a license fee per
+    each of its customer/user".
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: L
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.10. Excluded: proprietary, paid redistribution licence.'}
+  notes: >-
+    Excluded from the price layers. Recorded so its prices are not picked up second-hand (ENTSO-E, Elexon MID,
+    third-party sites).
+
+- id: eu.epex.market_data
+  name: EPEX SPOT day-ahead and intraday auction prices (including the GB auctions)
+  jurisdiction: EU/GB
+  category: market_price
+  operator: EPEX SPOT SE
+  url: https://www.epexspot.com/en
+  access: api
+  auth: paid licence
+  format: various
+  cadence: daily
+  license: >-
+    EPEX SPOT General Conditions of Data Use applicable to EPEX SPOT Information Products, date 1 November 2025,
+    https://www.epexspot.com/sites/default/files/download_center_files/20251101_EPEX%20SPOT%20GENERAL%20CONDITIONS_Market%20Data%20%28mark-up%20version%29.pdf,
+    retrieved 2026-10-22T20:30:54Z, sha256 194b6346…4fba036: "Data created or derived from Information Product
+    is still deemed to be Information Product if (i) the quotes, prices, turnover figures, indices or other data
+    originally marketed by EPEX SPOT can be determined through calculation or automated process and/or (ii) the
+    alteration is formed in a way that the derived data can be used instead of the quotes, prices ... (i.e. as
+    substitute)"; licensed External Usage includes "display on a website".
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: L
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.10. Excluded: proprietary, paid licence; derived data is caught by the definition.'}
+  notes: >-
+    Excluded from the price layers, including indirectly through Elexon MID (APXMIDP) and ENTSO-E 12.1.d.
+
+- id: us.eia.wholesale_ice
+  name: EIA wholesale electricity and natural gas market data (daily ICE next-day index prices at seven hubs)
+  jurisdiction: US
+  category: market_price
+  operator: US EIA (data from Intercontinental Exchange)
+  url: https://www.eia.gov/electricity/wholesale/
+  access: bulk_file
+  auth: none
+  format: xlsx
+  cadence: weekly
+  license: >-
+    https://www.eia.gov/electricity/wholesale/, retrieved 2026-10-22T20:33:55Z: "The market data provided here
+    are republished, with permission, from data collected by the Intercontinental Exchange (ICE)"; "If a
+    certain hub or time period does not appear, EIA does not have access to it through the above-mentioned
+    agreement. The data and methodology would have to be obtained directly from ICE." EIA Copyrights and
+    Reuse, https://www.eia.gov/about/copyrights_reuse.php (20:33:56Z): "You may see on our website documents
+    ... or other information resources contributed or licensed by private individuals, companies, or
+    organizations that may be protected by U.S. and foreign copyright laws. Transmission or reproduction of
+    protected items beyond that allowed by fair use ... requires the written permission of the copyright
+    owners."
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.11. ICE data under EIA''s permission, not a federal work; 17 U.S.C. §105 does not reach it.'}
+  notes: >-
+    Link out. Bilateral next-day trading indices (Mid-C, PJM West, SP15, NP15, Palo Verde, Mass Hub, Indiana Hub,
+    ERCOT North), not ISO LMPs; the ISO hubs come from the ISOs' own rows above.
+
+- id: us.eia.861
+  name: EIA-861 Annual Electric Power Industry Report — revenue, sales and customers by utility, state and sector; utility service territories by county
+  jurisdiction: US
+  category: market_price
+  operator: US EIA
+  url: https://www.eia.gov/electricity/data/eia861/
+  access: bulk_file
+  auth: none
+  format: zip of xlsx
+  cadence: annual
+  # release_month: https://www.eia.gov/electricity/data/eia861/ says "Release date: October 7, 2026 (final data)", checked 2026-10-22
+  release_month: 10
+  license: >-
+    public domain (17 U.S.C. §105). EIA Copyrights and Reuse, https://www.eia.gov/about/copyrights_reuse.php,
+    retrieved 2026-10-22T20:33:56Z: "U.S. government publications are in the public domain and are not subject
+    to copyright protection. You may use and/or distribute any of our data, files, databases, reports, graphs,
+    charts, and other information products ... if you use or reproduce any of our information products, you
+    should use an acknowledgment, which includes the publication date".
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Energy Information Administration, Form EIA-861"
+  status: pending
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.12. 2025 final data released 2026-10-07; next (early release) August 2027.'}
+  notes: >-
+    Average industrial price per utility = industrial revenue / industrial sales. It is an average revenue, not a
+    tariff quote or a delivered price for a new load; the page says so.
+
+- id: us.eia.retail_sales
+  name: EIA retail sales of electricity — average price by state and sector, monthly (EIA-861M; Electric Power Monthly Table 5.6.A; API v2 electricity/retail-sales)
+  jurisdiction: US
+  category: market_price
+  operator: US EIA
+  url: https://api.eia.gov/v2/electricity/retail-sales/
+  access: api
+  auth: api_key (free)
+  format: json
+  cadence: monthly
+  license: >-
+    public domain (17 U.S.C. §105); EIA Copyrights and Reuse as us.eia.861 (retrieved 2026-10-22T20:33:56Z).
+    API documentation, https://www.eia.gov/opendata/documentation.php (20:33:59Z): "our API only returns a
+    maximum of 5,000 rows"; programs "must throttle the number of the requests they make per second and per
+    hour".
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Energy Information Administration, Electric Power Monthly"
+  status: pending
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.12. EIA-861M: July 2026 data released 2026-09-24, August 2026 due end of October 2026.'}
+
+- id: us.openei.urdb
+  name: OpenEI Utility Rate Database (URDB) — utility tariffs (energy, demand and fixed charges) for over 3,700 US utilities
+  jurisdiction: US
+  category: market_price
+  operator: National Laboratory of the Rockies (formerly NREL), OpenEI
+  url: https://apps.openei.org/USURDB/
+  access: bulk_file
+  auth: none for the bulk files (usurdb.csv.gz, usurdb.json.gz); free api_key for api.openei.org/utility_rates
+  format: csv.gz / json.gz
+  cadence: monthly
+  license: >-
+    https://apps.openei.org/USURDB/ footer, retrieved 2026-10-22T20:34:28Z: "Content is available under Creative
+    Commons Zero unless otherwise noted." The OEDI record for the same dataset,
+    https://data.openei.org/submissions/5 (20:34:31Z), shows "Content is available under Creative Commons
+    Attribution 4.0 unless otherwise noted" in its footer and renders its License field client-side. OpenEI
+    Terms of Use (effective July 31, 2023), https://openei.org/wiki/OpenEI:General_disclaimer (20:34:32Z, now
+    answering 200).
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Source: Utility Rate Database (URDB), OpenEI, National Laboratory of the Rockies"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  status: pending
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.13. Two statements (CC0 on the app, CC BY 4.0 on OEDI); the stricter is applied. developer.nrel.gov (API key terms and rate limits) answered a proxy 502; not read.'}
+  notes: >-
+    Rates "are checked and updated annually" per the OEDI description. A tariff is a structure, not a price: a
+    delivered rate needs a load profile; docs/29 §3.4.
+
+- id: us.ferc.eqr
+  name: FERC Electric Quarterly Reports — contract and transaction data of sellers of wholesale power, including long-term purchase agreements
+  jurisdiction: US (not ERCOT-internal sales)
+  category: market_price
+  operator: Federal Energy Regulatory Commission
+  url: https://eqrreportviewer.ferc.gov/
+  access: bulk_file
+  auth: none to view; downloads are emailed as a link after a name and email are entered
+  format: csv / xml zips per quarter (XBRL-CSV once FERC Order No. 917 is implemented)
+  cadence: quarterly
+  license: >-
+    public domain (17 U.S.C. §105 for FERC's compilation; the filed contract terms are facts filed under a
+    public reporting duty). 18 CFR §35.10b (eCFR, retrieved 2026-10-22T20:35:45Z): "Each public utility as well
+    as each non-public utility with more than a de minimis market presence shall file an updated Electric
+    Quarterly Report"; the term non-public utility "does not include an entity that engages in purchases or
+    sales of wholesale electric energy or transmission services within the Electric Reliability Council of
+    Texas"; amended by "Order 917, 91 FR 14347, Mar. 24, 2026".
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: FERC Electric Quarterly Reports"
+  status: pending
+  tier: 3
+  effort: L
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: partial, note: 'docs/29 §2.14. www.ferc.gov EQR pages answered a Cloudflare challenge (20:35:07Z), not bypassed; eqrreportviewer.ferc.gov answered 200 (Q3 2026 listed). Filer contact names, titles, phones and emails are in the ID data: strip at ingest (docs/13 §5).'}
+  notes: >-
+    The public-filing source of PPA prices for utility and wholesale buyers. ERCOT-internal contracts and most
+    corporate virtual PPAs (financial, not sales for resale) are absent. Heavy: an all-companies quarter is
+    gigabytes.
+
+- id: us.lbnl.utility_scale_solar
+  name: LBNL Utility-Scale Solar, 2025 Data Update — public data file (project-level levelised PPA prices for 425 named projects)
+  jurisdiction: US
+  category: market_price
+  operator: Lawrence Berkeley National Laboratory (Seel, Mulvaney Kemp et al.)
+  url: https://eta-publications.lbl.gov/publications/us-utility-scale-solar-2025-data
+  access: bulk_file
+  auth: none
+  format: xlsx (59 sheets)
+  cadence: annual
+  # release_month: https://eta-publications.lbl.gov/publications/us-utility-scale-solar-2025-data, the 2025 Data Update, whose data file says "October 2025", checked 2026-10-22
+  release_month: 10
+  license: >-
+    Data file Introduction sheet, "Copyright Notice" (file retrieved 2026-10-22 from
+    https://eta-publications.lbl.gov/sites/default/files/2025-10/2025_utility-scale_solar_data_update.xlsx,
+    56,943,952 bytes, sha256 b17720b1…fccd087): "Utility-Scale Solar, 2025 Data Update Copyright (c) 202<>,
+    The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to
+    receipt of any required approvals from the U.S. Dept. of Energy). All rights reserved. This work is openly
+    licensed via CC BY 4.0." emp.lbl.gov answered a Cloudflare block (20:35:09Z); the ETA publications copy
+    was used.
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Seel, Mulvaney Kemp et al. (2025), Utility-Scale Solar, 2025 Data Update, Lawrence Berkeley National Laboratory, CC BY 4.0"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Inframation: project-level PPA prices joined to EIA plant ids; LevelTen and Trio index sheets and columns dropped."
+  status: pending
+  tier: 2
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: ok, rows: 1775, note: 'docs/29 §2.15. Individual_Project_Data: 1,775 projects with EIA ID, name, coordinates; 425 with "Levelized PV PPA 2024$/MWh" (CAISO 149, West non-ISO 121, Southeast 57, PJM 28, MISO 26, NYISO 16, ERCOT 8, SPP 7, ISO-NE 7, HI 6); median 51.0. Sheets "LevelTen Solar PPA Prices", "Trio Solar PPA Prices", "LevelTen & Trio 2024 PPA Index" and the LevelTen/Trio columns of "Market Value vs. PPA (PV only)" are third-party indices inside a CC BY file: dropped at ingest.'}
+  notes: >-
+    Levelised real-dollar estimates LBNL derived from contract terms (sources: EIA, FERC, SEC, trade press,
+    developers), not the contract price as filed; shown as LBNL's estimate.
+
+- id: us.lbnl.land_based_wind
+  name: LBNL Land-Based Wind Energy Technology Data Update, 2025 Edition — data file (wind PPA prices by execution date and region)
+  jurisdiction: US
+  category: market_price
+  operator: Lawrence Berkeley National Laboratory (Wiser et al.)
+  url: https://eta-publications.lbl.gov/publications/land-based-wind-energy-technology
+  access: bulk_file
+  auth: none
+  format: xlsx (63 sheets)
+  cadence: annual
+  # release_month: https://eta-publications.lbl.gov/publications/land-based-wind-energy-technology, the 2025 Edition, whose data file says "August 2025"; a 2026 edition figure file is dated August 2026, checked 2026-10-22
+  release_month: 8
+  license: >-
+    Data file Introduction sheet, "Copyright and License" (file retrieved 2026-10-22 from
+    https://eta-publications.lbl.gov/sites/default/files/2025-08/data_file_land-based_wind_energy_technology_update_2025_edition.xlsx,
+    24,270,133 bytes, sha256 1fdafd4a…11776f19): "These data fall under Copyright (c) 202, The Regents of the
+    University of California, through Lawrence Berkeley National Laboratory ... All rights reserved. This work
+    is openly licensed via CC BY 4.0: https://creativecommons.org/licenses/by/4.0/".
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Wiser et al. (2025), Land-Based Wind Energy Technology Data Update, 2025 Edition, Lawrence Berkeley National Laboratory, CC BY 4.0"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Inframation: regional PPA averages only; LevelTen and Trio index sheets dropped."
+  status: pending
+  tier: 3
+  effort: S
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: ok, note: 'docs/29 §2.15. "Wind PPAs by Plant" is anonymised (execution date, capacity, term, region, price; "Source: Berkeley Lab, FERC"), so wind PPA prices are regional, not per plant. "LevelTen Wind PPA Prices", "Trio Wind PPA Prices" and "LevelTen & Trio 2024 PPA Index" dropped at ingest.'}
+
+- id: global.levelten.ppa_index
+  name: LevelTen Energy PPA Price Index and marketplace data (private aggregator — excluded)
+  jurisdiction: global
+  category: aggregator
+  operator: LevelTen Energy, Inc.
+  url: https://www.leveltenenergy.com/ppa
+  access: html
+  auth: account
+  format: n/a
+  cadence: quarterly
+  license: >-
+    LevelTen Terms, https://www.leveltenenergy.com/terms, retrieved 2026-10-22T20:38:49Z: users "may not: (i)
+    resell, sublicense, or make any other commercial use of the Platform other than as contemplated by these
+    Terms; (ii) distribute, redistribute, transfer, or modify the Platform, or otherwise grant rights to third
+    parties with regard to the Platform, without our written consent".
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: L
+  notes: >-
+    Never fetched or derived from, including the copies LBNL reproduces in its data files (dropped at ingest from
+    us.lbnl.utility_scale_solar and us.lbnl.land_based_wind). PPA prices come from public filings only.
+
+- id: global.pexapark.ppa_data
+  name: Pexapark PPA prices and deal data (private aggregator — excluded)
+  jurisdiction: global
+  category: aggregator
+  operator: Pexapark AG
+  url: https://pexapark.com/
+  access: html
+  auth: account
+  format: n/a
+  cadence: daily
+  license: >-
+    Pexapark Terms of Use, https://pexapark.com/terms/, retrieved 2026-10-22T20:38:53Z: users may not "copy,
+    reproduce, frame, mirror, crawl, republish, modify, create derivatives of, any part of the Platforms, the
+    Services and/or the Content".
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: L
+  notes: >-
+    Never fetched or derived from. Same class as the private aggregators in CLAUDE.md.
+
+- id: us.trio.ppa_index
+  name: Trio PPA price indices (private advisory index — excluded)
+  jurisdiction: US
+  category: aggregator
+  operator: Trio
+  url: https://eta-publications.lbl.gov/publications/us-utility-scale-solar-2025-data
+  access: html
+  auth: account
+  format: n/a
+  cadence: quarterly
+  license: >-
+    NOT RETRIEVED: Trio's own terms were not read. Its indices reach this project only as sheets inside LBNL's
+    data files ("Trio Solar PPA Prices", "Trio Wind PPA Prices"), described there as "flat, hub- and
+    zone-settled, unit-contingent offers"; LBNL's CC BY 4.0 notice cannot license a third party's index.
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: L
+  notes: >-
+    Never used; the LBNL sheets carrying it are dropped at ingest. Recorded so the sheets are not picked up by
+    accident.
+
+- id: us.gridstatus_io.hosted_api
+  name: Grid Status hosted API (gridstatus.io; the commercial service behind the open-source gridstatus library — excluded)
+  jurisdiction: US
+  category: aggregator
+  operator: Grid Status
+  url: https://www.gridstatus.io/api
+  access: api
+  auth: api_key (free and paid plans)
+  format: json
+  cadence: 15-min
+  license: >-
+    NOT RETRIEVED: https://www.gridstatus.io/terms answered HTTP 403 at 2026-10-22T20:52:53Z. The open-source
+    library's README describes the hosted API as "Hosted data with consistent column names" with "Grid Status
+    API key with free and paid plans", a re-hosted archive of the ISOs' data.
+  reuse: restricted
+  publication: none
+  status: excluded
+  tier: 3
+  effort: L
+  notes: >-
+    Never used: a private re-host of ISO data whose own terms are unread, and the ISOs' terms bind the data
+    whoever serves it. The open-source gridstatus library (BSD 3-Clause), which fetches from the ISOs directly,
+    is a different thing and is assessed in docs/29 §4.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)

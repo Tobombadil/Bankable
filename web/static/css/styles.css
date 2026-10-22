@@ -765,6 +765,97 @@ h3 { font-size: var(--text-4); }
   .attr-nested dd { padding-left: var(--space-3); }
 }
 
+/* ---------- 7.1 Sortable headings (lane list-sort, 2026-10-22; web/list_sort.py, _macros.html sort_th) ----------
+   A heading that sorts is a link over the whole cell: its label and an arrow. The column that
+   sorts the view shows a solid arrow (down: largest, latest or Z first; up: the reverse) and its
+   label in the text colour; every other sortable heading shows a faint double arrow that darkens
+   on hover, so a reader can see which headings can be clicked. */
+.record-table th.sortable { padding: 0; }
+.sort-link {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-2) var(--space-3); color: inherit; text-decoration: none;
+}
+.sort-link:hover, .sort-link:focus-visible { color: var(--link); }
+.sort-link:visited { color: inherit; }
+.sort-link__icon { flex: none; }
+.sort-link__icon--idle { opacity: 0.35; }
+.sort-link:hover .sort-link__icon--idle { opacity: 1; }
+.record-table th.is-sorted, .record-table th.is-sorted .sort-link:visited { color: var(--text); }
+.sort-link__short { display: none; }
+/* Words a column heading says in the table and the compact row must say itself ("MW", "Due"). */
+.cell-unit { display: none; }
+/* A long title's shortened twin, shown on the compact row instead of the whole title. */
+.cell-text-short { display: none; }
+
+/* ---------- 7.2 Compact two-line rows below 720px (docs/16 U-10, docs/17 M-8) ----------
+   Amends docs/31 §3's 400-719px row for the record lists (`.record-table--compact`): no stacked
+   label/value card, but two lines of text -- status and name, then the rest in the column order,
+   joined by middle dots -- so `/proposals` at 390px is about a third as tall. The headings that sort
+   become a "Sort by" row of links over the rows. Inline flow, not flex: the second line wraps at
+   word boundaries and a separator never starts a line. Other `.record-table`s keep the cards. */
+@media (max-width: 719px) {
+  .record-table--compact thead { display: block; }
+  .record-table--compact thead tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2);
+    border: 0; border-radius: 0; margin: 0; padding: 0 0 var(--space-2);
+  }
+  .record-table--compact thead tr::before {
+    content: "Sort by"; font-family: var(--font-mono); font-size: var(--text-1);
+    text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);
+  }
+  .record-table--compact thead tr:not(:has(th.sortable)) { display: none; }
+  .record-table--compact thead th { display: none; }
+  .record-table--compact thead th.sortable {
+    display: block; position: static; width: auto; padding: 0; border: 0; background: none; text-align: left;
+  }
+  .record-table--compact .sort-link {
+    min-height: 2rem; padding: 0 var(--space-2); font-size: var(--text-1); color: var(--link);
+    border: 1px solid var(--border); border-radius: var(--radius-2);
+  }
+  .record-table--compact th.is-sorted .sort-link { border-color: var(--text); color: var(--text); font-weight: 600; }
+
+  .record-table--compact tbody tr {
+    display: block; margin: 0; padding: var(--space-2) 0; border: 0; border-radius: 0;
+    border-bottom: 1px solid var(--border); font-size: var(--text-1); line-height: 1.45;
+  }
+  .record-table--compact tbody tr:first-child { border-top: 1px solid var(--border); }
+  .record-table--compact tbody td { display: inline; width: auto; padding: 0; border: 0; }
+  .record-table--compact tbody td::before { content: none; }
+  .record-table--compact td.cell-title { font-size: var(--text-2); }
+  .record-table--compact td.cell-lead { margin-inline-end: var(--space-1); }
+  /* The line break after the name; the rest of the row is the second line. */
+  .record-table--compact td.cell-title::after { content: "\A"; white-space: pre; }
+  .record-table--compact td.cell-meta { color: var(--text-muted); }
+  /* An empty cell, and an optional one (`cell-opt`: a project's online date unless it sorts the
+     view, a grid point's zero withdrawn or built count), stay off the line; the table still shows
+     them. The separator follows a cell only when a shown cell comes after it. */
+  .record-table--compact td.cell-meta:is(.is-empty, .cell-opt) { display: none; }
+  .record-table--compact td.cell-meta:not(.is-empty, .cell-opt):has(~ td.cell-meta:not(.is-empty, .cell-opt))::after {
+    content: "\00a0\00b7\0020";
+  }
+  .record-table--compact .cell-unit { display: inline; }
+  /* An issuer printed as an agency code keeps "(agency code)" beside it on the line. */
+  .record-table--compact td.cell-meta .field-grid__source-value { display: inline; }
+  .record-table--compact .cell-text-full { display: none; }
+  .record-table--compact .cell-text-short { display: inline; }
+  /* "Capacity (MW)" and "Proposed online" are "Capacity" and "Online" in the Sort by row. */
+  .record-table--compact .sort-link__long { display: none; }
+  .record-table--compact .sort-link__short { display: inline; }
+}
+/* A technology label is two or three words ("Gas, combined cycle"); where the table has room it
+   stays on one line rather than tripling the row height. */
+@media (min-width: 1080px) { .record-table td.cell-nowrap-wide { white-space: nowrap; } }
+
+/* RFPs & funding scope switch (docs/16 U-7): "Show: Energy-related 328 · All notices 624", the
+   view-switch links with their counts, and one muted line saying what "energy-related" keeps. */
+.scope-switch { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); }
+.scope-switch__n { color: var(--text-muted); font-weight: 400; margin-inline-start: var(--space-1); }
+.view-switch__link[aria-current="page"] .scope-switch__n { color: var(--text); }
+.scope-switch__note { margin: 0; font-size: var(--text-1); color: var(--text-muted); flex: 1 1 20rem; }
+/* The count line, "Save this search as an alert" and the feed link on one row where they fit. */
+.results-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-4); }
+.list-page .results-links > p { margin-bottom: var(--space-2); }
+
 .pager { display: flex; justify-content: space-between; padding: var(--space-4) 0; font-size: var(--text-2); }
 .pager a { text-decoration: none; font-weight: 600; }
 .pager__disabled { color: var(--text-muted); }

@@ -693,12 +693,22 @@ issuers:
     or display for redistribution to third parties for commercial purposes any portion of the content without the
     prior written permission of AEP.
   - Use of this site constitutes acceptance of the AEP Terms and Conditions.
+  - 'Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric Power Company,
+    Inc., all rights reserved.'
+  - Nothing contained herein shall be construed as conferring by implication, estoppel, or otherwise any license
+    or right under any patent, trademark, copyright (except as expressly provided above), or proprietary rights
+    of AEP or of any third party.
+  - Any information provided by you to AEP, including but not limited to feedback, data, questions, comments,
+    suggestions, or the like, shall be deemed to be non-confidential; AEP shall have no obligation of any kind
+    with respect to such information and shall be free to reproduce, use, disclose, and distribute the
+    information to others without limitation.
   robots:
     url: https://www.appalachianpower.com/robots.txt
     result: 404 on all four operating-company hosts (absent; permissive by convention)
-  read_on: '2026-10-21'
+  read_on: '2026-10-22'
   confidence: moderate-high
   attribution: 'Source: Appalachian Power (AEP), Energy RFPs'
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   connector:
     extractor: aep_energy_rfps
     listing_url: https://www.appalachianpower.com/business/b2b/energy-rfps/
@@ -710,7 +720,13 @@ issuers:
   listing_status_2026_10_21: verified
   notes: 'Footer on the listing page reads "Use of this site constitutes acceptance of the AEP Terms and Conditions."
     Credit line: "Source: Appalachian Power (AEP), Energy RFPs". Class is noncommercial: publishable only while
-    PLATFORM_POSTURE=noncommercial (docs/26).'
+    PLATFORM_POSTURE=noncommercial (docs/26). Terms re-read 2026-10-22 (legal-compliance lane, the capture behind
+    docs/39 §7.3): three clauses added to terms_quote, so the terms check now verifies seven. The copyright notice is
+    carried as `notice` (and in data/sources.yaml, where it renders after the credit); its year is built by AEP''s
+    page, so when the page moves to 2027 the check pauses these four issuers until a reviewer updates terms_quote and
+    both notices together. Basis of the class (inference, not legal advice): AEP grants no general noncommercial
+    licence; `noncommercial` rests on the limited-quotations sentence read with the bar on commercial redistribution
+    and the no-implied-licence clause, hence derived fields only.'
 - id: us.rfp.pso
   name: Public Service Company of Oklahoma (AEP)
   type: iou
@@ -739,9 +755,10 @@ issuers:
   robots:
     url: https://www.appalachianpower.com/robots.txt
     result: 404 on all four operating-company hosts (absent; permissive by convention)
-  read_on: '2026-10-21'
+  read_on: '2026-10-22'
   confidence: moderate-high
   attribution: 'Source: Public Service Company of Oklahoma (AEP), Energy RFPs'
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   connector:
     extractor: aep_energy_rfps
     listing_url: https://www.psoklahoma.com/business/b2b/energy-rfps/
@@ -752,7 +769,13 @@ issuers:
     max_detail_pages: 8
   listing_status_2026_10_21: verified
   notes: 'Same AEP terms and page template as Appalachian Power. Credit: "Source: Public Service Company of Oklahoma
-    (AEP), Energy RFPs".'
+    (AEP), Energy RFPs". Terms re-read 2026-10-22 (legal-compliance lane, the capture behind docs/39 §7.3): three
+    clauses added to terms_quote, so the terms check now verifies seven. The copyright notice is carried as `notice`
+    (and in data/sources.yaml, where it renders after the credit); its year is built by AEP''s page, so when the page
+    moves to 2027 the check pauses these four issuers until a reviewer updates terms_quote and both notices together.
+    Basis of the class (inference, not legal advice): AEP grants no general noncommercial licence; `noncommercial`
+    rests on the limited-quotations sentence read with the bar on commercial redistribution and the no-implied-licence
+    clause, hence derived fields only.'
 - id: us.rfp.swepco
   name: Southwestern Electric Power Company (AEP)
   type: iou
@@ -781,9 +804,10 @@ issuers:
   robots:
     url: https://www.appalachianpower.com/robots.txt
     result: 404 on all four operating-company hosts (absent; permissive by convention)
-  read_on: '2026-10-21'
+  read_on: '2026-10-22'
   confidence: moderate-high
   attribution: 'Source: SWEPCO (AEP), Energy RFPs'
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   connector:
     extractor: aep_energy_rfps
     listing_url: https://www.swepco.com/business/b2b/energy-rfps/
@@ -793,7 +817,13 @@ issuers:
     kind: rfp
     max_detail_pages: 8
   listing_status_2026_10_21: verified
-  notes: 'Same AEP terms and page template. Credit: "Source: SWEPCO (AEP), Energy RFPs".'
+  notes: 'Same AEP terms and page template. Credit: "Source: SWEPCO (AEP), Energy RFPs". Terms re-read 2026-10-22
+    (legal-compliance lane, the capture behind docs/39 §7.3): three clauses added to terms_quote, so the terms check
+    now verifies seven. The copyright notice is carried as `notice` (and in data/sources.yaml, where it renders after
+    the credit); its year is built by AEP''s page, so when the page moves to 2027 the check pauses these four issuers
+    until a reviewer updates terms_quote and both notices together. Basis of the class (inference, not legal advice):
+    AEP grants no general noncommercial licence; `noncommercial` rests on the limited-quotations sentence read with
+    the bar on commercial redistribution and the no-implied-licence clause, hence derived fields only.'
 - id: us.rfp.indiana_michigan_power
   name: Indiana Michigan Power (AEP)
   type: iou
@@ -822,9 +852,10 @@ issuers:
   robots:
     url: https://www.appalachianpower.com/robots.txt
     result: 404 on all four operating-company hosts (absent; permissive by convention)
-  read_on: '2026-10-21'
+  read_on: '2026-10-22'
   confidence: moderate-high
   attribution: 'Source: Indiana Michigan Power (AEP), Energy RFPs'
+  notice: 'Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved.'
   connector:
     extractor: aep_energy_rfps
     listing_url: https://www.indianamichiganpower.com/business/b2b/energy-rfps/
@@ -834,7 +865,14 @@ issuers:
     kind: rfp
     max_detail_pages: 8
   listing_status_2026_10_21: verified
-  notes: 'Same AEP terms and page template. Credit: "Source: Indiana Michigan Power (AEP), Energy RFPs".'
+  notes: 'Same AEP terms and page template. Credit: "Source: Indiana Michigan Power (AEP), Energy RFPs". Terms re-read
+    2026-10-22 (legal-compliance lane, the capture behind docs/39 §7.3): three clauses added to terms_quote, so the
+    terms check now verifies seven. The copyright notice is carried as `notice` (and in data/sources.yaml, where it
+    renders after the credit); its year is built by AEP''s page, so when the page moves to 2027 the check pauses these
+    four issuers until a reviewer updates terms_quote and both notices together. Basis of the class (inference, not
+    legal advice): AEP grants no general noncommercial licence; `noncommercial` rests on the limited-quotations
+    sentence read with the bar on commercial redistribution and the no-implied-licence clause, hence derived fields
+    only.'
 - id: us.rfp.georgia_power
   name: Georgia Power
   type: iou

@@ -91,7 +91,9 @@ BUILT_LIFECYCLE_STATES: tuple[str, ...] = ("built",)
 BUCKETS: tuple[str, ...] = ("active", "withdrawn", "built", "other")
 
 LIST_PARAMS = {"limit", "cursor", "include", "sort", "q", "iso", "jurisdiction", "kind", "min_active_mw"}
-SORTS = {"active_mw", "name", "voltage_kv"}
+#: `active_count`, `withdrawn_count` and `built_count` (2026-10-22, lane list-sort): the list's
+#: project-count columns sort on a click, as its MW column does, from the same aggregate.
+SORTS = {"active_mw", "active_count", "withdrawn_count", "built_count", "name", "voltage_kv"}
 DEFAULT_SORT = "-active_mw"
 #: Proposals listed on a point's detail; the totals always cover all of them.
 DETAIL_PROPOSAL_CAP = 500
@@ -244,16 +246,21 @@ _TOTAL_FIELDS = ("lifecycle_state", "technology", "capacity_mw")
 
 
 def _active_mw_aggregate(entitlement: str) -> sa.Subquery:
-    """`(point_id, active_mw)` over visible proposals: the list's sort key and its
-    `min_active_mw` filter, and -- through the inner join -- its "at least one visible proposal"
-    clause."""
+    """`(point_id, active_mw, active_count, withdrawn_count, built_count)` over visible proposals:
+    the list's sort keys and its `min_active_mw` filter, and -- through the inner join -- its "at
+    least one visible proposal" clause. The counts bucket as `bucket_of` does."""
     active = Proposal.lifecycle_state.in_(ACTIVE_LIFECYCLE_STATES)
+    withdrawn = Proposal.lifecycle_state.in_(WITHDRAWN_LIFECYCLE_STATES)
+    built = Proposal.lifecycle_state.in_(BUILT_LIFECYCLE_STATES)
     return (
         select(
             Proposal.interconnection_point_id.label("point_id"),
             func.round(func.coalesce(func.sum(case((active, Proposal.capacity_mw), else_=0)), 0), 3).label(
                 "active_mw"
             ),
+            func.sum(case((active, 1), else_=0)).label("active_count"),
+            func.sum(case((withdrawn, 1), else_=0)).label("withdrawn_count"),
+            func.sum(case((built, 1), else_=0)).label("built_count"),
         )
         .where(*point_proposal_filter(entitlement))
         .group_by(Proposal.interconnection_point_id)
@@ -379,6 +386,9 @@ def _list_statement(request: Request, entitlement: str) -> tuple[sa.Select[Any],
     field_name, _asc = _sort(request)
     sort_columns: dict[str, ColumnElement[Any]] = {
         "active_mw": agg.c.active_mw,
+        "active_count": agg.c.active_count,
+        "withdrawn_count": agg.c.withdrawn_count,
+        "built_count": agg.c.built_count,
         "name": InterconnectionPoint.name_display.expression,
         "voltage_kv": InterconnectionPoint.voltage_kv.expression,
     }
@@ -387,7 +397,9 @@ def _list_statement(request: Request, entitlement: str) -> tuple[sa.Select[Any],
 
 
 def _cursor_value(value: Any) -> Any:
-    if value is None or isinstance(value, str):
+    """A project count sorts as an integer, so its cursor keeps the integer
+    (`coerce_cursor_value` refuses `3.0` for an `Integer`); MW is a number either way."""
+    if value is None or isinstance(value, str | int):
         return value
     return float(value)
 

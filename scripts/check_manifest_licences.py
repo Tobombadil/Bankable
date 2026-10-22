@@ -38,7 +38,10 @@ Rules (each violation is one line of output; exit 1 if any)
       means `attribution` is exactly X; `credit "X"` means `attribution` contains X (a `<...>`
       placeholder in X, e.g. "(<filing>)", is optional there); "statement of changes" means a
       non-empty `changes_statement` (CC BY 4.0 §3(a)(1)(B)). Added 2026-10-06 (L-2 of the
-      2026-09-30 legal audit: NESO's licence ends automatically without its exact statement);
+      2026-09-30 legal audit: NESO's licence ends automatically without its exact statement).
+      `notice "X"` means the manifest's `notice` is exactly X, and a manifest `notice` the
+      register rule does not name is refused, so the register moves first (2026-10-22: AEP's
+      copyright notice and the Texas state policy's no-endorsement statement, docs/13 §6.4);
   R6  an `attribution`/`noncommercial` source that publishes anything carries `licence_url`, the
       link a credit points to (CC BY 4.0 §3(a)(1)(C); OGL "where possible"), or an explicit
       `licence_url_pending` reason (allowed only for a source with no connector yet).
@@ -170,6 +173,8 @@ def load_manifest(path: pathlib.Path = MANIFEST) -> list[dict[str, Any]]:
 
 #: R5: a credit the register rule names, by how strictly it binds.
 _CREDIT_RE = re.compile(r'(exact string|credit)\s+"([^"]+)"')
+#: R5: a notice the terms require on every copy (`SourceEntry.notice`), always exact.
+_NOTICE_RE = re.compile(r'\bnotice\s+"([^"]+)"')
 _PLACEHOLDER_RE = re.compile(r"\s*\(<[^>]+>\)|<[^>]+>")
 CONNECTORS = ROOT / "pipeline" / "connectors"
 
@@ -196,6 +201,22 @@ def credit_problems(sid: str, entry: dict[str, Any], row: RegisterRow) -> list[s
         problems.append(
             f"{sid}: register requires a statement of changes (docs/13 line {row.line_no}); "
             "manifest has no changes_statement (R5)"
+        )
+    notice = str(entry.get("notice") or "")
+    named = _NOTICE_RE.findall(row.rule_text)
+    if len(named) > 1:
+        problems.append(
+            f"{sid}: register names {len(named)} notices (docs/13 line {row.line_no}); one per row (R5)"
+        )
+    elif named and notice != named[0]:
+        problems.append(
+            f"{sid}: register mandates the notice {named[0]!r} (docs/13 line {row.line_no}); "
+            f"manifest notice is {notice!r} (R5)"
+        )
+    elif notice and not named:
+        problems.append(
+            f"{sid}: manifest notice {notice!r} is not named by the register rule (docs/13 line "
+            f"{row.line_no}); the register row moves first (R5)"
         )
     return problems
 

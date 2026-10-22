@@ -3036,3 +3036,85 @@ def test_list_pages_never_scroll_sideways_at_the_breakpoint(server: object) -> N
                 page.close()
         finally:
             browser.close()
+
+
+def _capacities(page: Any) -> list[float]:
+    """The Capacity column of the rows on the page, as numbers ("—" cells left out)."""
+    texts = page.locator('#result-rows td[data-label="Capacity (MW)"]').all_inner_texts()
+    return [float(t.replace(",", "").replace("MW", "").strip()) for t in texts if any(c.isdigit() for c in t)]
+
+
+def _sorted_heading(page: Any) -> tuple[str, str]:
+    th = page.locator("#result-rows th[aria-sort]")
+    assert th.count() == 1
+    return th.locator(".sort-link").get_attribute("href") or "", th.get_attribute("aria-sort") or ""
+
+
+def test_a_heading_click_sorts_the_list_and_a_second_reverses_it_and_phone_rows_are_two_lines(
+    server: object,
+) -> None:
+    """Lane list-sort (2026-10-22): a click on a sortable heading sorts the list by that column, a
+    second click reverses it, the arrow and `aria-sort` say the order, and the URL carries `sort=`
+    beside the filters, so the view can be shared and a filter change keeps the order. Below 720px
+    (docs/16 U-10, docs/17 M-8) the rows are two lines, not label/value cards, and the sortable
+    headings are a "Sort by" row; the page never scrolls sideways."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.goto(BASE_URL + "/proposals?capacity_mw%5Bgte%5D=1")
+            # Default: capacity, largest first.
+            href, order = _sorted_heading(page)
+            assert order == "descending" and "sort=capacity_mw" in href
+            caps = _capacities(page)
+            assert len(caps) > 2 and caps == sorted(caps, reverse=True)
+            # A click on the sorted heading reverses it, and keeps the filter.
+            page.locator("#result-rows th.is-sorted .sort-link").click()
+            page.wait_for_url(re.compile(r"sort=capacity_mw"))
+            assert "capacity_mw%5Bgte%5D=1" in page.url
+            assert _sorted_heading(page)[1] == "ascending"
+            caps = _capacities(page)
+            assert caps == sorted(caps)
+            # Another heading sorts by itself, its own first order (names A to Z), then reverses.
+            page.locator('#result-rows th.sortable .sort-link:has-text("Name")').click()
+            page.wait_for_url(re.compile(r"sort=name_canonical"))
+            assert _sorted_heading(page)[1] == "ascending"
+            page.locator("#result-rows th.is-sorted .sort-link").click()
+            page.wait_for_url(re.compile(r"sort=-name_canonical"))
+            assert _sorted_heading(page)[1] == "descending" and "capacity_mw%5Bgte%5D=1" in page.url
+            assert page.locator('#filters input[type="hidden"][name="sort"]').get_attribute("value") == (
+                "-name_canonical"
+            )
+            page.screenshot(path=str(SCREENSHOT_DIR / "list-sorted-1440.png"))
+            page.close()
+
+            phone = browser.new_context(**PHONE).new_page()
+            _install_offline_routes(phone)
+            phone.goto(BASE_URL + "/proposals")
+            phone.wait_for_selector(".record-table--compact")
+            assert (
+                phone.locator(".record-table--compact thead th.sortable").evaluate_all(
+                    "ths => ths.filter(th => th.offsetParent !== null).length"
+                )
+                == 3
+            )  # Name, Capacity, Online
+            heights = sorted(
+                phone.locator(".record-table--compact tbody tr").evaluate_all(
+                    "rows => rows.map(r => r.getBoundingClientRect().height)"
+                )
+            )
+            # 277px a row as label/value cards at this width (2026-10-22, the full store); two lines
+            # of text, or three where a long place name wraps, are under half that.
+            assert heights and heights[len(heights) // 2] < 120, heights
+            first = phone.locator(".record-table--compact tbody tr").first
+            chip = first.locator(".cell-lead").bounding_box()
+            title = first.locator(".cell-title").bounding_box()
+            assert chip and title and abs(chip["y"] - title["y"]) < 12  # status and name share line one
+            overflow = phone.evaluate(
+                "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+            )
+            assert overflow <= 0, f"/proposals scrolls sideways at 390px by {overflow}px"
+            phone.screenshot(path=str(SCREENSHOT_DIR / "list-compact-390.png"))
+        finally:
+            browser.close()

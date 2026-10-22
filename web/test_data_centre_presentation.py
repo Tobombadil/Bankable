@@ -224,7 +224,7 @@ def test_map_header_and_list_meta_description_carry_the_phrase(web_client: TestC
 def test_list_shows_the_load_label_not_the_token(web_client: TestClient) -> None:
     _install(_base([_data_centre("dc-one", {ICIS: "name"}, [ICIS]), _solar()]))
     html = web_client.get("/proposals?kind=load").text
-    cells = re.findall(r'<td data-label="Technology">([^<]*)</td>', html)
+    cells = re.findall(r'<td data-label="Technology"[^>]*>([^<]*)</td>', html)
     assert cells == [TECHNOLOGY_LOAD_LABEL, "Solar"]
 
 
@@ -241,9 +241,28 @@ def test_list_and_map_filter_selects_use_labels_and_keep_tokens_as_values(web_cl
     assert ">load</option>" not in home
 
 
+class _KindsWithNotices(FakeTransport):
+    """Answers the Kind filter's one-row probes (`web/app.py::opportunity_kind_options`): only the
+    kinds in `present` have a notice."""
+
+    def __init__(self, base: FakeTransport, present: set[str]) -> None:
+        super().__init__(base.responses)
+        self.present = present
+
+    def get(
+        self, url: str, *, params: Mapping[str, Any] | None = None, cookies: dict[str, str] | None = None
+    ) -> httpx.Response:
+        if url == "/v1/opportunities" and params and params.get("limit") == 1:
+            self.calls.append(("GET", url, dict(params)))
+            rows = [{"public_id": "opp_probe"}] if params.get("kind") in self.present else []
+            return httpx.Response(200, json=_list_env(rows))
+        return super().get(url, params=params, cookies=cookies)
+
+
 def test_opportunity_kind_select_uses_labels(web_client: TestClient) -> None:
-    _install(_base([]))
+    _install(_KindsWithNotices(_base([]), {"rfp"}))
     html = web_client.get("/opportunities?kind=loan_program").text
+    # The kind in force is offered although nothing matches it; the others only with a notice.
     assert '<option value="loan_program" selected>Loan programme</option>' in html
     assert "Request for proposals (RFP)</option>" in html
     assert ">loan_program</option>" not in html

@@ -20,9 +20,12 @@ from __future__ import annotations
 
 import datetime as dt
 import pathlib
+import re
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 import pipeline.connectors.registry as registry_module
@@ -37,7 +40,10 @@ from services.db.models import Opportunity
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[1] / "pipeline" / "connectors" / "us_rfp" / "fixtures"
 AT = dt.datetime(2026, 10, 21, 16, 0, tzinfo=dt.UTC)
-PSO_CREDIT = "Source: Public Service Company of Oklahoma (AEP), Energy RFPs"
+#: The credit and, after it, the copyright notice AEP's terms require on every copy ("Any copy you make
+#: must include this copyright notice: ...", aep.com/terms, re-read 2026-10-22; docs/13 §6.4).
+AEP_NOTICE = "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."
+PSO_CREDIT = f"Source: Public Service Company of Oklahoma (AEP), Energy RFPs. {AEP_NOTICE}"
 CT_CREDIT = "Source: Connecticut Department of Energy and Environmental Protection"
 
 
@@ -128,3 +134,40 @@ def test_under_commercial_an_aep_run_is_quarantined_and_never_loaded(
     with pytest.raises(loader.GateRefused, match="noncommercial"):
         loader.load_from_files(db, "us.rfp.swepco", "20261021T160000Z", data_root=tmp_path, registry=reg)
     assert db.scalars(select(Opportunity)).first() is None
+
+
+@pytest.fixture()
+def site(client: TestClient) -> Iterator[TestClient]:
+    """The public site reading the in-process API that `client`'s database override serves (as in
+    `tests/test_licence_credits.py`)."""
+    from web.api_client import build_client
+    from web.app import app as web_app
+
+    previous = web_app.state.__dict__.get("api_client")
+    web_app.state.api_client = build_client(api_base_url="")
+    try:
+        with TestClient(web_app) as w:
+            yield w
+    finally:
+        if previous is None:
+            web_app.state.__dict__.pop("api_client", None)
+        else:
+            web_app.state.api_client = previous
+
+
+def test_an_aep_record_page_carries_aeps_copyright_notice_after_the_credit(
+    client: Any, db: Any, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, site: TestClient
+) -> None:
+    """AEP's terms: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American
+    Electric Power Company, Inc., all rights reserved." (aep.com/terms, re-read 2026-10-22; docs/13 §6.4).
+    Before 2026-10-22 an AEP record carried the credit line only."""
+    _set_posture(monkeypatch, "noncommercial")
+    _run_and_load(db, tmp_path, "us.rfp.pso")
+    allsource = _listed(client)["2026 All-Source RFP"]
+    assert _credits(client) == {PSO_CREDIT}
+    page = site.get(f"/opportunities/{allsource['slug']}").text
+    lines = [
+        re.sub(r"<[^>]+>", "", m) for m in re.findall(r'<p class="attribution-line">(.*?)</p>', page, re.S)
+    ]
+    assert f"{PSO_CREDIT} Retrieved 21 Oct 2026." in lines, lines
+    assert AEP_NOTICE in site.get("/attribution").text

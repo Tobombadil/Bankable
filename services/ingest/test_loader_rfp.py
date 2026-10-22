@@ -98,7 +98,11 @@ def test_aep_records_load_as_rfps_under_the_noncommercial_posture(
 
     licence = session.get(Licence, Registry().get("us.rfp.swepco").licence_id)
     assert licence is not None and licence.reuse_class == "noncommercial"
-    assert licence.attribution_text == "Source: SWEPCO (AEP), Energy RFPs"
+    # The credit, then the copyright notice AEP's terms require on every copy (docs/13 §6.4).
+    assert licence.attribution_text == (
+        "Source: SWEPCO (AEP), Energy RFPs. "
+        "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."
+    )
     assert licence.allows_commercial_use is False and licence.allows_raw_publication is False
     assert licence.allows_api_redistribution is False and licence.allows_bulk_export is False
 

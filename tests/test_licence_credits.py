@@ -22,6 +22,7 @@ from typing import Any
 
 import pandas as pd
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -204,3 +205,149 @@ def test_every_loaded_attribution_source_has_a_licence_link(registry: Registry) 
     )
     for source_id in loaded:
         assert registry.sources[source_id].licence_url.startswith("https://"), source_id
+
+
+# ------------------------------------------- required notices (docs/13 §6.4, 2026-10-22)
+# The Texas RRC Site Policies: copiers "must follow Sections 3 and 5 of The State Website Linking and
+# Privacy Policy", whose copying paragraph requires the agency, "its Web address, the date the
+# information was copied" and "a statement that neither the site owner nor the information, as it is
+# presented on the site owner's Web site, is endorsed by the State or any state agency". AEP's terms:
+# "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric Power
+# Company, Inc., all rights reserved." Before 2026-10-22 neither rendered anywhere.
+RRC = "us.tx.rrc.class_vi"
+RRC_CREDIT = "Source: Railroad Commission of Texas, https://www.rrc.texas.gov"
+RRC_NOTICE = (
+    "Neither Inframation nor this information, as presented on Inframation, is endorsed by the State of "
+    "Texas or any state agency."
+)
+RRC_FULL = f"{RRC_CREDIT}. {RRC_NOTICE}"
+AEP_NOTICE = "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."
+AEP_CREDITS = {
+    "us.rfp.pso": "Source: Public Service Company of Oklahoma (AEP), Energy RFPs",
+    "us.rfp.appalachian_power": "Source: Appalachian Power (AEP), Energy RFPs",
+    "us.rfp.swepco": "Source: SWEPCO (AEP), Energy RFPs",
+    "us.rfp.indiana_michigan_power": "Source: Indiana Michigan Power (AEP), Energy RFPs",
+}
+
+
+def _entry(**fields: Any) -> Any:
+    from pipeline.connectors.registry import SourceEntry
+
+    base = {"id": "t.src", "name": "Test", "url": "https://example.org", "category": "permit"}
+    return SourceEntry.from_yaml({**base, "access": "html", "cadence": "weekly", **fields})
+
+
+def test_a_required_notice_renders_last_after_the_credit_and_any_statement_of_changes() -> None:
+    """The general mechanism: `notice` is appended to whatever credit the source has, once, with one
+    full stop between, and stands alone for a source whose terms ask no credit."""
+    assert _entry(reuse="noncommercial", operator="Agency", notice="Not endorsed.").credit_text == (
+        "Source: Agency. Not endorsed."
+    )
+    both = _entry(
+        reuse="attribution", attribution="Doe, CC BY 4.0", changes_statement="Modified.", notice="N."
+    )
+    assert both.credit_text == "Doe, CC BY 4.0. Modified. N."
+    assert _entry(reuse="open", notice="Copyright X.").credit_text == "Copyright X."
+    assert _entry(reuse="open").credit_text is None
+    assert (
+        _entry(reuse="attribution", attribution="A", changes_statement="Changed.").credit_text
+        == "A. Changed."
+    )
+
+
+def test_the_texas_rrc_and_aep_credits_carry_the_notices_their_terms_require(registry: Registry) -> None:
+    for source_id in (RRC, "us.tx.rrc.datasets"):
+        assert registry.sources[source_id].credit_text == RRC_FULL, source_id
+    for source_id, credit in AEP_CREDITS.items():
+        assert registry.sources[source_id].credit_text == f"{credit}. {AEP_NOTICE}", source_id
+
+
+def test_the_aep_notice_is_the_clause_the_terms_check_verifies() -> None:
+    """The copyright notice is not free text: it is the tail of a `terms_quote` clause that the RFP
+    connector re-reads on aep.com/terms (pipeline/connectors/us_rfp/extract.py `terms_check`), so when
+    AEP's page changes the year the issuer pauses until the quote and both notices move together."""
+    from pipeline.connectors.us_rfp.issuers import load_rows
+
+    rows = load_rows()
+    manifest = {e["id"]: e for e in yaml.safe_load(Registry().path.read_text(encoding="utf-8"))["sources"]}
+    for source_id in AEP_CREDITS:
+        clause = next(q for q in rows[source_id].terms_quotes if "copyright notice:" in q)
+        assert clause.split("copyright notice: ", 1)[1] == AEP_NOTICE
+        assert rows[source_id].raw["notice"] == manifest[source_id]["notice"] == AEP_NOTICE
+
+
+def _noncommercial_posture(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What a process started under `PLATFORM_POSTURE=noncommercial` computes at import, as
+    `tests/test_rfp_publication.py` patches it."""
+    import pipeline.connectors.registry as registry_module
+    import services.api.visibility as visibility
+    import services.ingest.loader as loader
+    from services import posture
+
+    for module in (registry_module, loader):
+        monkeypatch.setattr(
+            module, "PUBLISHABLE_REUSE", frozenset(posture.publishable_reuse_classes("noncommercial"))
+        )
+        monkeypatch.setattr(module, "GATED_REUSE", frozenset(posture.gated_reuse_classes("noncommercial")))
+    monkeypatch.setattr(
+        visibility, "PUBLISHABLE_REUSE_CLASSES", posture.publishable_reuse_classes("noncommercial")
+    )
+
+
+def _rrc_row() -> dict[str, Any]:
+    return {
+        **_neso_row("RRC-1"),
+        "record_id": f"{RRC}:CCS-0042",
+        "source_id": RRC,
+        "source_record_id": "CCS-0042",
+        "source_url": "https://www.rrc.texas.gov/media/3ivkqhtb/class_vi_application-09222026.pdf",
+        "retrieved_at": "2026-10-19T06:00:00Z",
+        "kind": "ccs",
+        "name_canonical": "Gulf Coast Storage Hub",
+        "technology": "co2_geologic_sequestration",
+        "technology_raw": None,
+        "capacity_mw": None,
+        "state": "TX",
+        "lifecycle_state": "studied",
+        "status_raw": "Under Review",
+        "queue_id": "CCS-0042",
+        "raw": json.dumps({"Project Name": "Gulf Coast Storage Hub"}),
+    }
+
+
+def test_rrc_records_carry_agency_address_date_copied_and_no_endorsement_statement_on_every_surface(
+    client: TestClient, db: Session, registry: Registry, site: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The four elements of the state copying paragraph, on the record page, the API's attribution
+    field, the feed, `/attribution` and `/legal/reuse` (docs/13 §6.4)."""
+    _noncommercial_posture(monkeypatch)
+    source = upsert_licence_and_source(db, registry.sources[RRC], registry.version)
+    load_dataframe(db, source, "proposal", pd.DataFrame([_rrc_row()]), None)
+    db.commit()
+    from services.db.models import Proposal
+
+    slug = db.query(Proposal).one().slug
+    detail = client.get(f"/v1/proposals/{db.query(Proposal).one().public_id}").json()
+    provenance = detail["data"]["provenance"][0]
+    assert provenance["source_id"] == RRC
+    assert provenance["attribution_text"] == RRC_FULL
+    assert provenance["retrieved_at"].startswith("2026-10-19")  # the date copied, beside the credit
+    assert detail["licence_summary"]["sources"][0]["attribution_text"] == RRC_FULL
+
+    rss = client.get("/feeds/proposals.rss").text
+    assert f"<inframation:attribution>{RRC_FULL}</inframation:attribution>" in rss
+    assert "<inframation:retrieved_at>2026-10-19" in rss
+
+    page = site.get(f"/proposals/{slug}").text
+    lines = [
+        re.sub(r"<[^>]+>", "", m) for m in re.findall(r'<p class="attribution-line">(.*?)</p>', page, re.S)
+    ]
+    # Agency, web address, the no-endorsement statement and the date copied, in one sentence run,
+    # with one full stop after the statement (the macro drops the notice's own before "Retrieved").
+    assert f"{RRC_FULL} Retrieved 19 Oct 2026." in lines, lines
+    assert ".." not in " ".join(lines)
+
+    assert RRC_FULL in site.get("/attribution").text
+    reuse = site.get("/legal/reuse").text
+    assert f"Keep this notice with every copy: “{RRC_NOTICE}”" in reuse
+    assert f"Keep this notice with every copy: “{AEP_NOTICE}”" in reuse

@@ -954,7 +954,8 @@ def test_terms_drift_pauses_the_issuer(tmp_path: pathlib.Path) -> None:
     c, session = make(
         "us.rfp.pso", _pso_routes(**{"https://www.aep.com/terms/": terms_page("us.rfp.pso", drop=2)})
     )
-    with pytest.raises(BlockedError, match="1 of 4 quoted terms clauses"):
+    # Seven since 2026-10-22: the copyright-notice, no-implied-licence and information-provided clauses.
+    with pytest.raises(BlockedError, match="1 of 7 quoted terms clauses"):
         c.fetch()
     assert PSO_LISTING not in session.urls()  # nothing read under terms nobody has re-read
 

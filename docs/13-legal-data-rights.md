@@ -1881,10 +1881,10 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.state.siting_boards` | unknown (per-state) | derived-only; strip personal data | not retrieved | low |
 | `us.state.puc_dockets` | unknown (per-state) | derived-only; strip personal data | not retrieved | low |
 | `us.utility_rfps` | unknown (per-issuer) | derived-only from issuer sites; **never** Energy Adepto | not retrieved | low |
-| `us.rfp.appalachian_power` | noncommercial | derived-only; credit "Source: Appalachian Power (AEP), Energy RFPs"; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector | mod-high |
-| `us.rfp.pso` | noncommercial | derived-only; credit "Source: Public Service Company of Oklahoma (AEP), Energy RFPs"; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector | mod-high |
-| `us.rfp.swepco` | noncommercial | derived-only; credit "Source: SWEPCO (AEP), Energy RFPs"; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector | mod-high |
-| `us.rfp.indiana_michigan_power` | noncommercial | derived-only; credit "Source: Indiana Michigan Power (AEP), Energy RFPs"; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector | mod-high |
+| `us.rfp.appalachian_power` | noncommercial | derived-only; credit "Source: Appalachian Power (AEP), Energy RFPs" and notice "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector. **Re-read 2026-10-22** (https://www.aep.com/terms/, §6.4), the three clauses not quoted before: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; under "No Implied Licenses": "Nothing contained herein shall be construed as conferring by implication, estoppel, or otherwise any license or right under any patent, trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third party."; under "Information Provided by You": "Any information provided by you to AEP, including but not limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be free to reproduce, use, disclose, and distribute the information to others without limitation." **The `noncommercial` class rests on the limited-quotations sentence, not on a general noncommercial grant** (inference, moderate confidence): the terms grant copying for personal use and attributed limited quotations, bar commercial redistribution without written permission and license nothing by implication; hence derived-only. The copyright notice rendered nowhere before 2026-10-22 | mod-high |
+| `us.rfp.pso` | noncommercial | derived-only; credit "Source: Public Service Company of Oklahoma (AEP), Energy RFPs" and notice "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector. **Re-read 2026-10-22** (https://www.aep.com/terms/, §6.4), the three clauses not quoted before: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; under "No Implied Licenses": "Nothing contained herein shall be construed as conferring by implication, estoppel, or otherwise any license or right under any patent, trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third party."; under "Information Provided by You": "Any information provided by you to AEP, including but not limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be free to reproduce, use, disclose, and distribute the information to others without limitation." **The `noncommercial` class rests on the limited-quotations sentence, not on a general noncommercial grant** (inference, moderate confidence): the terms grant copying for personal use and attributed limited quotations, bar commercial redistribution without written permission and license nothing by implication; hence derived-only. The copyright notice rendered nowhere before 2026-10-22 | mod-high |
+| `us.rfp.swepco` | noncommercial | derived-only; credit "Source: SWEPCO (AEP), Energy RFPs" and notice "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector. **Re-read 2026-10-22** (https://www.aep.com/terms/, §6.4), the three clauses not quoted before: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; under "No Implied Licenses": "Nothing contained herein shall be construed as conferring by implication, estoppel, or otherwise any license or right under any patent, trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third party."; under "Information Provided by You": "Any information provided by you to AEP, including but not limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be free to reproduce, use, disclose, and distribute the information to others without limitation." **The `noncommercial` class rests on the limited-quotations sentence, not on a general noncommercial grant** (inference, moderate confidence): the terms grant copying for personal use and attributed limited quotations, bar commercial redistribution without written permission and license nothing by implication; hence derived-only. The copyright notice rendered nowhere before 2026-10-22 | mod-high |
+| `us.rfp.indiana_michigan_power` | noncommercial | derived-only; credit "Source: Indiana Michigan Power (AEP), Energy RFPs" and notice "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; published only while the platform posture is noncommercial | docs/28 §5; aep.com/terms quoted in `data/vendored/rfp_issuers/issuers.yaml` ("If attribution to AEP is included, limited quotations from the content are hereby permitted. You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP."); added 2026-10-21 from docs/28 §10 with the tranche-1 connector. **Re-read 2026-10-22** (https://www.aep.com/terms/, §6.4), the three clauses not quoted before: "Any copy you make must include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."; under "No Implied Licenses": "Nothing contained herein shall be construed as conferring by implication, estoppel, or otherwise any license or right under any patent, trademark, copyright (except as expressly provided above), or proprietary rights of AEP or of any third party."; under "Information Provided by You": "Any information provided by you to AEP, including but not limited to feedback, data, questions, comments, suggestions, or the like, shall be deemed to be non-confidential; AEP shall have no obligation of any kind with respect to such information and shall be free to reproduce, use, disclose, and distribute the information to others without limitation." **The `noncommercial` class rests on the limited-quotations sentence, not on a general noncommercial grant** (inference, moderate confidence): the terms grant copying for personal use and attributed limited quotations, bar commercial redistribution without written permission and license nothing by implication; hence derived-only. The copyright notice rendered nowhere before 2026-10-22 | mod-high |
 | `us.rfp.ct_deep` | attribution-restricted | derived-only; credit "Source: Connecticut Department of Energy and Environmental Protection"; documents on www.dpuc.state.ct.us are robots-disallowed: link only | State of Connecticut Disclaimer (portal.ct.gov/portal/policies/disclaimer/), permissive by omission, docs/28 §5; added 2026-10-21 from docs/28 §10 with the tranche-1 connector | mod |
 | `us.rfp.nj_bpu` | permissive | derived-only; credit "Source: New Jersey Board of Public Utilities"; a notice PDF that states a restriction on free use is skipped | nj.gov Legal Statement (nj.gov/nj/legal.shtml), "anyone may view, copy or distribute State information", docs/28 §5; added 2026-10-21 from docs/28 §10 with the tranche-1 connector | high |
 | `us.muni_procurement` | restricted (aggregators) / unknown (state portals) | link-out-only for aggregators | not retrieved | mod |
@@ -1944,7 +1944,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.epa.ghgrp` | public-domain | raw-ok | 17 U.S.C. §105; §2.12 (EPA hedge) applies as it does to LMOP/AgSTAR; added 2026-09-22, Envirofacts REST and the bulk data-set zip both answered 200 | high |
 | `us.az.adeq.class_vi`, `us.la.dce.class_vi`, `us.nd.dmr.class_vi`, `us.wv.dep.class_vi`, `us.wy.deq.class_vi` | **unknown** | do not ingest; gated until each state's terms are read | 17 U.S.C. §105 does **not** reach state agencies, so the federal public-domain rule that covers `us.epa.class_vi` stops at the primacy boundary. Added 2026-09-22 with per-state retrieval evidence in `data/sources.yaml`; Louisiana additionally carries a robots `Disallow: /` on `sonlite.dnr.state.la.us` and Arizona a Cloudflare challenge that hid even its robots.txt | n/a |
 | `global.carbonstorage_io` | restricted | do not ingest at all | Private paid aggregator (CarbonStorage, LLC), no licence, terms-of-use or source statement published anywhere on the site; its permissive robots.txt is not a licence. Same class as Cleanview/Energy Adepto under `CLAUDE.md`. Public marketing pages may be read for competitive research (`docs/11` §1.3); project pages, map layers and API may not be fetched, stored or derived from. Added 2026-09-22 | high |
-| `us.tx.rrc.class_vi`, `us.tx.rrc.datasets` | **noncommercial** | raw-ok only while the platform posture is noncommercial; attribution + link back (docs/26-platform-posture.md) | RRC Site Policies, https://www.rrc.texas.gov/site-policies/ (READ 2026-09-25, CCS source-map lane): "Unless otherwise noted on an individual document, file, web page, or other website item, RRC grants permission to copy and distribute the information on its website for noncommercial use, as long as the content remains unaltered and is not presented in a misleading way." A noncommercial-only grant from a state agency (17 U.S.C. §105 does not apply); reclassified from `unknown` to `noncommercial` 2026-09-26 (§6.2) once that register class and `PLATFORM_POSTURE` existed. Whether a browsewrap permission notice restricts a commercial product's use of public-information facts (Tex. Gov't Code ch. 552) remains the §3.2 question and is open counsel item 15 (§7) — **not settled by this reclassification** | mod |
+| `us.tx.rrc.class_vi`, `us.tx.rrc.datasets` | **noncommercial** | raw-ok only while the platform posture is noncommercial; attribution + link back (docs/26-platform-posture.md); credit "Source: Railroad Commission of Texas, https://www.rrc.texas.gov" and notice "Neither Inframation nor this information, as presented on Inframation, is endorsed by the State of Texas or any state agency."; the date copied is each record's retrieval date, printed with the credit (§6.4) | RRC Site Policies, https://www.rrc.texas.gov/site-policies/ (READ 2026-09-25, CCS source-map lane): "Unless otherwise noted on an individual document, file, web page, or other website item, RRC grants permission to copy and distribute the information on its website for noncommercial use, as long as the content remains unaltered and is not presented in a misleading way." A noncommercial-only grant from a state agency (17 U.S.C. §105 does not apply); reclassified from `unknown` to `noncommercial` 2026-09-26 (§6.2) once that register class and `PLATFORM_POSTURE` existed. Whether a browsewrap permission notice restricts a commercial product's use of public-information facts (Tex. Gov't Code ch. 552) remains the §3.2 question and is open counsel item 15 (§7) — **not settled by this reclassification**. **Copying conditions, re-read 2026-10-22 (§6.4):** the same page: "Entities or individuals who copy information from the RRC website or link to the RRC website must follow Sections 3 and 5 of The State Website Linking and Privacy Policy entitled, “Linking to State Agency Websites” and “Copying Information from State Agency Websites,” respectively." That policy, from the Texas Board of Architectural Examiners' reproduction (https://www.tbae.texas.gov/links-privacy-policy/; DIR's own page answered a 403 challenge and was not bypassed, so this text is secondary): "Use of the information must identify the state agency that is the source of the information, its Web address, the date the information was copied from the state agency’s Web site by the site owner and must be accompanied by a statement that neither the site owner nor the information, as it is presented on the site owner’s Web site, is endorsed by the State or any state agency." Until 2026-10-22 the 20 live Class VI records carried "Source: Railroad Commission of Texas" only: no web address and no statement. The class is unchanged | mod |
 | `us.epa.ghgrp.subpart_rr`, `us.epa.ghgrp.subpart_uu_pp`, `us.epa.uic.well_inventory` | public-domain | raw-ok | 17 U.S.C. §105; §2.12 (EPA hedge) as for `us.epa.ghgrp` — same annual data-summary zip (sha256 `895349c8…bf8345`, fetched 2026-09-25) and the FY2024 UIC inventory workbook; added 2026-09-25 | high |
 | `us.federalregister.api` | public-domain | raw-ok | 17 U.S.C. §105 (Office of the Federal Register / GPO publication); API answered 200 on 2026-09-25; added 2026-09-25 | high |
 | `us.epa.foia.reading_room`, `us.doe.foia.reading_room` | public-domain | derived-only | EPA/DOE-authored records are §105 works; documents released under FOIA that were authored by applicants, awardees or consultants (permit applications, MRV plans, correspondence) keep their authors' copyright, so only facts, dates and links are published, never the documents; FOIA logs carry requester names — subject and office only, no requester (§5.4). Added 2026-09-25 | mod-high |
@@ -1963,6 +1963,23 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.dhs.hifld.transmission_lines` | public-domain | raw-ok; no permitted route to the bytes yet (DataLumos archive behind a challenge, its terms unread; third-party copies never used) | §2.19 quoted (DHS DCAT `government-works`, `accessLevel: public`); added 2026-09-28 | mod-high |
 | `us.dhs.hifld.electric_substations` | restricted | do not ingest; never derive a substation layer from line endpoints as a substitute | §2.19 quoted (DHS DCAT `accessLevel: restricted public`; HIFLD Secure DUA); added 2026-09-28 | high |
 | `us.noaa.ocm.electric_substations` | **unknown** | do not ingest; gated until terms read | §2.19: CC0 on data.gov vs "For coastal and ocean planning" on InPort, lineage from the restricted HIFLD layer; added 2026-09-28 | n/a |
+| `us.iso.ercot.prices` | permissive | raw-ok + credit "Source: ERCOT" (policy; clause 5 lets compilations drop notices); store each downloaded report once, since the API terms allow no more than three downloads of the same report in 12 months | `docs/29` §2.1 quoted: ERCOT Website User Agreement clause 5 (last updated 07/20/2023, same text as §1.1) and the Terms of Use for ERCOT API, both read 2026-10-22; energy-price lane, added 2026-10-22, manifest `status: pending` (no connector) | high |
+| `us.iso.caiso.oasis_prices`, `us.iso.caiso.price_map` | attribution-restricted | derived-only + credit "Source: California ISO"; the price map's node coordinates derive each node's county and are never served; no raw interval price (a "latest price" readout) until CAISO authorises it in writing | `docs/29` §2.2 quoted: CAISO Terms of Use (10/02/2018) and API Terms of Use (08/22/2019), read 2026-10-22, the same two clauses and the same tension as §1.2; added 2026-10-22, pending | mod-high |
+| `us.iso.nyiso.prices` | attribution-restricted | derived-only + credit "Source: NYISO"; the coordinates in NYISO's generator list derive each node's county and are never served | `docs/29` §2.5: Legal Notice re-read 2026-10-22, unchanged from §1.5; added 2026-10-22, pending | mod-high |
+| `us.iso.miso.prices` | **unknown** | link-out-only; do not publish | `docs/29` §2.3: the legal page answered a Cloudflare 403 twice on 2026-10-22 (not bypassed), as in §1.7; added 2026-10-22 | n/a |
+| `us.iso.spp.prices` | restricted, as `us.iso.spp.gen_queue` (the clause grants copying "EXCEPT ... within a commercial publication", a noncommercial grant in substance; moving both SPP rows to the noncommercial class is an owner decision, `docs/29` §6) | link-out-only | `docs/29` §2.4: Terms and Conditions re-read 2026-10-22, unchanged from §1.4; the External Systems Acceptable Use Policy (rev. 6/27/2014) read for the first time; added 2026-10-22 | high on the text |
+| `us.iso.isone.prices` | restricted | link-out-only | `docs/29` §2.6: Legal and Privacy re-read 2026-10-22, unchanged from §1.6; added 2026-10-22 | mod-high |
+| `us.iso.pjm.prices` | restricted | link-out-only; every LMP route found is Data Miner 2, and no Redistribution License is held | `docs/29` §2.7: API portal terms re-read 2026-10-22; Data Miner 2 Terms of Use PDF md5 unchanged since §1.3; added 2026-10-22 | high |
+| `gb.elexon.bmrs_prices` | open-attribution | raw-ok + credit "Contains BMRS data © Elexon Limited copyright and database right <year>" and, where possible, a link to the licence; never presented as official or endorsed by Elexon | `docs/29` §2.8 quoted: Licence to use BMRS open data and the BMRS API terms (page modified 2023-07-07), read 2026-10-22; the licence ends automatically if its conditions are broken; added 2026-10-22, pending | high |
+| `gb.elexon.market_index_data` | restricted (the BMRS licence "does not cover ... third party rights that Elexon is not authorised to licence"; MID comes from EPEX SPOT (APXMIDP) and Nord Pool's N2EX (N2EXMIDP)) | do not publish until Elexon confirms MID is inside its open data licence | `docs/29` §2.8; added 2026-10-22 | mod |
+| `eu.entsoe.day_ahead_prices` | restricted | link-out-only | `docs/29` §2.9 quoted: Transparency Platform Terms of Use (approved 29 March 2023) clause 3.1, prior agreement of the Primary Owner of Data; day-ahead prices (Art. 12.1.d) are not on the List of Data Available for Free Re-use (18 October 2023); answers §7 item 11 for this data item only; added 2026-10-22 | high |
+| `eu.nordpool.market_data`, `eu.epex.market_data` | restricted | do not ingest; link-out-only | `docs/29` §2.10 quoted: Nord Pool website terms and redistribution-licence FAQ, EPEX SPOT General Conditions of Data Use (1 November 2025); paid exchange data, excluded from the price layers, including second-hand through Elexon MID or ENTSO-E; added 2026-10-22 | high |
+| `us.eia.wholesale_ice` | restricted | link-out-only | `docs/29` §2.11 quoted: the hub table is ICE data "republished, with permission", which EIA's "Protected materials" paragraph keeps under its owner's copyright; 17 U.S.C. §105 does not reach it; added 2026-10-22 | high |
+| `us.eia.861`, `us.eia.retail_sales` | public-domain | raw-ok | 17 U.S.C. §105; `docs/29` §2.12 quoted (EIA Copyrights and Reuse, read 2026-10-22); added 2026-10-22, pending | high |
+| `us.openei.urdb` | open-attribution (two statements: CC0 on apps.openei.org, CC BY 4.0 on the OEDI record; the stricter applied) | raw-ok + credit "Source: Utility Rate Database (URDB), OpenEI" | `docs/29` §2.13 quoted; the API key terms on developer.nrel.gov were not read (proxy 502); added 2026-10-22, pending | mod |
+| `us.ferc.eqr` | public-domain | raw-ok; strip personal data (filer contact names, titles, phone numbers and emails) at ingest (§5) | 17 U.S.C. §105; 18 CFR §35.10b quoted in `docs/29` §2.14 (ERCOT-internal sales are outside the EQR); the www.ferc.gov EQR pages answered a Cloudflare challenge on 2026-10-22 (not bypassed), eqrreportviewer.ferc.gov answered 200; added 2026-10-22, pending | high |
+| `us.lbnl.utility_scale_solar`, `us.lbnl.land_based_wind` | open-attribution (CC BY 4.0, stated in each data file's Introduction sheet) | raw-ok + credit "Lawrence Berkeley National Laboratory, CC BY 4.0" + statement of changes; **drop the LevelTen and Trio sheets and columns at ingest** (third-party indices a CC BY notice cannot license) | `docs/29` §2.15 quoted (2025 data files, read 2026-10-22 from eta-publications.lbl.gov; emp.lbl.gov answered a Cloudflare block); added 2026-10-22, pending | high |
+| `global.levelten.ppa_index`, `global.pexapark.ppa_data`, `us.trio.ppa_index`, `us.gridstatus_io.hosted_api` | restricted | do not ingest at all | Private aggregators: PPA price indices, and a commercial re-host of ISO data. LevelTen and Pexapark terms quoted in `docs/29` §2.16 (both bar redistribution and derivatives); Trio's terms not read, Grid Status's answered 403 on 2026-10-22. Same class as Cleanview and Energy Adepto under `CLAUDE.md`. The open-source gridstatus library is code that fetches from the ISOs, not this service (`docs/29` §4); added 2026-10-22 | high |
 
 **This matrix is machine-read.** `scripts/check_manifest_licences.py` (run by `tests/test_manifest_licences.py`
 under the pytest job) parses every row above whose first cell is one or more backticked `source_id`s, takes the
@@ -2145,6 +2162,169 @@ itself raw is still decision D-18 and counsel's; this only removes the coordinat
 takedown path for a licence problem) now withdraws every field it supplied from merged records, the
 records' `source_count`, its placement, and every organisation only its rows named, on every non-admin
 surface (`docs/21` §8). Before this, the values stayed public credited to the remaining source.
+
+### 6.4 Required notices: AEP's copyright line and the Texas copying conditions, 2026-10-22
+
+The commercial-reuse lane (`docs/39` §7.3) re-read the terms of the six `noncommercial` sources on 2026-10-22
+and found two requirements the register had not recorded and no surface rendered. This section records what the
+text says, what the repository now does, and what is left. Not legal advice; counsel has not reviewed it.
+
+**What the text says.** Read from the captures behind `docs/39` §7.3 (one GET each, 2026-10-22, about 18:20 to
+18:35 UTC).
+
+AEP Terms and Conditions, <https://www.aep.com/terms/> (HTTP 200, 82,120 bytes), the paragraph the four AEP
+rows already quoted in part, then the two clauses not quoted before:
+
+> AEP hereby authorizes you to copy and display the content herein, but for your personal use only. Any copy you
+> make must include this copyright notice: Copyright 1996-2026 by American Electric Power Company, Inc., all
+> rights reserved. If attribution to AEP is included, limited quotations from the content are hereby permitted.
+> You may not copy or display for redistribution to third parties for commercial purposes any portion of the
+> content without the prior written permission of AEP.
+
+Under "No Implied Licenses":
+
+> Nothing contained herein shall be construed as conferring by implication, estoppel, or otherwise any license
+> or right under any patent, trademark, copyright (except as expressly provided above), or proprietary rights of
+> AEP or of any third party.
+
+Under "Information Provided by You":
+
+> Any information provided by you to AEP, including but not limited to feedback, data, questions, comments,
+> suggestions, or the like, shall be deemed to be non-confidential; AEP shall have no obligation of any kind with
+> respect to such information and shall be free to reproduce, use, disclose, and distribute the information to
+> others without limitation.
+
+*Exact wording, measured:* the served HTML builds the year as a separate value (`Copyright 1996-<!-- -->2026<!--
+--> by`), so a browser shows "1996-2026" with no space; the plain-text extraction quoted in `docs/39` §7.3 shows
+"1996- 2026". The register uses the rendered form. The RFP connector's terms check folds whitespace away, so it
+verifies either.
+
+RRC Site Policies, <https://www.rrc.texas.gov/site-policies/> (HTTP 200, 68,255 bytes):
+
+> Entities or individuals who copy information from the RRC website or link to the RRC website must follow
+> Sections 3 and 5 of The State Website Linking and Privacy Policy entitled, “Linking to State Agency Websites”
+> and “Copying Information from State Agency Websites,” respectively.
+
+> Because of the harm to State computer systems, including, but not limited to, the partial or total alteration
+> or damage to data, or the interruption of computer services to other users, the RRC does not consent to access
+> to its computer system by “robots,” denial of service attacks, or any other automated process that results in
+> severe degradation of system performance.
+
+The State Website Linking and Privacy Policy itself: DIR's page
+(<https://dir.texas.gov/resource-library-item/state-website-linking-and-privacy-policy>) answered a 403
+challenge page ("Just a moment...") to the `docs/39` lane at about 18:24 UTC and to this lane's single request
+at 18:49 UTC. Neither was retried further or bypassed. The text below is the Texas Board of Architectural
+Examiners' reproduction (<https://www.tbae.texas.gov/links-privacy-policy/>, read 2026-10-22), where the
+paragraph is headed "Copying and Use of Information by Web Site Owners Linking to State Agency Sites" and is
+unnumbered. **It is secondary until read on DIR's site.**
+
+> The information posted on a state agency Web site may be copied so long as it is presented in a non-misleading
+> way and does not imply that either the site owner or the information, as it is presented on the site owner’s
+> Web site, is endorsed by the State. Use of the information must identify the state agency that is the source of
+> the information, its Web address, the date the information was copied from the state agency’s Web site by the
+> site owner and must be accompanied by a statement that neither the site owner nor the information, as it is
+> presented on the site owner’s Web site, is endorsed by the State or any state agency. A state agency may not
+> charge a fee to access, use or reproduce information on its Web site or to link to information on its Web
+> site, unless specifically authorized to do so by the Texas Legislature. To protect the intellectual property of
+> state agencies, copied information must reflect the copyright, trademark, service mark or other intellectual
+> property rights of the state agency whose protected information is being used by the site owner.
+
+**What follows, kept apart.**
+
+1. *Text:* AEP requires its copyright notice on "any copy you make". *Measured:* it rendered on no surface; an
+   AEP record's credit was the credit line alone. *Inference:* whether a limited quotation is a "copy" that must
+   carry the notice is open (`docs/39` §7.6 item 3). Printing it costs nothing and settles the question in the
+   conservative direction.
+2. *Text:* the state paragraph requires four things of a copier: the agency, its web address, the date copied,
+   and the no-endorsement statement. *Measured (`docs/39` §7.3):* the 20 live Class VI records carried "Source:
+   Railroad Commission of Texas", their source URL and `retrieved_at`; no web address in the credit, and no
+   statement. The RRC requires this whichever grant governs, so it was a live gap.
+3. *Inference, moderate confidence:* **AEP's `noncommercial` class rests on the limited-quotations sentence, not
+   on a general noncommercial grant.** The terms grant copying for personal use and attributed limited
+   quotations, bar commercial redistribution of any portion without written permission, and license nothing by
+   implication. They do not grant noncommercial redistribution in so many words. The rows' `derived_only` rule
+   (the title as posted, facts and a link back; no AEP document or table) fits that reading, so no class or rule
+   changes. Each AEP row now says so.
+4. *Inference:* the RRC's robots sentence is conditional ("results in severe degradation of system
+   performance"). The Class VI reader polls weekly at 0.5 requests per second, well outside it.
+5. *Inference:* the state paragraph's last sentence binds "protected information". The RRC records carry facts
+   (operator, project, county, status, dates) and link to the RRC's own PDF unaltered, so no RRC copyright line
+   is rendered. Counsel to confirm, with `docs/39` §7.6 item 4 (which of the RRC's noncommercial grant and the
+   state paragraph, which has no noncommercial limit, governs). The class stays `noncommercial`.
+6. *Text:* anything sent to AEP is "non-confidential" and free for AEP to "disclose, and distribute".
+   `docs/39` §7.4 already warns the sender.
+
+**What the repository now does.**
+
+- `data/sources.yaml` gains an optional `notice` field: a statement the terms require on every copy, verbatim.
+  `pipeline/connectors/registry.py::SourceEntry.credit_text` appends it after the credit and any statement of
+  changes, so the loader writes it into `licence.attribution_text` with the credit. It therefore reaches every
+  surface that prints the credit, with no per-source code: record pages, the Sources panel, list credit lines,
+  API `provenance[].attribution_text` and `licence_summary`, RSS and JSON feeds, CSV and bulk exports, alerts,
+  social drafts and `/attribution`. `/legal/reuse` lists it as a duty that passes to reusers. (The six sources
+  here are `noncommercial`, so their rows never leave in a bulk or CSV export at all: the loader writes
+  `allows_bulk_export` and `allows_api_redistribution` false for the class.)
+- **RRC, both rows:** `attribution` "Source: Railroad Commission of Texas, https://www.rrc.texas.gov" (agency and
+  web address); `notice` "Neither Inframation nor this information, as presented on Inframation, is endorsed by
+  the State of Texas or any state agency." (the statement, worded on the policy's own); the date copied is each
+  record's `retrieved_at`. The record page prints it straight after the credit ("… or any state agency.
+  Retrieved 19 Oct 2026."), the API carries `retrieved_at` in the same provenance object as `attribution_text`,
+  and the feeds carry `<inframation:retrieved_at>` beside `<inframation:attribution>`.
+- **AEP, all four rows:** `notice` "Copyright 1996-2026 by American Electric Power Company, Inc., all rights
+  reserved." after each company's credit. `data/vendored/rfp_issuers/issuers.yaml` adds the three clauses to the
+  AEP `terms_quote`, so the connector's terms check now verifies seven clauses on every re-read. The notice is
+  the tail of one of them, and a test pins the two together.
+- `license` is unchanged on all six rows; the new quotes are in each row's `notes`. `licence_id` is a digest of
+  `license` (docs/21 invariant L2), and the terms did not change, only more of them is quoted. Editing `license`
+  would have minted a new licence row and left the events already loaded under the old one, whose credit a
+  refresh does not reach.
+- `scripts/check_manifest_licences.py` R5: a register rule `notice "X"` requires the manifest's `notice` to be
+  exactly X, and a manifest `notice` the rule does not name fails, so this register moves first. The six rows
+  above name theirs.
+- The record page's credit line drops one trailing full stop before ". Retrieved", so a notice (or a World
+  Bank statement of changes) no longer prints "..".
+
+| Element the terms require | Field | Rendered |
+|---|---|---|
+| RRC: agency | `attribution` | everywhere the credit is |
+| RRC: web address, https://www.rrc.texas.gov | `attribution` | everywhere the credit is |
+| RRC: date copied | each record's `retrieved_at` | record page credit line and Sources panel; API provenance; feeds |
+| RRC: no-endorsement statement | `notice` | everywhere the credit is |
+| AEP: copyright notice | `notice` | everywhere the credit is |
+
+**Tests that pin it.** `tests/test_licence_credits.py`:
+`test_a_required_notice_renders_last_after_the_credit_and_any_statement_of_changes`,
+`test_the_texas_rrc_and_aep_credits_carry_the_notices_their_terms_require`,
+`test_the_aep_notice_is_the_clause_the_terms_check_verifies`, and
+`test_rrc_records_carry_agency_address_date_copied_and_no_endorsement_statement_on_every_surface` (API, feed,
+record page, `/attribution`, `/legal/reuse`). `tests/test_rfp_publication.py`:
+`test_an_aep_record_page_carries_aeps_copyright_notice_after_the_credit`, with the API credit assertions
+updated. `tests/test_manifest_licences.py`:
+`test_a_required_notice_must_match_the_register_exactly_and_the_register_moves_first` and
+`test_the_six_noncommercial_sources_carry_the_notices_their_terms_require`.
+
+**Not done here, and open.**
+
+- **Deployment.** The live records change only when the deployed store's licence rows do: on the next load of
+  each source (weekly for the RRC Class VI reader), or at once with
+  `python -m services.ingest.loader --refresh-credits`. Until then inframation.io still shows the old credit.
+- **AEP's year.** AEP's page computes the year. When it shows 2027, the terms check pauses the four AEP issuers
+  until a reviewer updates the `terms_quote` clause and both `notice` fields. That is the intended drift
+  behaviour (the rendered notice must match the page), and it will happen each January.
+- **Where the notice is less prominent.** The Sources panel shows each credit inside its collapsed row, so on a
+  record whose primary source is not the RRC, the statement is one click away. List pages and the map print the
+  credit and notice in their credits line, but no per-row copy date; each row links to its record page, which
+  has the date. *Inference:* adequate for "accompanied by", but not tested against the text by counsel.
+- **Admin overrides.** A per-source credit override (`source.attribution_text`, admin Sources page) replaces the
+  whole line, notice included. An override on any of these six must repeat the notice.
+- **Social posts** print the credit verbatim (`docs/32`), so an RRC post now carries about 190 characters of
+  credit. Check the post-length budget before any RRC or AEP post.
+- **DIR's own text** is still unread. The owner should read it in an ordinary browser and save a PDF for this
+  register (`docs/39` §7.4 checklist); if it differs from TBAE's reproduction, this section and the two RRC
+  rows change.
+- **`docs/39` §7.3** quotes AEP's notice as "1996- 2026", an extraction artefact; the RRC letter (§7.4.2) quotes
+  the credit as "Source: Railroad Commission of Texas" and words the statement differently from the one now
+  rendered. Both are the coordinator's to correct before the letters go.
 
 ---
 

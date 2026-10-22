@@ -62,6 +62,29 @@ def test_dsn_initialises_sdk_with_env_release_and_service_tag(monkeypatch: pytes
     expect(("service", "worker") in calls["tags"], "service tag must be set")
 
 
+def test_error_reports_never_carry_frame_locals_or_request_bodies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A frame's locals can hold a password, an invitation token or a private note, and a request body
+    can be a sign-in form; `send_default_pii=False` alone still sends both (docs/19 §5)."""
+    monkeypatch.setenv("SENTRY_DSN", FAKE_DSN)
+    fake, calls = fake_sentry_module()
+    monkeypatch.setitem(sys.modules, "sentry_sdk", fake)
+    init_error_tracking("api")
+    kwargs = calls["init"][0]
+    expect(kwargs.get("include_local_variables") is False, "stack-frame locals must never be sent")
+    expect(kwargs.get("max_request_body_size") == "never", "request bodies must never be sent")
+
+
+def test_the_privacy_options_are_ones_the_pinned_sdk_accepts() -> None:
+    """The options above are real constructor parameters of the pinned sentry-sdk, not typos the SDK
+    would silently ignore."""
+    import inspect
+
+    consts = pytest.importorskip("sentry_sdk.consts")
+    params = inspect.signature(consts.ClientConstructor.__init__).parameters
+    for name in ("include_local_variables", "max_request_body_size", "send_default_pii"):
+        expect(name in params, f"sentry-sdk no longer accepts {name}")
+
+
 def test_missing_sdk_with_dsn_is_a_warning_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SENTRY_DSN", FAKE_DSN)
     monkeypatch.setitem(sys.modules, "sentry_sdk", None)  # makes `import sentry_sdk` raise ImportError

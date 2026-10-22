@@ -204,7 +204,8 @@ def test_an_empty_opportunity_list_names_the_filter(transport: FakeTransport) ->
     with TestClient(web_app) as client:
         html = client.get("/opportunities?jurisdiction=US-ZZ").text
     text = _text(html)
-    assert "No open opportunities match these filters." in text
+    # The page opens on energy-related notices (docs/16 U-7), and the sentence says so.
+    assert "No open energy-related opportunities match these filters." in text
     assert "Jurisdiction: “US-ZZ” · without it, 7 opportunities match." in text
 
 

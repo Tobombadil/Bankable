@@ -10,36 +10,41 @@
   {%- endif -%}
 </p>
 {% if records %}
+{#- Sortable Point, Voltage, MW and count headings (`web/list_sort.py`); compact
+    two-line rows below 720px (docs/16 U-10): the point, then queue · kind · voltage · place · MW and
+    the three counts, each with its word, and the leading technologies. A withdrawn or built count of
+    0 is left off that line (`cell-opt`); the table still prints it. -#}
+{%- set sh = sort_headers or {} %}
 <div class="table-scroll">
-<table class="record-table">
+<table class="record-table record-table--compact">
   <caption class="visually-hidden">Grid connection points matching the current filters, {{ sort_caption }}.</caption>
   <thead>
     <tr>
-      <th scope="col">Point</th>
+      {{ m.sort_th("Point", sh.name) }}
       <th scope="col">Queue</th>
       <th scope="col">Kind</th>
-      <th scope="col" class="num">Voltage</th>
+      {{ m.sort_th("Voltage", sh.voltage, num=True) }}
       <th scope="col">Jurisdiction</th>
-      <th scope="col" class="num">Active MW</th>
-      <th scope="col" class="num">Active projects</th>
-      <th scope="col" class="num">Withdrawn</th>
-      <th scope="col" class="num">Built</th>
+      {{ m.sort_th("Active MW", sh.active_mw, num=True) }}
+      {{ m.sort_th("Active projects", sh.active_count, num=True) }}
+      {{ m.sort_th("Withdrawn", sh.withdrawn_count, num=True) }}
+      {{ m.sort_th("Built", sh.built_count, num=True) }}
       <th scope="col">Leading technologies</th>
     </tr>
   </thead>
   <tbody>
     {% for r in records %}
     <tr>
-      <td data-label="Point"><a class="row-link" href="{{ r.href }}">{{ r.name }}</a></td>
-      <td data-label="Queue">{{ r.iso_label or '—' }}</td>
-      <td data-label="Kind">{{ r.kind_label }}</td>
-      <td data-label="Voltage" class="num tnum">{{ r.voltage_label or '—' }}</td>
-      <td data-label="Jurisdiction">{{ r.jurisdiction or '—' }}</td>
-      <td data-label="Active MW" class="num tnum">{{ r.active_mw_label }}</td>
-      <td data-label="Active projects" class="num tnum">{{ r.totals.active_count }}</td>
-      <td data-label="Withdrawn" class="num tnum">{{ r.totals.withdrawn_count }}</td>
-      <td data-label="Built" class="num tnum">{{ r.totals.built_count }}</td>
-      <td data-label="Leading technologies">{{ (r.top_technologies | technologies_label) if r.top_technologies else '—' }}</td>
+      <td data-label="Point" class="cell-title"><a class="row-link" href="{{ r.href }}">{{ r.name }}</a></td>
+      <td data-label="Queue" class="cell-meta{% if not r.iso_label %} is-empty{% endif %}">{{ r.iso_label or '—' }}</td>
+      <td data-label="Kind" class="cell-meta">{{ r.kind_label }}</td>
+      <td data-label="Voltage" class="num tnum cell-meta{% if not r.voltage_label %} is-empty{% endif %}">{{ r.voltage_label or '—' }}</td>
+      <td data-label="Jurisdiction" class="cell-meta{% if not r.jurisdiction %} is-empty{% endif %}">{{ r.jurisdiction or '—' }}</td>
+      <td data-label="Active MW" class="num tnum cell-meta">{{ r.active_mw_label }}<span class="cell-unit"> MW active</span></td>
+      <td data-label="Active projects" class="num tnum cell-meta">{{ r.totals.active_count }}<span class="cell-unit"> active project{{ 's' if r.totals.active_count != 1 }}</span></td>
+      <td data-label="Withdrawn" class="num tnum cell-meta{% if not r.totals.withdrawn_count %} cell-opt{% endif %}">{{ r.totals.withdrawn_count }}<span class="cell-unit"> withdrawn</span></td>
+      <td data-label="Built" class="num tnum cell-meta{% if not r.totals.built_count %} cell-opt{% endif %}">{{ r.totals.built_count }}<span class="cell-unit"> built</span></td>
+      <td data-label="Leading technologies" class="cell-meta{% if not r.top_technologies %} is-empty{% endif %}">{{ (r.top_technologies | technologies_label) if r.top_technologies else '—' }}</td>
     </tr>
     {% endfor %}
   </tbody>

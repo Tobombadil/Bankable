@@ -545,6 +545,33 @@ def test_a_site_rebuild_failure_does_not_fail_the_resolve_tick(
     report = jobs.resolve_tick_job(_run=None, _session_factory=factory, _data_root=tmp_path)
     if report.get("sites") != {"error": "RuntimeError"} or "personal_data" not in report:
         raise AssertionError(report)
+    # The companies index's figures still refresh after a site defect: they come last.
+    if "error" in report.get("organization_stats", {"error": "missing"}):
+        raise AssertionError(report)
+
+
+def test_the_resolve_tick_refreshes_the_companies_figures_last(
+    factory: _Factory, tmp_path: pathlib.Path
+) -> None:
+    """`organization_stats` counts what the merges, suppressions and natural-person flags settled,
+    so `default_resolve` refreshes it after all of them, in a transaction of its own."""
+    from services.db.models import Organization
+
+    with factory() as session:
+        session.add(
+            Organization(
+                public_id="org_resolved",
+                slug="resolved-co",
+                name_canonical="Resolved Co",
+                name_normalised="resolved co",
+                type="developer",
+                country="US",
+            )
+        )
+        session.commit()
+    report = jobs.resolve_tick_job(_run=None, _session_factory=factory, _data_root=tmp_path)
+    if list(report)[-1] != "organization_stats" or report["organization_stats"].get("inserted") != 4:
+        raise AssertionError(report)
 
 
 def test_resolver_frames_are_only_sources_the_loader_loads(tmp_path: pathlib.Path) -> None:

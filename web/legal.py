@@ -63,7 +63,8 @@ PRIVACY_EMAIL = f"privacy@{DOMAIN}"
 
 #: 2026-10-16: the product name and the contact address's domain changed (Inframation, inframation.io).
 LAST_UPDATED = "2026-10-16"
-REUSE_LAST_UPDATED = "2026-10-07"
+#: 2026-10-22: required notices (AEP copyright, Texas no-endorsement statement), docs/13 §6.4.
+REUSE_LAST_UPDATED = "2026-10-22"
 
 _MANIFEST = Path(__file__).resolve().parents[1] / "data" / "sources.yaml"
 
@@ -185,6 +186,10 @@ def _pass_through_duties(entry: dict[str, Any]) -> list[str]:
         duties.append(
             f"Say what was changed. Our statement of changes: \u201c{entry['changes_statement']}\u201d."
         )
+    if entry.get("notice"):
+        # The source's terms require this statement on every copy (docs/13 §6.4): AEP's copyright
+        # notice; the Texas state website policy's no-endorsement statement for RRC data.
+        duties.append(f"Keep this notice with every copy: \u201c{entry['notice']}\u201d")
     if reuse == "noncommercial":
         duties.append(
             "Noncommercial use only, and the source's content must stay unaltered and not be presented in a "

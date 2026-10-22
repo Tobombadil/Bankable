@@ -643,6 +643,7 @@ paths:
         - $ref: '#/components/parameters/LastChangedTo'
         - $ref: '#/components/parameters/UpdatedSince'
         - $ref: '#/components/parameters/SlugFilter'
+        - $ref: '#/components/parameters/OpportunityRelevance'
       responses:
         '200':
           description: A page of opportunities inside the attribution envelope.
@@ -857,10 +858,29 @@ paths:
       tags: [Organizations]
       summary: List organizations
       description: >-
-        Sponsors and issuers. `is_curated_issuer=true` lists the curated RFP issuer registry (US-303). No personal
-        data. `jurisdiction` matches the organisation's own `jurisdiction` field exactly (NULL matches nothing; filter a
-        country with `country`). `updated_since` reads the row's `updated_at`, which moves on every write to the
-        organisation and is never earlier than its `last_changed`.
+        Sponsors, issuers, owners and operators: the companies index. `is_curated_issuer=true` lists the curated RFP
+        issuer registry (US-303). No personal data. `jurisdiction` matches the organisation's own `jurisdiction` field
+        exactly (NULL matches nothing; filter a country with `country`). `updated_since` reads the row's `updated_at`,
+        which moves on every write to the organisation and is never earlier than its `last_changed`.
+
+
+        **Figures (2026-10-22).** Each row carries `stats`: what the organisation (`scope=self`, the default) or its
+        group (`scope=group`: it and every organisation below it in the ownership tree) holds and pursues — distinct
+        operating, standby and retiring assets by role, their nameplate MW, the owned MW where a register states a
+        share, the active pipeline and its MW, withdrawn projects, opportunities issued, and the states, grid operators
+        and technologies those touch. They are the figures `GET /v1/organizations/{public_id}/portfolio` and
+        `/pipeline` return for the same organisation and scope, counted under the same visibility, licence and posture
+        rules, refreshed after every context load and resolve pass. Each figure names the list query whose total it is
+        (`stats.list_queries`), and `stats.sources` the registers behind it, credited in `licence_summary`. `stats` is
+        `null` for an organisation listed since the last refresh, and on every row while the figures are withheld:
+        after a source is unpublished, a licence reclassified or a record taken down, until the next refresh
+        (`meta.organization_stats.state` is then `stale`, and the figure filters match nothing).
+
+
+        **Search.** `q` matches the canonical name or an alias a readable register spelled, ignoring case, spaces and
+        punctuation, anywhere in the name. With `q` and no `sort`, names that start with the query come first, then
+        aliases that do, then the rest, each in name order. **Sort** by `name` (default) or a figure; `-` for largest
+        first; a missing figure sorts last either way.
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -878,6 +898,14 @@ paths:
         - $ref: '#/components/parameters/Jurisdiction'
         - $ref: '#/components/parameters/IsCuratedIssuer'
         - $ref: '#/components/parameters/UpdatedSince'
+        - $ref: '#/components/parameters/OrganizationStatsScope'
+        - $ref: '#/components/parameters/OrganizationStatsState'
+        - $ref: '#/components/parameters/OrganizationStatsIso'
+        - $ref: '#/components/parameters/OrganizationStatsTechnology'
+        - $ref: '#/components/parameters/OrganizationStatsRole'
+        - $ref: '#/components/parameters/OrganizationHasAssets'
+        - $ref: '#/components/parameters/OrganizationHasPipeline'
+        - $ref: '#/components/parameters/OrganizationMinOperatingMw'
       responses:
         '200':
           description: A page of organizations.
@@ -6817,10 +6845,12 @@ components:
     SortProposals:
       name: sort
       in: query
-      description: 'Comma-separated, `-` for descending. Allowlist: `last_changed`, `first_seen`, `capacity_mw`, `name_canonical`. Default `-last_changed`.'
+      description: >-
+        Comma-separated, `-` for descending. Allowlist: `last_changed`, `first_seen`, `capacity_mw`, `name_canonical`,
+        `proposed_online_date` (added 2026-10-22). Default `-last_changed`. Nulls sort last either way.
       schema:
         type: string
-        pattern: '^-?(last_changed|first_seen|capacity_mw|name_canonical)(,-?(last_changed|first_seen|capacity_mw|name_canonical))*$'
+        pattern: '^-?(last_changed|first_seen|capacity_mw|name_canonical|proposed_online_date)(,-?(last_changed|first_seen|capacity_mw|name_canonical|proposed_online_date))*$'
         default: '-last_changed'
     SortOpportunities:
       name: sort
@@ -6838,11 +6868,96 @@ components:
     SortOrganizations:
       name: sort
       in: query
-      description: 'Allowlist: `name_canonical`. Default `name_canonical`.'
+      description: >-
+        Allowlist: `name` (or `name_canonical`, the same field), `assets`, `operating_mw`, `owned_mw`,
+        `pipeline_count`, `pipeline_mw`, `rfps_issued`; `-` for descending (largest first). The figures are the
+        `stats` of the requested `scope`. A missing figure (no MW stated, no figures yet, or figures withheld) sorts
+        last in both directions. Default `name_canonical`, or best match first when `q` is given.
       schema:
         type: string
-        pattern: '^-?name_canonical$'
+        pattern: '^-?(name|name_canonical|assets|operating_mw|owned_mw|pipeline_count|pipeline_mw|rfps_issued)$'
         default: name_canonical
+    OrganizationStatsScope:
+      name: scope
+      in: query
+      description: >-
+        Whose figures each row's `stats` carries, and the figure filters and sorts read: `self` (default), the
+        organisation alone; `group`, it and every organisation below it in the ownership tree (the walk of
+        `scope=all` on `/v1/organizations/{public_id}/portfolio`), each asset counted once.
+      schema:
+        type: string
+        enum: [self, group]
+        default: self
+    OrganizationStatsState:
+      name: state
+      in: query
+      description: >-
+        ISO 3166-2 subdivisions where the organisation (or group) has a current asset, an active project or an issued
+        opportunity (`stats.states`); comma-separated for OR.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          pattern: '^[A-Za-z]{2}-[A-Za-z0-9]{1,3}$'
+    OrganizationStatsIso:
+      name: iso
+      in: query
+      description: >-
+        Grid operators of the active pipeline (`stats.isos`); comma-separated for OR. A balancing-authority spelling
+        of an ISO/RTO (`ERCO`) selects its operator token (`ERCOT`), as on `GET /v1/proposals`.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+    OrganizationStatsTechnology:
+      name: technology
+      in: query
+      description: >-
+        Technologies of the current assets, active pipeline and issued opportunities (`stats.technologies`);
+        comma-separated for OR.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+    OrganizationStatsRole:
+      name: role
+      in: query
+      description: >-
+        `operator` or `owner`: holds a current asset in that role (`stats.operated_assets` / `owned_assets` above
+        zero); `sponsor`: sponsors a visible proposal (`stats.proposals` above zero). Comma-separated for OR; an
+        unknown value is a `400`.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [operator, owner, sponsor]
+    OrganizationHasAssets:
+      name: has_assets
+      in: query
+      description: '`true`: `stats.assets` above zero; `false`: exactly zero.'
+      schema:
+        type: boolean
+    OrganizationHasPipeline:
+      name: has_pipeline
+      in: query
+      description: '`true`: `stats.pipeline_count` above zero; `false`: exactly zero.'
+      schema:
+        type: boolean
+    OrganizationMinOperatingMw:
+      name: min_operating_mw
+      in: query
+      description: '`stats.operating_mw` at least this many MW. A row with no stated MW never matches.'
+      schema:
+        type: number
+        minimum: 0
     SortAssets:
       name: sort
       in: query
@@ -7197,11 +7312,27 @@ components:
     SortInterconnectionPoints:
       name: sort
       in: query
-      description: 'Allowlist: `active_mw`, `name`, `voltage_kv`; only the first field applies. Default `-active_mw`.'
+      description: >-
+        Allowlist: `active_mw`, `active_count`, `withdrawn_count`, `built_count`, `name`, `voltage_kv`; only the first
+        field applies. Default `-active_mw`. The three counts (added 2026-10-22) are the point's visible proposals in
+        each bucket, the same proposals `active_mw` sums.
       schema:
         type: string
-        pattern: '^-?(active_mw|name|voltage_kv)(,-?(active_mw|name|voltage_kv))*$'
+        pattern: '^-?(active_mw|active_count|withdrawn_count|built_count|name|voltage_kv)(,-?(active_mw|active_count|withdrawn_count|built_count|name|voltage_kv))*$'
         default: '-active_mw'
+    OpportunityRelevance:
+      name: relevance
+      in: query
+      description: >-
+        `energy`: only the notices `services/match/relevance.py` judges energy-relevant (energy keywords, energy CPV
+        or World Bank sector codes, technology tags; fuel purchases and false friends such as "directed energy" are
+        out), the verdict the matcher's eligibility gate uses. `all`, or absent: every notice. Added 2026-10-22 for
+        the RFPs & funding page's default view (docs/16 U-7). A list view filter: a saved search, webhook or
+        `POST /v1/exports` query may not carry it (`400 unknown_parameter`), because the alert matcher and the export
+        builder do not evaluate it, and the `Accept: text/csv` twin refuses `energy` (`400 validation_error`).
+      schema:
+        type: string
+        enum: [energy, all]
     IncludeCount:
       name: include
       in: query
@@ -8838,6 +8969,24 @@ components:
         sor_cached_at:
           type: string
           format: date-time
+        organization_stats:
+          type: object
+          description: >-
+            `GET /v1/organizations` only (2026-10-22): which figures the rows' `stats` carry. `state` is `current`
+            (served), `stale` (withheld after a source, licence, posture or takedown change, until the next refresh;
+            every `stats` is `null` and the figure filters match nothing) or `missing` (never computed on this store).
+          required: [scope, tier, state]
+          properties:
+            scope:
+              type: string
+              enum: [self, group]
+            tier:
+              type: string
+              enum: [public, pro]
+            state:
+              type: string
+              enum: [current, stale, missing]
+          additionalProperties: false
       additionalProperties: false
     Page:
       type: object
@@ -9884,10 +10033,172 @@ components:
           description: >-
             Organisations below this one at *any* depth. Detail responses only (2026-09-20). Differs from
             `subsidiary_count` exactly when a subsidiary has subsidiaries of its own.
+        stats:
+          description: >-
+            List responses only (2026-10-22): the figures of the requested `scope`, or `null` when there are none to
+            serve (listed since the last refresh, or withheld; `meta.organization_stats.state`).
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationListStats'
+            - type: 'null'
         provenance:
           type: array
           items:
             $ref: '#/components/schemas/ProvenanceRow'
+    OrganizationListStats:
+      type: object
+      description: >-
+        What the organisation (`scope=self`) or its group (`scope=group`) holds and pursues (2026-10-22). The asset
+        figures are the `totals` and `by_role` of `GET /v1/organizations/{public_id}/portfolio` at the same scope; the
+        pipeline figures are `active`, `totals` and the `withdrawn` state of `/pipeline`. Each names the list query
+        whose total it is in `list_queries`. MW is `null`, never `0`, when nothing counted states one.
+      required:
+        - scope
+        - organizations
+        - assets
+        - operated_assets
+        - owned_assets
+        - operating_mw
+        - operating_mw_assets
+        - owned_mw
+        - owned_mw_assets
+        - pipeline_count
+        - pipeline_mw
+        - pipeline_mw_records
+        - withdrawn_count
+        - proposals
+        - rfps_issued
+        - rfps_open
+        - states
+        - isos
+        - technologies
+        - list_queries
+        - sources
+        - computed_at
+      properties:
+        scope:
+          type: string
+          enum: [self, group]
+        organizations:
+          type: integer
+          minimum: 1
+          description: Organisations the scope spans (1 for `self`, and for a group with no listed subsidiary).
+        assets:
+          type: integer
+          minimum: 0
+          description: >-
+            Distinct operating, standby and retiring assets held as operator or owner, each counted once however
+            many organisations in the scope or registers name it. The distinct `public_id`s of
+            `list_queries.assets`.
+        operated_assets:
+          type: integer
+          minimum: 0
+          description: Of those, held as operator. Operator and owner can both count an asset.
+        owned_assets:
+          type: integer
+          minimum: 0
+          description: Of those, held as owner.
+        operating_mw:
+          type: [number, 'null']
+          description: Nameplate MW of the counted assets that state one (power plants, landfill-gas electricity).
+        operating_mw_assets:
+          type: integer
+          minimum: 0
+          description: Assets summed into `operating_mw`.
+        owned_mw:
+          type: [number, 'null']
+          description: >-
+            The owned part of `operating_mw`, where a register states a share: per register the scope's shares summed,
+            the largest register taken, capped at 100 %; never summed across registers. A natural person's share is
+            not used.
+        owned_mw_assets:
+          type: integer
+          minimum: 0
+        pipeline_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Active pipeline: visible sponsored proposals announced through under construction that a readable register
+            still lists (withdrawn, built, cancelled, unknown-state and delisted ones are not).
+        pipeline_mw:
+          type: [number, 'null']
+          description: Their generating and storage MW (loads, lines, pipelines, LNG, CCS and hydrogen are not summed).
+        pipeline_mw_records:
+          type: integer
+          minimum: 0
+        withdrawn_count:
+          type: integer
+          minimum: 0
+          description: Visible sponsored proposals in `withdrawn`, listed or not.
+        proposals:
+          type: integer
+          minimum: 0
+          description: Every visible sponsored proposal, whatever its state.
+        rfps_issued:
+          type: integer
+          minimum: 0
+          description: Visible opportunities (RFPs, tenders, funding notices) the scope's organisations issued, any status.
+        rfps_open:
+          type: integer
+          minimum: 0
+          description: Of those, open.
+        states:
+          type: array
+          description: ISO 3166-2 subdivisions of the current assets, active pipeline and issued opportunities.
+          items:
+            type: string
+        isos:
+          type: array
+          description: Grid operators of the active pipeline (operator tokens, `ERCOT` not `ERCO`).
+          items:
+            type: string
+        technologies:
+          type: array
+          description: Technologies of the current assets, active pipeline and issued opportunities.
+          items:
+            type: string
+        list_queries:
+          type: object
+          description: >-
+            For each figure, the list request whose total it is: `path` and `query` parameters. An asset figure is
+            the count of distinct `public_id`s the asset list returns (one row per edge); a proposal or opportunity
+            figure is its `include=count` total.
+          additionalProperties:
+            $ref: '#/components/schemas/OrganizationStatsListQuery'
+        sources:
+          type: array
+          description: The registers behind the figures, most records first; credited in the envelope's `licence_summary`.
+          items:
+            $ref: '#/components/schemas/OrganizationStatsSource'
+        computed_at:
+          type: string
+          format: date-time
+          description: When these figures were last written (a refresh that changes nothing leaves it).
+    OrganizationStatsListQuery:
+      type: object
+      required: [path, query]
+      properties:
+        path:
+          type: string
+          examples: [/v1/organizations/org_01JBQ8C4X1/assets]
+        query:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: false
+    OrganizationStatsSource:
+      type: object
+      required: [source_id, records, retrieved_at_max]
+      properties:
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        records:
+          type: integer
+          minimum: 1
+          description: Assets, proposals and opportunities counted in these figures that the register backs.
+        retrieved_at_max:
+          type: [string, 'null']
+          format: date-time
+      additionalProperties: false
     DocumentSummary:
       type: object
       required: [document_id, title, doc_type, url, provenance]

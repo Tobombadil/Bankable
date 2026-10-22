@@ -1,32 +1,57 @@
 {% import "_macros.html" as m %}
-<p class="result-count" aria-live="polite">{{ total }} opportunit{{ 'y' if total == 1 else 'ies' }} match{{ 'es' if total == 1 }} these filters.</p>
+{#- docs/16 U-7 (decision 2026-10-22): the list opens on energy-related notices; "All notices" is one
+    click away and kept in the URL (`relevance=all`). Each link carries the view's other filters and
+    its own count, so the reader sees what the default leaves out before choosing. -#}
+{%- set rs = relevance_switch %}
+{%- if rs %}
+<div class="scope-switch">
+  <nav class="view-switch" aria-label="Which notices to show">
+    <span class="view-switch__label">Show</span>
+    <a class="view-switch__link" href="{{ rs.energy.href }}"{% if rs.current == 'energy' %} aria-current="page"{% endif %}>Energy-related{% if rs.energy.count is not none %} <span class="scope-switch__n tnum">{{ rs.energy.count | thousands }}</span>{% endif %}</a>
+    <a class="view-switch__link" href="{{ rs.all.href }}"{% if rs.current == 'all' %} aria-current="page"{% endif %}>All notices{% if rs.all.count is not none %} <span class="scope-switch__n tnum">{{ rs.all.count | thousands }}</span>{% endif %}</a>
+  </nav>
+  <p class="scope-switch__note">Energy-related: generation, storage, grids, hydrogen, carbon capture, heat networks and EV charging. Fuel purchases and unrelated tenders are left out.</p>
+</div>
+{%- endif %}
+{#- The count, the alert and the feed on one row where they fit, so the switch costs no height. -#}
+<div class="results-links">
+<p class="result-count" aria-live="polite">{{ total | thousands }} opportunit{{ 'y' if total == 1 else 'ies' }} match{{ 'es' if total == 1 }} these filters.</p>
 {% if save_alert_href %}{{ m.save_alert(save_alert_href, delayed.free_alerts if delayed else None) }}{% endif %}
 {% if feed_href %}<p class="feed-link"><a href="{{ feed_href }}" type="application/rss+xml">RSS feed of these opportunities</a></p>{% endif %}
+</div>
 {% if records %}
 {#- UX-2: an Issuer column that is "—" on every row says nothing; it shows when any row has one. -#}
 {%- set show_issuer = (records | selectattr('issuer') | list | length > 0) or (records | selectattr('issuer_code') | list | length > 0) %}
+{%- set sh = sort_headers or {} %}
+{#- Compact two-line rows below 720px (docs/16 U-10; styles.css `.record-table--compact`): status
+    and title, then issuer · technologies · due · source. A title over 110 characters (a quarter of
+    the open notices: TED prints the country, the CPV heading and the buyer's own title) is cut at a
+    word to 100 on that row, so it takes about three lines, not nine; the table and the record page
+    print it whole. -#}
 <div class="table-scroll">
-<table class="record-table">
-  <caption class="visually-hidden">Opportunities matching the current filters, sorted by due date ascending by default.</caption>
+<table class="record-table record-table--compact">
+  <caption class="visually-hidden">Opportunities matching the current filters, {{ sort_caption or 'sorted by deadline, soonest first' }}{% if not request.query_params.get('sort') %} by default{% endif %}.</caption>
   <thead>
     <tr>
       <th scope="col">Status</th>
       <th scope="col">Title</th>
       {% if show_issuer %}<th scope="col">Issuer</th>{% endif %}
       <th scope="col">Technologies</th>
-      <th scope="col">Due</th>
+      {{ m.sort_th("Due", sh.due) }}
       <th scope="col">Source</th>
     </tr>
   </thead>
   <tbody>
     {% for r in records %}
     <tr>
-      <td data-label="Status">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }}{{ m.deadline_note(r) }}</td>
-      <td data-label="Title"><a class="row-link" href="/opportunities/{{ r.slug }}">{{ r.title }}</a></td>
-      {% if show_issuer %}<td data-label="Issuer">{% if r.issuer_org and r.issuer_org.href %}<a href="{{ r.issuer_org.href }}"{% if r.issuer_org.personal_data %} rel="nofollow"{% endif %}>{{ r.issuer_org.name | readable_name }}</a>{% elif r.issuer %}{{ r.issuer | readable_name }}{% elif r.issuer_code %}<span class="mono">{{ r.issuer_code }}</span> <span class="field-grid__source-value">(agency code)</span>{% else %}—{% endif %}</td>{% endif %}
-      <td data-label="Technologies">{{ (r.technologies | technologies_label) if r.technologies else 'all-source' }}</td>
-      <td data-label="Due" class="nowrap">{{ r.due_at | display_date if r.due_at else '—' }}</td>
-      <td data-label="Source"{% if not r.source_label %} class="mono"{% endif %}><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a></td>
+      <td data-label="Status" class="cell-lead">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }}{{ m.deadline_note(r) }}</td>
+      <td data-label="Title" class="cell-title"><a class="row-link" href="/opportunities/{{ r.slug }}">
+        {%- if r.title and r.title | length > 110 %}<span class="cell-text-full">{{ r.title }}</span><span class="cell-text-short">{{ r.title | truncate(100, end='…', leeway=0) }}</span>
+        {%- else %}{{ r.title }}{% endif %}</a></td>
+      {% if show_issuer %}<td data-label="Issuer" class="cell-meta{% if not (r.issuer_org or r.issuer or r.issuer_code) %} is-empty{% endif %}">{% if r.issuer_org and r.issuer_org.href %}<a href="{{ r.issuer_org.href }}"{% if r.issuer_org.personal_data %} rel="nofollow"{% endif %}>{{ r.issuer_org.name | readable_name }}</a>{% elif r.issuer %}{{ r.issuer | readable_name }}{% elif r.issuer_code %}<span class="mono">{{ r.issuer_code }}</span> <span class="field-grid__source-value">(agency code)</span>{% else %}—{% endif %}</td>{% endif %}
+      <td data-label="Technologies" class="cell-meta">{{ (r.technologies | technologies_label) if r.technologies else 'all-source' }}</td>
+      <td data-label="Due" class="nowrap cell-meta{% if not r.due_at %} is-empty{% endif %}">{% if r.due_at %}<span class="cell-unit">Due </span>{{ r.due_at | display_date }}{% else %}—{% endif %}</td>
+      <td data-label="Source" class="cell-meta{% if not r.source_label %} mono{% endif %}"><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a></td>
     </tr>
     {% endfor %}
   </tbody>
@@ -36,7 +61,11 @@
 {{ m.credits_line(credits) }}
 {% else %}
 <div class="empty-state">
-  <p>No {{ 'open ' if filters and filters.get('status') == 'open' }}opportunities match these filters.</p>
+  <p>No {{ 'open ' if filters and filters.get('status') == 'open' }}{{ 'energy-related ' if rs and rs.current == 'energy' }}opportunities match these filters.</p>
+  {#- The default scope can be what emptied the list: say how many notices it left out. -#}
+  {%- if rs and rs.current == 'energy' and rs.all.count %}
+  <p>{{ rs.all.count | thousands }} notice{{ 's' if rs.all.count != 1 }} match{{ 'es' if rs.all.count == 1 }} these filters among all notices. <a href="{{ rs.all.href }}">Show all notices</a></p>
+  {%- endif %}
   {{ m.empty_facets(empty_facets, "opportunity", "opportunities") }}
   <p><a href="/opportunities">Clear all filters</a></p>
 </div>

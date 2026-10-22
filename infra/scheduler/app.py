@@ -20,12 +20,15 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                                                      `source_run` row and `source.health`
                        -> load_source(source_id, ts)  only after a run that produced a new
                                                      normalised snapshot (`status == "ok"`)
-                          -> resolve_tick             organisations + proposal clusters, store-wide
+                          -> resolve_tick             organisations + proposal clusters, store-wide,
+                                                     then the companies index's figures
                              -> enrich_tick           geocode backfill and later enrichment stages
                                 -> match_tick         proposal-opportunity matches (incremental)
     tick_resolve (daily)  ->  resolve_tick ...        safety net for rows loaded outside the chain
     tick_context (monthly) -> context_build           rebuild normalized/context/ (builder CLIs)
-                              -> context_load         plants, retirements, asset layers, owners
+                              -> context_load         plants, retirements, asset layers, owners,
+                                                     then the companies index's figures
+    tick_org_stats (5 min) -> org_stats_tick          those figures again, only if their gate key moved
     tick_deadline (hourly) -> deadline_tick           open opportunities past due_at -> closed
     tick_retention (daily) -> retention_tick          DA-10: old sessions, alert addresses, raw snapshots
     tick_stalled_jobs (10 min) -> retry_stalled_jobs  jobs a dead worker left `doing` (queue_maintenance.py)
@@ -673,6 +676,32 @@ def _tick_context(timestamp: int) -> None:
         context_build.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous context_build still queued or running")
+
+
+#: The companies index's figures (`organization_stats`): every resolve pass and context load refresh
+#: them; this tick refreshes them only when their gate key moved (`jobs.org_stats_tick_job`), so a
+#: figure an operator's takedown withheld from the list returns within minutes. A check, then
+#: nothing, on every other tick; the refresh itself measured 4 s on the 2026-10-20 store. Every
+#: five minutes, off the minutes the retention and queue-upkeep ticks keep to themselves (47; 33;
+#: 4, 14, ... 54).
+ORG_STATS_CRON = "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+ORG_STATS_TIMEOUT_S = 300
+
+
+@app.task(name="org_stats_tick", queue="resolve", retry=0, queueing_lock="org_stats_tick", lock="resolve")
+def org_stats_tick() -> dict[str, Any]:
+    """`organization_stats` refreshed when its gate key moved. Under the store-wide lock, because a
+    resolve pass refreshes the same table at its end; `retry=0`: the next tick is the retry."""
+    return _store_pass("org_stats_tick", jobs.org_stats_tick_job, timeout_s=ORG_STATS_TIMEOUT_S)
+
+
+@app.periodic(cron=ORG_STATS_CRON, periodic_id="tick:org_stats")
+@app.task(name="tick_org_stats", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_org_stats(timestamp: int) -> None:
+    try:
+        org_stats_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous org_stats_tick still queued or running")
 
 
 @app.periodic(cron="37 4 * * *", periodic_id="tick:resolve")  # after the daily fetch bucket (03:07)

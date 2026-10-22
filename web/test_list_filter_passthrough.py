@@ -155,9 +155,13 @@ def test_a_linked_opportunity_filter_reaches_the_list(transport: FakeTransport) 
     with TestClient(web_app) as client:
         response = client.get("/opportunities?budget_currency=EUR&budget_amount[gte]=1000000&issuer_id=org_x")
     assert response.status_code == 200
-    # The first call is the list; an empty list then counts each facet without it (docs/31 §6).
-    list_params, *facet_counts = transport.params_for("/v1/opportunities")
-    assert all(p.get("include") == "count" and p.get("limit") == 1 for p in facet_counts)
+    # The first call is the list; every later one is a one-row call: an empty list counts each facet
+    # without it (docs/31 §6), the "Energy-related · All notices" switch counts the other scope, and
+    # the Kind filter asks whether each kind has a notice (lane list-sort; no count needed there).
+    list_params, *follow_ups = transport.params_for("/v1/opportunities")
+    assert follow_ups and all(p.get("limit") == 1 for p in follow_ups)
+    facet_counts = [p for p in follow_ups if "kind" not in p or p.get("include") == "count"]
+    assert facet_counts and all(p.get("include") == "count" for p in facet_counts)
     assert list_params["budget_currency"] == "EUR"
     assert list_params["budget_amount[gte]"] == "1000000"
     assert list_params["issuer_id"] == "org_x"

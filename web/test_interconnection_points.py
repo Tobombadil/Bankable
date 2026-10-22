@@ -151,7 +151,8 @@ def test_index_lists_visible_points_with_their_totals(web_client: TestClient, st
     assert "59903 Bearkat 345kV" in body and "Whirlwind Substation 230kV" in body
     assert "8140 Joslin 138kV" not in body  # its only project is unpublished
     # The unpublished 900 MW is in no total; MW print in the docs/31 §4 format (UX-8: no ".0").
-    assert "1,100" not in body and 'class="num tnum">200</td>' in body
+    # The unit word shows only on the compact phone row (lane list-sort, docs/16 U-10).
+    assert "1,100" not in body and '>200<span class="cell-unit"> MW active</span></td>' in body
     assert f'href="/interconnection-points/{store["points"]["b1"]}"' in body
     assert "2 points match these filters." in body
     # The index is the second Infrastructure tab (docs/16 §3.1), marked as the page the reader is on.

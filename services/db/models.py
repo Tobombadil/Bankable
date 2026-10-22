@@ -2015,6 +2015,80 @@ class SiteAudit(Base):
     )
 
 
+# =========================================================== organization_stats (migration 0038)
+#: `organization_stats.scope`: the organisation alone, or its group -- the organisation and every
+#: organisation below it in the ownership tree (`services/api/orgtree.py` `scope=all`).
+ORGANIZATION_STATS_SCOPES = ("self", "group")
+#: `organization_stats.tier`: the visibility predicate the figures were counted under. `pro` serves
+#: the `pro` and `api` entitlements, which `services/api/visibility.py` treats identically.
+ORGANIZATION_STATS_TIERS = ("public", "pro")
+
+
+class OrganizationStats(Base):
+    """What one organisation (or its group) holds and pursues, counted for the companies index
+    (2026-10-22, lane org-stats): distinct current assets by role, nameplate and owned MW, the
+    active pipeline and its MW, withdrawn projects, opportunities issued, and the states, grid
+    operators and technologies those touch, for filtering. One row per (organisation, scope, tier).
+
+    Derived data, like `site`: no provenance quartet of its own. Every figure is counted from rows
+    that carry one, under the same visibility predicate, licence classes and posture as the
+    portfolio and pipeline endpoints, and `sources` names the registers behind the row with their
+    latest retrieval, so attribution renders for every number served. Written only by
+    `services/api/org_stats_refresh.py` (after each context load and resolve pass, idempotently: a
+    second refresh over the same store writes nothing). `gate_key` fingerprints what could hide a
+    counted row since (source and licence states, the posture, taken-down records); the API serves
+    a row only while it equals the current fingerprint (`services/api/org_stats.py`).
+
+    `states`, `isos` and `technologies` are `|`-delimited with a leading and trailing `|`
+    (`|US-TX|US-OK|`), so a filter is one portable `LIKE '%|US-TX|%'`; empty is `''`."""
+
+    __tablename__ = "organization_stats"
+
+    organization_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("organization.id"), primary_key=True
+    )
+    scope: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tier: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    #: Organisations the scope spans (1 for `self`).
+    organizations: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
+    #: Distinct operating, standby and retiring assets, held as operator or owner or both.
+    assets: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    operated_assets: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    owned_assets: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: Nameplate MW of those assets that state one; NULL when none does (never 0).
+    operating_mw: Mapped[float | None] = mapped_column(sa.Numeric(14, 3))
+    operating_mw_assets: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: The owned part of it, where a register states a share (`services/api/org_portfolio.py`).
+    owned_mw: Mapped[float | None] = mapped_column(sa.Numeric(14, 3))
+    owned_mw_assets: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: Active pipeline: announced through under construction, still listed by a register.
+    pipeline_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    pipeline_mw: Mapped[float | None] = mapped_column(sa.Numeric(14, 3))
+    pipeline_mw_records: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    withdrawn_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: Every visible sponsored proposal, whatever its state.
+    proposals: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    rfps_issued: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    rfps_open: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: `|`-delimited public ids of the scope's organisations that issued a counted opportunity.
+    rfp_issuers: Mapped[str] = mapped_column(sa.Text, nullable=False, default="")
+    states: Mapped[str] = mapped_column(sa.Text, nullable=False, default="")
+    isos: Mapped[str] = mapped_column(sa.Text, nullable=False, default="")
+    technologies: Mapped[str] = mapped_column(sa.Text, nullable=False, default="")
+    #: `[{"source_id", "records", "retrieved_at_max"}]`: the registers behind the row's figures.
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(JSONVariant(), nullable=False, default=list)
+    gate_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: When these figures were last written (a refresh that changes nothing leaves it).
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    __table_args__ = (
+        sa.CheckConstraint(f"scope IN {ORGANIZATION_STATS_SCOPES!r}", name="scope_vocab"),
+        sa.CheckConstraint(f"tier IN {ORGANIZATION_STATS_TIERS!r}", name="tier_vocab"),
+    )
+
+
 # ================================================================== ui_event (docs/21 §3.21, 2026-09-14)
 UI_EVENT_NAMES = (
     "map.layer_toggled",  # props: {"layer": "plants", "on": true}

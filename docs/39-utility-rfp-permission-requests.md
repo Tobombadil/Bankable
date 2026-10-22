@@ -12,6 +12,8 @@ decisions log, rows 2026-09-18 (legal entity), 2026-10-16 (name), 2026-10-21 (de
 **I am not a lawyer.** Clause quotes are verbatim from the registry's `terms_quote`, which the docs/28 build
 checked word for word against the captured pages (read 2026-10-21). Contact channels are quoted from the docs/28
 captures of the same pages, not re-fetched. Anything marked *Inference* is my reading.
+**§7, added 2026-10-22:** two commercial-reuse letters to the six `noncommercial` sources (one to AEP for its four
+operating companies, one to the Texas Railroad Commission), with clauses and channels re-fetched live that day.
 
 ---
 
@@ -1059,3 +1061,537 @@ Alert emails already delivered cannot be recalled, and the letter says so.
   first). The letters say who the site is built for, not who reads it. No readership has been measured.
 - **What counsel still has to answer** is in docs/28 §7. These letters touch C-1, C-2, C-5, C-7 and C-10. A yes
   from an issuer makes C-1 and C-2 moot for that issuer only.
+
+---
+
+## 7. Commercial-reuse requests for the noncommercial sources (2026-10-22)
+
+**Status: DRAFT, L1, under the same rules as §0.** Nothing here has been sent. The owner edits, sends and signs
+each letter personally. No draft names or addresses a person. **Reads:** `docs/00-PLAN.md` decisions log, the
+2026-10-22 rows "Bankable is the origination and syndication half", "The Bankable bridge waits on the six
+noncommercial-only sources" and the later "'Build a deal' is built natively in Inframation" (which overrules the
+first two in part and keeps these letters); `docs/26-platform-posture.md` §3 (iii), §5;
+`docs/13-legal-data-rights.md` §3.2, §6 (the six rows), §7 item 15; `docs/18-bankable-bridge.md` (now the
+reference design); `docs/28` §7 (C-4, C-10); the six rows of `data/sources.yaml` and the four AEP rows of
+`data/vendored/rfp_issuers/issuers.yaml`. Unlike §1 to §6, every clause and channel in this section was fetched
+live on 2026-10-22 (§7.7).
+
+### 7.1 Why we are asking
+
+Six of the platform's 136 sources (decisions log, 2026-10-22) allow noncommercial reuse only
+(`reuse: noncommercial`): `us.rfp.pso`, `us.rfp.appalachian_power`, `us.rfp.swepco` and
+`us.rfp.indiana_michigan_power` (operating companies of American Electric Power), and `us.tx.rrc.class_vi` and
+`us.tx.rrc.datasets` (Railroad Commission of Texas). Inframation publishes them only because it runs under the
+`noncommercial` posture (`docs/26`). The owner wants to keep the option of charging later, and wants deals built
+on the platform.
+
+**The plan changed during the day, and the letters follow the later decision.** Earlier on 2026-10-22 the owner
+wanted to connect Inframation to Bankable (bankablehq.com), a commercial deal service run by the same team,
+and held that bridge until the six sources answered. Later the same day the owner decided that "Build a deal" is
+built natively in Inframation, with Bankable as the reference design and "not an integration target"; Bankable
+"holds test and demo data only". That row keeps "the permission letters to the six `noncommercial` sources". So
+the commercial uses the letters disclose are the current ones:
+
+- paid plans on Inframation, possibly;
+- "Build a deal": a private project a developer opens from any public record, with the public facts around it
+  shown live beside their own notes and a financing checklist, shared with named collaborators. It may become a
+  paid feature, and a later stage may show projects to invited funders (after counsel, `docs/18` §4).
+
+Each letter also says, in one sentence, that the same team built Bankable, that it is separate, and that the
+source's data will not go to it without asking first. A source that looks us up will find bankablehq.com; it
+should hear about it from us.
+
+Each letter says plainly what we use, how we credit and link back, what we publish from the source today, and
+that we withdraw within five business days on request. Each asks for any one of three answers: written
+permission for commercial reuse with attribution; the terms, including any fee, on which that use is available;
+or confirmation that the stated use is already within the existing terms.
+
+**What is live today.** Measured on our own API, 2026-10-22, about 18:30 UTC. `GET /v1/health` reports
+`posture: noncommercial`.
+
+| Source | Records on inframation.io | Since |
+|---|---|---|
+| The four AEP sources | 0 each, every status (`GET /v1/opportunities?status=unknown,announced,open,frozen,reinstated,closed,cancelled,awarded&source_id=<id>`) | none; the 2026-10-21 runs loaded study-database copies only |
+| `us.tx.rrc.class_vi` | 20 proposals, credited "Source: Railroad Commission of Texas", each linking to the RRC's application-list PDF | first seen 2026-10-19 |
+| `us.tx.rrc.datasets` | 0; no connector exists | none |
+
+The decision row of 2026-10-22 on the RFP connector says it "reads six cleared issuers daily". The production API
+holds no record from any of the six cleared issuers, so either the schedule is not running in production yet or
+its rows have not loaded. The AEP letter has to say what is true on the day it is sent (§7.4, "Before you send").
+
+Inframation links to Bankable nowhere today: no "bankablehq" in `web/` or `services/`, and none on the live home
+or `/about` pages (2026-10-22).
+
+### 7.2 Recipients and channels
+
+**AEP: one letter covers all four companies.** Whose terms govern each RFP page:
+
+- All four Energy Provider RFPs pages carry the same footer, "Use of this site constitutes acceptance of the AEP
+  Terms and Conditions .", linking to <https://www.aep.com/terms/> (read 2026-10-22 on psoklahoma.com,
+  appalachianpower.com, swepco.com and indianamichiganpower.com).
+- Those terms say the content "is the property of American Electric Power Company, Inc., (AEP)" and reserve
+  "the prior written permission of AEP".
+- Each company's own "Legal Notices" page (`/company/legal-notices` on each host) carries regulatory notices,
+  not site terms: "PCB Risk Based Disposal Approvals" on all four, plus D.R.S. legal notices and a boundary
+  change on Indiana Michigan Power's.
+
+*Inference:* AEP, the parent, grants for all four pages, so one letter goes to AEP and names all four. Each RFP
+is its company's own procurement, so the letter asks that a grant name the four pages. A grant that names fewer
+is recorded for those source ids only.
+
+**AEP channel.** The terms name no contact for permissions. What AEP publishes:
+
+| Route | What the page says | Use |
+|---|---|---|
+| Post to headquarters | <https://www.aep.com/contact/>: "AEP Corporate Headquarters 1 Riverside Plaza Columbus, Ohio 43215" | **Send 1:** the signed letter, to the Legal Department. *Inference:* the department that answers for a terms page; AEP does not publish it as a contact |
+| Web form | Same page, "Send Us an Email". Department options (from the page's script): Customer Service, Economic Development, Educational Services, Investor Relations, Media Relations, Supplier/Vendor Assistance, Website Support, Other. Message limit: "Please enter 1000 characters or less". "By clicking submit, you agree to AEP's Privacy Policy." | **Send 2,** 15 business days after the letter: department "Other", the short note in §7.4.1. Too short for the letter itself |
+| RFP mailboxes | For example <https://www.psoklahoma.com/business/b2b/energy-rfps/AllSource2026>: "Q&A will be compiled and posted here on a weekly basis. To submit a question, please email: PSO2026RFP@aep.com ." | **Not used.** Bidder Q&A for one RFP, which AEP publishes. §2 bars a mailbox with another stated purpose |
+| Supplier/Vendor, Investor Relations, Media Relations | Same page | Not used: other stated purposes |
+
+**RRC: one letter covers both sources.** Both rest on the same Site Policies page
+(<https://www.rrc.texas.gov/site-policies/>). Neither the data-sets page nor the CO2 storage page carries an
+item-level note that would override it (the policy's "Unless otherwise noted on an individual document"; both
+pages searched 2026-10-22).
+
+**RRC channel.**
+
+| Route | What the page says | Use |
+|---|---|---|
+| Public assistance mailbox | <https://www.rrc.texas.gov/resource-center/research/data-sets-available-for-download/>: "If you have any questions about the data sets, email the RRC at Publicassist@rrc.texas.gov ." | **Send 1,** asking that it go to the Office of General Counsel if that office decides |
+| Office of General Counsel, by post | <https://www.rrc.texas.gov/contact-us>: "Office of General Counsel 512-463-7149" (no email given); "Mailing Address: P.O. Box 12967 Austin, Texas 78711-2967" | **Send 2,** 20 business days after send 1: the signed letter |
+| Open Records | Site Policies: "Contact Open Records: Tel: 512-463-6947 Fax: 512-463-6684 open.records@rrc.texas.gov" | **Not used.** It takes requests under the Public Information Act; a permission question sent there may be logged as a records request |
+| Injection-Storage Permits Unit | <https://www.rrc.texas.gov/oil-and-gas/applications-and-permits/injection-storage-permits/co2-storage/>: "contact the Injection-Storage Permits Unit at SIP@rrc.texas.gov before beginning a project" | Not used: it serves applicants |
+| Central Records | <https://www.rrc.texas.gov/resource-center/research/data-sets-available-for-download/special-map-products/>: "Contact us at 512-463-6800 or IMS@rrc.texas.gov to place an order." | Not used: map orders |
+
+**Does a purchase or subscription already grant commercial reuse? No.** Measured 2026-10-22:
+
+- The data sets are free: "The following data sets are available from the Railroad Commission of Texas at free
+  of charge." (data-sets page). There is no paid version to buy.
+- "Subscription Services" (<https://www.rrc.texas.gov/resource-center/subscription-services/>) are email
+  newsletters: "The subscription service is free; just provide an email address."
+- What the RRC sells is printed maps, "Special Map Products Available for Purchase": for example OGM0180 "Top
+  20 Producing Oil & Gas Fields" at "$23.00" and OGM0186 "Wells Permitted and Completed in the Eagle Ford Shale
+  Play" at "$11.00". The page states no licence terms.
+- The state policy that the Site Policies tell copiers to follow (§7.3) says: "A state agency may not charge a
+  fee to access, use or reproduce information on its Web site or to link to information on its Web site, unless
+  specifically authorized to do so by the Texas Legislature." *Inference:* a paid licence for website
+  information may not be something the RRC can offer. The letter still asks for the terms, because the
+  conditions of a permission matter more than its price.
+
+So the RRC route is permission or confirmation, not purchase.
+
+### 7.3 The clauses, re-read 2026-10-22
+
+**AEP Terms and Conditions** (<https://www.aep.com/terms/>, HTTP 200, 82,120 bytes; on the page the text sits
+under the heading "AEP - Legal Notice"). Verbatim:
+
+> The content of this site, including but not limited to the text and images herein and their arrangement, is
+> the property of American Electric Power Company, Inc., (AEP).
+>
+> AEP hereby authorizes you to copy and display the content herein, but for your personal use only. Any copy you
+> make must include this copyright notice: Copyright 1996- 2026 by American Electric Power Company, Inc., all
+> rights reserved. If attribution to AEP is included, limited quotations from the content are hereby permitted.
+> You may not copy or display for redistribution to third parties for commercial purposes any portion of the
+> content without the prior written permission of AEP.
+
+Under "No Implied Licenses":
+
+> Nothing contained herein shall be construed as conferring by implication, estoppel, or otherwise any license
+> or right under any patent, trademark, copyright (except as expressly provided above), or proprietary rights of
+> AEP or of any third party.
+
+Under "Information Provided by You":
+
+> Any information provided by you to AEP, including but not limited to feedback, data, questions, comments,
+> suggestions, or the like, shall be deemed to be non-confidential; AEP shall have no obligation of any kind
+> with respect to such information and shall be free to reproduce, use, disclose, and distribute the
+> information to others without limitation.
+
+*What the text says:* copying for personal use; limited quotations with attribution; no commercial
+redistribution of any portion without written permission; no licence by implication. It does not grant
+noncommercial redistribution in so many words.
+
+*Inference (moderate confidence):* the `noncommercial` class of the four AEP rows rests on the
+limited-quotations sentence read with the commercial bar, not on a general noncommercial licence, and the
+no-implied-licence clause works against reading more into it. The rows' `derived_only` rule (the title as
+posted, plus facts) fits that reading, so the class is not wrong. But the register quotes only two of these
+passages: the copyright-notice sentence, the no-implied-licence clause and the non-confidentiality clause appear
+nowhere in `data/sources.yaml`, `issuers.yaml` or docs/13. That is for the legal lane to add; it is not changed
+here.
+
+**RRC Site Policies** (<https://www.rrc.texas.gov/site-policies/>, HTTP 200, 68,255 bytes, the same size as
+the 2026-09-25 read). Verbatim:
+
+> The Railroad Commission of Texas (RRC) provides information via this website as a public service. Unless
+> otherwise noted on an individual document, file, web page, or other website item, RRC grants permission to
+> copy and distribute the information on its website for noncommercial use, as long as the content remains
+> unaltered and is not presented in a misleading way. The RRC has no restrictions on linking to our website as
+> long as a fee is not charged to access our material. However, we would appreciate acknowledgment of any items
+> you use and request that you link to us in the proper context
+
+> Because of the harm to State computer systems, including, but not limited to, the partial or total alteration
+> or damage to data, or the interruption of computer services to other users, the RRC does not consent to
+> access to its computer system by “robots,” denial of service attacks, or any other automated process that
+> results in severe degradation of system performance.
+
+> Entities or individuals who copy information from the RRC website or link to the RRC website must follow
+> Sections 3 and 5 of The State Website Linking and Privacy Policy entitled, “Linking to State Agency Websites”
+> and “Copying Information from State Agency Websites,” respectively.
+
+**The State Website Linking and Privacy Policy, copying paragraph.** DIR's own page
+(<https://dir.texas.gov/resource-library-item/state-website-linking-and-privacy-policy>) answered our one
+request with a 403 challenge page ("Just a moment...") and was neither retried nor bypassed. The PDF host that
+search results point to, prod.dir.texas.gov, did not resolve. The text below comes from a state agency's
+reproduction, the Texas Board of Architectural Examiners (<https://www.tbae.texas.gov/links-privacy-policy/>,
+read 2026-10-22). There the paragraph is headed "Copying and Use of Information by Web Site Owners Linking to
+State Agency Sites", not the RRC's "Copying Information from State Agency Websites", and it is unnumbered.
+Treat it as secondary until it is read on DIR's site:
+
+> The information posted on a state agency Web site may be copied so long as it is presented in a
+> non-misleading way and does not imply that either the site owner or the information, as it is presented on
+> the site owner’s Web site, is endorsed by the State. Use of the information must identify the state agency
+> that is the source of the information, its Web address, the date the information was copied from the state
+> agency’s Web site by the site owner and must be accompanied by a statement that neither the site owner nor the
+> information, as it is presented on the site owner’s Web site, is endorsed by the State or any state agency. A
+> state agency may not charge a fee to access, use or reproduce information on its Web site or to link to
+> information on its Web site, unless specifically authorized to do so by the Texas Legislature.
+
+**RRC, Public Information Act page**
+(<https://www.rrc.texas.gov/general-counsel/open-records/public-information-act/>):
+
+> Texas Government Code, Chapter 552, gives you the right to access government records; and an officer for
+> public information and the officer's agent may not ask why you want them.
+
+What follows from these, kept apart:
+
+1. *Text:* the RRC requires copiers to follow a state policy whose copying paragraph has no noncommercial limit,
+   and four conditions: name the agency, give its web address, give the date copied, and state that neither
+   the site nor the information is endorsed by the State or any state agency.
+2. *Measured:* the 20 live Class VI records carry the credit "Source: Railroad Commission of Texas", the source
+   URL and `retrieved_at` in their provenance. A search of the repository for "endorse" finds no such
+   statement for the RRC (the World Bank rows carry one in `changes_statement`). The no-endorsement statement is
+   therefore missing whichever grant governs. For the coordinator before the RRC letter goes (§7.4); not changed
+   here.
+3. *Inference:* the RRC's position may be broader than the register records, because the state copying
+   paragraph has no noncommercial limit. Or the RRC's own noncommercial sentence governs, as the more specific
+   grant. That is a question for counsel (§7.6), not a ground to reclassify. The register's `noncommercial`
+   stands until the RRC answers.
+4. *Inference:* the robots sentence is conditional ("results in severe degradation of system performance"). Our
+   Class VI reader polls weekly at 0.5 requests per second (`data/sources.yaml`), well outside it. The sentence
+   is not in the register; recommended for the two rows' `license` field.
+
+### 7.4 The drafts
+
+§0 applies unchanged: the §0.1 sender block, a postal address and a "stop" line in every message, one
+recipient per send, the owner sends and signs. §0.4's channel row covers both (the owner's own mailbox and
+post, one web form, US recipients).
+
+**Before you send either letter**
+
+- [ ] **The deal workspace and Bankable, stated truly.** The letters describe "Build a deal" as the decisions
+      log does on 2026-10-22, before its spec (`docs/19-build-a-deal.md`) exists. If the spec changes what a
+      private project shows, or whether facts are copied rather than shown live, change the letters to match.
+      The Bankable sentence says the same team built it, that it is separate, holds only test data, and gets
+      none of the source's data without asking first. Correct whatever is not so, and replace `[The same team
+      built]` with the true relationship (for example "I also built"), naming Bankable's legal entity if it
+      differs from `[Organisation]`.
+- [ ] **What is live, on the day you send.** Run `curl -s
+      "https://inframation.io/v1/opportunities?status=unknown,announced,open,frozen,reinstated,closed,cancelled,awarded&source_id=us.rfp.pso"`
+      and the same for the other three AEP ids, and `curl -s
+      "https://inframation.io/v1/proposals?source_id=us.tx.rrc.class_vi&limit=200"`. Keep the bracketed
+      sentence that is true, and put in the count.
+- [ ] **The RRC no-endorsement statement.** Before the RRC letter goes, either the RRC records show "Not
+      endorsed by the State of Texas or the Railroad Commission of Texas" and the date copied (for example a
+      `changes_statement` on both RRC rows, as the World Bank rows have, with the docs/13 §6 row moved first),
+      or delete the bracketed words in the letter that say they do.
+- [ ] **Withdrawal from private projects.** Keep the bracketed "including inside users' private projects" only
+      if private projects show public facts live, through the same visibility predicate, so that withdrawing
+      the source removes them there too. The decisions log says "with their facts live rather than copied";
+      confirm it in `docs/19`. Otherwise write "facts already copied into a private project can't be recalled".
+- [ ] **Nothing confidential.** AEP's terms make anything sent to AEP "non-confidential" and free for AEP to
+      "disclose, and distribute". A letter to the RRC is a Texas public record that anyone may request. Put
+      nothing in either that you would not publish.
+- [ ] **Be ready for "stop all use".** Each letter tells the source about the commercial plans, and a source may
+      answer that even today's free listing is not noncommercial. Send only if you will abide by that (§7.5,
+      last two rows).
+- [ ] **Re-read** both terms pages in an ordinary browser; the quotes are dated 2026-10-22. Read DIR's State
+      Website Linking and Privacy Policy on dir.texas.gov and save a PDF for the legal lane (our fetch was
+      refused, §7.3).
+- [ ] **Records.** Keep threads and posted copies in private storage. Tell the legal lane the dates sent; it
+      records them in the rows' `notes`.
+
+#### 7.4.1 AEP: the four operating companies (one letter)
+
+| | |
+|---|---|
+| Sources | `us.rfp.pso`, `us.rfp.appalachian_power`, `us.rfp.swepco`, `us.rfp.indiana_michigan_power`: `reuse: noncommercial`, `publication: derived_only`; registry verdict cleared, basis `terms_permit_noncommercial` |
+| Send 1 (post, signed) | American Electric Power Company, Inc., Attn: Legal Department, 1 Riverside Plaza, Columbus, Ohio 43215 |
+| Send 2 (15 business days later) | <https://www.aep.com/contact/>, "Send Us an Email", department "Other": the note below |
+| Blocking clause | <https://www.aep.com/terms/>: "You may not copy or display for redistribution to third parties for commercial purposes any portion of the content without the prior written permission of AEP." |
+| Re line | Request for written permission under AEP's Terms and Conditions: Energy Provider RFPs of four AEP companies on Inframation, including commercial use |
+
+<!-- aep-letter-start -->
+> Hello,
+>
+> I'm [Owner name], [Role] at Inframation (inframation.io), a website that lists energy projects and the
+> solicitations developers bid into. I'm asking for AEP's written permission to list the Energy Provider RFPs of
+> four AEP companies, including for commercial use. Your terms reserve that permission to AEP and name no
+> contact, so I'm writing to your headquarters. Could you pass this to whoever grants it?
+>
+> The pages are the Energy Provider RFPs pages of Public Service Company of Oklahoma, Appalachian Power,
+> Southwestern Electric Power Company and Indiana Michigan Power (Attachment A). Each says that use of the site
+> constitutes acceptance of the AEP Terms and Conditions, which say: "You may not copy or display for
+> redistribution to third parties for commercial purposes any portion of the content without the prior written
+> permission of AEP." [We publish nothing from these pages today.] [Since [date] we have listed them on our free
+> site, relying on your terms' permission for limited quotations with attribution.] Our reader loads each page
+> at most once a day, two seconds between requests, naming itself with a contact link.
+>
+> For each generation RFP we'd show the company, the RFP title as posted, the issue and proposal-due dates, the
+> MW sought, the technology, the state where given, and whether it is open. Each entry would carry the credit
+> "Source: [company] (AEP), Energy RFPs" (or your wording) and link to your page. We would not copy RFP
+> documents, forms, Q&A or logos, or anything from the AEP B2B register.
+>
+> Why commercial use: Inframation is free today, with no paid plans and no advertising, but we may add paid
+> plans. We're also building a deal workspace: a developer opens a private project from a record such as one of
+> your RFPs, with the public facts shown beside their own notes and a financing checklist. It may become paid,
+> and may later let developers show projects to invited funders. [The same team built] Bankable
+> (bankablehq.com), a separate deal service that holds only test data. Your RFPs would not go to it unless we
+> asked you first.
+>
+> Any one of these answers would settle it:
+>
+> 1. Written permission for this use, on Inframation's free and paid services, with the credit and link.
+> 2. The terms, including any fee, on which AEP would permit it.
+> 3. If you consider it within your terms' permission for limited quotations with attribution, a line saying so.
+>
+> If you'd permit only part, for example the free site but not paid plans, please say which. You can withdraw
+> permission at any time by writing to me. Within five business days we'd stop reading your pages and remove the
+> entries from Inframation[, including inside users' private projects]; alert emails already sent can't be
+> recalled. If you'd rather not hear from me about this again, write "stop" to [Contact email].
+>
+> Thank you,
+> [Owner name]
+> [Role], Inframation ([Organisation])
+> [Contact email] | [Phone]
+> [Postal address]
+<!-- aep-letter-end -->
+
+(482 words with the placeholders and signature, counted with `wc -w` without the `> ` markers.)
+
+**Send 2: the web-form note** (about 849 characters with the placeholders filled by typical values; the form
+takes 1,000. The form's own fields carry your name and email.)
+
+<!-- aep-form-start -->
+> On [date] I posted a letter to AEP's Legal Department at 1 Riverside Plaza asking for written permission,
+> under aep.com/terms, to list the Energy Provider RFPs of PSO, Appalachian Power, SWEPCO and Indiana Michigan
+> Power on Inframation (inframation.io): title, dates, MW, technology, state and status, credited "Source:
+> [company] (AEP), Energy RFPs" and linked to your pages. The use may be commercial: we may add paid plans and a
+> paid deal workspace. Our team also built Bankable (bankablehq.com), a separate service; your data would not go
+> to it. We'd withdraw within five business days of a request. Who at AEP decides this? You can reply to
+> [Contact email]. To stop hearing from me, reply "stop". [Owner name], [Role], Inframation ([Organisation]),
+> [Postal address]
+<!-- aep-form-end -->
+
+**Attachment A** (one page, PDF): the four pages, then the fields.
+
+| Company | Page | Credit | Source id |
+|---|---|---|---|
+| Public Service Company of Oklahoma | <https://www.psoklahoma.com/business/b2b/energy-rfps/> | Source: Public Service Company of Oklahoma (AEP), Energy RFPs | `us.rfp.pso` |
+| Appalachian Power | <https://www.appalachianpower.com/business/b2b/energy-rfps/> | Source: Appalachian Power (AEP), Energy RFPs | `us.rfp.appalachian_power` |
+| Southwestern Electric Power Company | <https://www.swepco.com/business/b2b/energy-rfps/> | Source: SWEPCO (AEP), Energy RFPs | `us.rfp.swepco` |
+| Indiana Michigan Power | <https://www.indianamichiganpower.com/business/b2b/energy-rfps/> | Source: Indiana Michigan Power (AEP), Energy RFPs | `us.rfp.indiana_michigan_power` |
+
+| Shown on Inframation (site, API, feeds, email alerts, and inside private projects) | From your page |
+|---|---|
+| Company | the operating company |
+| Title | the RFP's title as posted: the only text of yours we copy |
+| Dates | issue date and proposal-due date, where posted |
+| MW sought | where the page states one figure |
+| Technology | solar, wind, storage, thermal or all-source, read from the title and text |
+| State | where the RFP names one |
+| Status | open or closed, from the due date |
+| Link and credit | the RFP's page URL; the credit above, or your wording |
+
+Not taken: RFP documents and appendices, forms, Q&A, bidder lists, the AEP B2B register, logos, and the fuel
+and gas-lateral RFPs on the same pages (`pipeline/connectors/us_rfp/classify.py` leaves those out). Not on social
+media: `services/social/editorial.py` excludes a `noncommercial` source under either posture, and a grant would
+not change that unless it says so (§4.3 item 3).
+
+Notes.
+
+- *Text:* "Any copy you make must include this copyright notice" follows the personal-use grant. *Inference:* it
+  does not attach to limited quotations. If AEP asks for the notice on each entry, it goes into the credit line.
+- *Text:* AEP may "disclose, and distribute" whatever we send. The letter describes the deal workspace and
+  Bankable only as far as either is public or decided.
+- The reader cadence is daily (decision row 2026-10-22), not §2's "weekly, and daily while open", so the letter
+  says "at most once a day".
+
+#### 7.4.2 Railroad Commission of Texas (one letter)
+
+| | |
+|---|---|
+| Sources | `us.tx.rrc.class_vi` (connector live; 20 records public since 2026-10-19) and `us.tx.rrc.datasets` (no connector; nothing published): `reuse: noncommercial`, `publication: raw_ok` |
+| Send 1 (email) | Publicassist@rrc.texas.gov |
+| Follow-up (10 business days) | one reply on the same thread |
+| Send 2 (20 business days, post, signed) | Railroad Commission of Texas, Office of General Counsel, P.O. Box 12967, Austin, Texas 78711-2967 |
+| Clauses | <https://www.rrc.texas.gov/site-policies/>, quoted in the letter; the state copying paragraph (§7.3) |
+| Subject | Commercial reuse of the Class VI application list and the free data sets, with credit and link (for the Office of General Counsel) |
+
+<!-- rrc-letter-start -->
+> Hello,
+>
+> I'm [Owner name], [Role] at Inframation (inframation.io), a website that maps proposed energy and
+> infrastructure projects. Your data sets page gives this address for questions about the data sets. Mine is
+> about reuse, so it may belong with the Office of General Counsel. Could you pass it on if so?
+>
+> Your Site Policies say: "RRC grants permission to copy and distribute the information on its website for
+> noncommercial use, as long as the content remains unaltered and is not presented in a misleading way." They
+> also say: "The RRC has no restrictions on linking to our website as long as a fee is not charged to access our
+> material." Inframation runs as a free, noncommercial service, and on that basis it has listed, since 19
+> October 2026, the [20] applications in your Class VI Application List. We have not used the downloadable data
+> sets.
+>
+> For each Class VI application we show the RRC tracking number, project name, operator, county and application
+> status in your words, credited "Source: Railroad Commission of Texas" with a link to your list[, the date we
+> copied it, and a statement that neither Inframation nor the entry is endorsed by the State of Texas or the
+> RRC]. We'd like to add, from the UIC Database and the Drilling Permit Master, each well's or permit's API
+> number, permit number, operator, county, field, location, well type, status and dates, credited the same way.
+> We would not republish your PDFs or data files, and we don't change your wording where we quote it. Our reader
+> loads the Class VI page weekly, two seconds between requests, naming itself with a contact link.
+>
+> Why I'm asking: Inframation is free, with no paid plans and no advertising, but we may add paid plans. We're
+> also building a deal workspace: a developer opens a private project from a record, with the public facts shown
+> beside their own notes and a financing checklist. It may become paid, and may later let developers show
+> projects to invited funders. Those uses would be commercial, so your permission doesn't cover them. [The same
+> team built] Bankable (bankablehq.com), a separate deal service that holds only test data. Your data would not
+> go to it unless we asked you first.
+>
+> Any one of these answers would settle it:
+>
+> 1. Written permission for this use, on Inframation's free and paid services, still linking to your pages.
+> 2. The terms, including any fee, on which the RRC would permit it.
+> 3. If you consider this use already permitted, for example because these are public records, a line saying
+>    so.
+>
+> If you'd permit only part, please say which. You can withdraw permission at any time by replying here. Within
+> five business days we'd stop and remove the entries from Inframation[, including inside users' private
+> projects]; alert emails already sent can't be recalled. If you'd rather not hear from me about this again,
+> reply "stop".
+>
+> Thank you,
+> [Owner name]
+> [Role], Inframation ([Organisation])
+> [Contact email] | [Phone]
+> [Postal address]
+<!-- rrc-letter-end -->
+
+(496 words with the placeholders and signature, counted the same way.)
+
+**The posted copy (send 2)** is the same letter with the first paragraph's last three sentences replaced by: "I
+emailed this on [date] to Publicassist@rrc.texas.gov, the address your data sets page gives. I'm sending it to
+your office because it concerns the Site Policies." Change "by replying here" to "by writing to me", and "reply
+"stop"" to "write "stop" to [Contact email]".
+
+**The 10-business-day reply**, on the same thread: "Hello again. I'm following up on my note below about
+reusing the RRC's Class VI list and data sets commercially. If another office handles this, I'd be grateful for
+its address. If you'd rather not hear from me, reply "stop"." Then the signature.
+
+**Attachment A** (one page, PDF): the fields.
+
+| Shown on Inframation (site, API, feeds, email alerts, and inside private projects) | From the RRC |
+|---|---|
+| Tracking number, project name, operator, county, application status (your words, beside our stage label) | Class VI Application List (live since 2026-10-19) |
+| API number, permit number, operator, county, field, location, well type, status, dates | UIC Database; Drilling Permit Master with latitudes and longitudes (planned; not yet used) |
+| Credit and link | "Source: Railroad Commission of Texas", or your wording; the list or data-set page URL[; the date copied; the no-endorsement statement] |
+
+Not taken: the PDFs and data files themselves, imaged records, lease and well names, and the PDF's document
+properties (`pipeline/connectors/us_tx_rrc_class_vi` never reads them; they name an RRC author). Not on social
+media (as for AEP above).
+
+Notes.
+
+- *Text:* the Site Policies grant noncommercial copying "as long as the content remains unaltered". The record
+  shows the RRC's own status words beside our stage label and links out to the RRC's PDF for the row itself
+  (docs/13 §6.2). The letter's "we don't change your wording where we quote it" describes that practice.
+- Lease and well names are left out of the planned fields because a lease name is often a family name (docs/13
+  §5). The data-sets connector does not exist; when it is built, its fields must not go beyond Attachment A
+  without a new request.
+- If the RRC answers as in question 3 (for example "public information, use it as you like"), record its words
+  verbatim. The credit and link stay either way: the RRC asks for them, and the state copying paragraph
+  requires them.
+- A reply from the public-assistance mailbox may not be the agency's decision. Ask which office is answering,
+  and record the office, not the person (§4.2, counsel item C-10).
+
+### 7.5 What each answer allows
+
+"Relicence", "purge" and "flip" are the steps of `docs/26` §5. The gate these answers feed is now the flip to
+`commercial`: paid plans, and any paid or funder-facing stage of "Build a deal". The bridge to bankablehq.com is
+no longer planned (decisions log, 2026-10-22, "Build a deal" row); if it is ever revived, the 2026-10-22 bridge
+row's rule returns with it: it goes live only when every one of the six has granted commercial reuse or been
+withdrawn under §5. *Inference, the coordinator's and not legal advice (decisions log):* a free deal workspace
+may keep the `noncommercial` posture longer. Register order is §4.3's: the docs/13 §6 row first, then
+`data/sources.yaml`, then (AEP only) the `issuers.yaml` row with `basis: written_permission`.
+
+| Answer | Register | `docs/26` §5 action | Paid plans and "Build a deal" |
+|---|---|---|---|
+| Yes: free and paid services, with attribution | Class `attribution`; the grant's operative sentence, date and granting office recorded verbatim; `publication` unchanged (`derived_only` for AEP, `raw_ok` for the RRC) unless the grant says otherwise | **Relicence** (step 4): a new licence row, and the admin reclassification repoints the source. Rows held under the old licence stay under it and go invisible at the flip; a re-ingest writes new rows under the new one. Do this before the flip so the source does not drop out | Survives the flip; its facts may appear in paid plans and in private projects at every stage the grant covers |
+| Yes, with conditions the existing gates carry (credit wording, fewer fields, cadence) | As above, conditions verbatim | Relicence within the grant | As above, within the conditions |
+| Yes, but not for a named use (for example paid plans yes, funders no) | Do **not** move to `attribution` yet. Every gate reads the class, so an `attribution` row would reach the excluded use. A per-source exclusion for that use is needed first, the same gap §4.3 item 3 records for social posts | Relicence once the exclusion exists; until then the source is withdrawn at the flip like a "no" | Kept out of the excluded use |
+| Yes for the free site only | Stays `noncommercial` | Flip: rows invisible (steps 1 to 3), then purge or hold invisible (step 4) | Free use only; gone at the flip |
+| Fee or licence terms offered | Nothing changes until a licence is signed. A signed licence is a contract; whether to have it read first is the owner's call | Relicence on signature; if declined, as "No" | Waits for signature or refusal |
+| Confirmation that the use is within the existing terms | Class `attribution` (or `open`, if that is what is confirmed), with the confirmation as the evidence | Relicence | As "Yes" |
+| No to commercial use | Stays `noncommercial`; refusal recorded (date, office, words) | At the flip: steps 1 to 3 hide the rows and close the connector gate; step 4, purge or hold invisible | Free use only, while the posture lasts; gone at the flip |
+| No, and stop all use | §4.4 within five business days: `reuse: restricted`, `publication: none`; for AEP also `automated_reading: not_allowed`; for the RRC disable the Class VI schedule; takedown marks; written confirmation to the source | Purge through the redaction procedure (step 4); no flip needed for this source | None |
+| No reply about 8 weeks after send 1 | "No response" recorded; silence is not consent; stays `noncommercial` | None until the owner chooses: keep the posture, or flip and withdraw the source (steps 1 to 4) | Free use only, while the posture lasts |
+
+**Order at the flip, once every answer is in.** (1) Relicence and re-ingest each granted source under the
+`noncommercial` posture. (2) Flip. Every remaining `noncommercial` row goes invisible on every non-admin surface.
+(3) Decide purge or hold for each ungranted source. The flip is platform-wide: any of the six left
+`noncommercial` disappears from the site at step 2. For private projects to follow the same rule, "Build a deal"
+has to read public facts through the visibility predicate rather than copy them; that is a requirement for
+`docs/19`, recorded here because these answers depend on it.
+
+### 7.6 Open legal questions (noted, not answered)
+
+No lawyer has reviewed this section, the letters, or the readings above. The owner withdrew the counsel
+precondition (`docs/26` §3 (ii)) on 2026-09-26 and proceeds on their own reading of the noncommercial clauses,
+with `docs/26` §5 as the backstop. `docs/13` §7 item 15 keeps counsel's view open as a recommendation.
+
+1. **Linking to the owner's commercial service.** Would a link from Inframation to bankablehq.com, or the shared
+   team itself, make Inframation's use commercial under AEP's "for redistribution to third parties for
+   commercial purposes", or take it outside the RRC's "for noncommercial use", even though no field crosses?
+   Today no such link exists (§7.1). The RRC's linking sentence adds its own condition, "as long as a fee is not
+   charged to access our material".
+2. **Whether Inframation can hold noncommercial status at all** (`docs/13` §7 item 15): run by an LLC, read by
+   commercial developers and investors, and now building a deal workspace that may become paid. Whether a free
+   deal workspace is still noncommercial use is the coordinator's inference in the decisions log, not a legal
+   view. *Inference:* the letters give each source actual knowledge of these plans (`docs/13` §3.2), so a source
+   that answers only "no" may view today's free listing differently than before.
+3. **AEP.** Are derived facts "content" (docs/28 C-4)? Does "limited quotations" cover a running list? Does the
+   no-implied-licence clause leave any noncommercial redistribution beyond limited quotations? Can AEP, the
+   parent, grant for its operating companies' pages, and does the copyright-notice sentence reach quotations?
+4. **RRC.** Is the state copying paragraph, which the RRC says copiers "must follow", itself a permission
+   without a noncommercial limit, and which governs where the two differ? Can a state agency restrict the reuse
+   of information the Public Information Act releases without asking why? Does the state policy's fee sentence
+   mean the RRC cannot license this for a fee?
+5. **Authority.** Is a reply from a role mailbox or a web form enough evidence of a grant, for AEP and for a
+   Texas agency (docs/28 C-10)?
+
+### 7.7 Facts used here, and their limits
+
+- **Fetched live, 2026-10-22, between about 18:20 and 18:35 UTC**, one GET each with a generic browser user
+  agent, not our reader. AEP: `aep.com/terms/`, `aep.com/contact/` and that page's script (for the department
+  list and the message limit), the four Energy Provider RFPs pages, the four `/company/legal-notices` pages and
+  PSO's 2026 All-Source RFP page. RRC: Site Policies, data sets, special map products, subscription services,
+  open records, Public Information Act, contact, research, the FAQ index, the GIS data FAQ and the CO2 storage
+  page. State policy: DIR (403 challenge), TBAE's reproduction, and SOAH's linking page (which says only that it
+  follows DIR's policy). No archive copy was used: archive.org answered 429.
+- **Our own API:** `/v1/health`, `/v1/opportunities` (every status, each AEP id; all 781 default-view rows paged
+  once) and `/v1/proposals` for the two RRC ids.
+- **Not done:** no message was sent, no form submitted, no account created, no person named. The only contact
+  details recorded are offices' published role addresses, phone numbers and postal addresses.
+- **`docs/19-build-a-deal.md`** is named by the decisions log as the spec; it was not in the working tree when
+  this section was written, so the workspace is described from the decision row only.
+- **Letter lengths** are counted on the drafts as written; the AEP web-form count fills each placeholder with a
+  typical value (a 10-character date, a 30-character postal address, a 25-character email, a 20-character name,
+  a 10-character role, a 35-character organisation, a 30-character company name).

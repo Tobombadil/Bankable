@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse
 
 from web import formatting, labels
 from web.api_client import ApiError, ApiNotFound
+from web.list_sort import POINT_COLUMNS, chosen_sort, sort_caption, sort_headers, valid_sort
 from web.page import (
     breadcrumb_jsonld,
     canonical_query,
@@ -54,11 +55,9 @@ KIND_LABELS: dict[str, str] = {
     "line_tap": "Line tap",
     "unknown": "Unparsed",
 }
-SORT_OPTIONS: tuple[tuple[str, str], ...] = (
-    ("-active_mw", "Active queued MW, largest first"),
-    ("name", "Name, A to Z"),
-    ("-voltage_kv", "Voltage, highest first"),
-)
+#: The order: largest active queue first until a heading click chooses another
+#: (`web/list_sort.py::POINT_COLUMNS`, lane list-sort, 2026-10-22).
+DEFAULT_SORT = "-active_mw"
 PAGE_SIZE = 50
 
 
@@ -173,7 +172,11 @@ def interconnection_points_list(request: Request) -> HTMLResponse:
     `/assets`: a filter bar, one `.record-table`, the shared pager, an empty state."""
     api = get_api(request)
     qp = request.query_params
+    # A token no heading sorts by falls back to the default here, so it never 400s the API and
+    # drops the reader's filters with it (the fallback below).
+    sort = valid_sort(qp.get("sort"), POINT_COLUMNS, DEFAULT_SORT)
     params: dict[str, str | None] = {name: qp[name] for name in POINT_INDEX_FILTERS if qp.get(name)}
+    params["sort"] = sort
     params["limit"] = str(PAGE_SIZE)
     params["cursor"] = qp.get("cursor")
     params["include"] = "count"
@@ -181,15 +184,16 @@ def interconnection_points_list(request: Request) -> HTMLResponse:
         envelope = api.get("/v1/interconnection-points", params=params)
     except ApiError as exc:
         if exc.status_code == 400:
-            # A malformed filter from a hand-written link: show the unfiltered index, not a 503.
+            # A malformed filter from a hand-written link: show the unfiltered index, not a 503. The
+            # order is kept: it is always one the API sorts by, and the headings say it.
             envelope = api.get(
-                "/v1/interconnection-points", params={"limit": str(PAGE_SIZE), "include": "count"}
+                "/v1/interconnection-points",
+                params={"sort": sort, "limit": str(PAGE_SIZE), "include": "count"},
             )
         else:
             return unavailable_response(request)
     records = [flatten_point(e) for e in envelope["data"]]
     canonical_path = "/interconnection-points" + canonical_query(qp, (*POINT_INDEX_FILTERS, "cursor"))
-    sort = qp.get("sort") or "-active_mw"
     context = {
         "records": records,
         "total": envelope["meta"].get("total"),
@@ -200,9 +204,11 @@ def interconnection_points_list(request: Request) -> HTMLResponse:
         "filters": dict(qp),
         "iso_options": ISO_OPTIONS,
         "kind_labels": KIND_LABELS,
-        "sorts": SORT_OPTIONS,
         "sort": sort,
-        "sort_caption": dict(SORT_OPTIONS).get(sort, "sorted as requested").lower(),
+        "sort_caption": sort_caption(sort, POINT_COLUMNS),
+        "sort_headers": sort_headers("/interconnection-points", qp, POINT_COLUMNS, sort),
+        # Kept by the filter form, so a filter change keeps the order a heading click chose.
+        "sort_param": chosen_sort(qp.get("sort"), POINT_COLUMNS),
         "canonical_path": canonical_path,
         "jsonld": [
             item_list_jsonld(

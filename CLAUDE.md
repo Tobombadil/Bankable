@@ -7,8 +7,10 @@ Then read the document for the phase you are working in. Do not re-derive what t
 A platform that continuously discovers energy and infrastructure **proposals** (supply: interconnection queues,
 permits, dockets, announcements) and **opportunities** (demand: RFPs, funding, tenders, large-load requests),
 fuses them into one lifecycle record per real-world project, publishes them (delayed free / live paid / API),
-and syndicates to social channels. It stands alone; the existing Bankable deal workflow at bankablehq.com is a
-later consideration for integration, not a foundation (owner, 2026-09-12).
+and syndicates to social channels. It stands alone. The site is organised by phase, shown to readers as Find · Build a deal · Get funded (internally
+Prospect, Originate, Syndicate); operations is the later lifecycle states on the one base map. "Build a deal" is a
+private project on Inframation's own graph; the Bankable app at bankablehq.com is the reference design, not an
+integration target (owner, 2026-10-22; `docs/19`).
 
 ## Non-negotiable guardrails
 - Never scrape private aggregators (Interconnection.fyi, Cleanview, Energy Adepto, BidNet, Halcyon, Enverus).
@@ -20,6 +22,9 @@ later consideration for integration, not a foundation (owner, 2026-09-12).
   the owner has explicitly enabled a named automated channel with disclosure. No impersonation, no fake personas.
 - Automated social accounts are labelled as automated where the platform requires it.
 - Store the minimum personal data; honour deletion requests.
+- Nothing from a private project or data room (Inframation's own or Bankable's) feeds public pages, matching, alerts,
+  outreach, analytics or logs without the project owner's explicit consent (owner, 2026-10-22). `noncommercial` rows
+  never flow to any commercial use.
 - Never put model identifiers in commits, code comments, or shipped artifacts.
 
 ## Conventions

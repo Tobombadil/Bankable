@@ -973,7 +973,35 @@ def default_resolve(session_factory: Any, *, data_root: Path | None = None) -> d
     except Exception as exc:
         logger.exception("resolve: site rebuild failed; resolve itself completed")
         report["sites"] = {"error": type(exc).__name__}
+    # The companies index's figures (`organization_stats`, migration 0038) count what every pass
+    # above settled: merged organisations and proposals, suppressions, natural-person flags. Last,
+    # and reported rather than raised, for the sites' reason: a figure defect must not fail resolve.
+    report["organization_stats"] = refresh_organization_stats(session_factory)
     return report
+
+
+def refresh_organization_stats(session_factory: Any, *, if_stale: bool = False) -> dict[str, Any]:
+    """`services.api.org_stats_refresh.run` in a transaction of its own, after a context load or a resolve
+    pass (`default_resolve`, `context_load_job`) and on `org_stats_tick`. A failure is logged and
+    reported (`{"error": ...}`), never raised: the figures are derived, and the API withholds any it
+    cannot vouch for (`services/api/org_stats.py`, the gate key)."""
+    try:
+        run = _load_fn("services.api.org_stats_refresh", "run")
+        result: dict[str, Any] = run(session_factory, if_stale=if_stale)
+    except Exception as exc:
+        logger.exception("organization stats refresh failed")
+        return {"error": type(exc).__name__}
+    return result
+
+
+def org_stats_tick_job(_session_factory: Any = None) -> dict[str, Any]:
+    """Body of `org_stats_tick`: refresh `organization_stats` only when its gate key has moved (an
+    operator unpublished a source or took a record down, a licence was reclassified), so figures the
+    list withheld come back within minutes rather than at the next resolve pass. A no-op otherwise."""
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    data = refresh_organization_stats(factory, if_stale=True)
+    _log_report("org_stats_tick", data)
+    return data
 
 
 def _resolve_proposal_clusters(session: Any, frames: list[Any]) -> dict[str, int]:
@@ -1159,13 +1187,18 @@ def context_build_job(
 
 
 def context_load_job(
-    _run: Callable[..., Any] | None = None, *, _session_factory: Any = None, _data_root: Path | None = None
+    _run: Callable[..., Any] | None = None,
+    *,
+    _session_factory: Any = None,
+    _data_root: Path | None = None,
+    _refresh: Callable[[Any], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Body of `context_load`: `services.ingest.context_layers.load_context_layers` over the connector
     data root, in one transaction: the EIA-860M plants, the latest EIA-860M retirements run onto
     them (reloaded after the plants: a run `load_source` loaded before a plant existed matched
     nothing), the midstream and fuels asset layers with their operator edges, owner shares,
-    features and the organisation graph."""
+    features and the organisation graph. Then, once that has committed, the companies index's
+    figures (`refresh_organization_stats`), which count those assets and edges."""
     from services.db.session import session_scope
 
     factory = _session_factory if _session_factory is not None else build_session_factory()
@@ -1173,5 +1206,7 @@ def context_load_job(
     data_root = _data_root if _data_root is not None else connector_data_root()
     with session_scope(factory) as session:
         data = dict(load(session, data_root))
+    refresh = _refresh if _refresh is not None else refresh_organization_stats
+    data["organization_stats"] = refresh(factory)
     _log_report("context_load", data)
     return data
