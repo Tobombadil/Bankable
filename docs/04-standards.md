@@ -287,9 +287,14 @@ budget: public non-map pages ≤ 50 KB gzipped first-party JS (htmx + islands, `
 including the library (D-13); admin measured but unbounded. *Why:* CWV is a ranking input; the budget keeps the
 architecture server-rendered.
 
-**D-32 Responsive to 400 px.** No horizontal page scroll at 400 px: tables collapse to key/value lists or scroll
-inside their own container; the map keeps the results list as a bottom sheet; side gutters ≥ 16 px; no fixed
-width wider than the viewport. Breakpoints 400 / 720 / 1080 / 1440. *Why:* alerts are read on phones.
+**D-32 Responsive to 360 px.** No horizontal page scroll at 360 px: tables collapse to key/value lists or scroll
+inside their own container; on the map the record drawer is a bottom sheet and the controls and the key leave the
+canvas clear (`docs/31` §3, §5.8, §5.17); side gutters ≥ 16 px; no fixed width wider than the viewport. Breakpoints
+360 / 720 / 1080 / 1440. *Why:* alerts are read on phones, and 360 px is the common Android width. Amended from
+400 px on 2026-10-22 (`docs/17` M-15): the 2026-10-21 review measured no sideways scroll on 19 page types at
+360×800, so the floor names what already holds. The same amendment replaces "the map keeps the results list as a
+bottom sheet": the record drawer is the sheet, and the home map drops its in-view list (`docs/00-PLAN.md`
+2026-10-22).
 
 ### 2.7 Content style
 
@@ -911,7 +916,7 @@ reviewer (R-2) records the check in the PR or the doc's status line.
 | **Doc** (`docs/*.md`) | Status line (P-10); one topic; sections numbered and stable; every number sourced or tagged as assumption (P-7, P-8); references by section, not restatement; decisions in `docs/00-PLAN.md`; `docs/CHANGELOG.md` line; British spelling in prose; no model identifiers; the `docs/03` §2 reviewer has read it |
 | **Connector** | DA-14 steps 1–8 artefacts present; `docs/20` §3.1 protocol; stable `source_record_id` documented; fixtures per E-6 with no personal or gated data; `status_map.yaml` per DA-5; DQ thresholds set; egress class and host limits configured; three baseline runs logged; `mypy --strict` and `ruff` clean; CHANGELOG line |
 | **API endpoint** | In `docs/23` (updated first if new); generated OpenAPI matches (E-8); envelope and provenance (API-5); visibility predicate applied and E-9 fixtures pass; RFC 9457 errors with table codes; rate-limit headers; cursor pagination; contract test and example; p95 within E-16; request logging; `x-tier`/`x-stories` set; no internal ids |
-| **UI screen** | Derived from `docs/30-design-references.md` (D-6), no banned pattern (D-7); tokens only (D-19); contrast recorded (D-20); WCAG 2.2 AA checks and `axe` clean, keyboard pass done (D-30); 400 px verified (D-32); CWV and JS budgets on preview (D-31); provenance on every data element and attribution line in footer (D-2, D-27, D-34); tier notice (D-3, D-28); empty/loading/error states (D-29); filters in URL (D-17); motion and reduced-motion (D-15); component tests + smoke path (E-10); qa-engineer and product-designer review |
+| **UI screen** | Derived from `docs/30-design-references.md` (D-6), no banned pattern (D-7); tokens only (D-19); contrast recorded (D-20); WCAG 2.2 AA checks and `axe` clean, keyboard pass done (D-30); 360 px verified (D-32); CWV and JS budgets on preview (D-31); provenance on every data element and attribution line in footer (D-2, D-27, D-34); tier notice (D-3, D-28); empty/loading/error states (D-29); filters in URL (D-17); motion and reduced-motion (D-15); component tests + smoke path (E-10); qa-engineer and product-designer review |
 | **Post template** | Matches `docs/32` §3.2 anatomy and the §3.3 template for its event type; attribution and disclosure from the versioned strings (D-35); rendered example per channel within limits; `docs/32` §4.3 gates pass on the example; lag notice when and only when the event carries a delay (amended 2026-09-19); no banned words; UTM per §3.2; content-social and product-designer review |
 | **Outreach sequence** | Segment named (G-1); every touch has a graph fact with `source_url` and a public company fact (`docs/33` §3.1); three touches max; compliance footer and disclosure line (G-3); opt-out route; personalisation tokens only from the `docs/33` §3.1 list; `draft_by = agent`, sent-by empty; EU/UK gated on the legal checklist; legal-compliance review where flagged; the owner is the sender |
 

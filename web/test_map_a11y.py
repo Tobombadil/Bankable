@@ -132,7 +132,7 @@ def test_the_closed_drawer_is_out_of_the_page() -> None:
     drawer = MAP_JS.split("function buildDrawer() {")[1]
     assert 'el.setAttribute("aria-modal", "true");\n    el.setAttribute("aria-label"' not in drawer
     assert "el.hidden = true;" in drawer
-    open_fn = drawer.split("function open() {")[1].split("\n    }\n")[0]
+    open_fn = drawer.split("function open(anchor) {")[1].split("\n    }\n")[0]
     close_fn = drawer.split("function close() {")[1].split("\n    }\n")[0]
     assert "el.hidden = false;" in open_fn and 'el.setAttribute("aria-modal", "true");' in open_fn
     assert 'el.removeAttribute("aria-modal");' in close_fn and 'el.setAttribute("inert", "");' in close_fn
@@ -246,3 +246,47 @@ def test_the_in_view_list_only_ever_holds_plain_list_items() -> None:
     assert "role=" not in top_level[0][2]
     assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog"}
     assert ".role =" not in MAP_JS
+
+
+def _map_notice(**context: object) -> str:
+    from web.page import templates
+
+    base: dict[str, object] = {
+        "iso_gap_notes": [],
+        "lifecycle_explicit": False,
+        "include_withdrawn": False,
+        "breakdown": {"active": 3, "withdrawn": 1, "built": 0, "unknown": 0, "other": 0},
+        "built_href": "/?lifecycle_state=built",
+        "unlisted_notice": None,
+        "empty_facets": None,
+    }
+    return str(templates.get_template("_map_notice.html").render(**{**base, **context}))
+
+
+def test_a_coverage_note_is_never_behind_why() -> None:
+    """Review 2026-10-22 (lane m-layout): below 720px what "Why?" opens is hidden until it is pressed
+    (styles.css `#map-notice:not(.is-why-open) .map-notice__detail`), and the coverage note sat in
+    it, so `/?iso=PJM` on a phone said only "Active only. Why?" and not that the rows listed for PJM
+    are EIA-860M units (expert review 2026-10-07; docs/17 §6, D-2/D-34: the source on every
+    screen). The note is outside the detail, after the short form, on a line of its own."""
+    from markupsafe import escape
+
+    raw = "PJM's own interconnection queue is not covered here."
+    note = str(escape(raw))
+    html = _map_notice(iso_gap_notes=[raw])
+    before, detail = html.split('<div class="map-notice__detail"', 1)
+    assert note in before and note not in detail
+    assert before.index("map-notice__brief") < before.index(note)
+    assert "Showing 3 active proposals" in detail
+    phone = CSS.split("/* ---------- 8.3 The map page below 720px")[1].split("/* ---------- ")[0]
+    rule = re.search(r"([^{}]*\.map-status \.view-notice--gap)\s*\{([^}]*)\}", phone)
+    assert rule and "flex-basis: 100%" in rule.group(2)
+    hidden = re.findall(r"([^{}]*)\{[^}]*display: none", phone)
+    assert not [selector for selector in hidden if "view-notice" in selector], hidden
+    # A link that names its own lifecycle state: the coverage note alone, and no "Why?" with
+    # nothing behind it.
+    alone = _map_notice(iso_gap_notes=[raw], lifecycle_explicit=True)
+    assert note in alone
+    assert "map-notice__why" not in alone and "map-notice__detail" not in alone
+    # Nothing to say: nothing drawn.
+    assert _map_notice(lifecycle_explicit=True).strip() == ""

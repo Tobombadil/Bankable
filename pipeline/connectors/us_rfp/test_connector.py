@@ -673,7 +673,7 @@ def test_a_request_for_comment_ahead_of_an_rfp_is_announced_not_open() -> None:
     storage = frame_.loc[
         "/deep/news-releases/news-releases---2026/deep-launches-new-procurement-for-energy-storage"
     ]
-    assert storage["status_raw"] == "pre_solicitation" and storage["status"] == "announced"
+    assert storage["status_raw"] == "pre-solicitation" and storage["status"] == "announced"
     assert pd.isna(storage["open_at"]) and pd.isna(storage["due_at"])
     assert storage["technologies"] == "bess"
 
@@ -1137,7 +1137,7 @@ def test_a_final_rfp_release_that_mentions_its_draft_is_released() -> None:
 
     assert status_of(lambda r: r) == "released"
     assert status_of(lambda r: r.replace(lead_start, mentions_draft)) == "released"  # "a final RFP"
-    assert status_of(no_final) == "pre_solicitation"
+    assert status_of(no_final) == "pre-solicitation"
 
 
 def test_an_unchanged_listing_is_an_unchanged_run(tmp_path: pathlib.Path) -> None:

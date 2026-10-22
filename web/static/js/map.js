@@ -5,6 +5,48 @@
  * The basemap (three MAP_TILE_URL modes + the same-origin fallback outline) lives in basemap.js,
  * shared with the asset/company page mini-maps (asset_map.js).
  */
+
+// docs/17 M-6 (lane m-layout): the words around the map, wired before the map so they work even
+// when MapLibre cannot start (the map's own code stops at `new maplibregl.Map` then). Below 720px
+// the lede is its first sentence and "About this map" opens the rest; the lifecycle notice's short
+// form has a "Why?" that opens the notice. The open state lives on `#map-notice`, which map.js
+// refills after each filter change, so the notice stays open across one (`refreshNotice`). Both
+// are disclosure buttons; without scripts styles.css shows everything and neither button.
+(function () {
+  "use strict";
+  var lede = document.getElementById("map-intro-lede");
+  var about = document.getElementById("map-intro-about");
+  if (lede && about) {
+    about.addEventListener("click", function () {
+      var open = about.getAttribute("aria-expanded") !== "true";
+      about.setAttribute("aria-expanded", open ? "true" : "false");
+      lede.classList.toggle("is-open", open);
+    });
+  }
+  var notice = document.getElementById("map-notice");
+  if (notice) {
+    notice.addEventListener("click", function (e) {
+      var why = e.target && e.target.closest ? e.target.closest(".map-notice__why") : null;
+      if (!why) return;
+      var open = !notice.classList.contains("is-why-open");
+      notice.classList.toggle("is-why-open", open);
+      why.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+  // "Click a cluster..." says "Tap" where the primary pointer is a finger (a phone, a tablet),
+  // and follows a change of pointer (a tablet given a mouse).
+  var howTo = document.querySelector("[data-touch-words]");
+  var coarse = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+  if (howTo && coarse) {
+    var clickWords = howTo.textContent;
+    var syncWords = function () {
+      howTo.textContent = coarse.matches ? howTo.getAttribute("data-touch-words") : clickWords;
+    };
+    syncWords();
+    if (coarse.addEventListener) coarse.addEventListener("change", syncWords);
+  }
+})();
+
 (function () {
   "use strict";
 
@@ -927,6 +969,42 @@
   // "Reset" fits the lower 48 again, for the canvas as it is now (a turned phone, a resized window).
   document.getElementById("zoom-reset").addEventListener("click", function () { goHome(motionMs(600)); });
 
+  // ---- docs/17 M-1: "Jump to" below 720px ----
+  // The region jumps and "Whole map" (Reset's job; Reset itself is not drawn there) in one list
+  // beside the right-edge column, opened by "Jump to", a disclosure button. A choice, Escape, a tap
+  // elsewhere or focus moving on closes it; a choice or Escape returns focus to "Jump to". From
+  // 720px the button is not drawn and the list is the region row, as before.
+  var jumpToggle = document.getElementById("map-jump-toggle");
+  var jumpList = document.getElementById("map-regions");
+  function jumpIsOpen() { return !!(jumpList && jumpList.classList.contains("is-open")); }
+  function setJumpOpen(open, refocus) {
+    if (!jumpToggle || !jumpList) return;
+    jumpToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    jumpList.classList.toggle("is-open", open);
+    if (!open && refocus) jumpToggle.focus();
+  }
+  if (jumpToggle && jumpList) {
+    var jumpGroup = jumpToggle.parentNode;
+    jumpToggle.hidden = false;
+    jumpToggle.addEventListener("click", function () { setJumpOpen(!jumpIsOpen()); });
+    jumpGroup.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && jumpIsOpen()) { e.preventDefault(); setJumpOpen(false, true); }
+    });
+    jumpGroup.addEventListener("focusout", function (e) {
+      if (jumpIsOpen() && e.relatedTarget && !jumpGroup.contains(e.relatedTarget)) setJumpOpen(false);
+    });
+    document.addEventListener("click", function (e) {
+      if (jumpIsOpen() && !jumpGroup.contains(e.target)) setJumpOpen(false);
+    });
+    var jumpHome = document.getElementById("map-jump-home");
+    if (jumpHome) {
+      jumpHome.addEventListener("click", function () {
+        goHome(motionMs(600));
+        setJumpOpen(false, true);
+      });
+    }
+  }
+
   // ---- task item 3: regional quick views ----
   document.querySelectorAll(".region-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -936,6 +1014,7 @@
       filters.region = code;
       writeFilters(filters);
       sendUiEvent("map.region_jumped", { region: code });
+      if (jumpIsOpen()) setJumpOpen(false, true);
     });
   });
   // Restore a `region=` view from a shared/reloaded URL on load, instantly (this is page setup,
@@ -1049,7 +1128,8 @@
     })[0];
     if (!hit) return;
     focusPending = "";
-    openDrawer(hit.properties);
+    drawerAnchor = hit.geometry.coordinates;
+    try { openDrawer(hit.properties); } finally { drawerAnchor = null; }
   }
 
   // In-view paging: how many rows each group shows; a new view or filter starts again at a page.
@@ -1361,16 +1441,65 @@
     if (open && typeof syncKeyFocusable === "function") syncKeyFocusable();
     if (refit) goHome(motionMs(300));
   }
+  // docs/17 M-1 (c): below 720px the key opens under the map, in the page, so "Key" brings it into
+  // view when it opened below the screen (on a 390x844 phone it starts about 300px down); otherwise
+  // the press would seem to do nothing. Only as far as needed, and instantly under reduced motion.
+  function revealKeyBelowMap() {
+    if (!narrowKey || !narrowKey.matches || !mapKeyPanel) return;
+    if (mapKeyPanel.getBoundingClientRect().bottom <= window.innerHeight) return;
+    mapKeyPanel.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+  }
+  // The key can still grow, or move down, after the press: the status families and the region row
+  // arrive with the data (the region row only once its outlines load), and the count above the map
+  // can wrap. At 400x800 that left the key's foot about 20px below the screen. So for a while after
+  // "Key" opens it, each change of size brings its foot back into view, until the reader scrolls,
+  // touches or types, or closes the key. The key's ResizeObserver (below) calls `keepKeyInView`.
+  var KEY_REVEAL_MS = 10000;
+  var keyRevealUntil = 0;
+  function armKeyReveal() { keyRevealUntil = Date.now() + KEY_REVEAL_MS; }
+  function disarmKeyReveal() { keyRevealUntil = 0; }
+  function keepKeyInView() {
+    if (!keyRevealUntil) return;
+    if (Date.now() > keyRevealUntil || !mapKey || mapKey.hidden) { disarmKeyReveal(); return; }
+    revealKeyBelowMap();
+  }
+  // Capture, so a handler that stops propagation cannot hide the reader's input. Each fires before
+  // the "click" a press makes, so the press that opens the key arms it after these have run.
+  ["wheel", "touchstart", "pointerdown", "keydown"].forEach(function (type) {
+    window.addEventListener(type, disarmKeyReveal, { capture: true, passive: true });
+  });
+  // docs/17 M-1 (d): below 720px each layer's key section starts closed, so the status strip shows
+  // first; from 720px they start open, as before. Like the key, the default follows the width until
+  // the reader opens or closes a section; after that their choice stands.
+  var keySections = mapKey ? Array.prototype.slice.call(mapKey.querySelectorAll("details.map-key__section")) : [];
+  var keySectionsChosen = false;
+  function syncKeySections(narrow) {
+    if (keySectionsChosen) return;
+    keySections.forEach(function (section) { section.open = !narrow; });
+  }
+  keySections.forEach(function (section) {
+    var summary = section.querySelector("summary");
+    if (summary) summary.addEventListener("click", function () { keySectionsChosen = true; });
+  });
   if (mapKey && mapKeyToggle) {
     mapKeyToggle.hidden = false;
+    syncKeySections(!!(narrowKey && narrowKey.matches));
     setMapKeyOpen(!(narrowKey && narrowKey.matches));
     mapKey.setAttribute("data-ready", "");
     mapKeyToggle.addEventListener("click", function () {
       mapKeyChosen = true;
-      setMapKeyOpen(mapKeyToggle.getAttribute("aria-expanded") !== "true");
+      var open = mapKeyToggle.getAttribute("aria-expanded") !== "true";
+      setMapKeyOpen(open);
+      if (open) {
+        revealKeyBelowMap();
+        armKeyReveal();
+      } else {
+        disarmKeyReveal();
+      }
     });
     if (narrowKey && narrowKey.addEventListener) {
       narrowKey.addEventListener("change", function (e) {
+        syncKeySections(e.matches);
         if (!mapKeyChosen) setMapKeyOpen(!e.matches);
       });
     }
@@ -1407,11 +1536,18 @@
   // `scrollable-region-focusable`): always the compact key, and the plain key whenever its content is
   // taller than its max-height, as in a short window (axe's CI browser is 800x600). A panel that does
   // not scroll adds no tab stop. Run at load, on resize, when the key opens and when its rows change.
+  // Below 720px the key is in the page with no height cap (docs/17 M-1), so it never scrolls and is
+  // never a tab stop, compact or not.
   function syncKeyFocusable() {
     if (!mapKey || !mapKeyPanel) return;
     var scrolls = mapKeyPanel.scrollHeight > mapKeyPanel.clientHeight + 1;
-    if (mapKey.classList.contains("map-key--compact") || scrolls) mapKeyPanel.setAttribute("tabindex", "0");
-    else mapKeyPanel.removeAttribute("tabindex");
+    var capped = window.getComputedStyle(mapKeyPanel).maxHeight !== "none";
+    // That is: a panel that scrolls, or a compact one with a height cap (from 720px).
+    if ((mapKey.classList.contains("map-key--compact") || scrolls) && (capped || scrolls)) {
+      mapKeyPanel.setAttribute("tabindex", "0");
+    } else {
+      mapKeyPanel.removeAttribute("tabindex");
+    }
   }
   // A ResizeObserver reports once after the first layout (fonts and styles in place) and again
   // whenever the panel or a section in it changes size; resize and load are the fallbacks.
@@ -1419,6 +1555,12 @@
     var keyObserver = new ResizeObserver(function () { syncKeyFocusable(); });
     keyObserver.observe(mapKeyPanel);
     Array.prototype.forEach.call(mapKeyPanel.children, function (child) { keyObserver.observe(child); });
+    // `keepKeyInView` after a press: the key growing, or the status block above the map growing
+    // (which moves the key down below 720px).
+    var keyRevealObserver = new ResizeObserver(function () { keepKeyInView(); });
+    keyRevealObserver.observe(mapKeyPanel);
+    var mapStatusBlock = document.querySelector(".map-status");
+    if (mapStatusBlock) keyRevealObserver.observe(mapStatusBlock);
   }
   syncKeyFocusable();
   window.addEventListener("resize", syncKeyFocusable);
@@ -2259,7 +2401,12 @@
       var tier = CLICK_ORDER[i];
       var inTier = hits.filter(function (f) { return tier.layers.indexOf(f.layer.id) !== -1; });
       if (inTier.length) {
-        tier.act(tier.pick ? tier.pick(e.point, inTier, slop) : nearest(e.point, inTier));
+        var picked = tier.pick ? tier.pick(e.point, inTier, slop) : nearest(e.point, inTier);
+        // Where the drawer's record is on the map, so the phone's bottom sheet can ease it into
+        // view above itself (docs/17 M-4): a point's own position, else where the tap landed.
+        drawerAnchor = picked.geometry && picked.geometry.type === "Point"
+          ? picked.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
+        try { tier.act(picked); } finally { drawerAnchor = null; }
         return;
       }
     }
@@ -2410,7 +2557,14 @@
     var seq = ++noticeSeq;
     fetch(noticeUrl(filters))
       .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
-      .then(function (html) { if (seq === noticeSeq) noticeEl.innerHTML = html; })
+      .then(function (html) {
+        if (seq !== noticeSeq) return;
+        noticeEl.innerHTML = html;
+        // A notice the reader opened with "Why?" below 720px stays open (docs/17 M-6); the new
+        // button says so.
+        var why = noticeEl.querySelector(".map-notice__why");
+        if (why) why.setAttribute("aria-expanded", noticeEl.classList.contains("is-why-open") ? "true" : "false");
+      })
       .catch(function () { /* keep the last-known notice (docs/31 §6 error state) */ });
   }
 
@@ -2524,11 +2678,44 @@
   // ---- drawer (D-12) ----
   var drawer = buildDrawer();
   var lastFocused = null;
+  // Where the record the drawer opens for lies on the map: set by `onMapClick` and
+  // `openFocusedProposal` for the length of the call, null when a row of the in-view list opens it
+  // (the reader is reading the list, and a move would redraw the row focus returns to).
+  var drawerAnchor = null;
+  // Focus goes back on close to what had it on open, unless that was in the drawer itself (a tap on
+  // the map while the drawer is open shows the next record in it).
+  function rememberFocus() {
+    var active = document.activeElement;
+    if (!active || !drawer.el.contains(active)) lastFocused = active;
+  }
+  // docs/17 M-4: below 720px the drawer is a bottom sheet over the lower part of the screen, and the
+  // feature tapped may lie under it. The map eases it to the middle of the map left showing above
+  // the sheet, keeping its distance from the left edge. It moves only when the feature is not
+  // already well inside that band (no move, no refetch) and not at all when under 64px of map
+  // shows. 600ms (--motion-map), instant under reduced motion. From 720px nothing moves, as before.
+  function revealAboveSheet(lngLat, sheetHeight) {
+    if (!narrowKey || !narrowKey.matches || !lngLat) return;
+    var r = mapEl.getBoundingClientRect();
+    var top = Math.max(r.top, 0);
+    var bottom = Math.min(r.bottom, window.innerHeight - sheetHeight);
+    if (bottom - top < 64) return;
+    var p = map.project(lngLat);
+    var margin = 24;
+    var y = r.top + p.y;
+    var xInside = p.x >= margin && p.x <= r.width - margin;
+    if (xInside && y >= top + margin && y <= bottom - margin) return;
+    var x = xInside ? p.x : r.width / 2;
+    map.easeTo({
+      center: lngLat,
+      offset: [x - r.width / 2, (top + bottom) / 2 - r.top - r.height / 2],
+      duration: motionMs(600)
+    });
+  }
   function openDrawer(rawProps) {
-    lastFocused = document.activeElement;
+    rememberFocus();
     var provenance = propObj(rawProps.provenance) || [];
     drawer.render(rawProps, provenance[0] || null);
-    drawer.open();
+    drawer.open(drawerAnchor);
   }
   // Point assets other than power plants render at once from the feature, then again with the
   // asset's detail row merged in (`/api/assets/{public_id}`, web/app.py): geo point features
@@ -2537,9 +2724,9 @@
   var drawerDetailSeq = 0;
   var assetDetailCache = {};
   function openAssetDrawer(rawProps) {
-    lastFocused = document.activeElement;
+    rememberFocus();
     drawer.renderAsset(rawProps);
-    drawer.open();
+    drawer.open(drawerAnchor);
     var type = assetTypeOf(rawProps);
     if (type === "power_plant" || rawProps.feature_kind === "asset_line" || !rawProps.public_id) return;
     var seq = ++drawerDetailSeq;
@@ -2552,6 +2739,7 @@
         if (detail[k] != null && detail[k] !== "") merged[k] = detail[k];
       });
       drawer.renderAsset(merged);
+      drawer.refit();
     }
     if (assetDetailCache[id]) { merge(assetDetailCache[id]); return; }
     fetch("/api/assets/" + encodeURIComponent(id))
@@ -2567,9 +2755,9 @@
   // their statuses and stated capacity, and its list. From a tap on the region, or the Details
   // button on its in-view row (the keyboard path, D-14).
   function openRegionDrawer(rawProps, name) {
-    lastFocused = document.activeElement;
+    rememberFocus();
     drawer.renderRegion(rawProps, name || regionName(rawProps));
-    drawer.open();
+    drawer.open(drawerAnchor);
   }
   function buildDrawer() {
     var el = document.createElement("div");
@@ -2581,15 +2769,41 @@
     // of the tab order and the accessibility tree, and `aria-modal` is set only while it is open,
     // so a screen reader never meets a modal dialog that is not on screen.
     el.hidden = true;
-    el.innerHTML = '<button type="button" id="drawer-close" class="map-drawer__close" aria-label="Close">&times; Close</button><div id="drawer-body"></div>';
+    // docs/17 M-4: below 720px the drawer is a bottom sheet (styles.css 8.3) and "Expand" takes it
+    // to the full height and back; from 720px "Expand" is not drawn and the bar is the Close button,
+    // as before. Close stays where focus lands on open.
+    el.innerHTML = '<div class="map-drawer__bar">' +
+      '<button type="button" id="drawer-expand" class="map-drawer__expand" aria-controls="map-drawer" aria-expanded="false">Expand</button>' +
+      '<button type="button" id="drawer-close" class="map-drawer__close" aria-label="Close">&times; Close</button>' +
+      '</div><div id="drawer-body"></div>';
     document.body.appendChild(el);
     var body = el.querySelector("#drawer-body");
     var closeBtn = el.querySelector("#drawer-close");
+    var expandBtn = el.querySelector("#drawer-expand");
     closeBtn.addEventListener("click", close);
+    // Its state is `aria-expanded` as well as its words (review 2026-10-22).
+    function setExpanded(on) {
+      el.classList.toggle("is-expanded", on);
+      expandBtn.textContent = on ? "Collapse" : "Expand";
+      expandBtn.setAttribute("aria-expanded", on ? "true" : "false");
+    }
+    // "Expand" is drawn only when it shows more: a proposal's Technology row, or rows the sheet cuts
+    // off. On a region summary or an asset whose rows fit, it would only make the sheet full height.
+    // Measured while the drawer is open (it has no size while `hidden`).
+    function syncExpand() {
+      if (el.classList.contains("is-expanded")) { expandBtn.hidden = false; return; }
+      var more = !!body.querySelector(".drawer-fields__row--more") || el.scrollHeight > el.clientHeight + 1;
+      if (!more && document.activeElement === expandBtn) closeBtn.focus();
+      expandBtn.hidden = !more;
+    }
+    expandBtn.addEventListener("click", function () { setExpanded(!el.classList.contains("is-expanded")); });
     el.addEventListener("keydown", function (e) {
       if (e.key === "Escape") close();
       if (e.key === "Tab") {
-        var focusables = el.querySelectorAll("button, a[href]");
+        // Only what is drawn: "Expand" is in the markup at every width but drawn below 720px only.
+        var focusables = Array.prototype.filter.call(el.querySelectorAll("button, a[href]"), function (node) {
+          return node.getClientRects().length > 0;
+        });
         var first = focusables[0], last = focusables[focusables.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
@@ -2599,17 +2813,33 @@
     // `is-open` transitions in at 200ms, removing it transitions out at 150ms (the base rule's own
     // duration) -- see the .map-drawer / .map-drawer.is-open rule in styles.css.
     var hideTimer = null;
-    function open() {
+    var openAnchor = null;
+    // `anchor`: where the record lies on the map, when a tap on the map opened it (docs/17 M-4).
+    function open(anchor) {
       window.clearTimeout(hideTimer);
+      setExpanded(false);
       el.hidden = false;
       el.removeAttribute("inert");
       el.setAttribute("aria-modal", "true");
+      el.scrollTop = 0;
       void el.offsetWidth; // start the slide-in from the closed position, not from `hidden`
       el.classList.add("is-open");
+      syncExpand();
       closeBtn.focus();
+      openAnchor = anchor || null;
+      if (anchor) revealAboveSheet(anchor, el.offsetHeight);
+    }
+    // A point asset's drawer is drawn again once its detail row lands (`openAssetDrawer`), and the
+    // sheet can grow then (up to 45% of the screen) over the feature it just eased into view: so the
+    // feature is eased above the new height, and "Expand" follows what the sheet now holds.
+    function refit() {
+      if (el.hidden || !el.classList.contains("is-open")) return;
+      syncExpand();
+      if (openAnchor && !el.classList.contains("is-expanded")) revealAboveSheet(openAnchor, el.offsetHeight);
     }
     function close() {
       if (el.hidden) return;
+      openAnchor = null;
       el.classList.remove("is-open");
       el.removeAttribute("aria-modal");
       // Inert at once (nothing in it can take focus while it slides out), hidden once the 150ms
@@ -2640,7 +2870,9 @@
       body.innerHTML =
         "<h2>" + esc(p.name) + "</h2>" + chipHtml(familyOf(p.lifecycle_state), p.lifecycle_state) +
         "<dl class=\"drawer-fields\">" +
-        "<div class=\"drawer-fields__row\"><dt>Technology</dt><dd>" + esc(technologyName(p.technology) || "—") + "</dd></div>" +
+        // On a phone's bottom sheet this row waits for "Expand" (docs/17 M-4: name, status,
+        // capacity, place, source and the record link come first).
+        "<div class=\"drawer-fields__row drawer-fields__row--more\"><dt>Technology</dt><dd>" + esc(technologyName(p.technology) || "—") + "</dd></div>" +
         // A kind that cannot carry a capacity (PROPOSAL_FIELDS_NOT_APPLICABLE) and a large load with no
         // MW (lane L11) get no Capacity row rather than a row of "—".
         (!fieldApplies(p.kind, "capacity_mw", p.capacity_mw) ? "" :
@@ -2718,6 +2950,9 @@
       var jumpBtn = body.querySelector(".drawer-region__jump");
       if (jumpBtn) jumpBtn.addEventListener("click", function () { close(); jump.click(); });
     }
-    return { open: open, close: close, render: render, renderAsset: renderAsset, renderPlant: renderAsset, renderRegion: renderRegion };
+    return {
+      el: el, open: open, close: close, refit: refit,
+      render: render, renderAsset: renderAsset, renderPlant: renderAsset, renderRegion: renderRegion
+    };
   }
 })();

@@ -4,7 +4,7 @@
 #   closed    an AEP item whose title line says CLOSED
 #   archived  an AEP item under the page's Archive heading
 #   released  a CT DEEP news release announcing a (final) RFP or procurement
-#   pre_solicitation  a release about a draft RFP, a request for comment ahead of an RFP, a notice of proceeding
+#   pre-solicitation  a release about a draft RFP, a request for comment ahead of an RFP, a notice of proceeding
 #   notice    an NJ BPU public notice on a solicitation
 # A stated deadline decides open/closed; without one the state is unknown, never guessed.
 version: 1
@@ -18,7 +18,7 @@ sources:
       closed: closed
       archived: closed
       released: unknown
-      pre_solicitation: announced
+      pre-solicitation: announced
       notice: unknown
     refine:
       - id: utility_rfp.listed_deadline_passed

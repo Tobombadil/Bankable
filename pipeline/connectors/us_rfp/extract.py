@@ -591,7 +591,7 @@ def news_records(bundle: dict[str, Any], row: IssuerRow) -> tuple[list[dict[str,
                 _PRE_SOLICITATION.search(item.title)
                 or (_PRE_SOLICITATION.search(lead) and not _FINAL_SOLICITATION.search(lead))
             )
-            record["status_raw"] = "pre_solicitation" if draft else "released"
+            record["status_raw"] = "pre-solicitation" if draft else "released"
             if not draft and _RELEASE_VERB.search(item.title):
                 record["open_at"] = item.date.isoformat()
                 record["open_text"] = f"release dated {item.date.isoformat()}"
