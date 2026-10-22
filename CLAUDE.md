@@ -21,6 +21,8 @@ Prospect (one base map, every lifecycle state including operating and retiring),
   the owner has explicitly enabled a named automated channel with disclosure. No impersonation, no fake personas.
 - Automated social accounts are labelled as automated where the platform requires it.
 - Store the minimum personal data; honour deletion requests.
+- Nothing from a private Bankable data room feeds Inframation's public pages, matching, alerts or outreach without
+  the deal owner's explicit consent (owner, 2026-10-22). `noncommercial` rows never flow to Bankable or any commercial use.
 - Never put model identifiers in commits, code comments, or shipped artifacts.
 
 ## Conventions

@@ -267,8 +267,9 @@ floating panel"; "The section names stand"; "The responsive floor is 360px"; and
 and subscriptions are free" (the owner: "I need something to give me early credibility") and "Matching targets
 developers first".
 
-**Status: proposed by the design lane, pending the owner's yes (2026-10-22).** Nothing in this section ships until the
-owner confirms it and the decisions log records it.
+**Status: confirmed by the owner, 2026-10-22** (decisions log), **except row 5**: the "Start a deal in Bankable" block is
+held until the six `noncommercial` sources have granted commercial reuse or been withdrawn, and a legal read of the
+link (decisions log, 2026-10-22, "The Bankable bridge waits on the six noncommercial-only sources").
 
 | # | Proposal | Where argued |
 |---|---|---|
