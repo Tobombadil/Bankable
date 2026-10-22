@@ -1188,6 +1188,263 @@ sources:
   notes: >
     DEMAND SIDE of the marketplace and the direct link to the existing Bankable thesis. No open dataset
     exists. Build a curated issuer list (start: 50 issuers with recurring solicitations) + news-trigger discovery.
+    2026-10-21: the curated list is data/vendored/rfp_issuers/issuers.yaml (docs/28, 63 issuers, a terms
+    verdict each). This umbrella stays unknown/none and is never fetched; the cleared issuers are their own
+    rows (us.rfp.*, parent us.utility_rfps), each with its own licence, served by pipeline/connectors/us_rfp.
+
+- id: us.rfp.pso
+  name: Public Service Company of Oklahoma (AEP) - Energy Provider RFPs
+  parent: us.utility_rfps
+  jurisdiction: US-OK
+  category: procurement
+  operator: Public Service Company of Oklahoma (AEP)
+  url: https://www.psoklahoma.com/business/b2b/energy-rfps/
+  access: html
+  auth: none
+  format: html (server-rendered Energy Provider RFPs page, one AEP template; per-RFP pages on the same host)
+  cadence: annual
+  # Polled daily (task brief 2026-10-21; docs/28 §8.2 asks weekly, daily while a window is open): one
+  # listing request plus the per-RFP page of each current generation item, at 0.5 rps.
+  poll: daily
+  rate_limit_rps: 0.5
+  connector_module: us_rfp
+  connector: pipeline/connectors/us_rfp (extractor aep_energy_rfps; issuer row in data/vendored/rfp_issuers/issuers.yaml)
+  license: >-
+    AEP Terms and Conditions, https://www.aep.com/terms/ (read 2026-10-21, docs/28 §5; linked from every AEP
+    operating-company footer): "AEP hereby authorizes you to copy and display the content herein, but for
+    your personal use only." "If attribution to AEP is included, limited quotations from the content are
+    hereby permitted. You may not copy or display for redistribution to third parties for commercial
+    purposes any portion of the content without the prior written permission of AEP." robots.txt: 404 on
+    all four operating-company hosts (no rule).
+  reuse: noncommercial
+  publication: derived_only
+  attribution: 'Source: Public Service Company of Oklahoma (AEP), Energy RFPs'
+  licence_url: "https://www.aep.com/terms/"
+  # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
+  # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
+  dq_thresholds: {row_drift_warn_pct: 25.0, row_drift_hold_pct: 100.0}
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-21, result: ok, rows: 2, note: 'live run 2026-10-21 22:46 UTC (PLATFORM_POSTURE=noncommercial): 6 requests (robots.txt on www.psoklahoma.com and www.aep.com, both 404; AEP terms re-read with all 4 quoted clauses present; listing; 2 per-RFP pages); 2 records (2025 SPP Capacity RFP due 2025-12-05; 2026 All-Source RFP up to 4,000 MW, issued 2026-01-02, due 2026-03-16), both closed; nothing left out; DQ pass. Re-run 22:48: unchanged, 4 requests, no events; loaded into a study-db copy: 2 kind-rfp opportunities, issuer resolved to one curated utility organisation; served by /v1/opportunities under PLATFORM_POSTURE=noncommercial, refused by the loader and absent under commercial'}
+  notes: >-
+    Curated issuer (US-303), cleared in docs/28 (verdict cleared, basis terms_permit_noncommercial). Class
+    noncommercial: published only while PLATFORM_POSTURE=noncommercial (docs/26), withheld under commercial.
+    Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
+    the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
+    classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+- id: us.rfp.appalachian_power
+  name: Appalachian Power (AEP) - Energy Provider RFPs
+  parent: us.utility_rfps
+  jurisdiction: US
+  category: procurement
+  operator: Appalachian Power Company (AEP)
+  url: https://www.appalachianpower.com/business/b2b/energy-rfps/
+  access: html
+  auth: none
+  format: html (server-rendered Energy Provider RFPs page, one AEP template; per-RFP pages on the same host)
+  cadence: annual
+  # Polled daily (task brief 2026-10-21; docs/28 §8.2 asks weekly, daily while a window is open): one
+  # listing request plus the per-RFP page of each current generation item, at 0.5 rps.
+  poll: daily
+  rate_limit_rps: 0.5
+  connector_module: us_rfp
+  connector: pipeline/connectors/us_rfp (extractor aep_energy_rfps; issuer row in data/vendored/rfp_issuers/issuers.yaml)
+  license: >-
+    AEP Terms and Conditions, https://www.aep.com/terms/ (read 2026-10-21, docs/28 §5; linked from every AEP
+    operating-company footer): "AEP hereby authorizes you to copy and display the content herein, but for
+    your personal use only." "If attribution to AEP is included, limited quotations from the content are
+    hereby permitted. You may not copy or display for redistribution to third parties for commercial
+    purposes any portion of the content without the prior written permission of AEP." robots.txt: 404 on
+    all four operating-company hosts (no rule).
+  reuse: noncommercial
+  publication: derived_only
+  attribution: 'Source: Appalachian Power (AEP), Energy RFPs'
+  licence_url: "https://www.aep.com/terms/"
+  # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
+  # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
+  dq_thresholds: {row_drift_warn_pct: 25.0, row_drift_hold_pct: 100.0}
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-21, result: ok, rows: 6, note: 'live run 2026-10-21 22:46 UTC (PLATFORM_POSTURE=noncommercial): 7 requests (robots.txt x2, terms with all 4 clauses present, listing, 3 per-RFP pages); 6 records (2026 Combined Cycle PSA 1,500 MW due 2026-09-17; Energy Storage PSA 500 MW and CPA 300 MW due 2026-09-30; PSA/PPA/REC RFPs 2026, 2025, 2024), all closed by their stated deadlines; DQ pass. Re-run 22:48: unchanged, 5 requests, no events; loaded into a study-db copy: 6 kind-rfp opportunities, issuer resolved to one curated utility organisation; served by /v1/opportunities under PLATFORM_POSTURE=noncommercial, refused by the loader and absent under commercial'}
+  notes: >-
+    Curated issuer (US-303), cleared in docs/28 (verdict cleared, basis terms_permit_noncommercial). Class
+    noncommercial: published only while PLATFORM_POSTURE=noncommercial (docs/26), withheld under commercial.
+    Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
+    the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
+    classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+- id: us.rfp.swepco
+  name: Southwestern Electric Power Company (AEP) - Energy Provider RFPs
+  parent: us.utility_rfps
+  jurisdiction: US
+  category: procurement
+  operator: Southwestern Electric Power Company (AEP)
+  url: https://www.swepco.com/business/b2b/energy-rfps/
+  access: html
+  auth: none
+  format: html (server-rendered Energy Provider RFPs page, one AEP template; per-RFP pages on the same host)
+  cadence: annual
+  # Polled daily (task brief 2026-10-21; docs/28 §8.2 asks weekly, daily while a window is open): one
+  # listing request plus the per-RFP page of each current generation item, at 0.5 rps.
+  poll: daily
+  rate_limit_rps: 0.5
+  connector_module: us_rfp
+  connector: pipeline/connectors/us_rfp (extractor aep_energy_rfps; issuer row in data/vendored/rfp_issuers/issuers.yaml)
+  license: >-
+    AEP Terms and Conditions, https://www.aep.com/terms/ (read 2026-10-21, docs/28 §5; linked from every AEP
+    operating-company footer): "AEP hereby authorizes you to copy and display the content herein, but for
+    your personal use only." "If attribution to AEP is included, limited quotations from the content are
+    hereby permitted. You may not copy or display for redistribution to third parties for commercial
+    purposes any portion of the content without the prior written permission of AEP." robots.txt: 404 on
+    all four operating-company hosts (no rule).
+  reuse: noncommercial
+  publication: derived_only
+  attribution: 'Source: SWEPCO (AEP), Energy RFPs'
+  licence_url: "https://www.aep.com/terms/"
+  # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
+  # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
+  dq_thresholds: {row_drift_warn_pct: 25.0, row_drift_hold_pct: 100.0}
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-21, result: ok, rows: 4, note: 'live run 2026-10-21 22:47 UTC (PLATFORM_POSTURE=noncommercial): 7 requests (robots.txt x2, terms, listing, 3 per-RFP pages); 4 records (2026 All-Source up to 3,000 MW due 2026-07-29, 2025 SPP Capacity, 2024 RFPs 2,100 MW, 2023 Accredited Deliverable Capacity 140 MW), all closed; 3 gas lateral / firm transportation RFPs left out as non-generation; DQ pass. Re-run 22:49: unchanged, 5 requests, no events; loaded into a study-db copy: 4 kind-rfp opportunities, issuer resolved to one curated utility organisation; served by /v1/opportunities under PLATFORM_POSTURE=noncommercial, refused by the loader and absent under commercial. The first parse read the 2026 All-Source due date as 2026-07-28, the utility''s "Self-Build Proposal Due Date" listed just before the bidders'' "Proposal Due Date: 7/29/2026"; self-build labels are no longer read as the deadline. Reparse of the stored snapshot 2026-10-22 00:31 UTC (no request): due 2026-07-29, previous output restated under the new parser (1 cod_change kept out of the feed), DQ pass; reloaded into a study-db copy: the record updated in place, the page reads due 29 Jul 2026'}
+  notes: >-
+    Curated issuer (US-303), cleared in docs/28 (verdict cleared, basis terms_permit_noncommercial). Class
+    noncommercial: published only while PLATFORM_POSTURE=noncommercial (docs/26), withheld under commercial.
+    Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
+    the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
+    classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+- id: us.rfp.indiana_michigan_power
+  name: Indiana Michigan Power (AEP) - Energy Provider RFPs
+  parent: us.utility_rfps
+  jurisdiction: US
+  category: procurement
+  operator: Indiana Michigan Power Company (AEP)
+  url: https://www.indianamichiganpower.com/business/b2b/energy-rfps/
+  access: html
+  auth: none
+  format: html (server-rendered Energy Provider RFPs page, one AEP template; per-RFP pages on the same host)
+  cadence: annual
+  # Polled daily (task brief 2026-10-21; docs/28 §8.2 asks weekly, daily while a window is open): one
+  # listing request plus the per-RFP page of each current generation item, at 0.5 rps.
+  poll: daily
+  rate_limit_rps: 0.5
+  connector_module: us_rfp
+  connector: pipeline/connectors/us_rfp (extractor aep_energy_rfps; issuer row in data/vendored/rfp_issuers/issuers.yaml)
+  license: >-
+    AEP Terms and Conditions, https://www.aep.com/terms/ (read 2026-10-21, docs/28 §5; linked from every AEP
+    operating-company footer): "AEP hereby authorizes you to copy and display the content herein, but for
+    your personal use only." "If attribution to AEP is included, limited quotations from the content are
+    hereby permitted. You may not copy or display for redistribution to third parties for commercial
+    purposes any portion of the content without the prior written permission of AEP." robots.txt: 404 on
+    all four operating-company hosts (no rule).
+  reuse: noncommercial
+  publication: derived_only
+  attribution: 'Source: Indiana Michigan Power (AEP), Energy RFPs'
+  licence_url: "https://www.aep.com/terms/"
+  # A register of two to eight items: one new RFP moves the count by 15-50 %, which is the news, not
+  # a fault. Zero rows still holds, and field_nulled / vocabulary gates still apply.
+  dq_thresholds: {row_drift_warn_pct: 25.0, row_drift_hold_pct: 100.0}
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-21, result: ok, rows: 1, note: 'live run 2026-10-21 22:47 UTC (PLATFORM_POSTURE=noncommercial): 5 requests (robots.txt x2, terms, listing, 1 per-RFP page); 1 record (2024 RFPs up to 4,000 MW; no deadline stated, so status unknown); the Rockport gas lateral RFP left out as non-generation; DQ pass. Re-run 22:49: unchanged, 3 requests, no events; loaded into a study-db copy: 1 kind-rfp opportunities, issuer resolved to one curated utility organisation; served by /v1/opportunities under PLATFORM_POSTURE=noncommercial, refused by the loader and absent under commercial'}
+  notes: >-
+    Curated issuer (US-303), cleared in docs/28 (verdict cleared, basis terms_permit_noncommercial). Class
+    noncommercial: published only while PLATFORM_POSTURE=noncommercial (docs/26), withheld under commercial.
+    Facts only (issuer, title, dates, MW, technology) with the credit line and a link back; RFP documents and
+    the AEP B2B bid register are never fetched. Gas-lateral and firm-transportation RFPs on the same page are
+    classified non-generation and left out (pipeline/connectors/us_rfp/classify.py).
+
+- id: us.rfp.ct_deep
+  name: Connecticut DEEP - energy procurements announced in DEEP news releases
+  parent: us.utility_rfps
+  jurisdiction: US-CT
+  category: procurement
+  operator: Connecticut Department of Energy and Environmental Protection
+  url: https://portal.ct.gov/deep/news-releases/news-releases---2026
+  access: html
+  auth: none
+  format: html (paged news-release index per year; release pages on the same host; RFP documents on www.dpuc.state.ct.us, linked only)
+  cadence: annual
+  # Daily: one listing page (the window since the last fetch, 7 days' overlap) plus each new release
+  # that names a generation procurement. A first run reads back 365 days. In the first 14 days of
+  # January a missing new-year listing (news-releases---<year>) is noted and the previous year's is
+  # read; after that it fails the run (extract.fetch_news, connector option new_year_grace_days).
+  poll: daily
+  rate_limit_rps: 0.5
+  connector_module: us_rfp
+  connector: pipeline/connectors/us_rfp (extractor news_release_index; issuer row in data/vendored/rfp_issuers/issuers.yaml)
+  license: >-
+    State of Connecticut Disclaimer, https://portal.ct.gov/portal/policies/disclaimer/ (read 2026-10-21, docs/28
+    §5): restricts only the state arms and seal and the CT.gov logo ("Reproduction of this material, in whole or
+    in part, without prior permission from Connecticut Office of Tourism is strictly prohibited" concerns the
+    tourism imagery); "Your use of the website is subject to all applicable terms of use including, but not
+    limited to, the State of Connecticut Disclaimer." No restriction on reuse of state information or on
+    automated access (permissive by omission). portal.ct.gov robots.txt allows /deep/; the document store
+    www.dpuc.state.ct.us answers "User-Agent: * Disallow: /" and is never fetched.
+  reuse: attribution
+  publication: derived_only
+  attribution: 'Source: Connecticut Department of Energy and Environmental Protection'
+  licence_url: "https://portal.ct.gov/portal/policies/disclaimer/"
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-21, result: ok, rows: 2, note: 'live run 2026-10-21 22:47 UTC (first run, 365-day look-back): 15 requests (robots.txt, terms with all 3 quoted clauses present, 11 listing pages back to October 2025, 2 releases); 2 records (2026 Zero Carbon RFP, issued 2026-01-30, bids due 2026-03-17 16:00 UTC, closed; Energy Storage procurement request for comment, announced); 156 releases left out (142 not solicitations, 7 awards or selections, 7 non-generation); www.dpuc.state.ct.us never requested; DQ pass. Re-run 22:49 (7-day window, 2 requests: robots.txt and listing page 1, no new release) was held for schema drift on zero parsed rows; fixed (source columns declared) and re-run 22:58: ok, 0 fetched, 2 carried forward, no events, DQ pass; loaded into a study-db copy: 2 kind-rfp opportunities, issuer resolved to one curated agency organisation'}
+  notes: >-
+    Curated issuer (US-303), cleared in docs/28 (verdict cleared, basis terms_permissive_by_omission). The
+    listing mixes every DEEP release (wildlife, parks, grants); only releases whose title names a generation
+    RFP or procurement are records. Paddlecraft-rental and concession RFPs, award and selection announcements
+    and RFIs are left out (pipeline/connectors/us_rfp/classify.py). Incremental: earlier releases are
+    carried forward.
+
+- id: us.rfp.nj_bpu
+  name: New Jersey BPU - solicitation notices in the public-notice table
+  parent: us.utility_rfps
+  jurisdiction: US-NJ
+  category: procurement
+  operator: New Jersey Board of Public Utilities
+  url: https://www.nj.gov/bpu/newsroom/public/
+  access: html
+  auth: none
+  format: html (public-notice tables by year, each row linking a notice PDF read in memory, never stored)
+  cadence: annual
+  # Daily, conditional: www.nj.gov sends ETag and Last-Modified and the connector sends them back, but on
+  # 2026-10-21 the host answered 200 to both If-None-Match and If-Modified-Since (measured twice), so an
+  # unchanged table is an `unchanged` run by its SHA-256, and the one or two candidate notice PDFs are
+  # re-read each day.
+  poll: daily
+  rate_limit_rps: 0.5
+  connector_module: us_rfp
+  connector: pipeline/connectors/us_rfp (extractor notice_table_pdf; issuer row in data/vendored/rfp_issuers/issuers.yaml)
+  license: >-
+    State of New Jersey Legal Statement & Disclaimers, https://www.nj.gov/nj/legal.shtml (read 2026-10-21, docs/28
+    §5): "The State of New Jersey has made the content of these pages available to the public and anyone may view,
+    copy or distribute State information found here without obligation to the State, unless otherwise stated on
+    particular material or information to which a restriction on free use may apply." Each notice PDF is checked
+    for a restriction notice and skipped if it carries one. www.nj.gov robots.txt does not disallow /bpu/.
+  reuse: open
+  publication: derived_only
+  attribution: 'Source: New Jersey Board of Public Utilities'
+  licence_url: "https://www.nj.gov/nj/legal.shtml"
+  # A register of zero to three solicitations (one docket each, 400 days back): a second one moves
+  # the count by 100 %, which is the news, not a fault. An empty register is allowed (the connector
+  # declares may_be_empty); a missing notice table still fails the parse.
+  dq_thresholds: {row_drift_warn_pct: 25.0, row_drift_hold_pct: 100.0}
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-21, result: ok, rows: 1, note: 'live run 2026-10-21 22:47 UTC: 4 requests (robots.txt, terms with both quoted clauses present, notice table 200 with ETag and Last-Modified, 1 notice PDF read in memory); 1 record (GSESP Phase 1 Tranche 2, docket QO25120634, window opened 2026-05-20, final applications due 11:59 p.m. ET 2026-10-05, closed); 141 notices left out (135 not solicitations, 4 older than 400 days, 1 transmission, 1 efficiency); DQ pass. Re-run 22:49: unchanged, 3 requests. Re-run 22:59 with the deadline parser fixed: due_at 2026-10-06T03:59Z (was midnight UTC on the 5th), one field_changed event; loaded into a study-db copy: 1 kind-rfp opportunities, issuer resolved to one curated agency organisation'}
+  notes: >-
+    Curated issuer (US-303), cleared in docs/28 (verdict cleared, basis terms_permit_open). Most notices are
+    hearings, stakeholder meetings and comment requests; only notices whose topic names a generation
+    solicitation (storage tranches, OREC solicitations, competitive solar) within 400 days are records, one per
+    docket. The PDF's text never leaves memory: only its date, docket, deadline and stated target MW are kept.
+    Derived-only although the terms are open, as docs/28 §10 proposes.
 
 - id: us.muni_procurement
   name: Municipal / state procurement aggregators (BidNet Direct, DemandStar, OpenGov, Periscope, state e-procurement portals)

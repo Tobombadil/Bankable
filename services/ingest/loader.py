@@ -329,6 +329,37 @@ def connector_announces_removals(registry: Registry, source_id: str) -> bool:
     return getattr(cls, "announce_removals", False) is True
 
 
+#: docs/21 §3.5 `organization.type` vocabulary.
+ORGANIZATION_TYPES = (
+    "developer",
+    "ipp",
+    "utility",
+    "coop",
+    "cca",
+    "agency",
+    "lender",
+    "investor",
+    "epc",
+    "oem",
+    "offtaker",
+    "other",
+)
+
+
+def connector_issuer_org_type(registry: Registry, source_id: str) -> str | None:
+    """The organisation type an opportunity connector's `issuer` resolves to
+    (`Connector.issuer_org_type`, set by the curated-issuer connector `pipeline/connectors/us_rfp`),
+    or None: the connector does not resolve issuers, has no class, or declares a type outside the
+    docs/21 §3.5 vocabulary. Every other opportunity source (TED, Find a Tender, World Bank,
+    grants.gov) keeps its issuer text on the link row only, as before 2026-10-21."""
+    try:
+        cls = registry.connector_class(source_id)
+    except RegistrationError:
+        return None
+    value = getattr(cls, "issuer_org_type", None)
+    return value if isinstance(value, str) and value in ORGANIZATION_TYPES else None
+
+
 def _same_key(record_key: str) -> str:
     """`Connector.project_root`'s default: every key is its own project."""
     return record_key
@@ -1451,6 +1482,9 @@ class _LoadContext:
     #: lists: a removal whose project is among them is a re-key, never announced.
     project_root: Callable[[str], str] = _same_key
     current_project_roots: frozenset[str] = frozenset()
+    #: The organisation type each row's `issuer` resolves to, or None to leave issuers unresolved
+    #: (`connector_issuer_org_type`).
+    issuer_org_type: str | None = None
     #: Per updated record, its `last_changed` and served values before this load touched it
     #: (`_stamp_last_changed`); the first sight in a load wins.
     served_before: dict[_uuid.UUID, tuple[dt.datetime | None, dict[str, Any]]] = field(default_factory=dict)
@@ -1518,6 +1552,7 @@ def _prepare_load_context(
     announce_removals: bool = False,
     register_name: str | None = None,
     project_root: Callable[[str], str] | None = None,
+    issuer_org_type: str | None = None,
 ) -> _LoadContext:
     """`load_dataframe`'s setup step (module phase map blocks 01-10)."""
     now = utcnow()
@@ -1560,6 +1595,7 @@ def _prepare_load_context(
         register_name=(register_name or "").strip() or source.operator or source.name or source.id,
         project_root=root_of,
         current_project_roots=current_roots,
+        issuer_org_type=issuer_org_type if kind == "opportunity" else None,
     )
 
 
@@ -1813,6 +1849,36 @@ def _create_entity_and_link(
     return existing_link
 
 
+def _link_issuer(session: Session, ctx: _LoadContext, link: Any, row: Mapping[str, Any]) -> None:
+    """Set an opportunity's issuer organisation from the row's `issuer` (`load_dataframe`'s
+    `issuer_org_type`). Found or created the way a proposal's sponsor is
+    (`_get_or_create_organization`: exact spelling, then punctuation-insensitive, with an alias
+    row naming this source), typed on creation, and marked a curated issuer: the name comes from
+    Inframation's own issuer registry (`data/vendored/rfp_issuers/issuers.yaml`), not from the
+    issuer's page. A record that already has an issuer, or whose `issuer_org_id` an operator
+    overrode, keeps it."""
+    entity = ctx.cache.entities.get(getattr(link, ctx.fk_name))
+    if entity is None or getattr(entity, "issuer_org_id", None) is not None:
+        return
+    if "issuer_org_id" in (entity.overrides or {}):
+        return
+    org, created = _get_or_create_organization(
+        ctx.cache,
+        session,
+        _row_get(row, "issuer"),
+        source=ctx.source,
+        source_url=str(_row_get(row, "source_url") or ctx.source.url),
+        retrieved_at=_to_datetime(_row_get(row, "retrieved_at")) or ctx.now,
+    )
+    if org is None:
+        return
+    if created:
+        org.type = ctx.issuer_org_type or "other"
+        ctx.result.organizations_created += 1
+    org.is_curated_issuer = True
+    entity.issuer_org_id = org.id
+
+
 def _upsert_records(
     session: Session,
     ctx: _LoadContext,
@@ -1837,6 +1903,8 @@ def _upsert_records(
                 _update_existing_entity(ctx, existing_link, row, fields)
             else:
                 existing_link = _create_entity_and_link(session, ctx, state, row, source_record_id, fields)
+            if ctx.issuer_org_type is not None:
+                _link_issuer(session, ctx, existing_link, row)
 
             ctx.record_id_to_internal[record_id] = getattr(existing_link, ctx.fk_name)
 
@@ -2031,6 +2099,7 @@ def load_dataframe(
     announce_removals: bool = False,
     register_name: str | None = None,
     project_root: Callable[[str], str] | None = None,
+    issuer_org_type: str | None = None,
 ) -> LoadResult:
     """Upsert one connector run's normalised records and diff events (idempotent).
 
@@ -2064,6 +2133,12 @@ def load_dataframe(
     in `records_df` under another key is a re-key: stored as `removed_from_source` with
     `after.project_root`, never announced.
 
+    `issuer_org_type` (`Connector.issuer_org_type`, read by `load_from_files` through
+    `connector_issuer_org_type`; opportunities only) resolves each row's `issuer` to an
+    organisation of that type, marked a curated issuer (docs/21 §3.5 `is_curated_issuer`, US-303),
+    and sets the record's `issuer_org_id` where it has none (`_link_issuer`). Default None: issuers
+    stay text, as for every source before 2026-10-21.
+
     An orchestrator over four steps (module phase map, docs/42 §5): `_prepare_load_context`,
     `_index_records`, `_upsert_records`, `_load_events` -- the last two sharing `_LoadContext`.
     """
@@ -2081,6 +2156,7 @@ def load_dataframe(
         announce_removals,
         register_name,
         project_root,
+        issuer_org_type,
     )
     ctx.result.kind = kind
     records, dup_naturals = _index_records(records_df)
@@ -2175,6 +2251,7 @@ def load_from_files(
         announce_removals=connector_announces_removals(registry, source_id),
         register_name=connector_register_name(registry, source_id),
         project_root=connector_project_root(registry, source_id),
+        issuer_org_type=connector_issuer_org_type(registry, source_id),
     )
     result.source_run_id = run.id
     _mark_loaded(session, source_id, ts)

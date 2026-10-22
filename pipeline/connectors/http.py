@@ -164,6 +164,16 @@ class PoliteSession:
         """Our product token, from whatever User-Agent this session actually sends."""
         return robots_token(str(self.session.headers.get("User-Agent", USER_AGENT)))
 
+    def crawl_delay(self, url: str) -> float | None:
+        """The `Crawl-delay` the host's robots.txt declares for our product token (else for `*`),
+        in seconds, or None when it declares none or has no robots.txt. A caller that honours it
+        lowers its rate limit for the host to one request per that many seconds."""
+        rp = self._robots_for(url)
+        if rp is None:
+            return None
+        delay = rp.crawl_delay(self.robots_agent)
+        return float(delay) if delay is not None else None
+
     def allowed_by_robots(self, url: str) -> bool:
         rp = self._robots_for(url)
         # `RobotFileParser.can_fetch` looks for a group naming this token (substring match,

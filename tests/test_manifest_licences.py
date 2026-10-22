@@ -275,8 +275,14 @@ def test_noncommercial_defaults_to_raw_ok_publication() -> None:
 def test_only_the_named_sources_are_noncommercial() -> None:
     """2026-09-26: the first sources reclassified into the `noncommercial` register class
     (docs/13 §6.2) — both read from the same RRC Site Policies clause, quoted there and in
-    `data/sources.yaml`. Extend this list only after the register row moves first (docs/26 §2)."""
+    `data/sources.yaml`. Extend this list only after the register row moves first (docs/26 §2).
+    2026-10-21: the four AEP operating companies' RFP pages (AEP Terms and Conditions, quoted in
+    docs/28 §5 and `data/vendored/rfp_issuers/issuers.yaml`; register rows added from docs/28 §10)."""
     assert sorted(e["id"] for e in load_manifest(MANIFEST) if e.get("reuse") == "noncommercial") == [
+        "us.rfp.appalachian_power",
+        "us.rfp.indiana_michigan_power",
+        "us.rfp.pso",
+        "us.rfp.swepco",
         "us.tx.rrc.class_vi",
         "us.tx.rrc.datasets",
     ]

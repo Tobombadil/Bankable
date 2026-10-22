@@ -1,0 +1,41 @@
+# us.rfp.*: what an issuer page says about an RFP -> opportunity lifecycle (docs/21 §7.2).
+# status_raw is the connector's reading of the page, not issuer vocabulary (the pages carry none):
+#   listed    an AEP item in the current list, not marked CLOSED
+#   closed    an AEP item whose title line says CLOSED
+#   archived  an AEP item under the page's Archive heading
+#   released  a CT DEEP news release announcing a (final) RFP or procurement
+#   pre_solicitation  a release about a draft RFP, a request for comment ahead of an RFP, a notice of proceeding
+#   notice    an NJ BPU public notice on a solicitation
+# A stated deadline decides open/closed; without one the state is unknown, never guessed.
+version: 1
+updated: 2026-10-21
+canonical_states: [unknown, announced, open, frozen, reinstated, closed, cancelled, awarded]
+sources:
+  utility_rfp:
+    field: Status
+    map:
+      listed: unknown
+      closed: closed
+      archived: closed
+      released: unknown
+      pre_solicitation: announced
+      notice: unknown
+    refine:
+      - id: utility_rfp.listed_deadline_passed
+        when: {status_raw: listed, deadline_passed: "yes"}
+        then: closed
+      - id: utility_rfp.listed_deadline_ahead
+        when: {status_raw: listed, deadline_passed: "no"}
+        then: open
+      - id: utility_rfp.released_deadline_passed
+        when: {status_raw: released, deadline_passed: "yes"}
+        then: closed
+      - id: utility_rfp.released_deadline_ahead
+        when: {status_raw: released, deadline_passed: "no"}
+        then: open
+      - id: utility_rfp.notice_deadline_passed
+        when: {status_raw: notice, deadline_passed: "yes"}
+        then: closed
+      - id: utility_rfp.notice_deadline_ahead
+        when: {status_raw: notice, deadline_passed: "no"}
+        then: open

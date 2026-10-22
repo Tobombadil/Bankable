@@ -11,6 +11,7 @@ No Postgres: the SQLite session factory, a fake `subprocess.run` and fake deferr
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import pathlib
 import subprocess
@@ -177,3 +178,59 @@ def test_a_kind_refusal_inside_the_load_job_is_logged_and_returned_not_raised(
     monkeypatch.setattr(jobs, "build_session_factory", lambda: _Factory())
     report = jobs.load_source_job("us.ferc.elibrary", TS, _load=refusing_load)
     assert report == {"source_id": "us.ferc.elibrary", "ts": TS, "skipped": "kind refused"}
+
+
+# ---------------------------------------------------------------- curated-issuer RFPs (docs/28 §8.1)
+RFP_SOURCES = [
+    "us.rfp.pso",
+    "us.rfp.appalachian_power",
+    "us.rfp.swepco",
+    "us.rfp.indiana_michigan_power",
+    "us.rfp.ct_deep",
+    "us.rfp.nj_bpu",
+]
+
+
+def test_the_daily_tick_fetches_the_six_cleared_issuers_and_no_other_tick_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Their `cadence` is annual (a solicitation a year); `poll: daily` puts them on the daily
+    tick and on no other, in every month."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+    from infra.scheduler.cadence import CRON_BY_BUCKET
+
+    def at(month: int) -> int:
+        return int(dt.datetime(2027, month, 2, 7, 37, tzinfo=dt.UTC).timestamp())
+
+    assert set(RFP_SOURCES) <= {s["id"] for s in scheduler_app.due_sources("daily", at(10))}
+    for bucket in set(CRON_BY_BUCKET) - {"daily"}:
+        for month in (1, 6, 10):
+            due = {s["id"] for s in scheduler_app.due_sources(bucket, at(month))}
+            assert not set(RFP_SOURCES) & due, (bucket, month)
+
+
+@pytest.mark.parametrize("source_id", RFP_SOURCES)
+def test_a_successful_rfp_fetch_queues_its_opportunity_load(
+    source_id: str, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """An `ok` fetch queues `load_source`, which writes the opportunity rows
+    (`services/ingest/test_loader_rfp.py`). Under the commercial posture the AEP four never get
+    that far: the scheduler runs without `--allow-restricted`, so their run is `refused`
+    (`pipeline/connectors/us_rfp/test_connector.py`)."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    assert jobs.load_kind_refusal(source_id) is None
+    factory = _Factory()
+    stdout = _ok_run(tmp_path, source_id)
+    deferred: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+    monkeypatch.setattr(
+        subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+    )
+    monkeypatch.setattr(scheduler_app, "load_source", _FakeTask("load_source", deferred))
+    monkeypatch.setattr(jobs, "build_session_factory", lambda: factory)
+
+    scheduler_app.run_connector.func(cast(Any, _Ctx()), source_id)
+
+    assert [(d[0], d[2]) for d in deferred] == [("load_source", {"source_id": source_id, "ts": TS})]
