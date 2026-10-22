@@ -113,19 +113,25 @@ class SourceEntry:
     #: data/sources.yaml `changes_statement`: the indication of modifications CC BY 4.0
     #: §3(a)(1)(B) requires, rendered after the credit.
     changes_statement: str = ""
+    #: data/sources.yaml `notice`: a statement the source's terms require on every copy, verbatim
+    #: (AEP's "Any copy you make must include this copyright notice"; the Texas state website
+    #: policy's no-endorsement statement for RRC data, docs/13 §6.4). Rendered last, after the
+    #: credit and any statement of changes. R5 pins it to the docs/13 §6 rule's `notice "X"`.
+    notice: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
     def credit_text(self) -> str | None:
         """The credit line every surface renders for this source, verbatim: the manifest's
         `attribution` (else `Source: <operator>` for an attribution-class source, else nothing),
-        followed by its `changes_statement`."""
+        followed by its `changes_statement`, then its `notice`."""
         credit = self.attribution or (
             f"Source: {self.operator or self.name}" if self.reuse in ("attribution", "noncommercial") else ""
         )
-        if not credit:
-            return None
-        return f"{credit}. {self.changes_statement}" if self.changes_statement else credit
+        text = f"{credit}. {self.changes_statement}" if credit and self.changes_statement else credit
+        if self.notice:
+            text = f"{text.rstrip('.')}. {self.notice}" if text else self.notice
+        return text or None
 
     @property
     def host(self) -> str:
@@ -196,6 +202,7 @@ class SourceEntry:
             attribution=str(e.get("attribution") or ""),
             licence_url=str(e.get("licence_url") or ""),
             changes_statement=str(e.get("changes_statement") or ""),
+            notice=str(e.get("notice") or ""),
             raw=e,
         )
         src.max_rps = _rate_limit(src, e)

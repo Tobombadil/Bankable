@@ -142,8 +142,10 @@
 {#- The licence's credit line is printed verbatim, never prefixed: it already says "Source: ..."
     where it is the generic line, and a mandated statement (NESO's "Supported by National Energy SO
     Open Data") must appear exactly as written (2026-10-06, L-2/L-10). Only the bare source name
-    takes the "Source:" label. -#}
-<p class="attribution-line">{% if record.attribution_text %}<a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text }}</a>{% else %}Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.source_name }}</a>{% endif %}{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at | display_date if record.retrieved_at else 'unknown' }}</span>.</p>
+    takes the "Source:" label. A credit that ends in a full stop (a statement of changes, or a
+    required notice such as AEP's copyright line, docs/13 §6.4) loses that one stop here, because
+    the line goes on ". Retrieved <date>." -#}
+<p class="attribution-line">{% if record.attribution_text %}<a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.attribution_text | trim('.') }}</a>{% else %}Source: <a href="{{ record.source_url }}" rel="noopener nofollow">{{ record.source_name }}</a>{% endif %}{% if record.reuse_class == 'attribution' %} (credit required by licence){% endif %}. Retrieved <span class="tnum">{{ record.retrieved_at | display_date if record.retrieved_at else 'unknown' }}</span>.</p>
 {%- endmacro %}
 
 {#- The credit line under a list or a search section (docs/31 §5.3, D-27; audit 2026-10-07 UX-4):

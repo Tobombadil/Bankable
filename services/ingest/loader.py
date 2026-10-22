@@ -573,7 +573,8 @@ def upsert_licence_and_source(session: Session, entry: SourceEntry, manifest_ver
             # posture admits the class, which is the registry gate above, not this row.
             attribution_required=entry.reuse in ("attribution", "noncommercial"),
             # The manifest's credit line, verbatim (`SourceEntry.credit_text`: `attribution` plus
-            # any `changes_statement`, else `Source: <operator>` for an attribution class).
+            # any `changes_statement` and `notice`, else `Source: <operator>` for an attribution
+            # class; 2026-10-22, `notice`: docs/13 §6.4).
             # 2026-10-06, L-2: NESO's licence ends automatically unless the exact statement
             # "Supported by National Energy SO Open Data" is shown, and the generic line was not it.
             attribution_text=entry.credit_text,

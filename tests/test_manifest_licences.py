@@ -299,6 +299,7 @@ _CREDIT_REGISTER = textwrap.dedent(
     | `t.credit` | attribution-restricted | derived-only + credit "Test ISO" | q | high |
     | `t.ccby` | open-attribution | raw-ok + credit "Doe, CC BY 4.0" and a statement of changes | q | h |
     | `t.filing` | public-domain | derived-only: credit "Source: Test Map (<filing>)" | q | high |
+    | `t.notice` | noncommercial | raw-ok; credit "Test Agency", notice "Not endorsed by the State." | q | m |
     """
 )
 
@@ -401,3 +402,56 @@ def test_an_attribution_source_must_link_its_licence_unless_pending_without_a_co
         """,
     )
     assert pending == []
+
+
+def test_a_required_notice_must_match_the_register_exactly_and_the_register_moves_first(
+    tmp_path: pathlib.Path,
+) -> None:
+    """R5, `notice "X"` (2026-10-22, docs/13 §6.4): AEP's copyright notice and the Texas state
+    policy's no-endorsement statement are required on every copy, so a missing or reworded notice
+    fails, and so does a notice the register row does not name."""
+    row = (
+        "- id: t.notice\n"
+        "  reuse: noncommercial\n"
+        "  publication: raw_ok\n"
+        "  licence_url: https://example.org/site-policies\n"
+        '  attribution: "Source: Test Agency"\n'
+    )
+    missing = _credit_check(tmp_path, row)
+    assert any(p.startswith("t.notice:") and "mandates the notice" in p for p in missing), missing
+    reworded = _credit_check(tmp_path, row + '  notice: "Not endorsed by the state."\n')
+    assert any(p.startswith("t.notice:") and "(R5)" in p for p in reworded), reworded
+    assert _credit_check(tmp_path, row + '  notice: "Not endorsed by the State."\n') == []
+    unnamed = _credit_check(
+        tmp_path,
+        """\
+        - id: t.credit
+          reuse: attribution
+          publication: derived_only
+          licence_url: https://example.org/terms
+          attribution: "Source: Test ISO"
+          notice: "Copyright Test ISO."
+        """,
+    )
+    assert any(p.startswith("t.credit:") and "register row moves first" in p for p in unnamed), unnamed
+
+
+def test_the_six_noncommercial_sources_carry_the_notices_their_terms_require() -> None:
+    """The committed rows: AEP's copyright notice on its four operating companies, the Texas
+    no-endorsement statement on both RRC sources, and the register names each one (R5 above)."""
+    by_id = {e["id"]: e for e in load_manifest(MANIFEST)}
+    register = parse_register(REGISTER)
+    aep = "Copyright 1996-2026 by American Electric Power Company, Inc., all rights reserved."
+    rrc = (
+        "Neither Inframation nor this information, as presented on Inframation, is endorsed by the State of "
+        "Texas or any state agency."
+    )
+    expected = dict.fromkeys(
+        ("us.rfp.pso", "us.rfp.appalachian_power", "us.rfp.swepco", "us.rfp.indiana_michigan_power"), aep
+    ) | dict.fromkeys(("us.tx.rrc.class_vi", "us.tx.rrc.datasets"), rrc)
+    for sid, notice in expected.items():
+        assert by_id[sid]["notice"] == notice, sid
+        assert f'notice "{notice}"' in register[sid].rule_text, sid
+        assert by_id[sid]["reuse"] == "noncommercial", sid  # the class is not changed by the notice
+    for sid in ("us.tx.rrc.class_vi", "us.tx.rrc.datasets"):
+        assert by_id[sid]["attribution"] == "Source: Railroad Commission of Texas, https://www.rrc.texas.gov"
