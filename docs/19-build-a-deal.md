@@ -598,6 +598,11 @@ an owner decision to proceed, and the privacy notice is updated.
 
 ## 9. Open questions for the owner
 
+**Answered by the owner, 2026-10-22** (decisions log): (1) counts by pillar only, no single score in v1; (2) the
+workspace is **"My deals"** in the menu and on its pages (the map layer's "Your projects" line reads "Your deals"); (3)
+invitations start as a copied private link, no email; (4) a departing collaborator's notes stay, shown as "Former
+member". Questions 5 to 7 stay open; the v1 limits in 6 stand as defaults until the owner says otherwise.
+
 1. **A readiness score in v1, or counts by pillar only?** The recommendation is counts only, until documents and a
    reviewer exist (§2.3).
 2. **What to call it.** The public nav already says "Projects", meaning everyone's projects. The private ones need
