@@ -45,6 +45,16 @@ linked proposal's served view and its visible source links and fires the five ru
 only the reference and the rule are stored (`checklist.record_suggestion`), and every suggestion
 carries the label "Suggested from public records · not verified".
 
+**One tracker of projects, bids and investments** (decision row 2026-10-23; docs/30 §11.4). Every
+item has a kind and a stage of that kind's (`services.projects.kinds`). The list is sorted by next
+deadline, soonest first, then by the most recent change; `TrackerColumns` reads its two live columns:
+the next deadline, the `due_at` of a linked RFP or funding notice through the gated serialiser (a
+project also takes its open bids' deadlines), and "changed since your last visit", from the public
+change events on the linked records that the viewer's tier may see, newer than the member's last
+visit. Opening an item (`GET /v1/my/projects/{project_id}`) stamps that visit. "Track" from a
+record (`from`) makes a bid from an RFP or funding notice, a project or an investment from a
+project page, and a project from a site, a plant or a grid connection point (`kinds.TRACK_KINDS`).
+
 **Handed to lane P4:** `export_user_data` (docs/19 §5.5) is the body of `GET /v1/my/export`; the
 route around it (session, headers, download, the daily limit) is here.
 """
@@ -65,7 +75,7 @@ from fastapi import APIRouter, Body, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -93,6 +103,7 @@ from services.api.serialize import (
     build_licence_summary,
     build_meta,
     licence_summary_row,
+    provenance_quartet,
     provenance_row,
     serialize_asset,
     serialize_opportunity,
@@ -102,7 +113,9 @@ from services.api.serialize import (
 from services.api.sites import served_site, site_url
 from services.api.visibility import (
     GatedRecord,
+    asset_event_visibility_filter,
     asset_visibility_filter,
+    event_visibility_filter,
     gated_record,
     interconnection_point_visible,
     opportunity_visibility_filter,
@@ -113,6 +126,7 @@ from services.api.visibility import (
 from services.api.withheld_names import withheld_names
 from services.db.models import (
     Asset,
+    Event,
     InterconnectionPoint,
     Opportunity,
     Proposal,
@@ -122,6 +136,7 @@ from services.db.models import (
     User,
 )
 from services.projects import authz, checklist, invitations
+from services.projects import kinds as item_kinds
 from services.projects import models as pm
 from services.sites.switch import sites_enabled
 
@@ -184,13 +199,16 @@ FEDERAL_RECORD_SOURCES: Final = frozenset(
     }
 )
 
-#: docs/19 §1: the relations a deal may be started with, per starting record, default first.
+#: docs/19 §1: the relations a deal may be started with, per starting record, default first. A site
+#: is a candidate site for the project tracked from it. An investment is in the project itself.
 START_RELATIONS: Final[Mapping[str, tuple[str, ...]]] = {
     "proposal": ("this_project", "nearby"),
+    "site": ("candidate_site", "nearby"),
     "asset": ("grid_connection",),
     "opportunity": ("offtake_or_rfp", "funding"),
     "interconnection_point": ("grid_connection",),
 }
+INVESTMENT_RELATIONS: Final = ("this_project",)
 #: A proposal's lifecycle as a suggested stage (docs/19 §1 "a suggested stage"), for `this_project`.
 STAGE_FROM_LIFECYCLE: Final[Mapping[str, str]] = {
     "unknown": "prospecting",
@@ -219,9 +237,12 @@ OPPORTUNITY_TECHNOLOGY_MAP: Final[Mapping[str, str]] = {
     "gas": "gas_other",
     "transmission": "transmission",
 }
-#: The project fields a body may set; `point_precision` is derived (a pin moved by hand is `user`;
-#: a prefilled point keeps its record's grade), never taken from a body.
+#: The item fields a body may set; `point_precision` is derived (a pin moved by hand is `user`; a
+#: prefilled point keeps its record's grade), never taken from a body. `kind` is taken at creation
+#: only (an edit naming it is refused with the reason).
 BODY_FIELDS: Final = tuple(name for name in pm.PROJECT_FIELDS if name != "point_precision")
+#: The member's own preference, which an edit body may also carry (any role may set their own).
+MEMBER_FIELDS: Final = ("email_changes",)
 PREFILL_POINT_PRECISIONS: Final = frozenset({"exact", "county_centroid", "state_centroid"})
 _STATE_CHANGING: Final = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _SAFE_KEY = re.compile(r"[a-z][a-z0-9_.]{0,47}")
@@ -397,7 +418,8 @@ def _quartet(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _project_url(public_id: str) -> str:
-    return f"{WEB_HOST}/my/projects/{public_id}"
+    """An item's private page (docs/30 §11.10: `/my/items/{id}`)."""
+    return f"{WEB_HOST}/my/items/{public_id}"
 
 
 def _progress_json(done: int, total: int) -> dict[str, Any]:
@@ -783,6 +805,9 @@ class Prefill:
     values: dict[str, object]
     left_blank: tuple[str, ...]
     resolution: Resolution
+    #: The kind of item it makes, and the kinds this record may make (`kinds.TRACK_KINDS`).
+    kind: str = "project"
+    kinds: tuple[str, ...] = ("project",)
 
     @property
     def default_relation(self) -> str:
@@ -824,7 +849,9 @@ def _offer(values: dict[str, object], blank: list[str], name: str, value: object
         blank.append(name)
 
 
-def _proposal_prefill(db: Session, view: Any, relation: str) -> tuple[dict[str, object], list[str]]:
+def _proposal_prefill(
+    db: Session, view: Any, relation: str, kind: str = "project"
+) -> tuple[dict[str, object], list[str]]:
     supply = _Supply(db, view)
     values: dict[str, object] = {}
     blank: list[str] = []
@@ -833,7 +860,7 @@ def _proposal_prefill(db: Session, view: Any, relation: str) -> tuple[dict[str, 
     _offer(values, blank, "technology", technology, supply.copyable("technology"))
     _offer(values, blank, "capacity_mw", _float(view.capacity_mw), supply.copyable("capacity_mw"))
     _offer(values, blank, "storage_mwh", _float(view.storage_mwh), supply.copyable("storage_mwh"))
-    if relation == "this_project":
+    if relation == "this_project" and kind == "project":
         stage = STAGE_FROM_LIFECYCLE.get(view.lifecycle_state)
         _offer(values, blank, "stage", stage, supply.copyable("lifecycle_state"))
     location = view.location
@@ -882,6 +909,18 @@ def _asset_prefill(asset: Asset) -> tuple[dict[str, object], list[str]]:
     return values, blank
 
 
+def _site_prefill(db: Session, served: Any, entitlement: str) -> tuple[dict[str, object], list[str]]:
+    """A project at a site: its title from the lead record's name and its map point, each under the
+    licence rule; the lead's own technology and capacity are not the user's project's."""
+    lead = gated_record(served.lead.proposal, entitlement)
+    values, blank = _proposal_prefill(db, lead, "nearby")
+    out = {key: value for key, value in values.items() if key in ("lat", "lon", "point_precision")}
+    left = [name for name in blank if name in ("title", "lat", "lon")]
+    if "title" in values:
+        out["title"] = _fit_title(f"Project at {values['title']}")
+    return out, left
+
+
 def _point_prefill(point: InterconnectionPoint) -> tuple[dict[str, object], list[str]]:
     values: dict[str, object] = {}
     blank: list[str] = []
@@ -900,49 +939,80 @@ def _startable(resolution: Resolution) -> bool:
         return record.status in OPEN_OPPORTUNITY_STATUSES
     if resolution.record_type == "asset":
         return bool(record.asset_type == "power_plant" and record.status in STARTABLE_ASSET_STATUSES)
-    return resolution.record_type == "interconnection_point"
+    return resolution.record_type in ("interconnection_point", "site")
 
 
-def _start_relations(resolution: Resolution) -> tuple[str, ...]:
+def _start_relations(resolution: Resolution, kind: str = "project") -> tuple[str, ...]:
     relations = START_RELATIONS[resolution.record_type]
+    if resolution.record_type == "proposal" and kind == "investment":
+        return INVESTMENT_RELATIONS
     if resolution.record_type == "opportunity" and resolution.record.kind in FUNDING_KINDS:
         return ("funding", "offtake_or_rfp")
     return relations
 
 
+def _track_kind(record_type: str, kind: object) -> str:
+    """The kind of item "Track" makes from `record_type` (`kinds.TRACK_KINDS`): the one asked for,
+    when that record may make it, else the record's default."""
+    offered = item_kinds.TRACK_KINDS[record_type]
+    if kind is None:
+        return offered[0]
+    if kind not in offered:
+        raise _invalid("kind", f"tracking this record makes a {' or a '.join(offered)}")
+    return str(kind)
+
+
 def build_prefill(
-    db: Session, record_type: object, public_id: object, relation: object, entitlement: str
+    db: Session,
+    record_type: object,
+    public_id: object,
+    relation: object,
+    entitlement: str,
+    kind: object = None,
 ) -> Prefill:
     """The starting record read live (refused with a `400` when the viewer cannot see it or docs/19
-    §1 does not offer "Start a deal" on it) and the fields it may prefill."""
+    §1 does not offer "Track" on it), the kind of item it makes and the fields it may prefill."""
     if not isinstance(record_type, str) or record_type not in START_RELATIONS:
         raise _invalid(
-            "from.record_type", "a deal starts from a proposal, asset, opportunity or interconnection point"
+            "from.record_type",
+            "an item is tracked from a proposal, site, asset, opportunity or interconnection point",
         )
     if not isinstance(public_id, str) or not pm.is_record_public_id(record_type, public_id):
         raise _invalid("from.public_id", "public_id is not an id of that record type")
+    chosen = _track_kind(record_type, kind)
     resolution = resolve_reference(db, record_type, public_id, entitlement)
     if not resolution.visible:
         raise _invalid("from.public_id", "no such record is visible")
     if not _startable(resolution):
-        raise _invalid("from.public_id", "Start a deal is not offered on this record")
-    relations = _start_relations(resolution)
+        raise _invalid("from.public_id", "Track is not offered on this record")
+    relations = _start_relations(resolution, chosen)
     if relation is None:
         relation = relations[0]
     if relation not in relations:
         raise _invalid("from.relation", "relation is one of " + ", ".join(relations))
     record = resolution.record
     if record_type == "proposal":
-        values, blank = _proposal_prefill(db, record, str(relation))
+        values, blank = _proposal_prefill(db, record, str(relation), chosen)
     elif record_type == "opportunity":
         values, blank = _opportunity_prefill(db, record)
     elif record_type == "asset":
         values, blank = _asset_prefill(record)
+    elif record_type == "site":
+        values, blank = _site_prefill(db, record, entitlement)
     else:
         values, blank = _point_prefill(record)
     ordered = (str(relation), *(r for r in relations if r != relation))
     live_id = resolution.survivor_public_id or public_id
-    return Prefill(record_type, live_id, ordered, values, tuple(dict.fromkeys(blank)), resolution)
+    return Prefill(
+        record_type,
+        live_id,
+        ordered,
+        values,
+        tuple(dict.fromkeys(blank)),
+        resolution,
+        kind=chosen,
+        kinds=item_kinds.TRACK_KINDS[record_type],
+    )
 
 
 def _prefill_json(prefill: Prefill, *, applied: Iterable[str] | None = None) -> dict[str, Any]:
@@ -950,6 +1020,8 @@ def _prefill_json(prefill: Prefill, *, applied: Iterable[str] | None = None) -> 
     shown = [name for name in applied_names if name != "point_precision"]
     return {
         "from": {"record_type": prefill.record_type, "public_id": prefill.public_id},
+        "kind": prefill.kind,
+        "kinds": list(prefill.kinds),
         "relation": prefill.default_relation,
         "relations": list(prefill.relations),
         "fields": [name for name in pm.PROJECT_FIELDS if name in shown],
@@ -1150,6 +1222,366 @@ def _readiness_json(rows: Sequence[checklist.PillarReadiness]) -> list[dict[str,
     ]
 
 
+# ================================================================== the tracker's live columns
+#: Event types that state a change of status: the lifecycle, a listing, a plant's retirement.
+STATUS_EVENT_TYPES: Final = frozenset(
+    {
+        "status_change",
+        "delisted",
+        "retirement_planned",
+        "retirement_date_changed",
+        "retirement_cancelled",
+        "retired",
+        "returned_to_service",
+    }
+)
+STATUS_KEYS: Final = frozenset({"lifecycle_state", "status"})
+DEADLINE_KEYS: Final = frozenset({"due_at"})
+#: What a change says, by reason; a row with several shows the first of `CHANGE_PRIORITY`.
+CHANGE_TEXT: Final[Mapping[str, str]] = {
+    "deadline": "Deadline moved",
+    "status": "Status changed",
+    "updated": "Record updated",
+}
+CHANGE_PRIORITY: Final = ("deadline", "status", "updated")
+#: The public records whose change history the tracker reads (each has `event` rows of its own).
+EVENT_RECORD_TYPES: Final = ("proposal", "opportunity", "asset")
+
+
+def _instant(value: object) -> dt.datetime | None:
+    """A served `due_at` as a UTC instant. The gated serialiser serves the stored column, or, when
+    it re-derives the value from the readable sources' rows, the date or timestamp text they state."""
+    if isinstance(value, dt.datetime):
+        return pm.as_utc(value)
+    if isinstance(value, dt.date):
+        return dt.datetime(value.year, value.month, value.day, tzinfo=dt.UTC)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = dt.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return pm.as_utc(parsed)
+    return None
+
+
+def change_reason(event: Event) -> str:
+    """`deadline` when the record's due date changed, `status` when its stated status did (or a
+    listing or retirement event), else `updated`."""
+    keys = set(event.changed_keys or [])
+    if keys & DEADLINE_KEYS:
+        return "deadline"
+    if event.event_type in STATUS_EVENT_TYPES or keys & STATUS_KEYS:
+        return "status"
+    return "updated"
+
+
+@dataclass(frozen=True)
+class LiveRecord:
+    """A linked public record as the viewer sees it now (a merged id followed to its survivor).
+    `due_at` is the gated serialiser's value (`gated_record`), for an RFP or funding notice."""
+
+    record_type: str
+    public_id: str
+    row_id: _uuid.UUID
+    name: str | None
+    url: str
+    due_at: dt.datetime | None = None
+
+
+@dataclass(frozen=True)
+class Change:
+    """One public change event on a linked record, visible to the viewer, since their last visit."""
+
+    record: LiveRecord
+    reason: str
+    at: dt.datetime
+    event: Event = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class Deadline:
+    """An item's next deadline: the soonest upcoming `due_at` of a linked notice, its own or, for a
+    project, one of its open bids' (`via`)."""
+
+    due_at: dt.datetime
+    record: LiveRecord
+    via: authz.ProjectAccess | None = field(default=None, compare=False)
+
+
+class TrackerColumns:
+    """The two live columns of the tracker, next deadline and "changed since your last visit", for
+    many items at once: the items' links in one query, their linked proposals, notices and plants in
+    one query per type (merged ids followed one by one), and the visible change events in one query
+    per history. Every record is read through its own visibility predicate at the viewer's tier, and
+    every event through the predicate the public feeds use, so nothing here is more than the public
+    pages show the same viewer.
+
+    A deadline counts when it is today or later and the item is not closed (`kinds.CLOSED_STAGES`).
+    A project also takes the soonest deadline of the open, unarchived bids attached to it that are
+    among `accesses` (bids the viewer is a member of). A change counts when the event became visible to
+    the viewer's tier after the member last opened the item, or joined it before any visit."""
+
+    def __init__(
+        self,
+        db: Session,
+        entitlement: str,
+        accesses: Sequence[authz.ProjectAccess],
+        *,
+        now: dt.datetime | None = None,
+    ) -> None:
+        self._db = db
+        self._entitlement = entitlement
+        self._now = now or pm.utcnow()
+        self._accesses = list(accesses)
+        project_ids = authz.granted_project_ids(self._accesses)
+        self._links: dict[_uuid.UUID, list[pm.PrivateProjectLink]] = {pid: [] for pid in project_ids}
+        if project_ids:
+            rows = db.execute(
+                select(pm.PrivateProjectLink)
+                .where(pm.PrivateProjectLink.project_id.in_(project_ids))
+                .order_by(pm.PrivateProjectLink.created_at, pm.PrivateProjectLink.id)
+            ).scalars()
+            for link in rows:
+                self._links[link.project_id].append(link)
+        self._records = self._read_records()
+        self._events = self._read_events()
+        self._own: dict[_uuid.UUID, Deadline | None] = {}
+
+    # -- reading
+    def _refs(self, record_type: str) -> list[str]:
+        return sorted(
+            {
+                link.record_public_id
+                for links in self._links.values()
+                for link in links
+                if link.record_type == record_type and link.record_public_id
+            }
+        )
+
+    def _read_records(self) -> dict[tuple[str, str], LiveRecord | None]:
+        db, entitlement = self._db, self._entitlement
+        out: dict[tuple[str, str], LiveRecord | None] = {}
+        if wanted := self._refs("proposal"):
+            props = db.scalars(
+                select(Proposal)
+                .where(Proposal.public_id.in_(wanted), *proposal_visibility_filter(entitlement))
+                .options(selectinload(Proposal.sources))
+            ).all()
+            found = {row.public_id: row for row in props}
+            for public_id in wanted:
+                prop = found.get(public_id) or merged_survivor(
+                    db, Proposal, public_id, proposal_visibility_filter, entitlement
+                )
+                out[("proposal", public_id)] = self._proposal(prop) if isinstance(prop, Proposal) else None
+        if wanted := self._refs("opportunity"):
+            opps = db.scalars(
+                select(Opportunity)
+                .where(Opportunity.public_id.in_(wanted), *opportunity_visibility_filter(entitlement))
+                .options(selectinload(Opportunity.sources))
+            ).all()
+            found_opps = {row.public_id: row for row in opps}
+            for public_id in wanted:
+                opp = found_opps.get(public_id) or merged_survivor(
+                    db, Opportunity, public_id, opportunity_visibility_filter, entitlement
+                )
+                out[("opportunity", public_id)] = (
+                    self._opportunity(opp) if isinstance(opp, Opportunity) else None
+                )
+        if wanted := self._refs("asset"):
+            # Asset pages read the public tier for every caller; so does this.
+            assets = {
+                row.public_id: row
+                for row in db.scalars(
+                    select(Asset).where(Asset.public_id.in_(wanted), *asset_visibility_filter())
+                ).all()
+            }
+            for public_id in wanted:
+                asset = assets.get(public_id)
+                out[("asset", public_id)] = (
+                    LiveRecord(
+                        "asset", asset.public_id, asset.id, asset.name, f"{WEB_HOST}/assets/{asset.slug}"
+                    )
+                    if asset is not None
+                    else None
+                )
+        return out
+
+    def _proposal(self, prop: Proposal) -> LiveRecord:
+        view = gated_record(prop, self._entitlement)
+        return LiveRecord(
+            "proposal", prop.public_id, prop.id, view.name_canonical, f"{WEB_HOST}/proposals/{prop.slug}"
+        )
+
+    def _opportunity(self, opp: Opportunity) -> LiveRecord:
+        view = gated_record(opp, self._entitlement)
+        return LiveRecord(
+            "opportunity",
+            opp.public_id,
+            opp.id,
+            view.title,
+            f"{WEB_HOST}/opportunities/{opp.slug}",
+            _instant(view.due_at),
+        )
+
+    def _read_events(self) -> dict[_uuid.UUID, list[tuple[Event, dt.datetime]]]:
+        """Visible change events on the linked records, newer than the oldest reference time."""
+        references = [self.reference(access) for access in self._accesses]
+        out: dict[_uuid.UUID, list[tuple[Event, dt.datetime]]] = {}
+        if not references:
+            return out
+        since = min(references)
+        public = self._entitlement == "public"
+        shown = Event.public_at if public else Event.published_at
+        records = [record for record in self._records.values() if record is not None]
+        for history, record_types in (("record", ("proposal", "opportunity")), ("asset", ("asset",))):
+            row_ids = sorted({r.row_id for r in records if r.record_type in record_types}, key=str)
+            if not row_ids:
+                continue
+            visible = (
+                event_visibility_filter(self._entitlement, self._now)
+                if history == "record"
+                else asset_event_visibility_filter("public", self._now)
+            )
+            shown_column = shown if history == "record" else Event.public_at
+            rows = self._db.execute(
+                select(Event, shown_column)
+                .where(Event.subject_id.in_(row_ids), *visible, shown_column > since)
+                .order_by(shown_column.desc(), Event.seq.desc())
+            ).all()
+            for event, at in rows:
+                if at is not None:
+                    out.setdefault(event.subject_id, []).append((event, pm.as_utc(at)))
+        return out
+
+    # -- per item
+    def reference(self, access: authz.ProjectAccess) -> dt.datetime:
+        """What "since your last visit" counts from: the member's last visit, or when they joined."""
+        member = access.member
+        return pm.as_utc(member.last_viewed_at or member.added_at)
+
+    def live(self, link: pm.PrivateProjectLink) -> LiveRecord | None:
+        if link.record_public_id is None:
+            return None
+        return self._records.get((link.record_type, link.record_public_id))
+
+    def _linked(self, access: authz.ProjectAccess) -> list[LiveRecord]:
+        seen: dict[tuple[str, str], LiveRecord] = {}
+        for link in self._links.get(access.project.id, []):
+            record = self.live(link)
+            if record is not None:
+                seen.setdefault((record.record_type, record.public_id), record)
+        return list(seen.values())
+
+    def own_deadline(self, access: authz.ProjectAccess) -> Deadline | None:
+        project = access.project
+        if project.id in self._own:
+            return self._own[project.id]
+        best: Deadline | None = None
+        if not item_kinds.is_closed(project.kind, project.stage):
+            for record in self._linked(access):
+                due = record.due_at
+                if due is None or due.date() < self._now.date():
+                    continue
+                if best is None or due < best.due_at:
+                    best = Deadline(due, record)
+        self._own[project.id] = best
+        return best
+
+    def next_deadline(self, access: authz.ProjectAccess) -> Deadline | None:
+        best = self.own_deadline(access)
+        project = access.project
+        if project.kind != "project":
+            return best
+        for other in self._accesses:
+            bid = other.project
+            # An archived bid is off the tracker, so its deadline is not the project's: the list
+            # and the project's own page agree whichever bids they were handed.
+            if bid.kind != "bid" or bid.parent_project_id != project.id or bid.archived_at is not None:
+                continue
+            through = self.own_deadline(other)
+            if through is not None and (best is None or through.due_at < best.due_at):
+                best = Deadline(through.due_at, through.record, via=other)
+        return best
+
+    def changes(self, access: authz.ProjectAccess) -> list[Change]:
+        """Newest first, at most one entry per event."""
+        since = self.reference(access)
+        out: list[Change] = []
+        for record in self._linked(access):
+            for event, at in self._events.get(record.row_id, []):
+                if at > since:
+                    out.append(Change(record, change_reason(event), at, event))
+        out.sort(key=lambda change: (change.at, change.event.seq), reverse=True)
+        return out
+
+
+def _deadline_json(deadline: Deadline | None, now: dt.datetime) -> dict[str, Any] | None:
+    if deadline is None:
+        return None
+    via = deadline.via
+    return {
+        "due_at": iso(deadline.due_at),
+        "days_left": (deadline.due_at.date() - now.date()).days,
+        "record": {
+            "record_type": deadline.record.record_type,
+            "public_id": deadline.record.public_id,
+            "name": deadline.record.name,
+            "url": deadline.record.url,
+        },
+        "via_bid": (
+            {
+                "public_id": via.project.public_id,
+                "title": via.project.title,
+                "url": _project_url(via.project.public_id),
+            }
+            if via is not None
+            else None
+        ),
+    }
+
+
+def _changed_json(changes: Sequence[Change]) -> dict[str, Any]:
+    """The list's badge: whether anything changed, the reason that asks most of the user, and how
+    many changes of that reason."""
+    if not changes:
+        return {"changed": False, "reason": None, "text": None, "count": 0, "at": None}
+    reasons = {change.reason for change in changes}
+    reason = next(r for r in CHANGE_PRIORITY if r in reasons)
+    count = sum(1 for change in changes if change.reason == reason)
+    latest = max(change.at for change in changes if change.reason == reason)
+    return {"changed": True, "reason": reason, "text": CHANGE_TEXT[reason], "count": count, "at": iso(latest)}
+
+
+def _change_json(change: Change) -> dict[str, Any]:
+    event = change.event
+    source = (
+        _quartet(
+            provenance_quartet(
+                event.source,
+                event.licence,
+                source_url=event.source_url or event.source.url,
+                retrieved_at=event.retrieved_at or event.observed_at,
+            )
+        )
+        if event.source is not None and event.licence is not None
+        else None
+    )
+    return {
+        "record": {
+            "record_type": change.record.record_type,
+            "public_id": change.record.public_id,
+            "name": change.record.name,
+            "url": change.record.url,
+        },
+        "reason": change.reason,
+        "text": CHANGE_TEXT[change.reason],
+        "event_type": event.event_type,
+        "changed_keys": list(event.changed_keys or []),
+        "at": iso(change.at),
+        "source": source,
+    }
+
+
 # ============================================================================== serialisers
 def _project_core(access: authz.ProjectAccess) -> dict[str, Any]:
     project = access.project
@@ -1157,20 +1589,53 @@ def _project_core(access: authz.ProjectAccess) -> dict[str, Any]:
         "public_id": project.public_id,
         "url": _project_url(project.public_id),
         "title": project.title,
+        "kind": project.kind,
+        "kind_label": item_kinds.KIND_LABELS[project.kind],
         "technology": project.technology,
         "capacity_mw": _float(project.capacity_mw),
         "storage_mwh": _float(project.storage_mwh),
         "stage": project.stage,
+        "stage_label": item_kinds.STAGE_LABELS[project.stage],
+        "closed": item_kinds.is_closed(project.kind, project.stage),
+        "submitted_on": project.submitted_on.isoformat() if project.submitted_on else None,
         "role": access.role,
         "archived": project.archived_at is not None,
         "updated_at": _when(project.updated_at),
     }
 
 
-def _project_detail(
-    db: Session, access: authz.ProjectAccess, ctx: AuthContext
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _stages_json(kind: str) -> list[dict[str, Any]]:
+    return [
+        {"stage": stage, "label": item_kinds.STAGE_LABELS[stage], "closed": item_kinds.is_closed(kind, stage)}
+        for stage in item_kinds.KIND_STAGES[kind]
+    ]
+
+
+def _item_ref(access: authz.ProjectAccess) -> dict[str, Any]:
     project = access.project
+    return {
+        "public_id": project.public_id,
+        "url": _project_url(project.public_id),
+        "title": project.title,
+        "kind": project.kind,
+        "stage": project.stage,
+        "stage_label": item_kinds.STAGE_LABELS[project.stage],
+        "archived": project.archived_at is not None,
+    }
+
+
+def _project_detail(
+    db: Session, access: authz.ProjectAccess, ctx: AuthContext, *, now: dt.datetime | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The item read live. Its next deadline and its changes since the viewer's last visit are read
+    as the tracker reads them (`TrackerColumns`); a project's bids are those the viewer is a member
+    of, and a bid's project is named only to a viewer who is a member of it too."""
+    project = access.project
+    now = now or pm.utcnow()
+    parent = authz.readable_parent(db, access) if project.kind == "bid" else None
+    bids = authz.readable_bids(db, access) if project.kind == "project" else []
+    columns = TrackerColumns(db, ctx.entitlement, [access, *bids], now=now)
+    changes = columns.changes(access)
     resolved = _resolve_all(db, _project_links(db, access), ctx.entitlement)
     items = checklist.project_items(db, access)
     evidenced = _evidenced_items(items, live_firings(resolved, ctx.entitlement), _evidence_states(db, access))
@@ -1199,6 +1664,17 @@ def _project_detail(
         "readiness": _readiness_json(readiness),
         "progress": _progress_json(completeness.done, completeness.total),
         "status_disclaimer": checklist.STATUS_DISCLAIMER,
+        "stages": _stages_json(project.kind),
+        "parent": _item_ref(parent) if parent is not None else None,
+        "bids": [
+            {**_item_ref(bid), "next_deadline": _deadline_json(columns.own_deadline(bid), now)}
+            for bid in bids
+        ],
+        "next_deadline": _deadline_json(columns.next_deadline(access), now),
+        "changed_since_last_visit": _changed_json(changes),
+        "changes": [_change_json(change) for change in changes],
+        "last_viewed_at": _when(access.member.last_viewed_at),
+        "email_changes": access.member.email_changes,
     }
     rows = [row for _link, resolution in resolved for row in resolution.licence_rows]
     return data, rows
@@ -1310,13 +1786,39 @@ _User = Annotated[User, Depends(signed_in_user)]
 _Body = Annotated[dict[str, Any], Body()]
 
 
+def _kinds_param(request: Request) -> list[str] | None:
+    raw = request.query_params.get("kind")
+    if raw is None:
+        return None
+    wanted = [part.strip() for part in raw.split(",")]
+    if not all(part in item_kinds.ITEM_KINDS for part in wanted):
+        raise _invalid("kind", "kind is one or more of " + ", ".join(item_kinds.ITEM_KINDS))
+    return wanted
+
+
+def _tracker_order(row: Mapping[str, Any]) -> tuple[int, str, float]:
+    """Next deadline soonest first; then, and for items without one, the most recent change first."""
+    deadline = row["next_deadline"]
+    updated = dt.datetime.fromisoformat(str(row["updated_at"]).replace("Z", "+00:00")).timestamp()
+    if deadline is None:
+        return (1, "", -updated)
+    return (0, str(deadline["due_at"]), -updated)
+
+
 @router.get("/v1/my/projects")
 def list_my_projects(request: Request, db: _Db, ctx: _Ctx, user: _User) -> Any:
-    check_allowed(request, {"include_archived"})
+    """The tracker: every item the caller owns or was invited to, with its kind, stage, next
+    deadline and what changed on its linked records since their last visit; `kind` narrows it."""
+    check_allowed(request, {"include_archived", "kind"})
     raw = request.query_params.get("include_archived", "false")
     if raw not in ("true", "false"):
         raise _invalid("include_archived", "include_archived is true or false")
-    accesses = authz.member_projects(db, ctx, include_archived=raw == "true")
+    wanted = _kinds_param(request)
+    now = pm.utcnow()
+    # Every item is read, whatever the filter: a project's deadline can come from its bids.
+    every = authz.member_projects(db, ctx, include_archived=raw == "true")
+    accesses = [a for a in every if wanted is None or a.project.kind in wanted]
+    columns = TrackerColumns(db, ctx.entitlement, every, now=now)
     counts = authz.member_counts(db, accesses)
     progress = checklist.progress_by_project(db, accesses)
     data = []
@@ -1329,9 +1831,36 @@ def list_my_projects(request: Request, db: _Db, ctx: _Ctx, user: _User) -> Any:
                 "member_count": members,
                 "shared": members > 1,
                 "progress": _progress_json(done.done, done.total),
+                "next_deadline": _deadline_json(columns.next_deadline(access), now),
+                "changed_since_last_visit": _changed_json(columns.changes(access)),
             }
         )
+    data.sort(key=_tracker_order)
     return _envelope(ctx, data)
+
+
+@router.get("/v1/my/kinds")
+def list_my_kinds(request: Request, user: _User) -> Any:
+    """The tracker's vocabulary for the pages: each kind with its stages, and which kinds "Track"
+    makes from each kind of public record."""
+    check_allowed(request, set())
+    data = {
+        "kinds": [
+            {
+                "kind": kind,
+                "label": item_kinds.KIND_LABELS[kind],
+                "plural": item_kinds.KIND_PLURALS[kind],
+                "description": item_kinds.KIND_DESCRIPTIONS[kind],
+                "default_stage": item_kinds.DEFAULT_STAGES[kind],
+                "stages": _stages_json(kind),
+            }
+            for kind in item_kinds.ITEM_KINDS
+        ],
+        "track": {record_type: list(made) for record_type, made in item_kinds.TRACK_KINDS.items()},
+        "technologies": list(pm.PROJECT_TECHNOLOGIES),
+        "relations": list(pm.LINK_RELATIONS),
+    }
+    return build_envelope(data, meta=build_meta(tier="public"), licence_summary=build_licence_summary([]))
 
 
 def _fields_from_body(body: Mapping[str, Any]) -> dict[str, object]:
@@ -1341,7 +1870,8 @@ def _fields_from_body(body: Mapping[str, Any]) -> dict[str, object]:
 @router.post("/v1/my/projects", status_code=201)
 def create_my_project(db: _Db, ctx: _Ctx, user: _User, body: _Body) -> Any:
     """Blank, or from a public record (`from`): fields the body leaves out are prefilled from that
-    record under the licence rule; fields it gives (`null` included) are the user's own."""
+    record under the licence rule; fields it gives (`null` included) are the user's own. From a
+    record, `kind` defaults to what tracking that record makes (`kinds.TRACK_KINDS`)."""
     _only(body, (*BODY_FIELDS, "from"))
     fields = _fields_from_body(body)
     origin = body.get("from")
@@ -1352,8 +1882,14 @@ def create_my_project(db: _Db, ctx: _Ctx, user: _User, body: _Body) -> Any:
             raise _invalid("from", "from is an object: record_type, public_id and relation")
         _only(origin, ("record_type", "public_id", "relation"), prefix="from.")
         prefill = build_prefill(
-            db, origin.get("record_type"), origin.get("public_id"), origin.get("relation"), ctx.entitlement
+            db,
+            origin.get("record_type"),
+            origin.get("public_id"),
+            origin.get("relation"),
+            ctx.entitlement,
+            kind=fields.get("kind"),
         )
+        fields["kind"] = prefill.kind
         point_given = "lat" in fields or "lon" in fields
         for name, value in prefill.values.items():
             if name in fields or (point_given and name in ("lat", "lon", "point_precision")):
@@ -1378,11 +1914,16 @@ def create_my_project(db: _Db, ctx: _Ctx, user: _User, body: _Body) -> Any:
 
 @router.post("/v1/my/prefill")
 def preview_prefill(db: _Db, ctx: _Ctx, user: _User, body: _Body) -> Any:
-    """What "Start a deal" would prefill from a record, for the form (docs/19 §6.2), without
-    creating anything. A POST so the record id travels in the body, not the URL."""
-    _only(body, ("record_type", "public_id", "relation"))
+    """What "Track" would prefill from a record, for the form (docs/19 §6.2), without creating
+    anything. A POST so the record id travels in the body, not the URL."""
+    _only(body, ("record_type", "public_id", "relation", "kind"))
     prefill = build_prefill(
-        db, body.get("record_type"), body.get("public_id"), body.get("relation"), ctx.entitlement
+        db,
+        body.get("record_type"),
+        body.get("public_id"),
+        body.get("relation"),
+        ctx.entitlement,
+        kind=body.get("kind"),
     )
     data = {
         **_prefill_json(prefill),
@@ -1394,20 +1935,26 @@ def preview_prefill(db: _Db, ctx: _Ctx, user: _User, body: _Body) -> Any:
 
 @router.get("/v1/my/projects/{project_id}")
 def get_my_project(request: Request, db: _Db, ctx: _Ctx, access: _ProjectRead) -> Any:
+    """Opening an item: its changes are those since the caller's last visit, and this request then
+    becomes that visit (`authz.mark_viewed`)."""
     check_allowed(request, set())
-    data, rows = _project_detail(db, access, ctx)
+    now = pm.utcnow()
+    data, rows = _project_detail(db, access, ctx, now=now)
+    authz.mark_viewed(db, access, now=now)
     return _envelope(ctx, data, rows)
 
 
 @router.patch("/v1/my/projects/{project_id}")
 def update_my_project(db: _Db, ctx: _Ctx, access: _ProjectRead, body: _Body) -> Any:
-    """Fields (editor) and `archived` (owner). Unarchiving runs first and archiving last, so one
-    request can do both with an edit."""
-    _only(body, (*BODY_FIELDS, "archived"))
+    """Fields (editor), `archived` (owner) and the caller's own `email_changes` (any member).
+    Unarchiving runs first and archiving last, so one request can do both with an edit."""
+    _only(body, (*BODY_FIELDS, *MEMBER_FIELDS, "archived"))
     archived = body.get("archived")
     if "archived" in body and not isinstance(archived, bool):
         raise _invalid("archived", "archived is true or false")
     fields = _fields_from_body(body)
+    if "email_changes" in body:
+        authz.set_email_changes(db, access, body["email_changes"])
     if archived is False:
         authz.set_archived(db, access, False)
     if fields:

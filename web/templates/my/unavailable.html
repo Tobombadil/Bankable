@@ -1,0 +1,9 @@
+{% extends "my/_layout.html" %}
+{% block my_title %}Unavailable{% endblock %}
+{% block content %}
+<div class="error-state" role="alert">
+  <h1>Temporarily unavailable</h1>
+  <p>Your tracker could not be read just now. Nothing was changed. Try again in a moment.</p>
+  <p><a href="/my">Try again</a></p>
+</div>
+{% endblock %}

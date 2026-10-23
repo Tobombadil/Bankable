@@ -1,0 +1,30 @@
+{#- "Track this" (docs/30 §11.4; replaces docs/19 §6.2's "Start a deal"): a private tracker item from
+    this record. Shown only to a signed-in visitor while My pipeline is switched on
+    (`web/my_projects.py::track_offer`), and the same whether or not anyone tracks the record: no
+    count, no "already tracked", nothing private on a public page. The record travels in the form's
+    body, never in a URL. The including page sets `track_type`. -#}
+{%- set track = track_offer(request, track_type, record) if track_offer is defined else none %}
+{%- if track %}
+{#- The block's own rules, loaded only where the block shows (a same-origin stylesheet; no inline style). -#}
+<link rel="stylesheet" href="/static/css/my.css?v={{ my_css_version }}">
+<section class="track-block" aria-labelledby="track-heading">
+  <h2 id="track-heading" class="track-block__title">Track this</h2>
+  <p>Add it to your private tracker: its deadline and changes follow the public record.</p>
+  <form class="track-block__form" method="post" action="/my/items/new">
+    <input type="hidden" name="record_type" value="{{ track.record_type }}">
+    <input type="hidden" name="public_id" value="{{ track.public_id }}">
+    {%- if track.choices | length > 1 %}
+    <fieldset class="track-block__choices">
+      <legend class="visually-hidden">Track it as</legend>
+      {%- for kind, label in track.choices %}
+      <label for="track-{{ kind }}"><input id="track-{{ kind }}" type="radio" name="kind" value="{{ kind }}"{% if loop.first %} checked{% endif %}> {{ label }}</label>
+      {%- endfor %}
+    </fieldset>
+    {%- else %}
+    <input type="hidden" name="kind" value="{{ track.choices[0][0] }}">
+    {%- endif %}
+    <button type="submit" class="track-block__button">Track</button>
+  </form>
+  <p class="track-block__note">Only you, and the people you invite, can see it. <a href="/my">Your tracker</a></p>
+</section>
+{%- endif %}

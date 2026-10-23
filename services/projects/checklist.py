@@ -7,6 +7,12 @@ site, sponsor. The public repository carries structure and generic item names on
 private content pack in the same schema, loaded at deploy by `services.projects.load_checklist`
 into `checklist_template_item`; until one is loaded, the generic names are what users see.
 
+**Each kind of tracker item has its pack** (`services.projects.kinds.KIND_PACKS`; decision row
+2026-10-23). Projects and investments get the bankability pack (the loaded private pack, else the
+generic one). Bids get the bid pack, `data/checklist/bid-v1.yaml`: eight steps of responding to an
+RFP or a funding call, in the same schema. A private pack cannot replace it (its keys must be
+bankability keys, `validate_pack`), and its version name is reserved like the generic one's.
+
 **Statuses are the user's own statement:** not started, in progress, done, not applicable. There
 is no `verified` status and no certified label. Readiness is **counts by pillar only** ("N of M
 items done (your status) · K with suggested public-record evidence"): no single score, because a
@@ -34,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from services.api.errors import ProblemError
 from services.projects.authz import ProjectAccess, granted_project_ids, project_not_found, require_action
+from services.projects.kinds import KIND_PACKS
 from services.projects.models import (
     CHECKLIST_FOLDERS,
     EVIDENCE_RULES,
@@ -57,6 +64,10 @@ CHECKLIST_DIR = REPO_ROOT / "data" / "checklist"
 GENERIC_PACK_PATH = CHECKLIST_DIR / "generic-v1.yaml"
 PACK_SCHEMA_PATH = CHECKLIST_DIR / "pack.schema.json"
 GENERIC_PACK_VERSION: Final = "generic-v1"
+BID_PACK_PATH = CHECKLIST_DIR / "bid-v1.yaml"
+BID_PACK_VERSION: Final = "bid-v1"
+#: The public packs' version names, which no private pack may take.
+PUBLIC_PACK_VERSIONS: Final = frozenset({GENERIC_PACK_VERSION, BID_PACK_VERSION})
 PACK_SCHEMA_ID: Final = "inframation.checklist-pack/1"
 
 #: docs/19 §2.3: v1 items carry pillar tags by folder; a content pack may override them per item.
@@ -189,8 +200,8 @@ def validate_pack(document: object, *, generic: ChecklistPack | None = None) -> 
             )
         )
     if generic is not None:
-        if document["pack_version"] == GENERIC_PACK_VERSION:
-            raise PackError(f"pack_version {GENERIC_PACK_VERSION} is reserved for the public generic pack")
+        if document["pack_version"] in PUBLIC_PACK_VERSIONS:
+            raise PackError(f"pack_version {document['pack_version']} is reserved for a public pack")
         folders = {item.key: item.folder for item in generic.items}
         for index, item in enumerate(items):
             if item.key not in folders:
@@ -200,21 +211,35 @@ def validate_pack(document: object, *, generic: ChecklistPack | None = None) -> 
     return ChecklistPack(pack_version=document["pack_version"], items=tuple(items))
 
 
-@functools.cache
-def generic_pack() -> ChecklistPack:
-    """`data/checklist/generic-v1.yaml`, validated. It carries no guidance (the public repository
-    holds names only) and every item's pillar follows its folder."""
-    document = yaml.safe_load(GENERIC_PACK_PATH.read_text(encoding="utf-8"))
+def _public_pack(path: pathlib.Path, version: str) -> ChecklistPack:
+    """A pack committed to this repository, validated: names only, no guidance (the public
+    repository holds structure and generic names), and every item's pillar follows its folder."""
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
     pack = validate_pack(document)
-    if pack.pack_version != GENERIC_PACK_VERSION:
-        raise PackError(f"{GENERIC_PACK_PATH.name} must be pack_version {GENERIC_PACK_VERSION}")
+    if pack.pack_version != version:
+        raise PackError(f"{path.name} must be pack_version {version}")
     for index, item in enumerate(pack.items):
         if item.guidance is not None:
-            raise PackError(
-                f"the generic pack carries guidance at items/{index}; that belongs in a private pack"
-            )
+            raise PackError(f"{path.name} carries guidance at items/{index}; that belongs in a private pack")
         if item.pillar != FOLDER_PILLARS[item.folder]:
-            raise PackError(f"the generic pack's pillar at items/{index} does not follow its folder")
+            raise PackError(f"{path.name}'s pillar at items/{index} does not follow its folder")
+    return pack
+
+
+@functools.cache
+def generic_pack() -> ChecklistPack:
+    """`data/checklist/generic-v1.yaml`: the bankability pack's public names."""
+    return _public_pack(GENERIC_PACK_PATH, GENERIC_PACK_VERSION)
+
+
+@functools.cache
+def bid_pack() -> ChecklistPack:
+    """`data/checklist/bid-v1.yaml`: a bid's eight steps. Its keys share none with the bankability
+    pack's, so no private pack can match one."""
+    pack = _public_pack(BID_PACK_PATH, BID_PACK_VERSION)
+    shared = pack.keys() & generic_pack().keys()
+    if shared:
+        raise PackError(f"{BID_PACK_PATH.name} reuses bankability keys: {', '.join(sorted(shared))}")
     return pack
 
 
@@ -229,7 +254,8 @@ def loaded_pack_version(db: Session) -> str | None:
 
 
 def active_pack(db: Session) -> ChecklistPack:
-    """The pack new projects get: the loaded private pack, else the generic names."""
+    """The bankability pack new projects and investments get: the loaded private pack, else the
+    generic names."""
     version = loaded_pack_version(db)
     if version is None:
         return generic_pack()
@@ -268,14 +294,19 @@ def guidance_for(db: Session, keys: Iterable[str]) -> dict[str, str]:
     return {key: guidance for key, guidance in rows if guidance}
 
 
+def pack_for_kind(db: Session, kind: str) -> ChecklistPack:
+    """The pack an item of `kind` is created with (`kinds.KIND_PACKS`)."""
+    return bid_pack() if KIND_PACKS[kind] == "bid" else active_pack(db)
+
+
 # ---------------------------------------------------------------------------- a project's items
 def instantiate_items(
     db: Session, project: PrivateProject, *, now: dt.datetime | None = None
 ) -> list[PrivateProjectItem]:
-    """The project's checklist, copied from the active pack when the project is created: names,
-    folders and pillars become the project's own rows; guidance is read live, never copied."""
+    """The item's checklist, copied from its kind's pack when the item is created: names, folders
+    and pillars become the item's own rows; guidance is read live, never copied."""
     now = now or utcnow()
-    pack = active_pack(db)
+    pack = pack_for_kind(db, project.kind)
     rows = [
         PrivateProjectItem(
             project_id=project.id,

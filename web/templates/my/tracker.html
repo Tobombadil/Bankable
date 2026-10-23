@@ -1,0 +1,80 @@
+{% extends "my/_layout.html" %}
+{% block my_title %}Tracker{% endblock %}
+{% block content %}
+<nav class="breadcrumbs my-breadcrumbs" aria-label="Breadcrumb">My pipeline / Tracker</nav>
+<div class="my-head">
+  <h1>{{ 'Archived items' if archived else 'Tracker' }}</h1>
+  <a class="button-link my-head__action" href="/my/items/new">Add an item</a>
+</div>
+<p class="my-private">Private: only you, and the people you invite to an item, can see it. Nothing here feeds public pages, counts, alerts or analytics.</p>
+
+{%- if done %}
+<p class="notice" role="status">{{ done }}</p>
+{%- endif %}
+
+{%- if total %}
+<nav class="my-filter" aria-label="Show">
+  <a href="/my{{ '?archived=1' if archived }}"{% if not wanted %} aria-current="page"{% endif %}>All <span class="tnum">{{ total }}</span></a>
+  {%- for kind, label in (("project", "Projects"), ("bid", "Bids"), ("investment", "Investments")) %}
+  <a href="/my?type={{ kind }}{{ '&amp;archived=1' if archived }}"{% if wanted == kind %} aria-current="page"{% endif %}>{{ label }} <span class="tnum">{{ counts[kind] }}</span></a>
+  {%- endfor %}
+  <span class="my-filter__note">Only you see these counts.</span>
+</nav>
+
+{%- if rows %}
+<table class="tracker">
+  <caption class="visually-hidden">Your items, the next deadline first</caption>
+  <thead>
+    <tr>
+      <th scope="col">Type</th>
+      <th scope="col">Item</th>
+      <th scope="col">Stage</th>
+      <th scope="col">Next deadline</th>
+      <th scope="col">Changed since your visit</th>
+      <th scope="col">Checklist</th>
+    </tr>
+  </thead>
+  <tbody>
+    {%- for row in rows %}
+    <tr class="tracker__row">
+      <td class="tracker__type"><span class="my-kind my-kind--{{ row.kind }}">{{ row.kind_label }}</span><span class="tracker__stage-inline"> &middot; {{ row.stage_label }}</span></td>
+      <th scope="row" class="tracker__item"><a href="{{ row.href }}">{{ row.title }}</a>{% if row.shared %} <span class="my-shared">Shared</span>{% endif %}{% if row.archived %} <span class="my-shared">Archived</span>{% endif %}</th>
+      <td class="tracker__stage">{{ row.stage_label }}</td>
+      <td class="tracker__deadline">
+        {%- if row.deadline -%}
+        <span class="tracker__label">Due </span><time datetime="{{ row.deadline.iso }}">{{ row.deadline.date }}</time> &middot; {{ row.deadline.when }}{% if row.deadline.via_bid %}<span class="tracker__via">, via its bid</span>{% endif %}
+        {%- else -%}
+        <span class="tracker__none">No deadline</span>
+        {%- endif -%}
+      </td>
+      <td class="tracker__changed">
+        {%- if row.changed -%}
+        <span class="my-changed my-changed--{{ row.changed.reason }}">{{ row.changed.text }}{% if row.changed.date %}, {{ row.changed.date }}{% endif %}</span>
+        {%- else -%}
+        <span class="tracker__none">No change since your visit</span>
+        {%- endif -%}
+      </td>
+      <td class="tracker__checklist"><span class="tracker__label">Checklist </span><span class="tnum">{{ row.checklist }}</span></td>
+    </tr>
+    {%- endfor %}
+  </tbody>
+</table>
+<p class="my-footnote">Items with a deadline come first, the soonest at the top; undated items follow, the most recently changed first. A deadline is read live from the linked RFP or funding notice, so a date the issuer moves moves here.</p>
+{%- else %}
+<p class="my-empty">No {{ {'project': 'projects', 'bid': 'bids', 'investment': 'investments'}[wanted] }} here yet. <a href="/my{{ '?archived=1' if archived }}">Show all</a>.</p>
+{%- endif %}
+{%- elif archived %}
+<p class="my-empty">No archived items.</p>
+{%- else %}
+<div class="my-empty">
+  <h2>Nothing tracked yet</h2>
+  <p>Track a project, an RFP or a funding notice from its page, or add one here. Its deadline and its changes follow the public record, and only you see it.</p>
+  <ul class="my-empty__links">
+    <li><a href="/">Find projects on the map</a></li>
+    <li><a href="/site-finder">Find a site with power nearby</a></li>
+    <li><a href="/opportunities">See open RFPs</a></li>
+  </ul>
+</div>
+{%- endif %}
+<p class="my-footnote">{% if archived %}<a href="/my">Back to the tracker</a>{% else %}<a href="/my?archived=1">Archived items</a>{% endif %}</p>
+{% endblock %}

@@ -1,0 +1,11 @@
+{#- The one 404 of My pipeline: an unknown page, an item that is not yours and a switched-off workspace
+    all read the same (docs/19 §5.1). -#}
+{% extends "my/_layout.html" %}
+{% block my_title %}Not found{% endblock %}
+{% block content %}
+<div class="error-state" role="alert">
+  <h1>Not found</h1>
+  <p>This page does not exist, or it is not one you can see.</p>
+  <p><a href="/">Return to the map</a></p>
+</div>
+{% endblock %}

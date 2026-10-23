@@ -1,0 +1,24 @@
+{% extends "my/_layout.html" %}
+{% block my_title %}Invitation{% endblock %}
+{% block content %}
+<nav class="breadcrumbs my-breadcrumbs" aria-label="Breadcrumb">My pipeline / Invitation</nav>
+<div class="my-head"><h1>Invitation</h1></div>
+{%- if signed_out %}
+<p>Sign in, or create an account, with the address the invitation was sent to. Then this page shows who invited you, and to what.</p>
+<p><a class="button-link" href="{{ login_href }}">Sign in</a> <a class="button-link button-link--secondary" href="{{ register_href }}">Create an account</a></p>
+{%- elif preview %}
+<p>{{ preview.inviter_name or 'The owner' }} invited you to <strong>{{ preview.project.title }}</strong> as {{ 'an editor' if preview.role == 'editor' else 'a viewer' }}.</p>
+<p class="my-muted">It is private: only its members can see it. The invitation expires {{ preview.expires_at | display_date }}.</p>
+<form class="my-inline-form" method="post" action="/my/invitations/accept">
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="form-actions"><button type="submit">Accept</button></div>
+</form>
+<p><a href="/my">Decline</a></p>
+{%- else %}
+<div class="notice notice--error" role="alert">
+  <p class="notice__title">{{ problem.title if problem else 'This invitation is not valid for this account' }}</p>
+  {%- if problem and problem.detail %}<p>{{ problem.detail }}</p>{% endif %}
+</div>
+<p><a href="/my">Go to your tracker</a></p>
+{%- endif %}
+{% endblock %}

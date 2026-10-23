@@ -438,15 +438,90 @@ def with_built_href(path: str, qp: Mapping[str, str]) -> str:
     return path + "?" + urlencode(kept)
 
 
+#: The RFPs & funding page's own default (lane rfp-view, 2026-10-23): open and announced notices
+#: together, so the page is not blank on the many days no utility RFP is open (on 2026-10-23 the
+#: store held 16 utility RFPs: 14 closed, 1 announced, 1 unknown). The API's own default stays
+#: `open` (`services/api/records.py`); the page spells its default out on every call, and the feed
+#: and the alert a reader saves from the page carry it too (`web/feeds.py`, `web/alerts.py`), so
+#: they watch what the page shows.
+OPPORTUNITY_PAGE_DEFAULT_STATUSES: tuple[str, ...] = ("open", "announced")
+OPPORTUNITY_PAGE_DEFAULT_STATUS = ",".join(OPPORTUNITY_PAGE_DEFAULT_STATUSES)
+
+
+def _csv_set(value: str | None) -> set[str]:
+    return {token.strip() for token in (value or "").split(",") if token.strip()}
+
+
 def opportunity_status_param(qp: Mapping[str, str]) -> str:
-    """`status=all` means "every status" -- the API itself only knows a literal CSV list (it
-    defaults to `open` if the parameter is absent), so the web layer expands `all` to the full
-    vocabulary rather than passing the literal word through.
+    """The `status` csv the page asks the API for. No `status` (or an empty one) is the page's
+    default, `open,announced`; `status=all` means "every status" -- the API itself only knows a
+    literal CSV list, so the web layer expands `all` to the full vocabulary rather than passing the
+    literal word through. Anything else goes through as written.
     """
-    value = qp.get("status", "open")
+    value = (qp.get("status") or "").strip()
+    if not value:
+        return OPPORTUNITY_PAGE_DEFAULT_STATUS
     if value == "all":
         return ",".join(ALL_OPPORTUNITY_STATUSES)
     return value
+
+
+def opportunity_status_chosen(qp: Mapping[str, str]) -> bool:
+    """Whether the reader chose a status. The default set named in any order (`announced,open`,
+    which the Status select submits when the reader leaves it alone) is the default, not a choice,
+    as `resolve_proposal_lifecycle_param` treats the proposal list's default set."""
+    return _csv_set(qp.get("status")) not in (set(), set(OPPORTUNITY_PAGE_DEFAULT_STATUSES))
+
+
+def opportunity_status_form_value(qp: Mapping[str, str]) -> str:
+    """The Status select's value: the default option while the reader has not chosen a status."""
+    return (
+        (qp.get("status") or "").strip() if opportunity_status_chosen(qp) else OPPORTUNITY_PAGE_DEFAULT_STATUS
+    )
+
+
+def opportunity_status_phrase(qp: Mapping[str, str]) -> str:
+    """The standfirst's words for the statuses in view: "Open and announced" by default, "Closed"
+    for `status=closed`, "All" for `status=all`, labels joined otherwise."""
+    if not opportunity_status_chosen(qp):
+        return "Open and announced"
+    value = (qp.get("status") or "").strip()
+    if value == "all":
+        return "All"
+    words = [str(lifecycle_label(token.strip())) for token in value.split(",") if token.strip()]
+    if not words:
+        return "All"
+    text = words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+    return text[:1].upper() + text[1:].lower()
+
+
+#: "Recently closed (last 12 months)" under the RFPs & funding list (lane rfp-view): closed notices
+#: whose deadline fell in the last 365 days, newest first, at most ten, shown only while the reader
+#: has not chosen a status. It never mixes into the main list.
+RECENTLY_CLOSED_DAYS = 365
+RECENTLY_CLOSED_LIMIT = 10
+
+
+def recently_closed_window(now: dt.datetime | None = None) -> tuple[str, str]:
+    """`(due_at[from], due_at[to])` for the section: the instant 365 days back, and now (UTC, to
+    the second). A deadline later than now is not "closed in the last 12 months", whatever the
+    source says, so it stays out."""
+    end = (now or dt.datetime.now(dt.UTC)).astimezone(dt.UTC).replace(microsecond=0)
+    start = end - dt.timedelta(days=RECENTLY_CLOSED_DAYS)
+    return start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def announced_opens_on(status: Any, open_at: Any, today: dt.date | None = None) -> str | None:
+    """The opening date an announced notice states, when it is still ahead (ISO date), else None.
+    An announced notice is not open: the list marks it "Not open yet" beside its chip, with this
+    date when there is one (lane rfp-view)."""
+    if status != "announced" or not open_at:
+        return None
+    try:
+        day = dt.date.fromisoformat(str(open_at)[:10])
+    except ValueError:
+        return None
+    return day.isoformat() if day >= (today or dt.datetime.now(dt.UTC).date()) else None
 
 
 #: The credit line under the company index and the search page's Companies section (UX-4): an
@@ -1204,6 +1279,8 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
     value_fields = opportunity_value_fields(entity)
     return {
         "deadline_passed": deadline_passed(entity.get("status"), entity.get("due_at")),
+        # The list's "Not open yet" note on an announced notice, with the opening date it states.
+        "announced_opens_on": announced_opens_on(entity.get("status"), entity.get("open_at")),
         "public_id": entity["public_id"],
         "slug": entity["slug"],
         "title": entity["title"],

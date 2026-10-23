@@ -80,8 +80,10 @@ from web.unlisted import listed_param, unlisted_notice, unlisted_query_items, un
 from web.viewmodels import (
     ACTIVE_PROPOSAL_STATES,
     ALL_PROPOSAL_LIFECYCLE_STATES,
+    OPPORTUNITY_PAGE_DEFAULT_STATUS,
     ORG_CREDITS_NOTE,
     PROPOSAL_SOURCE_LABELS,
+    RECENTLY_CLOSED_LIMIT,
     WITHDRAWN_PROPOSAL_STATES,
     WORLD_BBOX,
     absence_note,
@@ -98,7 +100,10 @@ from web.viewmodels import (
     map_labels_json,
     no_status_chosen,
     opportunity_kind_label,
+    opportunity_status_chosen,
+    opportunity_status_form_value,
     opportunity_status_param,
+    opportunity_status_phrase,
     page_credits,
     proposal_field_rows,
     proposal_fields_json,
@@ -106,6 +111,7 @@ from web.viewmodels import (
     proposal_sources_phrase,
     proposal_status_choices,
     provenance_panel_rows,
+    recently_closed_window,
     relativize_geo_feature_urls,
     resolve_proposal_lifecycle_param,
     source_freshness,
@@ -262,6 +268,12 @@ app.include_router(prices_router)
 from web.site_finder import router as site_finder_router  # noqa: E402
 
 app.include_router(site_finder_router)
+
+# My pipeline, the Tracker (decision rows 2026-10-23; docs/19 §6.2; docs/30 §11.4-§11.5): `/my`,
+# `/my/items/...` and the Track block's global (`track_offer`), all off until `MY_PIPELINE=on`.
+from web.my_projects import router as my_projects_router  # noqa: E402
+
+app.include_router(my_projects_router)
 
 from web.coverage_statement import uncovered_iso_notes  # noqa: E402
 
@@ -1057,11 +1069,64 @@ def _relevance_switch(qp: QueryParams, relevance: str, totals: Mapping[str, int 
     }
 
 
+def _closed_list_href(qp: QueryParams) -> str:
+    """The full closed list for this view (lane rfp-view): the reader's filters and scope with
+    `status=closed`, newest deadline first, without the page cursor."""
+    kept = [(k, v) for k, v in qp.multi_items() if k not in ("status", "sort", "cursor") and v != ""]
+    return "/opportunities?" + urlencode([*kept, ("status", "closed"), ("sort", "-due_at")])
+
+
+#: The reader's filters the "Recently closed" section leaves out: the deadline window is its own.
+_RECENTLY_CLOSED_OWN = ("status", "sort", "cursor", "include", "due_at[from]", "due_at[to]")
+
+
+def _recently_closed(
+    api: ApiClient, params: Mapping[str, str | None], qp: QueryParams
+) -> dict[str, Any] | None:
+    """The section "Recently closed (last 12 months)" under the list (lane rfp-view): closed notices
+    in this view's scope and filters whose deadline fell in the last 365 days, newest first, at most
+    `RECENTLY_CLOSED_LIMIT`, with the count and a link to the full closed list. One more list call.
+    `None` when there are none, or when the API cannot say: the section is extra, so a failure leaves
+    the page as it was rather than failing it. A row the API answers with any other status is
+    dropped, so the section can never show an open notice as closed or the reverse."""
+    start, end = recently_closed_window()
+    query: dict[str, Any] = {
+        k: v for k, v in params.items() if k not in _RECENTLY_CLOSED_OWN and v is not None
+    }
+    query.update(
+        {
+            "status": "closed",
+            "due_at[from]": start,
+            "due_at[to]": end,
+            "sort": "-due_at",
+            "limit": RECENTLY_CLOSED_LIMIT,
+            "include": "count",
+        }
+    )
+    try:
+        envelope = api.get("/v1/opportunities", params=query)
+    except (ApiError, httpx.HTTPError):
+        return None
+    rows = [flatten_opportunity(e) for e in envelope.get("data") or [] if e.get("status") == "closed"]
+    if not rows:
+        return None
+    total = (envelope.get("meta") or {}).get("total")
+    return {
+        "records": rows,
+        "total": total if isinstance(total, int) and total >= len(rows) else len(rows),
+        "href": _closed_list_href(qp),
+        # The registers behind these rows, from the rows themselves: the envelope's summary would
+        # also credit the ECB for a converted value the compact rows do not print.
+        "credits": page_credits(rows),
+    }
+
+
 @app.get("/opportunities", response_class=HTMLResponse)
 def opportunities_list(request: Request) -> HTMLResponse:
     api = get_api(request)
     qp = request.query_params
     status_param = opportunity_status_param(qp)
+    status_chosen = opportunity_status_chosen(qp)
     relevance = opportunity_relevance(qp)
     sort = valid_sort(qp.get("sort"), OPPORTUNITY_COLUMNS, "due_at", OPPORTUNITY_OTHER)
     params: dict[str, str | None] = {
@@ -1097,14 +1162,21 @@ def opportunities_list(request: Request) -> HTMLResponse:
         if not records and not qp.get("cursor")
         else []
     )
+    # Lane rfp-view: while the reader has not chosen a status, the first page ends with the closed
+    # notices of the last 12 months, in a section of their own (`_recently_closed`).
+    recently_closed = (
+        _recently_closed(api, params, qp) if not status_chosen and not qp.get("cursor") else None
+    )
     # The all-notices view is not a duplicate of the energy view, so it is its own canonical URL; an
-    # explicit `relevance=energy` (or any other value) is the default page and names no scope. `sort`
-    # is kept as on /proposals and /assets: a cursor only means something under its order.
+    # explicit `relevance=energy` (or any other value) is the default page and names no scope, and so
+    # is the default status named in the URL (`status=open,announced`, what the Status select
+    # submits untouched). `sort` is kept as on /proposals and /assets: a cursor only means something
+    # under its order.
     canonical_path = "/opportunities" + canonical_query(
         qp,
         (
             *OPPORTUNITY_PASSTHROUGH_FILTERS,
-            "status",
+            *(("status",) if status_chosen else ()),
             *(("relevance",) if relevance == OPPORTUNITY_RELEVANCE_ALL else ()),
             "sort",
             "cursor",
@@ -1137,7 +1209,15 @@ def opportunities_list(request: Request) -> HTMLResponse:
         "statuses": [v["value"] for v in vocab["opportunity_status"]],
         # The opportunity vocabulary, not the proposal one: `solar` matches no tagged notice.
         "technologies": [v["value"] for v in vocab.get("opportunity_technology", [])],
-        "filters": {**dict(qp), "status": qp.get("status", "open")},
+        "filters": {**dict(qp), "status": opportunity_status_form_value(qp)},
+        # Lane rfp-view: the page's default status, whether the reader chose another, the words the
+        # standfirst uses for it, the recently closed section and the empty state's way on.
+        "status_default": OPPORTUNITY_PAGE_DEFAULT_STATUS,
+        "status_chosen": status_chosen,
+        "status_phrase": opportunity_status_phrase(qp),
+        "recently_closed": recently_closed,
+        "closed_href": _closed_list_href(qp),
+        "reader_filters": any(qp.get(name) for name in OPPORTUNITY_PASSTHROUGH_FILTERS),
         "empty_facets": empty_facets,
         "canonical_path": canonical_path,
         "jsonld": [

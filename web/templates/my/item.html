@@ -1,0 +1,45 @@
+{#- One tracker item and its URL tabs (docs/30 §11.5, T-1 to T-9): one header on every tab, then a tab
+    bar of plain links with `aria-current`, then the tab's one job. Documents arrives with data rooms
+    (docs/19 §3). -#}
+{% extends "my/_layout.html" %}
+{% block my_title %}{{ item.kind_label }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs my-breadcrumbs" aria-label="Breadcrumb"><a href="/my">My pipeline</a> / <a href="/my">Tracker</a> / {{ item.title }}</nav>
+<div class="my-head my-head--item">
+  <h1>{{ item.title }}</h1>
+  <span class="my-kind my-kind--{{ item.kind }}">{{ item.kind_label }}</span>
+  <span class="my-stage">Stage: {{ item.stage_label }}</span>
+  {%- if item.archived %} <span class="my-shared">Archived</span>{% endif %}
+</div>
+<p class="my-private">Private: only you{% if item.member_count > 1 %} and the {{ item.member_count - 1 }} other {{ 'member' if item.member_count == 2 else 'members' }} of this item{% endif %} can see it. Nothing here feeds public pages or counts.</p>
+
+{%- if done %}
+<p class="notice" role="status">{{ done }}</p>
+{%- endif %}
+{%- if error %}
+<div class="notice notice--error" role="alert">
+  <p class="notice__title">{{ error.title }}</p>
+  {%- if error.detail %}<p>{{ error.detail }}</p>{% endif %}
+  {%- if error.request_id %}<p class="notice__ref">Reference <code class="tnum">{{ error.request_id }}</code></p>{% endif %}
+</div>
+{%- endif %}
+
+<nav class="section-tabs my-tabs" aria-label="{{ item.kind_label }} sections">
+  <ul>
+    {%- for key, label, href in tabs %}
+    <li><a href="{{ href }}"{% if key == tab %} aria-current="page"{% endif %}>{{ label }}
+      {%- if key == 'linked' %} <span class="tnum">{{ item.links | length }}</span>
+      {%- elif key == 'checklist' %} <span class="tnum">{{ item.progress.done }} of {{ item.progress.total }}</span>
+      {%- elif key == 'people' %} <span class="tnum">{{ item.member_count }}</span>
+      {%- endif %}</a></li>
+    {%- endfor %}
+  </ul>
+</nav>
+
+{%- if tab == 'overview' %}{% include "my/_overview.html" %}
+{%- elif tab == 'linked' %}{% include "my/_linked.html" %}
+{%- elif tab == 'checklist' %}{% include "my/_checklist.html" %}
+{%- elif tab == 'notes' %}{% include "my/_notes.html" %}
+{%- elif tab == 'people' %}{% include "my/_people.html" %}
+{%- endif %}
+{% endblock %}

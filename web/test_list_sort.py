@@ -415,10 +415,11 @@ def _kind_probes(fake: FakeTransport) -> list[dict[str, Any]]:
 
 def test_the_kind_filter_offers_only_kinds_with_notices(client: TestClient, fake: FakeTransport) -> None:
     assert _kind_options(client.get("/opportunities").text) == ["", "tender"]
-    # One one-row probe per kind, in the page's own scope (energy, open), the kind replaced.
+    # One one-row probe per kind, in the page's own scope (energy, open and announced), the kind
+    # replaced.
     probes = _kind_probes(fake)
     assert sorted(p["kind"] for p in probes) == ["foa", "rfp", "tender"]
-    assert all(p["relevance"] == "energy" and p["status"] == "open" for p in probes)
+    assert all(p["relevance"] == "energy" and p["status"] == "open,announced" for p in probes)
     # The kind in force stays offered, so the reader can see what is selected.
     assert _kind_options(client.get("/opportunities?kind=rfp").text) == ["", "rfp", "tender"]
     # An htmx filter change swaps only the rows, so it asks nothing for a select it does not draw.

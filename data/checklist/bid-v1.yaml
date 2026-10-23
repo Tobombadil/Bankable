@@ -1,0 +1,24 @@
+# The bid checklist (decision row 2026-10-23, "My pipeline is one central tracker"; docs/19 §2.3 as
+# amended; schema data/checklist/pack.schema.json, the same as the bankability pack's).
+#
+# A bid (a response to an RFP or a funding call) gets these eight items instead of the 32-item
+# bankability pack, which projects and investments keep. Structure and generic item names only:
+# the steps any utility RFP or public solicitation asks of a respondent, in the order a bid
+# usually meets them. No guidance text lives here (the same rule as generic-v1.yaml).
+#
+# Folders and pillars follow the bankability pack's rule (pillar by folder): Finance -> fundamentals;
+# Security -> fundamentals; Permits -> regulatory and site; Legal & Corporate -> sponsor. Keys start
+# with `bid_` so they can never meet a bankability key, and they are stable: bids store them.
+# Statuses are the members' own statement; nothing here is ever "verified".
+schema: inframation.checklist-pack/1
+pack_version: bid-v1
+description: Generic bid checklist. Eight steps of responding to an RFP or a funding call, no guidance.
+items:
+  - {key: bid_registration, folder: legal_corporate, pillar: sponsor, name: Notice of intent or registration, sort_order: 10}
+  - {key: bid_fee, folder: finance, pillar: fundamentals, name: Bid fee or deposit, sort_order: 20}
+  - {key: bid_site_control, folder: permits, pillar: regulatory_site, name: Site control evidence, sort_order: 30}
+  - {key: bid_interconnection, folder: permits, pillar: regulatory_site, name: Interconnection status, sort_order: 40}
+  - {key: bid_pricing, folder: finance, pillar: fundamentals, name: Pricing, sort_order: 50}
+  - {key: bid_credit_support, folder: security, pillar: fundamentals, name: Credit support, sort_order: 60}
+  - {key: bid_forms, folder: legal_corporate, pillar: sponsor, name: Required forms, sort_order: 70}
+  - {key: bid_submission, folder: legal_corporate, pillar: sponsor, name: Submission confirmation, sort_order: 80}

@@ -370,6 +370,7 @@ def test_activity_keys_accept_what_the_core_writes(db: Session, make_user: UserF
         "role": "editor",
         "from_role": "viewer",
         "to_role": "editor",
+        "kind": "bid",
         "record_type": "proposal",
         "record_public_id": "prop_0000000001",
         "origin_type": "corridor",

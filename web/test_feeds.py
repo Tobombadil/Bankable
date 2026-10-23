@@ -112,7 +112,8 @@ def test_map_and_opportunity_list_link_their_feeds(transport: FakeTransport) -> 
     assert 'id="view-as-feed"' not in home and 'class="view-switch"' not in home
     opp_href = _alternate(opps)
     assert urlsplit(opp_href).path == "/feeds/opportunities.rss"
-    assert parse_qs(urlsplit(opp_href).query) == {"kind": ["rfp"], "status": ["open"]}
+    # The page's default status, open and announced (lane rfp-view), spelt out for the feed.
+    assert parse_qs(urlsplit(opp_href).query) == {"kind": ["rfp"], "status": ["open,announced"]}
     assert "RSS feed of these opportunities" in opps
 
 

@@ -165,7 +165,7 @@ def _depends_on(route: APIRoute, predicate: Callable[[Any], bool]) -> bool:
 
 def test_every_project_route_depends_on_project_access() -> None:
     routes = [route for route in my_projects.router.routes if isinstance(route, APIRoute)]
-    assert len(routes) == 29, "a route was added or removed: document it in api/openapi.yaml"
+    assert len(routes) == 30, "a route was added or removed: document it in api/openapi.yaml"
     for route in routes:
         assert my_projects.is_private_path(route.path), route.path
         assert _depends_on(route, lambda call: call is my_projects.private_request_guard), route.path
@@ -1318,7 +1318,7 @@ def test_a_record_the_viewer_cannot_see_shows_its_type_and_no_id(
     assert (link["record_type"], link["public_id"], link["state"]) == ("proposal", None, "unavailable")
     history = free_tab.get(f"/v1/my/projects/{project}/activity").json()["data"]
     created = next(row for row in history if row["action"] == "created")
-    assert created["detail"] == {"origin_type": "proposal", "origin_public_id": None}
+    assert created["detail"] == {"kind": "project", "origin_type": "proposal", "origin_public_id": None}
     added = next(row for row in history if row["action"] == "link_added")
     assert added["detail"]["record_type"] == "proposal" and added["detail"]["record_public_id"] is None
     for path in ("", "/links", "/checklist", "/activity"):
@@ -1469,3 +1469,533 @@ def test_evidence_rule_sources_are_registered_sources() -> None:
         *my_projects.FEDERAL_RECORD_SOURCES,
     }
     assert named <= ids, sorted(named - ids)
+
+
+# =========================================================================== the tracker (kinds)
+def _notice(db: Session, source: Source, suffix: str, *, due_in_days: float | None, kind: str = "rfp") -> Any:
+    """An open notice due `due_in_days` from now (`None`: no due date)."""
+    opp = make_visible_opportunity(db, source, public_id_suffix=suffix)
+    opp.kind = kind
+    opp.due_at = dt.datetime.now(UTC) + dt.timedelta(days=due_in_days) if due_in_days is not None else None
+    db.commit()
+    return opp
+
+
+def _change_event(
+    db: Session,
+    subject: Any,
+    source: Source,
+    *,
+    subject_type: str,
+    changed_keys: list[str],
+    shown_at: dt.datetime,
+    event_type: str = "status_change",
+) -> Event:
+    event = Event(
+        subject_type=subject_type,
+        subject_id=subject.id,
+        event_type=event_type,
+        observed_at=shown_at,
+        source_id=source.id,
+        source_url=source.url,
+        retrieved_at=shown_at,
+        licence_id=source.licence_id,
+        before=None,
+        after=None,
+        changed_keys=changed_keys,
+        public_at=shown_at,
+        published_at=shown_at,
+        idempotency_key=f"tracker-test:{uuid.uuid4()}",
+    )
+    db.add(event)
+    db.flush()
+    db.commit()
+    return event
+
+
+def _membership(db: Session, project_public_id: str, user: User) -> pm.PrivateProjectMember:
+    member = db.scalar(
+        select(pm.PrivateProjectMember)
+        .join(pm.PrivateProject, pm.PrivateProject.id == pm.PrivateProjectMember.project_id)
+        .where(pm.PrivateProject.public_id == project_public_id, pm.PrivateProjectMember.user_id == user.id)
+        .execution_options(populate_existing=True)
+    )
+    assert member is not None
+    return member
+
+
+def _rows(tab: TestClient, query: str = "") -> dict[str, dict[str, Any]]:
+    resp = tab.get(f"/v1/my/projects{query}")
+    assert resp.status_code == 200, resp.text
+    return {row["title"]: row for row in resp.json()["data"]}
+
+
+def test_track_makes_the_kind_each_record_offers(
+    spec: dict[str, Any], browser: Browser, person: UserFactory, world: dict[str, Any]
+) -> None:
+    """A notice makes a bid; a project page a project or an investment; a plant a project. The
+    kind is checked against the record before anything is read or stored."""
+    tab = browser(person())
+    opportunity = {"record_type": "opportunity", "public_id": world["opportunity"].public_id}
+    proposal = {"record_type": "proposal", "public_id": world["proposal"].public_id}
+    bid = _create(tab, title=None, **{"from": opportunity})
+    assert (bid["kind"], bid["stage"], bid["title"]) == ("bid", "considering", "Bid: Test RFP 1")
+    assert (bid["prefill"]["kind"], bid["prefill"]["kinds"]) == ("bid", ["bid"])
+    assert bid["links"][0]["relation"] == "offtake_or_rfp"
+    refused = tab.post("/v1/my/projects", json={"title": "x", "kind": "project", "from": opportunity})
+    assert refused.status_code == 400 and refused.json()["errors"][0]["field"] == "kind"
+    investment = _create(tab, title=None, kind="investment", **{"from": proposal})
+    assert (investment["kind"], investment["stage"]) == ("investment", "screening")
+    assert investment["links"][0]["relation"] == "this_project"
+    assert "stage" not in investment["prefill"]["fields"]
+    project = _create(tab, title=None, **{"from": proposal})
+    assert (project["kind"], project["stage"]) == ("project", "development")
+    plant = _create(tab, **{"from": {"record_type": "asset", "public_id": world["plant"].public_id}})
+    assert plant["kind"] == "project"
+    wrong = tab.post(
+        "/v1/my/projects",
+        json={
+            "title": "x",
+            "kind": "bid",
+            "from": {"record_type": "asset", "public_id": world["plant"].public_id},
+        },
+    )
+    assert wrong.status_code == 400
+    preview = tab.post("/v1/my/prefill", json={**proposal, "kind": "investment"})
+    assert_valid(spec, "MyPrefillResponse", preview.json())
+    data = preview.json()["data"]
+    assert (data["kind"], data["kinds"], data["relations"]) == (
+        "investment",
+        ["project", "investment"],
+        ["this_project"],
+    )
+    assert "stage" not in data["values"]
+    assert tab.post("/v1/my/prefill", json={**proposal, "kind": "bid"}).status_code == 400
+    assert my_projects._track_kind("site", None) == "project"
+    assert my_projects.START_RELATIONS["site"] == ("candidate_site", "nearby")
+
+
+def test_the_tracker_sorts_by_next_deadline_then_by_latest_change(
+    spec: dict[str, Any], browser: Browser, person: UserFactory, db: Session, world: dict[str, Any]
+) -> None:
+    """A deadline is the soonest upcoming `due_at` of a linked notice; a project also takes its
+    open bids'. A closed item, a deadline in the past and an undated notice give none. Items with a
+    deadline come first, soonest first; the rest follow, most recently changed first."""
+    source = world["source"]
+    soon = _notice(db, source, "11", due_in_days=3)
+    later = _notice(db, source, "12", due_in_days=10, kind="foa")
+    far = _notice(db, source, "13", due_in_days=40)
+    past = _notice(db, source, "14", due_in_days=-2)
+    undated = _notice(db, source, "15", due_in_days=None)
+    tab = browser(person())
+
+    def track(notice: Any, **body: Any) -> dict[str, Any]:
+        return _create(tab, **{"from": {"record_type": "opportunity", "public_id": notice.public_id}}, **body)
+
+    soon_project = _create(tab, title="Soon project")
+    linked = tab.post(
+        f"/v1/my/projects/{soon_project['public_id']}/links",
+        json={"record_type": "opportunity", "public_id": soon.public_id, "relation": "offtake_or_rfp"},
+    )
+    assert linked.status_code == 201, linked.text
+    later_bid = track(later, title="Later bid")
+    assert later_bid["links"][0]["relation"] == "funding"
+    parent = _create(tab, title="Parent project")
+    far_bid = track(far, title="Far bid", parent_project_id=parent["public_id"])
+    track(soon, title="Won bid", stage="won")
+    track(past, title="Past bid")
+    track(undated, title="Undated bid")
+    _create(tab, title="Fund", kind="investment")
+
+    resp = tab.get("/v1/my/projects")
+    assert_valid(spec, "MyProjectListResponse", resp.json())
+    rows = resp.json()["data"]
+    titles = [row["title"] for row in rows]
+    assert titles[:2] == ["Soon project", "Later bid"]
+    assert set(titles[2:4]) == {"Parent project", "Far bid"}
+    tail = rows[4:]
+    assert {row["title"] for row in tail} == {"Won bid", "Past bid", "Undated bid", "Fund"}
+    assert all(row["next_deadline"] is None for row in tail)
+    stamps = [row["updated_at"] for row in tail]
+    assert stamps == sorted(stamps, reverse=True)
+    by_title = {row["title"]: row for row in rows}
+    soon_deadline = by_title["Soon project"]["next_deadline"]
+    assert soon_deadline["record"]["public_id"] == soon.public_id and soon_deadline["days_left"] == 3
+    assert soon_deadline["via_bid"] is None
+    via = by_title["Parent project"]["next_deadline"]
+    assert via["record"]["public_id"] == far.public_id
+    assert via["via_bid"]["public_id"] == far_bid["public_id"]
+    assert by_title["Won bid"]["closed"] is True and by_title["Won bid"]["stage_label"] == "Won"
+
+    # The filter narrows the rows, never the deadlines: a project still takes its bid's.
+    projects = _rows(tab, "?kind=project")
+    assert set(projects) == {"Soon project", "Parent project"}
+    assert projects["Parent project"]["next_deadline"]["via_bid"]["public_id"] == far_bid["public_id"]
+    assert set(_rows(tab, "?kind=bid,investment")) == {
+        "Later bid",
+        "Far bid",
+        "Won bid",
+        "Past bid",
+        "Undated bid",
+        "Fund",
+    }
+    assert tab.get("/v1/my/projects?kind=portfolio").status_code == 400
+
+    # The project's own page names its bids, each with its deadline, and the bid names its project.
+    detail = tab.get(f"/v1/my/projects/{parent['public_id']}")
+    assert_valid(spec, "MyProjectResponse", detail.json())
+    (named,) = detail.json()["data"]["bids"]
+    assert named["public_id"] == far_bid["public_id"]
+    assert named["next_deadline"]["record"]["public_id"] == far.public_id
+    bid_detail = tab.get(f"/v1/my/projects/{far_bid['public_id']}").json()["data"]
+    assert bid_detail["parent"]["public_id"] == parent["public_id"]
+    assert [stage["stage"] for stage in bid_detail["stages"]][:2] == ["considering", "preparing"]
+
+    # A notice the viewer can no longer see gives no deadline.
+    soon.public_at = dt.datetime.now(UTC) + dt.timedelta(days=5)
+    db.commit()
+    assert _rows(tab)["Soon project"]["next_deadline"] is None
+
+
+def test_changes_since_your_last_visit_follow_each_member_and_the_public_feed(
+    spec: dict[str, Any], browser: Browser, person: UserFactory, db: Session, world: dict[str, Any]
+) -> None:
+    """A change counts when its public event became visible to the viewer's tier after they last
+    opened the item (or joined it). Opening the item is the visit, for that member only."""
+    owner, partner = person(), person("partner@example.org")
+    tab, partner_tab = browser(owner), browser(partner)
+    project = _create(
+        tab,
+        title="Watched",
+        **{"from": {"record_type": "proposal", "public_id": world["proposal"].public_id}},
+    )
+    bid = _create(
+        tab,
+        title="Bid",
+        **{"from": {"record_type": "opportunity", "public_id": world["opportunity"].public_id}},
+    )
+    _invite_and_join(tab, project["public_id"], partner_tab, "partner@example.org", "viewer")
+    now = dt.datetime.now(UTC)
+    for public, user in (
+        (project["public_id"], owner),
+        (project["public_id"], partner),
+        (bid["public_id"], owner),
+    ):
+        member = _membership(db, public, user)
+        member.added_at = now - dt.timedelta(days=3)
+    db.commit()
+    source = world["source"]
+    other = make_visible_proposal(db, source, public_id_suffix="7")
+    db.commit()
+    _change_event(
+        db,
+        world["proposal"],
+        source,
+        subject_type="proposal",
+        changed_keys=["lifecycle_state"],
+        shown_at=now - dt.timedelta(days=2),
+    )
+    _change_event(
+        db,
+        world["proposal"],
+        source,
+        subject_type="proposal",
+        changed_keys=["capacity_mw"],
+        shown_at=now - dt.timedelta(days=4),
+    )
+    _change_event(
+        db,
+        world["proposal"],
+        source,
+        subject_type="proposal",
+        changed_keys=["lifecycle_state"],
+        shown_at=now + dt.timedelta(days=1),
+    )
+    _change_event(
+        db,
+        other,
+        source,
+        subject_type="proposal",
+        changed_keys=["lifecycle_state"],
+        shown_at=now - dt.timedelta(days=1),
+    )
+    _change_event(
+        db,
+        world["opportunity"],
+        source,
+        subject_type="opportunity",
+        changed_keys=["due_at"],
+        event_type="field_change",
+        shown_at=now - dt.timedelta(days=1),
+    )
+
+    rows = _rows(tab)
+    assert rows["Watched"]["changed_since_last_visit"]["changed"] is True
+    assert (
+        rows["Watched"]["changed_since_last_visit"]["reason"],
+        rows["Watched"]["changed_since_last_visit"]["count"],
+    ) == ("status", 1)
+    assert rows["Watched"]["changed_since_last_visit"]["text"] == "Status changed"
+    assert rows["Bid"]["changed_since_last_visit"]["reason"] == "deadline"
+    assert rows["Bid"]["changed_since_last_visit"]["text"] == "Deadline moved"
+
+    opened = tab.get(f"/v1/my/projects/{project['public_id']}")
+    assert_valid(spec, "MyProjectResponse", opened.json())
+    data = opened.json()["data"]
+    (change,) = data["changes"]
+    assert change["record"]["public_id"] == world["proposal"].public_id and change["reason"] == "status"
+    assert change["source"]["source_id"] == source.id
+    assert data["last_viewed_at"] is None
+    assert _membership(db, project["public_id"], owner).last_viewed_at is not None
+    # The visit is the owner's own: the partner still sees the change; the bid was not opened.
+    assert _rows(tab)["Watched"]["changed_since_last_visit"]["changed"] is False
+    assert _rows(tab)["Bid"]["changed_since_last_visit"]["changed"] is True
+    assert _rows(partner_tab)["Watched"]["changed_since_last_visit"]["changed"] is True
+    again = tab.get(f"/v1/my/projects/{project['public_id']}").json()["data"]
+    assert again["changes"] == [] and again["last_viewed_at"] is not None
+
+    # A change after the visit shows again.
+    member = _membership(db, project["public_id"], owner)
+    member.last_viewed_at = now - dt.timedelta(hours=12)
+    db.commit()
+    _change_event(
+        db,
+        world["proposal"],
+        source,
+        subject_type="proposal",
+        changed_keys=["iso"],
+        shown_at=now - dt.timedelta(hours=6),
+        event_type="field_change",
+    )
+    badge = _rows(tab)["Watched"]["changed_since_last_visit"]
+    assert (badge["changed"], badge["reason"], badge["text"]) == (True, "updated", "Record updated")
+
+
+def test_email_changes_is_each_members_own_opt_in(browser: Browser, person: UserFactory) -> None:
+    owner, viewer = person(), person("viewer@example.org")
+    tab, viewer_tab = browser(owner), browser(viewer)
+    project = _create(tab)["public_id"]
+    _invite_and_join(tab, project, viewer_tab, "viewer@example.org", "viewer")
+    assert tab.get(f"/v1/my/projects/{project}").json()["data"]["email_changes"] is False
+    opted = viewer_tab.patch(f"/v1/my/projects/{project}", json={"email_changes": True})
+    assert opted.status_code == 200 and opted.json()["data"]["email_changes"] is True
+    assert tab.get(f"/v1/my/projects/{project}").json()["data"]["email_changes"] is False
+    assert viewer_tab.patch(f"/v1/my/projects/{project}", json={"email_changes": "yes"}).status_code == 400
+    both = viewer_tab.patch(f"/v1/my/projects/{project}", json={"email_changes": False, "title": "Mine now"})
+    assert both.status_code == 403
+    # The refused request wrote nothing: the opt-in it carried was rolled back with it.
+    assert viewer_tab.get(f"/v1/my/projects/{project}").json()["data"]["email_changes"] is True
+    invalid = tab.patch(f"/v1/my/projects/{project}", json={"email_changes": True, "stage": "won"})
+    assert invalid.status_code == 400
+    assert tab.get(f"/v1/my/projects/{project}").json()["data"]["email_changes"] is False
+    history = tab.get(f"/v1/my/projects/{project}/activity").json()["data"]
+    assert {row["action"] for row in history} <= {"created", "member_invited", "member_joined"}
+
+
+def test_kinds_are_served_and_an_edit_keeps_its_kind(
+    spec: dict[str, Any], browser: Browser, person: UserFactory
+) -> None:
+    owner, outsider = person(), person()
+    tab, outsider_tab = browser(owner), browser(outsider)
+    vocabulary = tab.get("/v1/my/kinds")
+    assert vocabulary.status_code == 200
+    assert_valid(spec, "MyKindsResponse", vocabulary.json())
+    served = vocabulary.json()["data"]
+    assert [kind["kind"] for kind in served["kinds"]] == ["project", "bid", "investment"]
+    assert served["track"]["opportunity"] == ["bid"]
+    assert served["track"]["proposal"] == ["project", "investment"]
+    assert [stage["stage"] for stage in served["kinds"][2]["stages"]] == [
+        "screening",
+        "diligence",
+        "term_sheet",
+        "committed",
+        "closed",
+        "passed",
+    ]
+    project = _create(tab, title="Project")["public_id"]
+    bid = _create(tab, title="Bid", kind="bid")
+    assert (bid["stage"], bid["submitted_on"], bid["parent"]) == ("considering", None, None)
+    resp = tab.patch(f"/v1/my/projects/{project}", json={"kind": "bid"})
+    assert resp.status_code == 400 and resp.json()["errors"][0]["field"] == "kind"
+    assert tab.patch(f"/v1/my/projects/{bid['public_id']}", json={"stage": "development"}).status_code == 400
+    assert tab.patch(f"/v1/my/projects/{project}", json={"submitted_on": "2026-10-20"}).status_code == 400
+    edited = tab.patch(
+        f"/v1/my/projects/{bid['public_id']}",
+        json={"stage": "submitted", "submitted_on": "2026-10-20", "parent_project_id": project},
+    )
+    assert edited.status_code == 200, edited.text
+    assert (edited.json()["data"]["submitted_on"], edited.json()["data"]["parent"]["public_id"]) == (
+        "2026-10-20",
+        project,
+    )
+    theirs = _create(outsider_tab, title="Theirs")["public_id"]
+    refusals = {
+        tab.patch(f"/v1/my/projects/{bid['public_id']}", json={"parent_project_id": other}).json()["detail"]
+        for other in (theirs, MISSING_PROJECT)
+    }
+    assert refusals == {authz.PARENT_REFUSED}
+
+
+def test_a_bid_an_editor_attaches_to_the_owners_project_stays_the_editors_own(
+    browser: Browser, person: UserFactory, db: Session, world: dict[str, Any]
+) -> None:
+    """A bid is private to its own members even when it names a project someone else owns: that
+    project's owner never sees it, in the project's bids, its deadline, its history, its people or
+    the map pins, unless the bid's members invite them to the bid."""
+    owner, editor = person(), person("editor@example.org")
+    owner_tab, editor_tab = browser(owner), browser(editor)
+    project = _create(owner_tab, title="Owner project")["public_id"]
+    _invite_and_join(owner_tab, project, editor_tab, "editor@example.org", "editor")
+    notice = _notice(db, world["source"], "21", due_in_days=4)
+    bid = _create(
+        editor_tab,
+        title="QZV unshared bid",
+        parent_project_id=project,
+        **{"from": {"record_type": "opportunity", "public_id": notice.public_id}},
+    )
+    assert bid["kind"] == "bid" and bid["parent"]["public_id"] == project
+    theirs = editor_tab.get(f"/v1/my/projects/{project}").json()["data"]
+    assert [row["public_id"] for row in theirs["bids"]] == [bid["public_id"]]
+    assert theirs["next_deadline"]["via_bid"]["public_id"] == bid["public_id"]
+    for path in (
+        f"/v1/my/projects/{project}",
+        "/v1/my/projects",
+        "/v1/my/projects?kind=project",
+        f"/v1/my/projects/{project}/activity",
+        f"/v1/my/projects/{project}/members",
+        "/v1/my/pins",
+    ):
+        resp = owner_tab.get(path)
+        assert resp.status_code == 200, (path, resp.text)
+        assert "QZV" not in resp.text and bid["public_id"] not in resp.text, path
+    seen = owner_tab.get(f"/v1/my/projects/{project}").json()["data"]
+    assert seen["bids"] == [] and seen["next_deadline"] is None
+    assert _rows(owner_tab)["Owner project"]["next_deadline"] is None
+    assert owner_tab.get(f"/v1/my/projects/{bid['public_id']}").status_code == 404
+
+
+def test_an_archived_bid_is_marked_on_its_project_and_gives_it_no_deadline(
+    spec: dict[str, Any], browser: Browser, person: UserFactory, db: Session, world: dict[str, Any]
+) -> None:
+    """An archived bid is off the tracker, so its deadline is not its project's, on the list (with
+    or without archived items) and on the project's own page alike; the page still names the bid,
+    marked archived."""
+    tab = browser(person())
+    notice = _notice(db, world["source"], "22", due_in_days=6)
+    project = _create(tab, title="Parent")["public_id"]
+    bid = _create(
+        tab,
+        title="Archived bid",
+        parent_project_id=project,
+        **{"from": {"record_type": "opportunity", "public_id": notice.public_id}},
+    )
+    via = tab.get(f"/v1/my/projects/{project}").json()["data"]["next_deadline"]["via_bid"]
+    assert via["public_id"] == bid["public_id"]
+    assert tab.patch(f"/v1/my/projects/{bid['public_id']}", json={"archived": True}).status_code == 200
+    detail = tab.get(f"/v1/my/projects/{project}")
+    assert_valid(spec, "MyProjectResponse", detail.json())
+    data = detail.json()["data"]
+    (listed,) = data["bids"]
+    assert (listed["public_id"], listed["archived"]) == (bid["public_id"], True)
+    assert data["next_deadline"] is None
+    assert _rows(tab)["Parent"]["next_deadline"] is None
+    assert _rows(tab, "?include_archived=true")["Parent"]["next_deadline"] is None
+    assert tab.get(f"/v1/my/projects/{bid['public_id']}").json()["data"]["parent"]["archived"] is False
+    assert tab.patch(f"/v1/my/projects/{bid['public_id']}", json={"archived": False}).status_code == 200
+    assert _rows(tab)["Parent"]["next_deadline"]["via_bid"]["public_id"] == bid["public_id"]
+
+
+def test_a_public_record_reads_the_same_whether_or_not_anyone_tracks_it(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    browser: Browser,
+    person: UserFactory,
+    world: dict[str, Any],
+) -> None:
+    """No public answer varies with tracking (decision row 2026-10-23: no page ever shows how many
+    users track a record). The record's API responses are byte-identical before and after two users
+    track it, anonymously and for a third signed-in user."""
+    monkeypatch.setattr("services.api.serialize.utcnow", lambda: dt.datetime(2026, 10, 23, 12, 0, tzinfo=UTC))
+    monkeypatch.setattr("services.api.request_context.new_request_id", lambda: "req_fixed0000")
+    reader = browser(person())
+    paths = (
+        f"/v1/proposals/{world['proposal'].public_id}",
+        f"/v1/proposals/{world['proposal'].public_id}/events",
+        f"/v1/opportunities/{world['opportunity'].public_id}",
+        f"/v1/assets/{world['plant'].public_id}",
+        "/v1/proposals",
+        "/v1/opportunities",
+    )
+
+    def snapshot() -> list[bytes]:
+        out = []
+        for path in paths:
+            for caller in (client, reader):
+                resp = caller.get(path)
+                assert resp.status_code == 200, (path, resp.text)
+                out.append(resp.content)
+        return out
+
+    before = snapshot()
+    for user in (person(), person()):
+        tab = browser(user)
+        _create(tab, **{"from": {"record_type": "proposal", "public_id": world["proposal"].public_id}})
+        _create(
+            tab,
+            kind="investment",
+            **{"from": {"record_type": "proposal", "public_id": world["proposal"].public_id}},
+        )
+        _create(tab, **{"from": {"record_type": "opportunity", "public_id": world["opportunity"].public_id}})
+        _create(tab, **{"from": {"record_type": "asset", "public_id": world["plant"].public_id}})
+    assert snapshot() == before
+
+
+def test_track_from_a_site_makes_a_project_at_the_site(
+    browser: Browser, person: UserFactory, db: Session, world: dict[str, Any]
+) -> None:
+    """A site (one developer's records at one grid point) makes a project: its title names the
+    site's lead record and its map point is the lead's, both under the licence rule."""
+    from services.api.conftest import make_org
+    from services.db.models import Site
+    from services.sites import build
+
+    source = world["source"]
+    point = InterconnectionPoint(
+        public_id="",
+        operator="ERCOT",
+        name_display="Bearkat 345kV",
+        name_key="sub:bearkat|345",
+        key_rule="test",
+        kind="substation",
+        source_id=source.id,
+        source_url=source.url,
+        retrieved_at=dt.datetime(2026, 10, 1, tzinfo=UTC),
+        licence_id=world["licence"].id,
+    )
+    db.add(point)
+    db.flush()
+    point.public_id = public_id("poi", point.id)
+    developer = make_org(db, "Kestrel Renewables LLC")
+    location = make_location(db, source, world["licence"], geom=(-101.0, 32.5), precision="exact")
+    for suffix, name, mw in (("21", "Kestrel Solar 2", 400), ("22", "Kestrel Solar 1", 200)):
+        member = make_visible_proposal(
+            db, source, public_id_suffix=suffix, sponsor=developer, location=location
+        )
+        member.name_canonical = name
+        member.capacity_mw = mw
+        member.interconnection_point_id = point.id
+    db.flush()
+    build.rebuild_sites(db)
+    db.commit()
+    site = db.scalars(select(Site)).first()
+    assert site is not None
+    tab = browser(person())
+    item = _create(tab, title=None, **{"from": {"record_type": "site", "public_id": site.public_id}})
+    assert item["kind"] == "project" and item["title"].startswith("Project at Kestrel Solar")
+    assert (item["lat"], item["lon"], item["point_precision"]) == (32.5, -101.0, "exact")
+    assert item["links"][0]["relation"] == "candidate_site" and item["links"][0]["state"] == "available"
+    refused = tab.post(
+        "/v1/my/projects",
+        json={"title": "x", "kind": "bid", "from": {"record_type": "site", "public_id": site.public_id}},
+    )
+    assert refused.status_code == 400

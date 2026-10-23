@@ -1,0 +1,71 @@
+{#- People (docs/19 §2.6): members and roles; for the owner, invitations by a copied private link,
+    role changes, removal and transfer of ownership; for everyone else, "Leave". Primary action: invite. -#}
+<section aria-labelledby="people-heading">
+  <h2 id="people-heading" class="visually-hidden">People</h2>
+  {%- if issued_link %}
+  <div class="notice" role="status">
+    <p class="notice__title">Invitation ready. Copy this link and send it yourself.</p>
+    <p>It is shown this once, works for 7 days, and only for the address you entered, signed in. Inframation sends no email.</p>
+    <label class="visually-hidden" for="invitation-link">Invitation link</label>
+    <input id="invitation-link" class="my-copy" type="text" readonly value="{{ issued_link }}">
+  </div>
+  {%- endif %}
+  <ul class="my-members">
+    {%- for member in members %}
+    <li class="my-member">
+      <p><span class="my-member__name">{{ member.name or 'Member' }}</span>{% if member.is_you %} <span class="my-muted">(you)</span>{% endif %} &middot; {{ role_labels.get(member.role, member.role) }}</p>
+      {%- if is_owner and member.role != 'owner' and not item.archived %}
+      <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/members/{{ member.user_public_id }}/role">
+        <label class="visually-hidden" for="role-{{ member.user_public_id }}">Role</label>
+        <select id="role-{{ member.user_public_id }}" name="role">
+          <option value="editor"{% if member.role == 'editor' %} selected{% endif %}>Editor</option>
+          <option value="viewer"{% if member.role == 'viewer' %} selected{% endif %}>Viewer</option>
+          <option value="owner">Make owner (you become an editor)</option>
+        </select>
+        <button type="submit" class="button-secondary">Save</button>
+      </form>
+      <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/members/{{ member.user_public_id }}/remove">
+        <button type="submit" class="button-secondary button-secondary--danger">Remove<span class="visually-hidden"> {{ member.name }}</span></button>
+      </form>
+      {%- endif %}
+      {%- if member.is_you and member.role != 'owner' %}
+      <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/members/{{ member.user_public_id }}/remove">
+        <input type="hidden" name="leaving" value="1">
+        <button type="submit" class="button-secondary">Leave this item</button>
+      </form>
+      {%- endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+
+  {%- if is_owner and not item.archived %}
+  {%- if invitations %}
+  <h3 class="my-card__title">Pending invitations</h3>
+  <ul class="my-members">
+    {%- for invitation in invitations %}
+    <li class="my-member">
+      <p>{{ invitation.email }} &middot; {{ role_labels.get(invitation.role, invitation.role) }} &middot; expires {{ invitation.expires_at | display_date }}</p>
+      <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/invitations/{{ invitation.invitation_id }}/revoke">
+        <button type="submit" class="button-secondary">Revoke</button>
+      </form>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  <form class="auth-form my-form" method="post" action="/my/items/{{ item.public_id }}/invitations">
+    <h3 class="my-card__title">Invite someone</h3>
+    <div class="field">
+      <label for="invite-email">Their email address</label>
+      <input id="invite-email" name="email" type="email" required autocomplete="off"{% if error and error.field_errors.email %} aria-invalid="true"{% endif %}>
+      {%- if error and error.field_errors.email %}<p class="field__error">{{ error.field_errors.email }}</p>{% endif %}
+    </div>
+    <fieldset class="field field--choices">
+      <legend>Role</legend>
+      <label for="invite-viewer"><input id="invite-viewer" type="radio" name="role" value="viewer" checked> Viewer: reads everything</label>
+      <label for="invite-editor"><input id="invite-editor" type="radio" name="role" value="editor"> Editor: also edits, links, marks the checklist and adds notes</label>
+    </fieldset>
+    <p class="field-hint">You get a private link to send yourself. Only the invited address, signed in and verified, can use it.</p>
+    <div class="form-actions"><button type="submit">Invite</button></div>
+  </form>
+  {%- endif %}
+</section>

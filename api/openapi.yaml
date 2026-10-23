@@ -4380,15 +4380,21 @@ paths:
     get:
       operationId: listMyProjects
       tags: [Private projects]
-      summary: Your projects, owned and shared
+      summary: The tracker, your projects, bids and investments, owned and shared
       description: >-
-        Every project the signed-in user owns or is a member of, newest change first; archived ones only with
-        `include_archived=true`. Each row carries the caller's `role`, the member count and checklist progress
-        ("N of M done, your status": counts the members set, never a score). Empty for a user with none.
+        Every item the signed-in user owns or is a member of (a project, a bid or an investment, each with its own
+        stages), sorted by `next_deadline` soonest first, then by the most recent change; archived ones only with
+        `include_archived=true`, one kind or several with `kind`. Each row carries the caller's `role`, the member
+        count, checklist progress ("N of M done, your status": counts the members set, never a score), the next
+        deadline (the `due_at` of a linked RFP or funding notice through the gated serialiser, today or later, on
+        an item that is not closed; a project also takes its open bids' deadlines; `null` when there is none the
+        caller can see) and `changed_since_last_visit` (whether a linked record has a public change event, visible
+        at the caller's tier, since the caller last opened the item, with the reason that asks most of them:
+        deadline, status or update). Empty for a user with none.
       x-tier: public
       x-status: live
       x-prd-stories: [US-201]
-      x-spec: docs/19 §6.1
+      x-spec: docs/19 §6.1; docs/30 §11.4
       security: *sec_private
       parameters:
         - name: include_archived
@@ -4398,6 +4404,13 @@ paths:
             type: string
             enum: ['true', 'false']
             default: 'false'
+        - name: kind
+          in: query
+          required: false
+          description: One kind, or several separated by commas.
+          schema:
+            type: string
+            pattern: '^(project|bid|investment)(,(project|bid|investment))*$'
       responses:
         '200':
           description: The caller's projects.
@@ -4416,12 +4429,16 @@ paths:
     post:
       operationId: createMyProject
       tags: [Private projects]
-      summary: Start a project, blank or from a public record
+      summary: Track an item, blank or from a public record
       description: >-
-        Blank, or `from` a proposal (any status but withdrawn and cancelled; relation `this_project` or `nearby`),
-        a retiring or retired power plant (`grid_connection`), an announced, open or reinstated opportunity
-        (`offtake_or_rfp`, or `funding` for a funding notice) or an interconnection point (`grid_connection`),
-        which the caller must be able to see now (`400` otherwise). The record is linked to the new project, and
+        A project, a bid or an investment (`kind`, default `project`; its `stage` one of its kind's, default the
+        first). A bid may name `parent_project_id`, one of the caller's own projects they can edit (any other id
+        is the same `400`), and `submitted_on`. Blank, or `from` a public record, which decides the kind: a
+        proposal makes a project (relation `this_project` or `nearby`) or an investment (`this_project`), any
+        status but withdrawn and cancelled; a site a project (`candidate_site` or `nearby`); a retiring or retired
+        power plant a project (`grid_connection`); an announced, open or reinstated opportunity a bid
+        (`offtake_or_rfp`, or `funding` for a funding notice); an interconnection point a project
+        (`grid_connection`). The caller must be able to see the record now (`400` otherwise). The record is linked to the new project, and
         each field the body leaves out is prefilled from it, but only from values whose sources are all `open` or
         `attribution` (docs/19 §7): `prefill.fields` names what was filled and `prefill.left_blank` what the
         licence rule left blank (the live value stays on the linked record). A field the body gives, `null`
@@ -4478,7 +4495,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MyStartFrom'
+              $ref: '#/components/schemas/MyPrefillRequest'
       responses:
         '200':
           description: The prefill.
@@ -4501,13 +4518,16 @@ paths:
     get:
       operationId: getMyProject
       tags: [Private projects]
-      summary: A project, its linked records read live, and readiness by pillar
+      summary: An item, its linked records read live, and readiness by pillar
       description: >-
         Viewer. Each linked record is re-read on this request through its own public read path and visibility
         predicate at the caller's tier (docs/19 §4.2): `available` with its key facts and Sources, `merged` with
         its visible survivor's, or `unavailable` with "This record is no longer available" and nothing else.
         `readiness` is "N of M items done (your status) · K with suggested public-record evidence" per pillar,
-        completeness first; there is no single score and no item is ever "verified".
+        completeness first; there is no single score and no item is ever "verified". `changes` are the public
+        change events on the linked records since the caller last opened the item, each with its source; this
+        request then becomes that visit (`last_viewed_at` is the one before it). A bid's `parent` is shown only to
+        a member of that project; a project's `bids` are those the caller is a member of.
       x-tier: public
       x-status: live
       x-prd-stories: [US-201, US-203]
@@ -4529,11 +4549,14 @@ paths:
     patch:
       operationId: updateMyProject
       tags: [Private projects]
-      summary: Edit a project's fields; archive or unarchive it
+      summary: Edit an item's fields; archive or unarchive it
       description: >-
         Editor for the fields (title, technology, capacity, stage, map point; a moved point becomes the user's
-        own, `point_precision: user`), owner for `archived`. An archived project takes only `archived: false`
-        (and delete); anything else is `404`. Unarchiving runs before the edit and archiving after it.
+        own, `point_precision: user`; for a bid, `parent_project_id` and `submitted_on`), owner for `archived`,
+        any member for their own `email_changes` (stored only: no email is sent yet). The `stage` must be one of
+        the item's kind's; `kind` is set at creation and an edit naming it is a `400`. An archived project takes
+        only `archived: false`, `email_changes` (and delete); anything else is `404`. Unarchiving runs before the
+        edit and archiving after it.
       x-tier: public
       x-status: live
       x-prd-stories: [US-201]
@@ -5275,6 +5298,36 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/kinds:
+    get:
+      operationId: listMyKinds
+      tags: [Private projects]
+      summary: The tracker's item types and their stages
+      description: >-
+        The three kinds of tracker item (project, bid, investment) with their labels and stages in order, which
+        stages close an item, and which kinds "Track" makes from each kind of public record. The same for every
+        caller; the pages read it so no vocabulary is copied into the site.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/30 §11.4
+      security: *sec_private
+      responses:
+        '200':
+          description: The vocabulary.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyKindsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
         <<: *common_errors
 
   /v1/my/pins:
@@ -10042,10 +10095,112 @@ components:
       type: string
       format: uuid
       description: A checklist item's, link's or evidence reference's id (a random uuid4).
+    MyKind:
+      type: string
+      description: 'The tracker item''s type (`services/projects/kinds.py`): set when it is created.'
+      enum: [project, bid, investment]
     MyStage:
       type: string
-      description: User-set, never inferred, never shown publicly (docs/19 §2.1).
-      enum: [prospecting, site_control, development, ready_to_build, construction, operating]
+      description: >-
+        User-set, never inferred, never shown publicly (docs/19 §2.1), and one of its kind's: a project prospecting,
+        site_control, development, ready_to_build, construction, operating; a bid considering, preparing, submitted,
+        shortlisted, won, lost, withdrawn; an investment screening, diligence, term_sheet, committed, closed, passed.
+      enum: [prospecting, site_control, development, ready_to_build, construction, operating, considering, preparing, submitted, shortlisted, won, lost, withdrawn, screening, diligence, term_sheet, committed, closed, passed]
+    MyStageOption:
+      type: object
+      required: [stage, label, closed]
+      properties:
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        label: {type: string}
+        closed: {type: boolean, description: 'A closed stage ends the item''s deadlines (a bid won, lost or withdrawn; an investment closed or passed).'}
+      additionalProperties: false
+    MyItemRef:
+      type: object
+      description: Another of the caller's own items, named only because the caller is a member of it.
+      required: [public_id, url, title, kind, stage, stage_label, archived]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        url: {type: string, format: uri}
+        title: {type: string}
+        kind:
+          $ref: '#/components/schemas/MyKind'
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        stage_label: {type: string}
+        archived:
+          type: boolean
+          description: Archived items are off the tracker; an archived bid's deadline is not its project's.
+        next_deadline:
+          oneOf:
+            - $ref: '#/components/schemas/MyDeadline'
+            - type: 'null'
+      additionalProperties: false
+    MyDeadline:
+      type: object
+      description: >-
+        The soonest `due_at`, today or later, of a linked RFP or funding notice, read live through the gated
+        serialiser at the caller's tier; `via_bid` when a project takes it from one of its open bids.
+      required: [due_at, days_left, record, via_bid]
+      properties:
+        due_at: {type: string, format: date-time}
+        days_left: {type: integer, minimum: 0}
+        record:
+          type: object
+          required: [record_type, public_id, name, url]
+          properties:
+            record_type: {type: string, enum: [opportunity]}
+            public_id: {type: string}
+            name: {type: [string, 'null']}
+            url: {type: string, format: uri}
+        via_bid:
+          type: [object, 'null']
+          properties:
+            public_id:
+              $ref: '#/components/schemas/MyProjectPublicId'
+            title: {type: string}
+            url: {type: string, format: uri}
+      additionalProperties: false
+    MyChanged:
+      type: object
+      description: >-
+        "Changed since your last visit": whether a linked record has a public change event, visible at the
+        caller's tier, since the caller last opened the item (or joined it), with the reason that asks most of
+        them (`deadline`, then `status`, then `updated`), how many changes gave that reason and the latest.
+      required: [changed, reason, text, count, at]
+      properties:
+        changed: {type: boolean}
+        reason: {type: [string, 'null'], enum: [deadline, status, updated, null]}
+        text: {type: [string, 'null'], examples: [Deadline moved, Status changed, Record updated]}
+        count: {type: integer, minimum: 0}
+        at: {type: [string, 'null'], format: date-time}
+      additionalProperties: false
+    MyChange:
+      type: object
+      description: One public change event on a linked record since the caller's last visit, with its source.
+      required: [record, reason, text, event_type, changed_keys, at, source]
+      properties:
+        record:
+          type: object
+          required: [record_type, public_id, name, url]
+          properties:
+            record_type: {type: string, enum: [proposal, opportunity, asset]}
+            public_id: {type: string}
+            name: {type: [string, 'null']}
+            url: {type: string, format: uri}
+        reason: {type: string, enum: [deadline, status, updated]}
+        text: {type: string}
+        event_type: {type: string}
+        changed_keys:
+          type: array
+          items: {type: string}
+        at: {type: string, format: date-time, description: When the change became visible at the caller's tier.}
+        source:
+          oneOf:
+            - $ref: '#/components/schemas/ProvenanceQuartet'
+            - type: 'null'
+      additionalProperties: false
     MyTechnology:
       type: [string, 'null']
       description: Inframation's technology classes (`pipeline/normalize.py`) plus `other`.
@@ -10081,9 +10236,19 @@ components:
       additionalProperties: false
     MyProjectCreate:
       type: object
-      description: Every key is optional except `title` on a blank project; any other key is refused (`400`).
+      description: >-
+        Every key is optional except `title` on a blank item; any other key is refused (`400`). The stage must be
+        one of the kind's; `parent_project_id` and `submitted_on` belong to a bid.
       properties:
         title: {type: string, minLength: 1, maxLength: 200}
+        kind:
+          $ref: '#/components/schemas/MyKind'
+        parent_project_id:
+          description: A bid's project, one of the caller's own projects they can edit.
+          oneOf:
+            - $ref: '#/components/schemas/MyProjectPublicId'
+            - type: 'null'
+        submitted_on: {type: [string, 'null'], format: date, description: A bid's submitted date.}
         technology:
           $ref: '#/components/schemas/MyTechnology'
         capacity_mw: {type: [number, 'null'], minimum: 0}
@@ -10107,25 +10272,61 @@ components:
           $ref: '#/components/schemas/MyStage'
         lat: {type: [number, 'null'], minimum: -90, maximum: 90}
         lon: {type: [number, 'null'], minimum: -180, maximum: 180}
+        parent_project_id:
+          description: A bid's project, one of the caller's own projects they can edit; `null` detaches it.
+          oneOf:
+            - $ref: '#/components/schemas/MyProjectPublicId'
+            - type: 'null'
+        submitted_on: {type: [string, 'null'], format: date, description: A bid's submitted date.}
         archived: {type: boolean, description: Owner only.}
+        email_changes:
+          type: boolean
+          description: The caller's own "email me changes" for this item, off by default. Stored only; no email is sent yet.
       additionalProperties: false
     MyStartFrom:
       type: object
-      description: The public record a deal starts from (docs/19 §1).
+      description: The public record an item is tracked from (docs/19 §1).
       required: [record_type, public_id]
       properties:
         record_type:
           type: string
-          enum: [proposal, asset, opportunity, interconnection_point]
+          enum: [proposal, site, asset, opportunity, interconnection_point]
         public_id:
           type: string
         relation:
           $ref: '#/components/schemas/MyLinkRelation'
       additionalProperties: false
+    MyPrefillRequest:
+      type: object
+      description: The record to track, and the kind of item to make from it (default what that record makes).
+      required: [record_type, public_id]
+      properties:
+        record_type:
+          type: string
+          enum: [proposal, site, asset, opportunity, interconnection_point]
+        public_id:
+          type: string
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+        kind:
+          $ref: '#/components/schemas/MyKind'
+      additionalProperties: false
     MyProjectSummary:
       type: object
-      required: [public_id, url, title, technology, capacity_mw, storage_mwh, stage, role, archived, updated_at, member_count, shared, progress]
+      required: [public_id, url, title, kind, kind_label, technology, capacity_mw, storage_mwh, stage, stage_label, closed, submitted_on, role, archived, updated_at, member_count, shared, progress, next_deadline, changed_since_last_visit]
       properties:
+        kind:
+          $ref: '#/components/schemas/MyKind'
+        kind_label: {type: string}
+        stage_label: {type: string}
+        closed: {type: boolean, description: The stage closes the item (no next deadline).}
+        submitted_on: {type: [string, 'null'], format: date}
+        next_deadline:
+          oneOf:
+            - $ref: '#/components/schemas/MyDeadline'
+            - type: 'null'
+        changed_since_last_visit:
+          $ref: '#/components/schemas/MyChanged'
         public_id:
           $ref: '#/components/schemas/MyProjectPublicId'
         url: {type: string, format: uri, description: The project's private page.}
@@ -10219,7 +10420,7 @@ components:
       additionalProperties: false
     MyPrefillMarks:
       type: object
-      required: [from, relation, relations, fields, left_blank]
+      required: [from, kind, kinds, relation, relations, fields, left_blank]
       properties:
         from:
           type: object
@@ -10233,9 +10434,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/MyLinkRelation'
+        kind:
+          $ref: '#/components/schemas/MyKind'
+        kinds:
+          type: array
+          description: The kinds of item this record may make (a proposal a project or an investment).
+          items:
+            $ref: '#/components/schemas/MyKind'
         fields:
           type: array
-          description: The project fields filled from the record.
+          description: The item fields filled from the record.
           items: {type: string}
         left_blank:
           type: array
@@ -10248,8 +10456,47 @@ components:
               reason: {type: string, enum: [licence]}
     MyProject:
       type: object
-      required: [public_id, url, title, technology, capacity_mw, storage_mwh, stage, role, archived, updated_at, lat, lon, point_precision, origin, created_at, archived_at, member_count, shared, links, readiness, progress, status_disclaimer]
+      required: [public_id, url, title, kind, kind_label, technology, capacity_mw, storage_mwh, stage, stage_label, closed, submitted_on, role, archived, updated_at, lat, lon, point_precision, origin, created_at, archived_at, member_count, shared, links, readiness, progress, status_disclaimer, stages, parent, bids, next_deadline, changed_since_last_visit, changes, last_viewed_at, email_changes]
       properties:
+        kind:
+          $ref: '#/components/schemas/MyKind'
+        kind_label: {type: string}
+        stage_label: {type: string}
+        closed: {type: boolean, description: The stage closes the item (no next deadline).}
+        submitted_on: {type: [string, 'null'], format: date}
+        next_deadline:
+          oneOf:
+            - $ref: '#/components/schemas/MyDeadline'
+            - type: 'null'
+        changed_since_last_visit:
+          $ref: '#/components/schemas/MyChanged'
+        stages:
+          type: array
+          description: The item's kind's stages, in order.
+          items:
+            $ref: '#/components/schemas/MyStageOption'
+        parent:
+          description: A bid's project, when the caller is a member of it too.
+          oneOf:
+            - $ref: '#/components/schemas/MyItemRef'
+            - type: 'null'
+        bids:
+          type: array
+          description: >-
+            A project's bids that the caller is a member of, archived ones included and marked, each with its own
+            next deadline. The project's `next_deadline` takes only its open, unarchived bids'.
+          items:
+            $ref: '#/components/schemas/MyItemRef'
+        changes:
+          type: array
+          description: Newest first.
+          items:
+            $ref: '#/components/schemas/MyChange'
+        last_viewed_at:
+          type: [string, 'null']
+          format: date-time
+          description: The caller's previous visit, before this request; theirs only.
+        email_changes: {type: boolean, description: 'The caller''s own "email me changes"; stored only.'}
         public_id:
           $ref: '#/components/schemas/MyProjectPublicId'
         url: {type: string, format: uri}
@@ -10731,6 +10978,49 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/MyPin'
+    MyKindsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [kinds, track, technologies, relations]
+              properties:
+                technologies:
+                  type: array
+                  description: The technology classes an item may carry.
+                  items: {type: string}
+                relations:
+                  type: array
+                  description: The relations a linked record may have to an item.
+                  items:
+                    $ref: '#/components/schemas/MyLinkRelation'
+                kinds:
+                  type: array
+                  items:
+                    type: object
+                    required: [kind, label, plural, description, default_stage, stages]
+                    properties:
+                      kind:
+                        $ref: '#/components/schemas/MyKind'
+                      label: {type: string}
+                      plural: {type: string}
+                      description: {type: string}
+                      default_stage:
+                        $ref: '#/components/schemas/MyStage'
+                      stages:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/MyStageOption'
+                    additionalProperties: false
+                track:
+                  type: object
+                  description: Which kinds "Track" makes from each kind of public record, default first.
+                  additionalProperties:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MyKind'
     PrivacyRequestCreate:
       type: object
       required: [kind, record_public_id, contact_email]

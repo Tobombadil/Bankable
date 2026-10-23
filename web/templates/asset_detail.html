@@ -86,6 +86,8 @@
 <p class="attribution-line field-note">Two different lengths: <strong>mapped route length</strong> is this pipeline&rsquo;s route as mapped (EIA Energy Atlas); <strong>onshore transmission miles</strong> under Attributes is what the operator reported to PHMSA{% if phmsa.get('report_year') %} for {{ phmsa.get('report_year') }}{% endif %} for its whole onshore gas transmission system, so the two need not agree.</p>
 {% endif %}
 
+{% set track_type = "asset" %}{% include "partials/_track.html" %}
+
 {% set sec = namespace(n=0) %}
 {% if mini_map %}
 {% set sec.n = sec.n + 1 %}

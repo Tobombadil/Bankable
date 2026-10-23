@@ -1,0 +1,130 @@
+{% extends "my/_layout.html" %}
+{% block my_title %}Add an item{% endblock %}
+{% block content %}
+{%- set current = (kinds | selectattr('kind', 'equalto', kind) | first) %}
+<nav class="breadcrumbs my-breadcrumbs" aria-label="Breadcrumb"><a href="/my">My pipeline</a> / <a href="/my">Tracker</a> / Add an item</nav>
+<div class="my-head">
+  <h1>{% if record %}Track {{ current.label | lower }}{% else %}Add an item{% endif %}</h1>
+</div>
+
+{%- if error %}
+<div class="notice notice--error" role="alert">
+  <p class="notice__title">{{ error.title }}</p>
+  {%- if error.detail %}<p>{{ error.detail }}</p>{% endif %}
+  {%- if error.request_id %}<p class="notice__ref">Reference <code class="tnum">{{ error.request_id }}</code></p>{% endif %}
+</div>
+{%- endif %}
+
+{%- if record %}
+<p class="my-linked-to">Linked to: <a href="{{ record.url }}">{{ record.name or record_type_labels.get(record.record_type, 'record') }}</a> <span class="my-muted">({{ record_type_labels.get(record.record_type, record.record_type) }})</span>. Its facts stay on the record, read live; only the fields below become yours.</p>
+{%- else %}
+<nav class="my-filter" aria-label="Type">
+  {%- for option in kinds %}
+  <a href="/my/items/new?type={{ option.kind }}"{% if option.kind == kind %} aria-current="page"{% endif %}>{{ option.label }}</a>
+  {%- endfor %}
+</nav>
+{%- endif %}
+<p class="my-muted">{{ current.description }}</p>
+
+<form class="auth-form my-form" method="post" action="/my/items" novalidate>
+  <input type="hidden" name="kind" value="{{ kind }}">
+  {%- if record %}
+  <input type="hidden" name="from_record_type" value="{{ prefill['from'].record_type }}">
+  <input type="hidden" name="from_public_id" value="{{ prefill['from'].public_id }}">
+  {%- if prefill.relations | length > 1 %}
+  <fieldset class="field field--choices">
+    <legend>How it relates</legend>
+    {%- for relation in prefill.relations %}
+    <label for="relation-{{ relation }}"><input id="relation-{{ relation }}" type="radio" name="relation" value="{{ relation }}"{% if loop.first %} checked{% endif %}> {{ relation_labels.get(relation, relation) }}</label>
+    {%- endfor %}
+  </fieldset>
+  {%- else %}
+  <input type="hidden" name="relation" value="{{ prefill.relation }}">
+  {%- endif %}
+  {%- endif %}
+
+  <div class="field">
+    <label for="item-title">Title</label>
+    <input id="item-title" name="title" type="text" maxlength="200" required value="{{ values.title or '' }}"{% if error and error.field_errors.title %} aria-invalid="true" aria-describedby="item-title-error"{% endif %}>
+    {%- if 'title' in prefilled %}<p class="field-hint">From the record; change it as you like.</p>{% endif %}
+    {%- if 'title' in left_blank %}<p class="field-hint">Left blank: the source's licence does not allow copying it. The record still shows it.</p>{% endif %}
+    {%- if error and error.field_errors.title %}<p class="field__error" id="item-title-error">{{ error.field_errors.title }}</p>{% endif %}
+  </div>
+
+  <div class="field">
+    <label for="item-stage">Stage</label>
+    <select id="item-stage" name="stage">
+      {%- for option in stages %}
+      <option value="{{ option.stage }}"{% if option.stage == (values.stage or current.default_stage) %} selected{% endif %}>{{ option.label }}</option>
+      {%- endfor %}
+    </select>
+    {%- if 'stage' in prefilled %}<p class="field-hint">Suggested from the record's status. Stages are yours and never shown publicly.</p>{% endif %}
+    {%- if error and error.field_errors.stage %}<p class="field__error">{{ error.field_errors.stage }}</p>{% endif %}
+  </div>
+
+  {%- if kind == 'bid' %}
+  <div class="field">
+    <label for="item-parent">For which of your projects</label>
+    <select id="item-parent" name="parent_project_id">
+      <option value="">None: it stands alone</option>
+      {%- for project in projects %}
+      <option value="{{ project.public_id }}"{% if project.public_id == values.parent_project_id %} selected{% endif %}>{{ project.title }}</option>
+      {%- endfor %}
+    </select>
+    <p class="field-hint">A project may have many bids; its next deadline then follows its bids'.</p>
+    {%- if error and error.field_errors.parent_project_id %}<p class="field__error">{{ error.field_errors.parent_project_id }}</p>{% endif %}
+  </div>
+  <div class="field">
+    <label for="item-submitted">Submitted on (optional)</label>
+    <input id="item-submitted" name="submitted_on" type="date" value="{{ values.submitted_on or '' }}">
+    {%- if error and error.field_errors.submitted_on %}<p class="field__error">{{ error.field_errors.submitted_on }}</p>{% endif %}
+  </div>
+  {%- endif %}
+
+  <div class="field">
+    <label for="item-technology">Technology (optional)</label>
+    <select id="item-technology" name="technology">
+      <option value="">Not set</option>
+      {%- for value, label in technologies %}
+      <option value="{{ value }}"{% if value == values.technology %} selected{% endif %}>{{ label }}</option>
+      {%- endfor %}
+    </select>
+    {%- if 'technology' in prefilled %}<p class="field-hint">From the record.</p>{% endif %}
+    {%- if 'technology' in left_blank %}<p class="field-hint">Left blank: the source's licence does not allow copying it.</p>{% endif %}
+  </div>
+
+  <div class="field">
+    <label for="item-capacity">Capacity, MW (optional)</label>
+    <input id="item-capacity" name="capacity_mw" type="text" inputmode="decimal" value="{{ values.capacity_mw if values.capacity_mw is not none else '' }}">
+    {%- if 'capacity_mw' in prefilled %}<p class="field-hint">From the record.</p>{% endif %}
+    {%- if 'capacity_mw' in left_blank %}<p class="field-hint">Left blank: the source's licence does not allow copying it.</p>{% endif %}
+    {%- if error and error.field_errors.capacity_mw %}<p class="field__error">{{ error.field_errors.capacity_mw }}</p>{% endif %}
+  </div>
+
+  {%- if record and 'lat' in prefilled %}
+  <fieldset class="field field--choices">
+    <legend>Map point</legend>
+    <label for="point-record"><input id="point-record" type="radio" name="point" value="record" checked> From the record ({{ (values.point_precision or 'exact') | replace('_', ' ') }})</label>
+    <label for="point-later"><input id="point-later" type="radio" name="point" value="later"> I'll set it later</label>
+    <p class="field-hint">Your map point is shown only to you and the people you invite.</p>
+  </fieldset>
+  {%- else %}
+  <details class="my-details">
+    <summary>Map point (optional)</summary>
+    {%- if 'lat' in left_blank %}<p class="field-hint">The record's point was left out: its source's licence does not allow copying it.</p>{% endif %}
+    <div class="field">
+      <label for="item-lat">Latitude</label>
+      <input id="item-lat" name="lat" type="text" inputmode="decimal" value="{{ values.lat or '' }}">
+    </div>
+    <div class="field">
+      <label for="item-lon">Longitude</label>
+      <input id="item-lon" name="lon" type="text" inputmode="decimal" value="{{ values.lon or '' }}">
+    </div>
+    {%- if error and (error.field_errors.lat or error.field_errors.lon) %}<p class="field__error">{{ error.field_errors.lat or error.field_errors.lon }}</p>{% endif %}
+  </details>
+  {%- endif %}
+
+  <p class="field-hint">Only you, and the people you invite, can see it.</p>
+  <div class="form-actions"><button type="submit">Add to tracker</button></div>
+</form>
+{% endblock %}
