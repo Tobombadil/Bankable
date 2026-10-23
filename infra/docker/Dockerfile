@@ -57,6 +57,7 @@ COPY data/sources.yaml ./data/sources.yaml
 COPY data/vocabulary ./data/vocabulary
 COPY data/vendored ./data/vendored
 COPY data/match_rules.yaml ./data/match_rules.yaml
+COPY data/checklist ./data/checklist
 COPY data/eval/ethanol_match_labels.csv data/eval/gleif_matches.csv data/eval/match_labels.csv data/eval/match_opportunity_context.csv ./data/eval/
 COPY api/openapi.yaml ./api/openapi.yaml
 COPY infra/__init__.py ./infra/__init__.py
