@@ -1368,3 +1368,130 @@ def test_the_plan_step_fails_when_the_plan_fails() -> None:
     assert run.index('states="$(infra/scripts/build_flood_layer.sh plan)"') < run.index("GITHUB_OUTPUT")
     publish = doc["jobs"]["publish"]["steps"][-1]["env"]
     assert publish["STATES"] == "${{ inputs.states }}" and "ALLOW_DROPPED_STATES" in publish
+
+
+# ------------------------------------------------------------------- the server's pull (context_build)
+class FakeStore:
+    """`S3Backend.get` over a dict of full keys: a missing key is FileNotFoundError."""
+
+    def __init__(self, objects: dict[str, bytes]) -> None:
+        self.objects = objects
+        self.gets: list[str] = []
+
+    def get(self, key: str) -> bytes:
+        self.gets.append(key)
+        if key not in self.objects:
+            raise FileNotFoundError(key)
+        return self.objects[key]
+
+
+def _published_flood(states: dict[str, str]) -> dict[str, bytes]:
+    """A published build as build_flood_layer.sh leaves it: per state (state -> its version) three
+    layer files with their sha256 and the version's aoi.parquet, and latest.json naming every key."""
+    import hashlib
+
+    objects: dict[str, bytes] = {}
+    entries: dict[str, Any] = {}
+    for st, version in states.items():
+        prefix = f"{nfhl.R2_PREFIX}/{version}"
+        files = {}
+        for layer in ("sfha", "zones_other", "coverage"):
+            body = f"{st}-{layer}-{version}".encode()
+            key = f"{prefix}/{layer}/{st}.parquet"
+            objects[key] = body
+            files[layer] = {"key": key, "sha256": hashlib.sha256(body).hexdigest(), "rows": 1}
+        objects[f"{prefix}/aoi.parquet"] = f"aoi-{version}".encode()
+        entries[st] = {
+            "version": version,
+            "prefix": prefix,
+            "files": files,
+            "aoi": {"key": f"{prefix}/aoi.parquet"},
+        }
+    manifest = {"source_id": nfhl.SOURCE_ID, "version": max(states.values()), "states": entries}
+    objects[nfhl.LATEST_KEY] = json.dumps(manifest).encode()
+    return objects
+
+
+def test_pull_before_any_build_is_not_published_and_writes_nothing(tmp_path: pathlib.Path) -> None:
+    result = nfhl.pull(FakeStore({}), states=["TX"], data_root=tmp_path)
+    assert result["status"] == nfhl.NOT_PUBLISHED and result["key"] == nfhl.LATEST_KEY
+    assert not any(tmp_path.iterdir())
+    # Published, but not for the states this server loads: also "not published" here.
+    objects = _published_flood({"OK": "20261022T0441Z"})
+    result = nfhl.pull(FakeStore(objects), states=["TX"], data_root=tmp_path)
+    assert result["status"] == nfhl.NOT_PUBLISHED and result["states_not_published"] == ["TX"]
+    assert not any(tmp_path.iterdir())
+
+
+def test_pull_fetches_only_the_servers_states_at_their_own_keys_and_writes_the_manifest_last(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A partial rebuild carries a state forward under its older version (docs/25 §5.6): the pull reads
+    each state's files where the manifest says, checks each sha256, and narrows the local manifest to
+    the states it holds, which is all the site finder lists (`services/site_finder/flood.py`)."""
+    objects = _published_flood({"TX": "20261023T0441Z", "LA": "20260703T0441Z", "OK": "20261023T0441Z"})
+    store = FakeStore(objects)
+    result = nfhl.pull(store, states=["TX", "LA", "NM"], data_root=tmp_path)
+    assert result["status"] == "pulled" and result["states"] == ["LA", "TX"]
+    assert result["states_not_published"] == ["NM"] and result["files_fetched"] == 8
+    assert not any("/OK." in key for key in store.gets), "a state the server does not load is not fetched"
+    assert store.gets[0] == nfhl.LATEST_KEY
+    local = json.loads(nfhl.local_path(nfhl.LATEST_KEY, tmp_path).read_text())
+    assert sorted(local["states"]) == ["LA", "TX"] and local["states_loaded"] == ["LA", "TX"]
+    for entry in local["states"].values():
+        for key, _digest in nfhl._state_objects(entry):
+            assert nfhl.local_path(key, tmp_path).read_bytes() == objects[key]
+    assert not list(tmp_path.rglob("*.part"))
+
+    again = nfhl.pull(FakeStore(objects), states=["TX", "LA", "NM"], data_root=tmp_path)
+    assert again["status"] == "unchanged" and again["files_fetched"] == 0
+
+    # Texas rebuilt: its new version arrives and the previous manifest's directories stay (a site
+    # finder run may still be reading them); a version neither manifest names is then removed.
+    newer = _published_flood({"TX": "20261101T0441Z", "LA": "20260703T0441Z"})
+    result = nfhl.pull(FakeStore(newer), states=["TX", "LA"], data_root=tmp_path)
+    assert result["status"] == "pulled" and result["files_fetched"] == 4 and result["versions_removed"] == []
+    final = _published_flood({"TX": "20261201T0441Z", "LA": "20260703T0441Z"})
+    result = nfhl.pull(FakeStore(final), states=["TX", "LA"], data_root=tmp_path)
+    assert result["versions_removed"] == ["20261023T0441Z"]
+    base = nfhl.local_path(nfhl.LATEST_KEY, tmp_path).parent
+    kept = sorted(p.name for p in base.iterdir() if p.is_dir())
+    assert kept == ["20260703T0441Z", "20261101T0441Z", "20261201T0441Z"]
+
+
+def test_pull_refuses_a_file_that_fails_its_sha256_and_keeps_the_local_manifest(
+    tmp_path: pathlib.Path,
+) -> None:
+    nfhl.pull(FakeStore(_published_flood({"TX": "20261023T0441Z"})), states=["TX"], data_root=tmp_path)
+    before = nfhl.local_path(nfhl.LATEST_KEY, tmp_path).read_bytes()
+    newer = _published_flood({"TX": "20261101T0441Z"})
+    newer[f"{nfhl.R2_PREFIX}/20261101T0441Z/sfha/TX.parquet"] += b"tampered"
+    with pytest.raises(nfhl.PullError, match="sha256"):
+        nfhl.pull(FakeStore(newer), states=["TX"], data_root=tmp_path)
+    assert nfhl.local_path(nfhl.LATEST_KEY, tmp_path).read_bytes() == before
+
+
+def test_pull_cli_reads_grid_layers_regions_and_refuses_without_it(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    objects = _published_flood({"TX": "20261023T0441Z", "OK": "20261023T0441Z"})
+    monkeypatch.setattr(nfhl, "store_from_env", lambda: FakeStore(objects))
+    monkeypatch.delenv("GRID_LAYERS_REGIONS", raising=False)
+    with pytest.raises(SystemExit, match="GRID_LAYERS_REGIONS is not set"):
+        nfhl.main(["pull", "--data-root", str(tmp_path)])
+    monkeypatch.setenv("GRID_LAYERS_REGIONS", "US-TX")
+    nfhl.main(["pull", "--data-root", str(tmp_path)])
+    summary = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert summary["status"] == "pulled" and summary["states"] == ["TX"]
+    monkeypatch.setenv("GRID_LAYERS_REGIONS", "all")
+    nfhl.main(["pull", "--data-root", str(tmp_path)])
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])["states"] == ["OK", "TX"]
+
+
+def test_store_from_env_names_every_missing_r2_setting() -> None:
+    with pytest.raises(nfhl.PullError, match="R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY"):
+        nfhl.store_from_env({})
+    env = {"R2_BUCKET": "b", "R2_ACCESS_KEY_ID": "k", "R2_SECRET_ACCESS_KEY": "s", "R2_ACCOUNT_ID": "acct"}
+    store = nfhl.store_from_env(env)
+    assert (store.bucket, store.prefix) == ("b", "")
+    assert store.endpoint_url == "https://acct.r2.cloudflarestorage.com"

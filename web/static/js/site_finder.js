@@ -7,8 +7,10 @@
  * with its band open, the headings and the pager are links. This file fetches the same server
  * fragments the page renders (`/api/site-finder/rows`, `/api/site-finder/band`), so no wording lives
  * here, and draws the map: the bands that match (`/api/site-finder/geo`), the OpenStreetMap lines
- * coloured and sized by voltage class and the substations (`/api/site-finder/grid`), and the open
- * band's own outline, floodplain cut out.
+ * coloured and sized by voltage class and the substations (`/api/site-finder/grid`), the open
+ * band's own outline, floodplain cut out, and from zoom 12 the Texas land parcels in view
+ * (`/api/site-finder/parcels`): an outline per parcel, a click names its acres, its holding and the
+ * appraisal district's record. No owner name exists to show.
  */
 (function () {
   "use strict";
@@ -22,7 +24,9 @@
   var config = JSON.parse(configEl.textContent || "{}");
   var defaults = config.defaults || {};
   var PATH = config.path || "/site-finder";
-  var ORDER = ["min_kv", "adjacent_mi", "max_substation_mi", "exclude_flood", "include_unknown_voltage", "exclude_protected", "state", "county"];
+  var ORDER = ["min_kv", "adjacent_mi", "max_substation_mi", "exclude_flood", "include_unknown_voltage", "exclude_protected", "state", "county", "min_acres", "max_owners"];
+  var OPTIONAL = { state: true, county: true, min_acres: true, max_owners: true };
+  var PARCELS_MIN_ZOOM = Number(config.parcels_min_zoom || 12);
   var FLAGS = { exclude_flood: true, include_unknown_voltage: true, exclude_protected: true };
   var CONUS = [[-125, 24], [-66.5, 49.5]];
 
@@ -92,7 +96,7 @@
 
   function isDefault(name, value) {
     if (FLAGS[name]) return value === !!defaults[name];
-    if (name === "state" || name === "county") return !value;
+    if (OPTIONAL[name]) return !value;
     return Number(value) === Number(defaults[name]);
   }
   // The query in web/site_finder.py `Criteria.url_items` order: criteria, sort, then cursor and band.
@@ -266,6 +270,23 @@
   function updateKey() {
     var el = document.querySelector(".sf-key__band-words");
     if (el) el.textContent = state.criteria.adjacent_mi + " mi";
+    // "Owners, at most" applies with a minimum acreage: say so beside it while there is none.
+    var owners = document.getElementById("sf-max-owners");
+    var hint = document.getElementById("sf-owners-hint");
+    var needs = !state.criteria.min_acres;
+    if (owners && needs && !hint) {
+      hint = document.createElement("span");
+      hint.className = "sf-hint";
+      hint.id = "sf-owners-hint";
+      hint.textContent = "Applies with a minimum acreage.";
+      owners.insertAdjacentElement("afterend", hint);
+    } else if (!needs && hint) {
+      hint.parentNode.removeChild(hint);
+    }
+    if (owners) {
+      if (needs) owners.setAttribute("aria-describedby", "sf-owners-hint");
+      else owners.removeAttribute("aria-describedby");
+    }
   }
 
   // ----------------------------------------------------------------------------- the drawer
@@ -379,6 +400,7 @@
     unknown: colour("--sf-kv-unknown", "#7d858c"),
     band: colour("--sf-band", "#1d7f8f"),
     selected: colour("--sf-selected", "#0b5563"),
+    parcel: colour("--sf-parcel", "#7a5a2f"),
     surface: colour("--surface", "#ffffff")
   };
   var KV = ["get", "kv"];
@@ -458,6 +480,16 @@
     map.addSource("sf-lines", { type: "geojson", data: empty() });
     map.addSource("sf-subs", { type: "geojson", data: empty() });
     map.addSource("sf-selected", { type: "geojson", data: empty() });
+    map.addSource("sf-parcels", { type: "geojson", data: empty() });
+    // Parcels under everything else: a nearly clear fill (so a click inside one finds it) and an outline.
+    map.addLayer({
+      id: "sf-parcels-fill", type: "fill", source: "sf-parcels", minzoom: PARCELS_MIN_ZOOM,
+      paint: { "fill-color": C.parcel, "fill-opacity": 0.04 }
+    });
+    map.addLayer({
+      id: "sf-parcels-line", type: "line", source: "sf-parcels", minzoom: PARCELS_MIN_ZOOM,
+      paint: { "line-color": C.parcel, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.6, 16, 1.4], "line-opacity": 0.85 }
+    });
     map.addLayer({
       id: "sf-bands", type: "line", source: "sf-bands",
       layout: { "line-cap": "round", "line-join": "round" },
@@ -553,7 +585,19 @@
     }
     return Promise.all(jobs);
   }
-  function loadView() { return Promise.all([reloadBands(), reloadGrid()]); }
+  // Texas land parcels in view, from zoom 12 (the API's own floor): outlines only; no owner exists to show.
+  function reloadParcels() {
+    var src = map.getSource("sf-parcels");
+    if (!src) return Promise.resolve();
+    if (map.getZoom() < PARCELS_MIN_ZOOM - 0.25) {
+      src.setData(empty());
+      return Promise.resolve();
+    }
+    return fetchJson("parcels", "/api/site-finder/parcels?bbox=" + bboxParam() + "&zoom=" + zoomParam()).then(function (env) {
+      if (map.getSource("sf-parcels")) map.getSource("sf-parcels").setData((env && env.data) || empty());
+    }).catch(quiet);
+  }
+  function loadView() { return Promise.all([reloadBands(), reloadGrid(), reloadParcels()]); }
   var moveTimer = null;
   map.on("moveend", function () {
     window.clearTimeout(moveTimer);
@@ -585,6 +629,52 @@
     div.appendChild(line);
     return div;
   }
+  function acresWords(v) {
+    var n = Number(v);
+    if (!isFinite(n)) return "";
+    return (n < 10 ? n.toFixed(1) : Math.round(n).toLocaleString()) + " ac";
+  }
+  // A parcel's card: its acres, its holding (one owner's contiguous parcels) and the appraisal district's
+  // record, where the owner is read. Built from text nodes only.
+  function parcelCard(f) {
+    var p = f.properties || {};
+    var rec = p.appraisal_record;
+    if (typeof rec === "string") { try { rec = JSON.parse(rec); } catch (e) { rec = null; } }
+    var div = document.createElement("div");
+    var strong = document.createElement("strong");
+    strong.textContent = "Parcel, " + acresWords(p.acres);
+    div.appendChild(strong);
+    var meta = document.createElement("span");
+    meta.className = "sf-popup__meta";
+    var parcels = Number(p.holding_parcels) || 1;
+    meta.textContent = "Holding " + acresWords(p.holding_acres) + " in " + parcels + " parcel" + (parcels === 1 ? "" : "s") + (p.land_use_label ? "; " + p.land_use_label : "");
+    div.appendChild(document.createElement("br"));
+    div.appendChild(meta);
+    // Right-of-way strips, exempt and utility land are drawn but left out of the acreage figures.
+    var KINDS = { strip: "a right-of-way strip", exempt: "exempt land", utility: "utility land" };
+    if (KINDS[p.holding_kind]) {
+      var kind = document.createElement("span");
+      kind.className = "sf-popup__meta";
+      kind.textContent = "Left out of the acreage figures: " + KINDS[p.holding_kind] + ".";
+      div.appendChild(document.createElement("br"));
+      div.appendChild(kind);
+    }
+    if (rec && rec.url) {
+      div.appendChild(document.createElement("br"));
+      var a = document.createElement("a");
+      a.href = rec.url;
+      a.rel = "noopener nofollow";
+      a.target = "_blank";
+      a.textContent = rec.kind === "record" ? "Appraisal record" : "Appraisal district" + (rec.property_id ? " (property id " + rec.property_id + ")" : "");
+      div.appendChild(a);
+    }
+    var note = document.createElement("span");
+    note.className = "sf-popup__meta";
+    note.textContent = "Owner names are on the appraisal district's record; Inframation does not store them.";
+    div.appendChild(document.createElement("br"));
+    div.appendChild(note);
+    return div;
+  }
   map.on("click", function (e) {
     var bands = map.queryRenderedFeatures(e.point, { layers: ["sf-bands"] });
     if (bands.length) {
@@ -593,7 +683,12 @@
       return;
     }
     var hit = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], { layers: ["sf-subs", "sf-lines", "sf-lines-unknown"] });
-    if (hit.length) popup.setLngLat(e.lngLat).setDOMContent(card(hit[0], hit[0].layer.id === "sf-subs" ? "substation" : "line")).addTo(map);
+    if (hit.length) {
+      popup.setLngLat(e.lngLat).setDOMContent(card(hit[0], hit[0].layer.id === "sf-subs" ? "substation" : "line")).addTo(map);
+      return;
+    }
+    var parcel = map.getLayer("sf-parcels-fill") ? map.queryRenderedFeatures(e.point, { layers: ["sf-parcels-fill"] }) : [];
+    if (parcel.length) popup.setLngLat(e.lngLat).setDOMContent(parcelCard(parcel[0])).addTo(map);
   });
   map.on("mousemove", function (e) {
     if (coarse.matches) return;

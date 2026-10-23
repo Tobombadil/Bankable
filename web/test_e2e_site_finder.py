@@ -327,3 +327,72 @@ def test_a_looser_criterion_offers_the_counties_it_brings_in(finder_server: Any)
             assert page.locator("#sf-county").input_value() == other
         finally:
             browser.close()
+
+
+def test_land_parcels_filter_the_list_draw_from_zoom_12_and_open_a_card(finder_server: Any) -> None:
+    """Lane parcels: "Contiguous acres, at least" applies at once and stays in the URL; the drawer lists
+    the holdings with the appraisal-district link and the no-owner note; from zoom 12 the parcels in
+    view are drawn, and a click inside one names its acres and its holding (never an owner)."""
+    if os.environ.get("E2E_SITE_FINDER_DATABASE_URL"):
+        pytest.skip("written for the fixture world's parcels beside line A")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            errors: list[str] = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _install_offline_routes(page)
+            page.goto(BASE_URL + "/site-finder")
+            _wait_map(page)
+            with page.expect_response(lambda r: "/api/site-finder/rows" in r.url):
+                page.select_option("#sf-min-acres", "500")
+            page.wait_for_function("() => new URLSearchParams(location.search).get('min_acres') === '500'")
+            page.wait_for_function("() => !document.getElementById('sf-rows').hasAttribute('aria-busy')")
+            assert _rows(page) == ["Alpha 138 kV"]
+            assert page.locator("#sf-owners-hint").count() == 0
+            with page.expect_response(lambda r: "/api/site-finder/band" in r.url):
+                page.locator("#sf-rows .sf-band-link").first.click()
+            drawer = page.locator("#sf-drawer")
+            drawer.wait_for(state="visible")
+            land = drawer.locator(".sf-land")
+            assert "Largest holding" in land.inner_text()
+            assert "Inframation does not store them." in land.inner_text()
+            assert land.locator(".sf-holding").count() >= 5
+            _shot(page, "desktop-03-parcels-drawer")
+            # Zoom to line A at 13: the parcel outlines arrive.
+            page.evaluate("() => window.__sfMap.jumpTo({center: [-97.99, 31.0], zoom: 13.2})")
+            page.wait_for_function(
+                "() => window.__sfMap.querySourceFeatures('sf-parcels').length > 0", timeout=30_000
+            )
+            page.evaluate("() => window.__sfMap.jumpTo({center: [-97.99, 31.0], zoom: 9})")
+            page.wait_for_function(
+                "() => window.__sfMap.querySourceFeatures('sf-parcels').length === 0", timeout=30_000
+            )
+            # With no band left (no band reaches 1,000 contiguous acres), a click finds the parcel beneath.
+            page.locator("#sf-drawer-close").click()
+            with page.expect_response(lambda r: "/api/site-finder/geo" in r.url):
+                page.select_option("#sf-min-acres", "1000")
+            page.wait_for_function("() => new URLSearchParams(location.search).get('min_acres') === '1000'")
+            page.evaluate("() => window.__sfMap.jumpTo({center: [-97.9942, 30.9919], zoom: 14})")
+            page.wait_for_function(
+                "() => window.__sfMap.querySourceFeatures('sf-parcels').length > 0"
+                " && window.__sfMap.querySourceFeatures('sf-bands').length === 0",
+                timeout=30_000,
+            )
+            page.wait_for_timeout(400)
+            # Inside Delta's ranch, south of line A.
+            point = page.evaluate(
+                "() => { const p = window.__sfMap.project([-97.9942, 30.9919]); return [p.x, p.y]; }"
+            )
+            box = page.locator("#sf-map").bounding_box()
+            assert box is not None
+            page.mouse.click(box["x"] + point[0], box["y"] + point[1])
+            popup = page.locator(".sf-popup")
+            popup.wait_for(state="visible", timeout=10_000)
+            text = popup.inner_text()
+            assert "Parcel," in text and "Holding" in text and "does not store them" in text
+            assert "OWNER" not in text.upper().replace("OWNER NAMES", "")
+            _shot(page, "desktop-04-parcel-card")
+            assert errors == [], errors
+        finally:
+            browser.close()

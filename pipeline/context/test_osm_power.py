@@ -495,16 +495,30 @@ class _Resp:
     def __init__(self, status: int, content: bytes) -> None:
         self.status_code = status
         self.content = content
+        self.closed = False
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        for start in range(0, len(self.content), chunk_size):
+            yield self.content[start : start + chunk_size]
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _Session:
     def __init__(self, files: dict[str, bytes]) -> None:
         self.files = files
         self.requested: list[str] = []
+        self.streamed: list[str] = []
+        self.responses: list[_Resp] = []
 
-    def get(self, url: str, **_: Any) -> _Resp:
+    def get(self, url: str, **kwargs: Any) -> _Resp:
         self.requested.append(url)
-        return _Resp(200, self.files[url]) if url in self.files else _Resp(404, b"")
+        if kwargs.get("stream"):
+            self.streamed.append(url)
+        resp = _Resp(200, self.files[url]) if url in self.files else _Resp(404, b"")
+        self.responses.append(resp)
+        return resp
 
 
 def _published(tmp_path: pathlib.Path) -> tuple[dict[str, bytes], dict[str, Any]]:
@@ -539,6 +553,14 @@ def test_pull_checks_checksums_writes_frames_and_skips_a_version_it_holds(tmp_pa
     assert frame["source_url"].iloc[0] == "https://www.openstreetmap.org/way/101"
     assert json.loads((out / f"{op.SOURCE_ID}.manifest.json").read_text())["version"] == manifest["version"]
     assert not any((tmp_path / "work" / "osm-power-pull").iterdir())  # downloads cleaned up
+    # The two GeoParquet files are streamed to disk, never read whole (review 2026-10-23: the pull
+    # runs in the worker's container, and the national lines file is about 90-100 MB), and every
+    # response is closed.
+    assert session.streamed == [f"{base}/{manifest['version']}/{name}" for name in manifest["files"]]
+    streamed = [
+        r for url, r in zip(session.requested, session.responses, strict=True) if url in session.streamed
+    ]
+    assert len(streamed) == 2 and all(r.closed for r in streamed)
     again = op.pull(
         base, work_dir=tmp_path / "work", out_dir=out, session=_Session(served), with_states=False
     )
@@ -617,6 +639,25 @@ def test_pull_cli_refuses_to_run_without_a_regions_setting(monkeypatch):
     monkeypatch.setattr(op, "pull", no_network)
     with pytest.raises(SystemExit, match="GRID_LAYERS_REGIONS is not set"):
         op.main(["pull", "--base-url", "https://tiles.example.test/grid/osm-power"])
+
+
+def test_pull_before_the_first_national_build_is_not_published_and_keeps_the_frames(tmp_path, monkeypatch):
+    """Lane sf-golive: until grid-layers.yml promotes a build, `latest.json` answers 404. The server's
+    `context_build` runs this pull every month, so that is `not_published` (exit 0), never an error,
+    and the frames the server already holds are left as they are."""
+    out = tmp_path / "normalized"
+    out.mkdir()
+    (out / op.LINES_FILE).write_bytes(b"held")
+    base = "https://tiles.example.test/grid/osm-power"
+    session = _Session({})
+    summary = op.pull(base, work_dir=tmp_path / "work", out_dir=out, session=session, regions=["US-TX"])
+    assert summary == {"source_id": op.SOURCE_ID, "status": op.NOT_PUBLISHED, "url": f"{base}/latest.json"}
+    assert session.requested == [f"{base}/latest.json"]
+    assert (out / op.LINES_FILE).read_bytes() == b"held" and not (tmp_path / "work").exists()
+    down = _Session({})
+    down.get = lambda url, **_: _Resp(503, b"")
+    with pytest.raises(op.BuildError, match="HTTP 503"):  # any other answer is still an error
+        op.pull(base, work_dir=tmp_path / "work", out_dir=out, session=down, regions=["US-TX"])
 
 
 def test_pull_refuses_a_file_whose_checksum_does_not_match(tmp_path, monkeypatch):

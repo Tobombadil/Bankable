@@ -1,0 +1,235 @@
+name: parcels-layer
+
+# Builds the Texas land parcels the site finder reads (owner decisions 2026-10-23: Site finder Pro gets
+# land parcels, Texas first, and Inframation serves the owner's own powered-land deals first;
+# docs/25-siting-parcels.md; source us.tx.txgio.parcels). TxGIO StratMap Land Parcels, newest vintage,
+# one county zip at a time (253 of 254 counties; Donley is excluded by TxGIO): download, group each
+# owner's contiguous parcels into holdings in memory, drop every owner field, write GeoParquet, upload,
+# delete the zip. The files and their manifest go to the private object store (R2_BUCKET,
+# data/normalized/context/us.tx.txgio.parcels/, the prefix flood-layer.yml uses), never to the public
+# tiles bucket: the source is derived_only, and the per-parcel file is its table less the owner columns.
+# Servers pull them with their own object-store credentials (`python -m pipeline.context.txgio_parcels
+# pull`, PARCELS_COUNTIES); the public reads parcels only through the API, behind the register gate.
+# Nothing is built on the app server.
+#
+# Run by a person only (workflow_dispatch): `counties` is `all` (every county the catalogue lists) or a
+# list of FIPS codes or names (48351,Jasper), which is merged into the published layer (the other
+# counties carry forward). `dry_run` reads the catalogue and asks every chosen county zip its size,
+# downloading and uploading nothing; it needs no secret. Every run writes a per-county table to the run
+# summary; a county that fails keeps its published version and turns the run red. The R2 values are the
+# ones flood-layer.yml uses (account, token, bucket): no new secret.
+#
+# On a pull request that touches the module, its fixtures, the reader, this file or the script, only
+# the `test` job runs: it installs pyogrio (GDAL, not in requirements.txt) and runs the module's tests
+# and the script's end-to-end test, failing if any skipped. No secrets, no network beyond pip.
+
+on:
+  workflow_dispatch:
+    inputs:
+      counties:
+        description: "'all', or county FIPS codes or names (48351,48241,Pecos). A subset merges into the published layer."
+        type: string
+        default: all
+      dry_run:
+        description: "Dry run: read the catalogue and HEAD each county zip; download and upload nothing"
+        type: boolean
+        default: false
+      allow_dropped_counties:
+        description: "Full build only: published counties this build may leave out (space separated FIPS)"
+        type: string
+        default: ""
+  pull_request:
+    branches: [main]
+    paths:
+      - pipeline/context/txgio_parcels.py
+      - pipeline/context/test_txgio_parcels.py
+      - pipeline/context/test_txgio_parcels_build_script.py
+      - pipeline/context/fixtures/txgio_parcels/**
+      - services/context_sample/parcels.py
+      - pipeline/connectors/http.py
+      - pipeline/connectors/store.py
+      - requirements.txt
+      - infra/scripts/build_parcels_layer.sh
+      - .github/workflows/parcels-layer.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  # One build at a time (two would race on latest.json); a pull request's test run has its own group.
+  group: parcels-layer-${{ github.event_name == 'pull_request' && github.ref || 'build' }}
+  cancel-in-progress: false
+
+# No secret here: this env reaches the pull-request `test` job and the dry run too.
+env:
+  AWS_DEFAULT_REGION: auto
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+  # The contact URL in the User-Agent TxGIO sees (pipeline/connectors/http.py).
+  BANKABLE_DOMAIN: ${{ vars.DOMAIN || 'inframation.io' }}
+
+jobs:
+  test:
+    name: tests (recorded fixtures, no network)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install (the versions build_parcels_layer.sh installs)
+        run: pip install -r requirements.txt "pyogrio==0.11.1" "pyproj==3.7.2"
+      - name: the parcels tests, failing if any skipped
+        shell: bash
+        run: |
+          python -m pytest pipeline/context/test_txgio_parcels.py pipeline/context/test_txgio_parcels_build_script.py \
+            services/context_sample/test_parcels.py -q -rs -p no:cacheprovider | tee pytest.out
+          if grep -qi "skipped" pytest.out; then
+            echo "::error::a parcels test skipped (pyogrio or bash missing)"
+            exit 1
+          fi
+
+  dry-run:
+    name: dry run (catalogue and a HEAD per county zip)
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install
+        run: pip install -r requirements.txt
+      - name: dry run (infra/scripts/build_parcels_layer.sh dry-run)
+        env:
+          COUNTIES: ${{ inputs.counties }}
+        run: infra/scripts/build_parcels_layer.sh dry-run
+
+  plan:
+    name: plan (catalogue, version, batches)
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      # The object storage bucket deploy-beta creates (infra/ci/beta.sh BUCKET_PREFIX + "-production"),
+      # not the public tiles bucket: a derived-only source's table is never served to browsers.
+      R2_BUCKET: ${{ secrets.R2_BUCKET || vars.R2_BUCKET || 'beta-object-storage-production' }}
+    outputs:
+      ready: ${{ steps.creds.outputs.ready }}
+      version: ${{ steps.plan.outputs.version }}
+      batches: ${{ steps.plan.outputs.batches }}
+    steps:
+      - name: R2 credentials present?
+        id: creds
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          if [[ -z "${R2_ACCOUNT_ID}" || -z "${R2_ACCESS_KEY_ID}" || -z "${R2_SECRET_ACCESS_KEY}" ]]; then
+            echo "::warning::the R2 account id or token is not set in the 'production' environment; parcels not built."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif ! aws s3api list-objects-v2 --bucket "${R2_BUCKET}" --max-keys 1 --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" >/dev/null 2>&1; then
+            echo "::warning::the bucket ${R2_BUCKET} does not exist yet (deploy-beta creates it); parcels not built."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        if: steps.creds.outputs.ready == 'true'
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install
+        if: steps.creds.outputs.ready == 'true'
+        run: pip install -r requirements.txt
+      - name: plan (infra/scripts/build_parcels_layer.sh plan)
+        id: plan
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          COUNTIES: ${{ inputs.counties }}
+        run: infra/scripts/build_parcels_layer.sh plan
+
+  county-batch:
+    name: counties ${{ matrix.batch }}
+    needs: plan
+    if: needs.plan.outputs.ready == 'true' && needs.plan.outputs.batches != '[]'
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 240
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      # The object storage bucket deploy-beta creates (infra/ci/beta.sh BUCKET_PREFIX + "-production"),
+      # not the public tiles bucket: a derived-only source's table is never served to browsers.
+      R2_BUCKET: ${{ secrets.R2_BUCKET || vars.R2_BUCKET || 'beta-object-storage-production' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2 # TxGIO's file host: two downloads at a time at most, each county five seconds apart
+      matrix:
+        batch: ${{ fromJSON(needs.plan.outputs.batches) }}
+    steps:
+      - name: free disk for the largest counties (Harris's zip is 430 MB)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install
+        run: pip install -r requirements.txt "pyogrio==0.11.1" "pyproj==3.7.2"
+      - name: build and upload (infra/scripts/build_parcels_layer.sh batch)
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          PARCELS_VERSION: ${{ needs.plan.outputs.version }}
+        run: infra/scripts/build_parcels_layer.sh batch "${{ matrix.batch }}"
+
+  publish:
+    name: manifest, per-county report and latest.json
+    needs: [plan, county-batch]
+    # Runs after failed batches too: their counties are reported and their published versions kept.
+    if: always() && needs.plan.outputs.ready == 'true' && needs.plan.outputs.batches != '[]'
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      # The object storage bucket deploy-beta creates (infra/ci/beta.sh BUCKET_PREFIX + "-production"),
+      # not the public tiles bucket: a derived-only source's table is never served to browsers.
+      R2_BUCKET: ${{ secrets.R2_BUCKET || vars.R2_BUCKET || 'beta-object-storage-production' }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install
+        run: pip install -r requirements.txt
+      - name: publish (infra/scripts/build_parcels_layer.sh publish)
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          PARCELS_VERSION: ${{ needs.plan.outputs.version }}
+          COUNTIES: ${{ inputs.counties }}
+          ALLOW_DROPPED_COUNTIES: ${{ inputs.allow_dropped_counties }}
+        run: infra/scripts/build_parcels_layer.sh publish
+      - name: latest.json is where servers read it (the private object store)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          aws s3api head-object --bucket "${R2_BUCKET}" --key data/normalized/context/us.tx.txgio.parcels/latest.json \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"

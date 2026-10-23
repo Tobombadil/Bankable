@@ -2194,6 +2194,39 @@ a.button-secondary:visited { color: var(--link); }
   .sf-table .sf-operator::before { content: "\00a0\00b7\0020"; }
 }
 
+/* ---------- Site finder: land parcels (lane parcels; web/site_finder.py `parcels_view`) ----------
+   Texas parcel outlines on the map from zoom 12 (`--sf-parcel`, a brown apart from the gold voltage
+   ramp and the teal bands: 5.43:1 on --map-land light, 7.45:1 dark), the two land criteria, and the
+   drawer's holdings list: acres first (the figure a deal turns on), then parcels, land use, value per
+   acre and the appraisal district's link. */
+:root { --sf-parcel: #7a5a2f; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --sf-parcel: #e0b47a; }
+}
+:root[data-theme="dark"] { --sf-parcel: #e0b47a; }
+.sf-land-field select { max-width: 11rem; }
+.sf-key__parcel {
+  flex: none; width: 1.1rem; height: 0.75rem; border: 1.25px solid var(--sf-parcel);
+  background: color-mix(in srgb, var(--sf-parcel) 8%, transparent);
+}
+.sf-land { font-size: var(--text-2); border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.sf-land p { margin: 0 0 var(--space-2); }
+.sf-land__lede strong { color: var(--text); }
+.sf-land__missing { font-weight: 600; }
+.sf-land__left-out { color: var(--text-muted); font-size: var(--text-1); }
+.sf-land__note { color: var(--text); border-inline-start: 3px solid var(--sf-parcel); padding-inline-start: var(--space-2); }
+.sf-holdings { margin: 0 0 var(--space-2); padding-inline-start: var(--space-4); }
+.sf-holding { margin: 0 0 var(--space-1); overflow-wrap: anywhere; }
+.sf-holding__acres { font-weight: 700; }
+.sf-holding__meta, .sf-holding__hint { color: var(--text-muted); font-size: var(--text-1); }
+.sf-holding__link { white-space: nowrap; }
+.sf-muted { color: var(--text-muted); font-style: italic; }
+@media (max-width: 719px) {
+  .sf-land-field select { max-width: none; }
+  .sf-holding__link { display: inline-flex; align-items: center; min-height: 2.75rem; }
+}
+/* ---------- end Site finder: land parcels ---------- */
+
 /* ---------- Submit a project (US-1001, docs/30 §4.5; web/submit.py) ----------
    A full form, so its labels are --text-2 in the body face (docs/31 §1.3), not the filter bar's
    mono caption; one column up to 40rem, so 400px needs no rule of its own. Control borders are

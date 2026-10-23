@@ -38,6 +38,27 @@
     <input id="sf-substation" type="range" name="max_substation_mi" min="{{ '%g' % substation_range[0] }}" max="{{ '%g' % substation_range[1] }}" step="{{ '%g' % substation_range[2] }}" value="{{ '%g' % c.max_substation_mi }}" data-default="{{ '%g' % defaults.max_substation_mi }}" aria-valuetext="{{ '%g' % c.max_substation_mi }} miles">
     <span class="sf-range__ends" aria-hidden="true"><span>1 mi</span><span>10 mi</span></span>
   </div>
+  {#- Land parcels (Texas, TxGIO): a segment passes when its band reaches this much contiguous land from
+      at most this many owners. Both are plain selects, so the form still works without scripts. -#}
+  <div class="filter-field sf-land-field">
+    <label for="sf-min-acres">Contiguous acres, at least</label>
+    <select id="sf-min-acres" name="min_acres" data-default="">
+      <option value=""{% if not c.min_acres %} selected{% endif %}>No minimum</option>
+      {%- for a in acre_choices %}
+      <option value="{{ a }}"{% if a == c.min_acres %} selected{% endif %}>{{ '{:,}'.format(a) }} acres</option>
+      {%- endfor %}
+    </select>
+  </div>
+  <div class="filter-field sf-land-field">
+    <label for="sf-max-owners">Owners, at most</label>
+    <select id="sf-max-owners" name="max_owners" data-default=""{% if not c.min_acres %} aria-describedby="sf-owners-hint"{% endif %}>
+      <option value=""{% if not c.max_owners %} selected{% endif %}>Any</option>
+      {%- for o in owner_choices %}
+      <option value="{{ o }}"{% if o == c.max_owners %} selected{% endif %}>{{ o }} owner{{ 's' if o != 1 }}</option>
+      {%- endfor %}
+    </select>
+    {%- if not c.min_acres %}<span class="sf-hint" id="sf-owners-hint">Applies with a minimum acreage.</span>{% endif %}
+  </div>
   <fieldset class="filter-field sf-flags">
     <legend class="visually-hidden">Leave out or include</legend>
     {#- A box sends `true` after its hidden `false`; the server reads the last (`web/site_finder.py::_last`). -#}
@@ -82,6 +103,7 @@
       <li><span class="sf-key__line sf-key__line--69" aria-hidden="true"></span> 69&ndash;99 kV <span class="sf-key__eg">(69 kV)</span></li>
       <li><span class="sf-key__line sf-key__line--unknown" aria-hidden="true"></span> Voltage not stated</li>
       <li><span class="sf-key__substation" aria-hidden="true"></span> Substation (from zoom 8)</li>
+      <li><span class="sf-key__parcel" aria-hidden="true"></span> Land parcel, Texas (from zoom 12)</li>
     </ul>
   </details>
   <section class="map-drawer sf-drawer{% if band or band_missing %} is-open{% endif %}" id="sf-drawer" role="dialog" aria-label="Band details"{% if not (band or band_missing) %} hidden{% endif %}>
@@ -95,7 +117,7 @@
     </div>
   </section>
 </div>
-<p class="map-attribution sf-attribution">Lines and substations: <a href="https://www.openstreetmap.org/copyright" rel="noopener">&copy; OpenStreetMap contributors</a>, available under the <a href="{{ odbl_url }}" rel="noopener">Open Database License</a>. Floodplain: FEMA National Flood Hazard Layer. Counties: U.S. Census Bureau TIGER/Line. Retiring plants: EIA-860M; queue requests as each source credits them. {{ basemap_attribution }} Full credits: <a href="/attribution">Attribution</a>.</p>
+<p class="map-attribution sf-attribution">Lines and substations: <a href="https://www.openstreetmap.org/copyright" rel="noopener">&copy; OpenStreetMap contributors</a>, available under the <a href="{{ odbl_url }}" rel="noopener">Open Database License</a>. Floodplain: FEMA National Flood Hazard Layer. Counties: U.S. Census Bureau TIGER/Line. Land parcels: Texas Geographic Information Office (TWDB), StratMap Land Parcels, data from Texas appraisal districts; not endorsed by the State of Texas, not survey grade. Retiring plants: EIA-860M; queue requests as each source credits them. {{ basemap_attribution }} Full credits: <a href="/attribution">Attribution</a>.</p>
 
 <section class="sf-results" id="sf-results" aria-label="Results">
   <div id="sf-rows">
@@ -106,6 +128,7 @@
     <summary>How the bands are found</summary>
     <div class="sf-about__body">
       <p>Every OpenStreetMap power line of 69&nbsp;kV and up is cut into half-mile segments. A segment passes when its line meets the voltage floor, a substation lies within the distance chosen, and, with the floodplain left out, FEMA&rsquo;s digital flood map covers its band and at most 90% of the band is in the 1% annual-chance floodplain. Neighbouring passing segments of one line join into one band; the floodplain is cut out of the band drawn on the map.</p>
+      <p>In Texas, appraisal-district parcels (compiled by TxGIO) show who holds the land beside the line without naming anyone: a holding is one owner&rsquo;s parcels that touch or lie within 30&nbsp;m of each other. &ldquo;Contiguous acres&rdquo; keeps the segments whose band touches that much land, from one holding or from neighbouring holdings up to the owners chosen. {{ owner_note }}</p>
       {%- if summary.screening %}<p>{{ summary.screening }}</p>{% endif %}
       {%- if summary.flood_note %}<p>{{ summary.flood_note }}</p>{% endif %}
     </div>

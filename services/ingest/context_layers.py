@@ -35,7 +35,7 @@ from services.ingest.enrich import apply_context_features
 from services.ingest.ghgrp import load_ghgrp_parquet
 from services.ingest.loader import GateRefused, load_from_files
 from services.ingest.midstream import load_operator_edges, load_operator_edges_parquet, load_parents
-from services.ingest.osm_power import load_osm_power
+from services.ingest.osm_power import OSM_POWER_FILES, load_osm_power
 from services.ingest.ownership import load_owner_shares_parquet
 from services.ingest.plants import load_plants_parquet
 from services.ingest.retirements import SOURCE_ID as RETIREMENTS_SOURCE_ID
@@ -78,13 +78,13 @@ def expected_files() -> list[str]:
     """Every `normalized/context/` file a load reads directly, for the job's report. The feature
     inputs (`services.ingest.enrich`) are read and reported by that step itself.
 
-    The OpenStreetMap power frames (`OSM_POWER_FILES`) are loaded when present but not listed yet:
-    no `context_build` builder writes them until `("pipeline.context.osm_power", "pull")` joins
-    `infra/scheduler/jobs.py::CONTEXT_BUILDERS` (docs/25 §2.7, limit 1). That wiring adds them here
-    and to `infra/scheduler/test_context_and_match.py`'s builder map in the same change."""
+    The OpenStreetMap power frames (`OSM_POWER_FILES`) are written by `context_build`'s
+    `("pipeline.context.osm_power", "pull")` (docs/25 §2.7, limit 1, closed 2026-10-23), so a load
+    without them reports them missing like any other layer."""
     return [
         PLANTS_FILE,
         *(name for name, _ in CONTEXT_ASSET_FILES),
+        *(name for name, _ in OSM_POWER_FILES),
         ETHANOL_ATLAS_FILE,
         ETHANOL_CAPACITY_FILE,
         OWNERS_FILE,

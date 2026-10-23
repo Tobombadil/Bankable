@@ -480,3 +480,163 @@ def test_the_map_proxy_passes_a_bad_zoom_back_as_a_400_not_a_500(client: TestCli
     for zoom in ("inf", "1e999"):
         resp = client.get("/api/site-finder/geo", params={"bbox": "-100,29,-96,33", "zoom": zoom})
         assert resp.status_code == 400, (zoom, resp.status_code)
+
+
+# ------------------------------------------------------------------------- land parcels (lane parcels)
+def _owner_strings() -> set[str]:
+    import json
+
+    fixture = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "pipeline"
+        / "context"
+        / "fixtures"
+        / "txgio_parcels"
+        / "synthetic_county.geojson"
+    )
+    out: set[str] = set()
+    for f in json.loads(fixture.read_text(encoding="utf-8"))["features"]:
+        for name in ("OWNER_NAME", "NAME_CARE", "SITUS_ADDR", "MAIL_ADDR", "LEGAL_DESC"):
+            v = f["properties"].get(name)
+            if v and str(v).strip() and "CONFIDENTIAL" not in str(v).upper():
+                out.add(str(v).strip().upper())
+    return out | {"OWNER ALPHA", "OWNER DELTA", "SYNTH SITUS", "SYNTH MAIL"}
+
+
+@pytest.mark.parametrize(
+    ("query", "acres", "owners"),
+    [
+        ("min_acres=100", 100, None),
+        # Snapped toward the stricter choice: at least 75 acres reads as at least 100, never 50.
+        ("min_acres=75", 100, None),
+        ("min_acres=150", 200, None),
+        ("min_acres=5", 20, None),
+        ("min_acres=5000", 1000, None),
+        ("min_acres=0", None, None),
+        ("min_acres=none&max_owners=any", None, None),
+        # At most 2 owners reads as at most 1, never 3; 9 as 5; 10 or more is "any" (up to 10).
+        ("min_acres=500&max_owners=2", 500, 1),
+        ("min_acres=500&max_owners=9", 500, 5),
+        ("min_acres=500&max_owners=10", 500, None),
+        ("min_acres=500&max_owners=0", 500, None),
+    ],
+)
+def test_the_land_criteria_snap_to_the_offered_choices(
+    query: str, acres: int | None, owners: int | None
+) -> None:
+    c = page.read_criteria(QueryParams(query))
+    assert (c.min_acres, c.max_owners) == (acres, owners)
+    params = c.api_params()
+    assert params.get("min_acres") == (str(acres) if acres else None)
+    assert params.get("max_owners") == (str(owners) if owners else None)
+
+
+def test_the_land_criteria_filter_the_list_and_stay_in_the_url(client: TestClient) -> None:
+    html = client.get("/site-finder?min_acres=500").text
+    assert _rows(html) == ["Alpha 138 kV"]
+    assert '<option value="500" selected>500 acres</option>' in html
+    assert 'name="max_owners"' in html and "Applies with a minimum acreage." not in html
+    assert "Applies with a minimum acreage." in client.get("/site-finder").text
+    links = re.findall(r'href="(/site-finder\?[^"]*band=[^"]*)"', html)
+    assert links and all("min_acres=500" in link for link in links)
+    none = _text(client.get("/site-finder?min_acres=1000").text)
+    assert "No band meets every criterion." in none and "fewer contiguous acres or more owners" in none
+
+
+def test_the_list_shows_and_sorts_by_the_largest_holding(client: TestClient) -> None:
+    html = client.get("/site-finder?sort=-largest_holding_acres").text
+    assert _rows(html) == ["Alpha 138 kV", "Bravo 345 kV"]
+    text = _text(html)
+    assert "632 ac largest holding" in text
+    assert "Largest holding" in html and "largest_holding_acres" in html
+
+
+def test_the_drawer_lists_the_holdings_with_their_record_links_and_names_no_owner(client: TestClient) -> None:
+    import html as html_lib
+
+    ids = _band_ids(client.get("/site-finder").text)
+    alpha_id = ids[1]
+    html = client.get(f"/api/site-finder/band?band={alpha_id}").text
+    text = html_lib.unescape(_text(html))
+    assert "Land beside the line" in text and "Largest holding 632 ac" in text
+    assert "Owner names are on the appraisal district's record; Inframation does not store them." in text
+    assert "118 ac 3 parcels; Agricultural open-space land; $3,949/ac; Fixture County." in text
+    assert 'href="https://comptroller.texas.gov/taxes/property-tax/county-directory/fixture.php"' in html
+    assert "property id 50015" in text
+    assert "TxGIO StratMap Land Parcels" in text
+    assert not sorted(v for v in _owner_strings() if v in html.upper())
+    # A band whose county has no parcels on this server says so by name.
+    every = client.get("/site-finder?include_unknown_voltage=true&exclude_flood=false").text
+    charlie = next(i for i in _band_ids(every) if i not in ids)
+    drawer = _text(
+        client.get(
+            f"/api/site-finder/band?band={charlie}&include_unknown_voltage=true&exclude_flood=false"
+        ).text
+    )
+    assert "Parcels not loaded for" in drawer
+
+
+def test_the_parcels_proxy_forwards_bbox_and_zoom_only(client: TestClient) -> None:
+    assert client.get("/api/site-finder/parcels", params={"zoom": "13"}).status_code == 400
+    body = client.get(
+        "/api/site-finder/parcels", params={"bbox": "-98.01,30.98,-97.96,31.02", "zoom": "13", "x": "y"}
+    ).json()
+    assert body["meta"]["site_finder"]["parcels"]["status"] == "ok" and len(body["data"]["features"]) == 16
+    far = client.get(
+        "/api/site-finder/parcels", params={"bbox": "-98.01,30.98,-97.96,31.02", "zoom": "10"}
+    ).json()
+    assert far["data"]["features"] == []
+
+
+def test_the_page_credits_the_parcels_and_its_key_names_them(client: TestClient) -> None:
+    html = client.get("/site-finder").text
+    assert "Land parcels: Texas Geographic Information Office (TWDB), StratMap Land Parcels" in html
+    assert "Land parcel, Texas (from zoom 12)" in html
+    assert '"parcels_min_zoom":12' in html
+
+
+def test_the_drawer_counts_the_holdings_touching_and_those_left_out() -> None:
+    land = {
+        "status": "ok",
+        "counties_missing": [],
+        "outside_texas": [],
+        "note": page.OWNER_NOTE,
+        "largest_holding_acres": 632.0,
+        "holdings_touching": 12,
+        "holdings_touching_exact": False,
+        "holdings_20_acres_plus": 9,
+        "holdings_count_exact": True,
+        "smaller_holdings_at_least": 2,
+        "left_out_holdings_at_least": 1,
+        "assembly": {},
+        "top_holdings": [],
+    }
+    view = page.parcels_view(land)
+    assert view["touching"] == "at least 12 holdings touch the band"
+    assert view["left_out"] == (
+        "At least 1 holding beside the band (right-of-way strips, exempt or utility land) left out of these "
+        "figures."
+    )
+    exact = page.parcels_view({**land, "holdings_touching_exact": True, "left_out_holdings_at_least": 0})
+    assert exact["touching"] == "12 holdings touch the band" and exact["left_out"] is None
+
+
+def test_a_band_outside_texas_says_parcels_are_texas_only() -> None:
+    view = page.parcels_view(
+        {
+            "status": "not_loaded",
+            "counties_missing": [],
+            "outside_texas": [{"fips": "22019", "name": "Calcasieu Parish"}],
+        }
+    )
+    assert view["missing"] == "Parcels cover Texas only (not Calcasieu Parish)."
+    both = page.parcels_view(
+        {
+            "status": "partial",
+            "counties_missing": [{"fips": "48361", "name": "Orange County"}],
+            "outside_texas": [{"fips": "22019", "name": "Calcasieu Parish"}],
+        }
+    )
+    assert both["missing"] == (
+        "Parcels not loaded for Orange County. Parcels cover Texas only (not Calcasieu Parish)."
+    )

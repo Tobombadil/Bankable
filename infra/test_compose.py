@@ -7,6 +7,7 @@ Checks use `expect` instead of bare `assert` (ruff S101, see infra/scheduler/tes
 from __future__ import annotations
 
 import pathlib
+import re
 import shutil
 import subprocess
 from typing import Any
@@ -344,6 +345,66 @@ def test_single_host_refuses_to_render_without_a_database_password(tmp_path: pat
         result = _render(_documented_env(tmp_path, "production", POSTGRES_PASSWORD=value), SINGLE)  # type: ignore[arg-type]
         expect(result.returncode != 0, f"POSTGRES_PASSWORD={value!r} rendered")
         expect("POSTGRES_PASSWORD" in result.stderr, result.stderr)
+
+
+def _image_data_dir() -> str:
+    """INFRAQUE_DATA_DIR as infra/docker/Dockerfile sets it for every app image."""
+    found = re.search(
+        r"^ENV INFRAQUE_DATA_DIR=(\S+)$", (COMPOSE_DIR.parent / "docker" / "Dockerfile").read_text(), re.M
+    )
+    expect(found is not None, "the Dockerfile sets INFRAQUE_DATA_DIR")
+    return found.group(1) if found else ""
+
+
+def test_the_single_hosts_api_reads_the_workers_data_root_read_only(base: dict[str, Any]) -> None:
+    """Lane parcels-wire (2026-10-23): the files the worker's monthly context_build pulls (the Texas
+    parcels, the flood pieces, the prospect build) are read by the api too, at
+    `<INFRAQUE_DATA_DIR>/...` (services/context_sample/parcels.py `parcels_dir`). On one host the api
+    mounts the worker's `connector_data` volume there, read-only; before, its directory was the image's
+    empty one. The three-VM overlay mounts nothing on the api (its VMs share no volume)."""
+    target = _image_data_dir()
+    worker = base["services"]["worker"]["volumes"]
+    expect(worker == [f"connector_data:{target}"], worker)
+    expect("volumes" not in base["services"]["api"], "the base file's api mounts no data")
+    single, _tags = load(SINGLE)
+    expect(
+        single["services"]["api"].get("volumes") == [f"connector_data:{target}:ro"], single["services"]["api"]
+    )
+    prod, _tags = load(PROD)
+    expect("volumes" not in prod["services"]["api"], "no data volume on the three-VM api")
+
+
+def test_the_single_host_renders_the_data_mounts_and_the_parcels_setting(tmp_path: pathlib.Path) -> None:
+    """Rendered: the api's mount is read-only and the worker's writable, at one target, and the env
+    file's PARCELS_COUNTIES and GRID_LAYERS_REGIONS reach the worker that runs the pulls."""
+    _needs_compose()
+    env_file = _documented_env(
+        tmp_path,
+        "production",
+        POSTGRES_PASSWORD=SINGLE_DB_PASSWORD,
+        SNAPSHOT_STORE="local",
+        PARCELS_COUNTIES="48351,48241",
+        GRID_LAYERS_REGIONS="US-TX",
+    )
+    result = _render(env_file, SINGLE)
+    expect(result.returncode == 0, result.stderr)
+    services = yaml.safe_load(result.stdout)["services"]
+    target = _image_data_dir()
+    mounts = {
+        name: [(v["source"], v["target"], bool(v.get("read_only"))) for v in services[name]["volumes"]]
+        for name in ("api", "worker")
+    }
+    expect(
+        mounts == {"api": [("connector_data", target, True)], "worker": [("connector_data", target, False)]},
+        mounts,
+    )
+    worker_env = services["worker"]["environment"]
+    expect(worker_env.get("PARCELS_COUNTIES") == "48351,48241", worker_env.get("PARCELS_COUNTIES"))
+    expect(worker_env.get("GRID_LAYERS_REGIONS") == "US-TX", worker_env.get("GRID_LAYERS_REGIONS"))
+    expect(
+        "PARCELS_DATA_DIR" not in worker_env and "PARCELS_DATA_DIR" not in services["api"]["environment"],
+        "one directory",
+    )
 
 
 #: Docker's grace between SIGTERM and SIGKILL for the job runners (docs/51 §2.9 item 2): Procrastinate

@@ -102,6 +102,32 @@
     </div>
   </dl>
 
+  {#- Land parcels (Texas, TxGIO): the holdings touching the band, largest first, each linked to the
+      appraisal district's own record, where the owner is read. Inframation stores no owner name. -#}
+  {%- set land = b.land %}
+  <h3 class="sf-band__heading">Land beside the line <span class="sf-band__aside">(within {{ b.adjacent }})</span></h3>
+  <div class="sf-land" data-status="{{ land.status }}">
+    {%- if land.status in ('ok', 'partial') %}
+    <p class="sf-land__lede">{% if land.largest %}Largest holding <strong class="tnum">{{ land.largest }}</strong>; {% endif %}{% if land.touching %}{{ land.touching }}: {% endif %}{{ land.count }}{% if land.smaller %}, {{ land.smaller }}{% endif %}{% if land.at_threshold %}; {{ land.at_threshold }}{% endif %}.{% if land.assembly %} {{ land.assembly }}.{% endif %}</p>
+    {%- if land.left_out %}<p class="sf-land__left-out">{{ land.left_out }}</p>{% endif %}
+    {%- if land.holdings %}
+    <ol class="sf-holdings">
+      {%- for h in land.holdings %}
+      <li class="sf-holding"><span class="sf-holding__acres tnum">{{ h.acres }}</span> <span class="sf-holding__meta">{{ h.parcels }}; {{ h.use }}{% if h.value %}; {{ h.value }}{% endif %}{% if h.county %}; {{ h.county }}{% endif %}.</span>{% if h.link %} <a class="sf-holding__link" href="{{ h.link.url }}" rel="noopener nofollow" target="_blank">{{ h.link.label }}</a>{% if h.link.hint %} <span class="sf-holding__hint">({{ h.link.hint }})</span>{% endif %}{% endif %}</li>
+      {%- endfor %}
+    </ol>
+    {%- else %}
+    <p>No parcel touches the band.</p>
+    {%- endif %}
+    {%- elif land.status == 'withheld' %}
+    <p>Not shown: this source&rsquo;s terms keep it off public pages for now.</p>
+    {%- endif %}
+    {%- if land.missing %}<p class="sf-land__missing">{{ land.missing }}</p>{% endif %}
+    <p class="sf-land__note">{{ land.note }}</p>
+    {%- if land.not and land.status in ('ok', 'partial') %}<p class="sf-fact__not">{{ land.not }}{% if land.assembly_note and land.assembly %} {{ land.assembly_note }}{% endif %}</p>{% endif %}
+    {%- if land.source %}<p>{{ source(land.source) }}</p>{% endif %}
+  </div>
+
   {%- if b.layers %}
   <h3 class="sf-band__heading">Prospecting layers <span class="sf-band__aside">(screening only, over 1 mile either side of the line)</span></h3>
   <dl class="sf-facts sf-facts--layers">

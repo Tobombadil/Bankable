@@ -18,6 +18,10 @@ half a mile (`geometry.split_line`). For each segment:
 - **Its vertices** (`coords`), so the API draws a band from the geometry this run measured.
 - **Prospecting layers** over its 1-mile band (`prospect`, `services.context_sample.sample_line`),
   with PAD-US's protected and hard-constraint shares stored as columns for the protected-land filter.
+- **Land parcels** (`context["parcels"]`, `services/site_finder/parcels.py`): the same-owner holdings
+  touching its band at each width, their acres, and the largest contiguous acreage from at most 1, 3,
+  5 and 10 owners, where the worker holds TxGIO parcels for a county the band reaches (pulled by
+  `python -m pipeline.context.txgio_parcels pull`). Those files carry no owner name.
 
 Nothing aggregated over proposals is stored (docs/21 §8 item 4), and nothing derived from a proposal
 apart from its own id and its distance: requests are stored whatever their visibility, and the API
@@ -76,6 +80,7 @@ from services.site_finder.geometry import (
     points_to_polyline_m,
     split_line,
 )
+from services.site_finder.parcels import ParcelContext
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +105,7 @@ FIBER_FILE = pathlib.Path("normalized") / "context" / "us.fcc.bdc.fixed_summary.
 OSM_MANIFEST = pathlib.Path("normalized") / "context" / "us.osm.power.manifest.json"
 #: Runs whose record is kept (rows are kept only for the newest `ok` one).
 KEEP_RUN_RECORDS = 10
+PARCELS_SOURCE = "us.tx.txgio.parcels"
 
 
 @dataclass
@@ -165,6 +171,7 @@ class Inputs:
     sampler: Any
     fiber: dict[str, dict[str, Any]]
     summary: dict[str, Any]
+    parcels: ParcelContext | None = None
 
 
 # ---------------------------------------------------------------------------------------- inputs
@@ -325,6 +332,39 @@ def load_fiber(data_root: pathlib.Path) -> tuple[dict[str, dict[str, Any]], dict
     }
 
 
+def county_lookup(
+    counties: CountyIndex, fallback: CountyIndex | None
+) -> Callable[[Sequence[float], Sequence[float]], list[tuple[str, str] | None]]:
+    """(fips, name) of the county at each point: TIGER first, the vendored counties where it has none."""
+
+    def lookup(lons: Sequence[float], lats: Sequence[float]) -> list[tuple[str, str] | None]:
+        found = counties.lookup(lons, lats)
+        if fallback is not None and any(c is None for c in found):
+            miss = [i for i, c in enumerate(found) if c is None]
+            extra = fallback.lookup([lons[i] for i in miss], [lats[i] for i in miss])
+            for i, c in zip(miss, extra, strict=True):
+                found[i] = c
+        return [(c.fips, c.name) if c is not None else None for c in found]
+
+    return lookup
+
+
+def load_parcels(
+    data_root: pathlib.Path, counties: CountyIndex, fallback: CountyIndex | None
+) -> ParcelContext:
+    """The parcel layer pulled under `data_root` (or `PARCELS_DATA_DIR`); an empty context without one."""
+    from services.context_sample.parcels import CURRENT_NAME, ParcelLayer, parcels_dir
+
+    directory = parcels_dir(data_root)
+    layer = None
+    if (directory / CURRENT_NAME).exists():
+        try:
+            layer = ParcelLayer(directory)
+        except (OSError, ValueError, KeyError) as exc:  # a broken pull must not stop the finder
+            logger.warning("site finder: parcels not used: %s", type(exc).__name__)
+    return ParcelContext(layer, county_lookup(counties, fallback))
+
+
 def gather_inputs(
     session: Session,
     data_root: pathlib.Path,
@@ -332,6 +372,7 @@ def gather_inputs(
     states: Iterable[str] | None = None,
     sampler: Any = None,
     use_prospect: bool = True,
+    use_parcels: bool = True,
 ) -> Inputs:
     lines = load_lines(session, states)
     subs, plants, loads, requests = load_points(session)
@@ -349,6 +390,7 @@ def gather_inputs(
     if not use_prospect:
         sampler = None
     fiber, fiber_summary = load_fiber(data_root)
+    parcels = load_parcels(data_root, counties, fallback) if use_parcels else None
     osm_manifest_path = data_root / OSM_MANIFEST
     osm: dict[str, Any] = {"source_id": "us.osm.power"}
     if osm_manifest_path.exists():
@@ -368,9 +410,14 @@ def gather_inputs(
             "directory": str(getattr(sampler, "directory", "")) if sampler is not None else None,
         },
         "fiber": fiber_summary,
+        "parcels": parcels.summary()
+        if parcels is not None
+        else {"source_id": PARCELS_SOURCE, "loaded": False},
         "states": sorted(states) if states else None,
     }
-    return Inputs(lines, subs, plants, loads, requests, counties, fallback, flood, sampler, fiber, summary)
+    return Inputs(
+        lines, subs, plants, loads, requests, counties, fallback, flood, sampler, fiber, summary, parcels
+    )
 
 
 # ------------------------------------------------------------------------------------- measuring
@@ -452,6 +499,7 @@ def line_rows(inputs: Inputs, line: LineInput, run_id: _uuid.UUID, now: dt.datet
                 if layer is not None
                 else unavailable("not_computed", len(chunk))
             )
+            land = inputs.parcels.measure(plane, xy) if inputs.parcels is not None else [None] * len(chunk)
             mids = [s.midpoint for s in chunk]
             found = inputs.counties.lookup([m[0] for m in mids], [m[1] for m in mids])
             county_source = [inputs.counties.provenance["source_id"]] * len(chunk)
@@ -523,6 +571,7 @@ def line_rows(inputs: Inputs, line: LineInput, run_id: _uuid.UUID, now: dt.datet
                         "county_source": county_source[k] if county is not None else None,
                         "firm_panels": fs.panels,
                         "flood_reported": fs.reported,
+                        **({"parcels": land[k]} if land[k] is not None else {}),
                     },
                     "prospect": pros,
                     "source_id": line.source_id,
@@ -560,6 +609,7 @@ def refresh(
     states: Iterable[str] | None = None,
     sampler: Any = None,
     use_prospect: bool = True,
+    use_parcels: bool = True,
     now: Callable[[], dt.datetime] | None = None,
 ) -> dict[str, Any]:
     """One full run: compute, write in batches, then serve it and drop the previous runs' rows."""
@@ -575,7 +625,12 @@ def refresh(
         with session_factory() as session:
             t0 = time.monotonic()
             inputs = gather_inputs(
-                session, data_root, states=states, sampler=sampler, use_prospect=use_prospect
+                session,
+                data_root,
+                states=states,
+                sampler=sampler,
+                use_prospect=use_prospect,
+                use_parcels=use_parcels,
             )
             timings["inputs_s"] = round(time.monotonic() - t0, 1)
             layers_meta = prospect_mod.layer_metadata(inputs.sampler)
@@ -650,6 +705,92 @@ def refresh(
             session.commit()
         raise
     logger.info("site finder: %s", json.dumps(report, default=str), extra={"site_finder": report})
+    return report
+
+
+def refresh_parcels(
+    session_factory: Callable[[], Session],
+    data_root: pathlib.Path,
+    *,
+    counties: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """Re-measure the parcels of the served run in place, after a parcels pull, without recomputing
+    the rest (`python -m services.site_finder --parcels-only [--counties 48351,48241]`). Segments are
+    read line by line, in the run's chunks of `CHUNK_SEGMENTS`, from the vertices the run stored; with
+    `counties`, only segments in those counties are re-measured. The run's `inputs["parcels"]` names
+    the layer read and a new `measure_id` (`ParcelContext.summary`), even when the layer's version is the
+    same; the API keys its parcel caches on it and drops every per-run cache when it changes
+    (`services/api/site_finder.py::served_run`), so a re-measured run is not served from old figures."""
+    started = time.monotonic()
+    wanted = {c.strip() for c in counties} if counties else None
+    with session_factory() as session:
+        run = current_run(session)
+        if run is None:
+            raise RuntimeError("no site-finder run to refresh")
+        run_id = run.id
+        index = CountyIndex.load(data_root)
+        fallback = (
+            CountyIndex.from_vendored()
+            if index.provenance["source_id"] != "us.census.cartographic_boundaries"
+            else None
+        )
+        context = load_parcels(data_root, index, fallback)
+        stmt = (
+            select(
+                SiteCandidate.id,
+                SiteCandidate.line_asset_id,
+                SiteCandidate.segment_index,
+                SiteCandidate.coords,
+                SiteCandidate.context,
+            )
+            .where(SiteCandidate.run_id == run_id)
+            .order_by(SiteCandidate.line_asset_id, SiteCandidate.segment_index)
+        )
+        if wanted is not None:
+            stmt = stmt.where(SiteCandidate.county_fips.in_(sorted(wanted)))
+        rows = session.execute(stmt).all()
+        measured = written = 0
+        by_line: dict[Any, list[Any]] = {}
+        for r in rows:
+            by_line.setdefault(r.line_asset_id, []).append(r)
+        pending: list[dict[str, Any]] = []
+        for segs in by_line.values():
+            for start in range(0, len(segs), CHUNK_SEGMENTS):
+                chunk = [s for s in segs[start : start + CHUNK_SEGMENTS] if s.coords]
+                if not chunk:
+                    continue
+                coords = [np.asarray(s.coords, dtype=np.float64) for s in chunk]
+                plane = LocalPlane.around(np.vstack(coords))
+                land = context.measure(plane, [plane.xy(c) for c in coords])
+                measured += len(chunk)
+                for s, value in zip(chunk, land, strict=True):
+                    ctx = dict(s.context or {})
+                    if value is None and "parcels" not in ctx:
+                        continue
+                    ctx.pop("parcels", None)
+                    if value is not None:
+                        ctx["parcels"] = value
+                    pending.append({"id": s.id, "context": ctx})
+                if len(pending) >= INSERT_BATCH:
+                    session.execute(sa.update(SiteCandidate), pending)
+                    session.commit()
+                    written += len(pending)
+                    pending = []
+        if pending:
+            session.execute(sa.update(SiteCandidate), pending)
+            written += len(pending)
+        served = session.get(SiteFinderRun, run_id)
+        if served is not None:
+            served.inputs = {**(served.inputs or {}), "parcels": context.summary()}
+        session.commit()
+    report = {
+        "run_id": str(run_id),
+        "segments_measured": measured,
+        "segments_written": written,
+        "counties": sorted(wanted) if wanted else None,
+        "seconds": round(time.monotonic() - started, 1),
+    }
+    logger.info("site finder parcels: %s", json.dumps(report))
     return report
 
 

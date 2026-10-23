@@ -1137,6 +1137,23 @@ def default_match(session_factory: Any) -> dict[str, Any]:
 #: download, the parent links it yields change slowly, and the site works without them, so it stays
 #: an operator run (`python -m pipeline.context.gleif`, docs/61 §4). Each runs as its own process,
 #: as `run_connector` runs the connector CLI, so a builder's memory is returned when it exits.
+#:
+#: The last four are pulls, not builds: they copy what the GitHub Actions builds published (the site
+#: finder's inputs, docs/25 §2.7 limit 1, §5.5, "Prospecting layers" §5.3, docs/25-siting-parcels.md
+#: §8) to the data root. The first three take the states `GRID_LAYERS_REGIONS` names (each refuses to
+#: run without it; the beta's deploy renders it, US-TX by default): the OpenStreetMap lines and
+#: substations from the tiles bucket's `grid/osm-power/latest.json` (frames `context_load` loads), the
+#: flood layer's per-state files from the private bucket's `us.fema.nfhl/latest.json` (read by
+#: `site_finder_refresh`), and the prospect build the sampler reads (`prospect/current/<region>.json`).
+#: The parcels pull takes the Texas counties `PARCELS_COUNTIES` names (it refuses to run without it;
+#: the beta's deploy renders it, `all` by default) from the private bucket's
+#: `us.tx.txgio.parcels/latest.json`, never a public host: `site_finder_refresh` measures them and the
+#: API's parcel map reads them (`services.context_sample.parcels.parcels_dir`, the directory the pull
+#: writes). A layer whose workflow has not published yet answers `not_published` (`NOT_PUBLISHED`) and
+#: exits 0: reported, never a failure, and nothing it held before is touched (parcels-layer.yml has
+#: no schedule; a person dispatches it, and the next pull takes what it published). `context_load` and
+#: then `site_finder_refresh` follow the whole build (`infra/scheduler/app.py`), so the pulls always
+#: land before the load and the run that read them.
 CONTEXT_BUILDERS: tuple[tuple[str, ...], ...] = (
     ("pipeline.context.eia_plants", "--latest-snapshot"),
     ("pipeline.context.eia_owners", "--latest-snapshot"),
@@ -1151,11 +1168,42 @@ CONTEXT_BUILDERS: tuple[tuple[str, ...], ...] = (
     ("pipeline.context.phmsa",),
     ("pipeline.context.eia923",),
     ("pipeline.context.rfs",),
+    ("pipeline.context.osm_power", "pull"),
+    ("pipeline.context.fema_nfhl", "pull"),
+    ("pipeline.context.prospect.pull",),
+    ("pipeline.context.txgio_parcels", "pull"),
 )
+#: The `status` a pull prints on its summary line (its last stdout line, JSON) when the layer it reads
+#: has no published version yet. The pull modules define the same string; a test holds them equal.
+NOT_PUBLISHED = "not_published"
 #: Per builder. Measured 2026-10-09 (docs/64 §7): the slowest, LBNL's transmission lines, took 78-199 s
 #: and peaked at 361 MB; all thirteen took 5 to 7 minutes in two runs. The ceiling is for a slow or
 #: stalled source, which the builders after it must survive.
 CONTEXT_BUILDER_TIMEOUT_S = 1800
+
+
+def builder_name(argv: tuple[str, ...]) -> str:
+    """How the report names a builder: its module under `pipeline.context.`, plus a subcommand
+    (`osm_power pull`, `prospect.pull`, `eia_owners`)."""
+    name = argv[0].removeprefix("pipeline.context.")
+    if len(argv) > 1 and not argv[1].startswith("-"):
+        name = f"{name} {argv[1]}"
+    return name
+
+
+def builder_summary(stdout: str | None) -> dict[str, Any] | None:
+    """A builder's summary: the last stdout line that is a JSON object (every builder CLI prints one)."""
+    for line in reversed((stdout or "").splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return None
 
 
 def context_build_job(
@@ -1168,7 +1216,9 @@ def context_build_job(
     under the connector data root (`INFRAQUE_DATA_DIR`, inherited), each with its own timeout. A
     builder that fails or times out is logged with the tail of its stderr and the rest still run:
     a builder writes each parquet only after parsing that file's source in full, so a failure leaves
-    the previous file in place and `context_load` reloads it unchanged."""
+    the previous file in place and `context_load` reloads it unchanged. A pull whose layer is not
+    published yet exits 0 with `status: not_published` on its summary line: listed under
+    `not_published`, neither `ok` nor `failed`."""
     import subprocess
     import sys
     import time
@@ -1176,7 +1226,7 @@ def context_build_job(
     run = _run if _run is not None else subprocess.run
     results: list[dict[str, Any]] = []
     for argv in builders:
-        name = argv[0].rsplit(".", 1)[-1]
+        name = builder_name(argv)
         cmd = [sys.executable, "-m", *argv]
         started = time.monotonic()
         stderr = ""
@@ -1190,10 +1240,19 @@ def context_build_job(
         else:
             status = "ok" if result.returncode == 0 else f"exit {result.returncode}"
             stderr = result.stderr or ""
+            summary = builder_summary(result.stdout) if status == "ok" else None
+            if summary is not None and summary.get("status") == NOT_PUBLISHED:
+                status = NOT_PUBLISHED
         elapsed = round(time.monotonic() - started, 1)
         results.append({"builder": name, "status": status, "elapsed_s": elapsed})
         if status == "ok":
             logger.info("context build: %s ok in %ss", name, elapsed, extra={"builder": name})
+        elif status == NOT_PUBLISHED:
+            logger.info(
+                "context build: %s: not published yet (its GitHub Actions build has not run)",
+                name,
+                extra={"builder": name, "status": status},
+            )
         else:
             logger.warning(
                 "context build: %s %s after %ss",
@@ -1205,7 +1264,10 @@ def context_build_job(
     data = {
         "builders": len(results),
         "ok": sum(1 for r in results if r["status"] == "ok"),
-        "failed": [f"{r['builder']}: {r['status']}" for r in results if r["status"] != "ok"],
+        "not_published": [r["builder"] for r in results if r["status"] == NOT_PUBLISHED],
+        "failed": [
+            f"{r['builder']}: {r['status']}" for r in results if r["status"] not in ("ok", NOT_PUBLISHED)
+        ],
         "elapsed_s": round(sum(r["elapsed_s"] for r in results), 1),
     }
     _log_report("context_build", data)
@@ -1319,20 +1381,88 @@ def site_finder_counties(data_root: Path, _build: Callable[..., Any] | None = No
     return {k: report.get(k) for k in keep if k in report}
 
 
+#: The memory a site-finder run needs from the container it runs in. The run is in-process in the
+#: worker (`site_finder_refresh_job`), and Texas, the beta's one state, peaked at 1.2 GB on
+#: 2026-10-23 (docs/25 §7: 120,699 segments in 2,051 s). The worker holds its own imports beside it and
+#: may run one other job at the same time (`WORKER_CONCURRENCY` 2), so the floor is that peak plus
+#: 0.8 GiB. Under a lower limit the kernel's OOM killer, not the run, would end it, taking every job
+#: in flight in that worker with it, and `queue_maintenance.recover_stalled_jobs` would start it again
+#: up to `STALLED_RETRY_MAX_ATTEMPTS` times. The one-server beta's worker was limited to 1 GB
+#: (compose.prod.yml `mem_limit: 1g`, not overridden by compose.single.yml) when this was written.
+SITE_FINDER_MIN_MEMORY_BYTES = 2 * 1024**3
+#: Where a container's memory limit (Compose `mem_limit`) is readable from inside it: cgroup v2
+#: (Docker's default on current Ubuntu), then cgroup v1.
+CGROUP_MEMORY_LIMIT_FILES = (
+    Path("/sys/fs/cgroup/memory.max"),
+    Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+)
+#: cgroup v1 writes "no limit" as a page-rounded 2**63 - 1; anything this large is no limit.
+_NO_MEMORY_LIMIT = 1 << 60
+
+
+def container_memory_limit(paths: tuple[Path, ...] = CGROUP_MEMORY_LIMIT_FILES) -> int | None:
+    """The memory limit, in bytes, of the cgroup this process runs in (Compose `mem_limit`), or None
+    when there is none: cgroup v2's `max`, cgroup v1's near-2**63 value, or no such file (a
+    development machine, a runner)."""
+    for path in paths:
+        try:
+            text = path.read_text(encoding="ascii").strip()
+        except OSError:
+            continue
+        if text == "max":
+            return None
+        try:
+            value = int(text)
+        except ValueError:
+            continue
+        return value if 0 < value < _NO_MEMORY_LIMIT else None
+    return None
+
+
+def site_finder_memory_problem(limit: int | None) -> dict[str, Any] | None:
+    """Why a site-finder run must not start under `limit` (bytes, None = unlimited), or None."""
+    if limit is None or limit >= SITE_FINDER_MIN_MEMORY_BYTES:
+        return None
+    return {
+        "skipped": "memory",
+        "memory_limit_mb": limit // 2**20,
+        "memory_needed_mb": SITE_FINDER_MIN_MEMORY_BYTES // 2**20,
+        "fix": "raise the worker's mem_limit (compose.single.yml: 3g on the beta; docs/25 §7)",
+    }
+
+
 def site_finder_refresh_job(
     _run: Callable[..., Any] | None = None,
     *,
     _session_factory: Any = None,
     _data_root: Path | None = None,
     _counties: Callable[[Path], dict[str, Any]] | None = None,
+    _memory_limit: Callable[[], int | None] = container_memory_limit,
 ) -> dict[str, Any]:
     """Body of `site_finder_refresh` (owner decision 2026-10-22, the powered-land site finder): bring the
     TIGER counties file up to date (`site_finder_counties`), then recompute every candidate segment
     from what the context load left in the store (the OpenStreetMap lines and substations, the plants,
     the exactly-located requests) and the files under the connector data root (the FEMA flood build,
-    the TIGER counties, the prospect build, the FCC fiber file), as one new run the API serves only
+    the TIGER counties, the prospect build, the FCC fiber file, the Texas parcels the build's last pull
+    wrote, `services.context_sample.parcels.parcels_dir`), as one new run the API serves only
     once it is complete (`services/site_finder/compute.py::refresh`). Its own sessions and commits: the
-    run is written in batches and swapped in at the end."""
+    run is written in batches and swapped in at the end.
+
+    A container whose memory limit is below `SITE_FINDER_MIN_MEMORY_BYTES` does not start the run: it
+    ends with `skipped: memory`, logged as a warning that names the limit and the fix, and the run the
+    API serves (if any) stays. The context load before it has run either way."""
+    problem = site_finder_memory_problem(_memory_limit())
+    if problem is not None:
+        logger.warning(
+            "site_finder_refresh: not run: the worker's memory limit is %s MB, below the %s MB a run "
+            "needs; %s",
+            problem["memory_limit_mb"],
+            problem["memory_needed_mb"],
+            problem["fix"],
+            extra={"job": "site_finder_refresh", **problem},
+        )
+        _log_report("site_finder_refresh", problem)
+        return problem
     factory = _session_factory if _session_factory is not None else build_session_factory()
     run = _run if _run is not None else _load_fn("services.site_finder.compute", "refresh")
     data_root = _data_root if _data_root is not None else connector_data_root()

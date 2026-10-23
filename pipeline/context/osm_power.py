@@ -54,7 +54,8 @@ extracts it.
    `us.osm.power.substations.parquet`, which `services/ingest/context_layers.py` loads. Only the
    states ``GRID_LAYERS_REGIONS`` names (``US-TX``, or ``all``); unset is refused
    (`default_regions`). The frames and their manifest copy are renamed into place together, one
-   ``frame_set`` token on all three (`write_asset_frames`).
+   ``frame_set`` token on all three (`write_asset_frames`). No ``latest.json`` yet (HTTP 404) is
+   ``status: not_published``, exit 0, nothing written.
 3. ``normalise``: GeoParquet -> those asset frames, without the network (what ``pull`` calls, and
    what a developer runs after ``build``).
 
@@ -1747,6 +1748,11 @@ def write_asset_frames(
 
 
 # ---------------------------------------------------------------------------------- pull
+#: The summary `status` of a pull whose layer has no `latest.json` yet; `infra/scheduler/jobs.py`
+#: (`NOT_PUBLISHED`) reports it as "not published", never as a failed builder.
+NOT_PUBLISHED = "not_published"
+
+
 def default_base_url() -> str | None:
     """Where the build's public files live: `GRID_LAYERS_URL`, else the tiles host of the
     deployment's domain (the bucket `basemap.pmtiles` is served from), else nothing."""
@@ -1757,12 +1763,24 @@ def default_base_url() -> str | None:
     return f"https://tiles.{domain}/grid/osm-power" if domain else None
 
 
-def _fetch(session: Any, url: str) -> bytes:
-    resp = session.get(url, honour_robots=False, timeout=300)
-    if resp.status_code != 200:
-        raise BuildError(f"{url} answered HTTP {resp.status_code}")
-    content: bytes = resp.content
-    return content
+def _fetch_to(session: Any, url: str, dest: pathlib.Path) -> str:
+    """Stream `url` to `dest` and return the body's sha256. Never held whole: the pull runs inside
+    the worker's container, the national lines file is estimated at 90-100 MB (docs/25 §2.7, limit 8),
+    and `requests` builds `.content` by joining its chunks, about twice the body."""
+    resp = session.get(url, honour_robots=False, stream=True, timeout=300)
+    try:
+        if resp.status_code != 200:
+            raise BuildError(f"{url} answered HTTP {resp.status_code}")
+        digest = hashlib.sha256()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with dest.open("wb") as fh:
+            for chunk in resp.iter_content(chunk_size=1 << 20):
+                if chunk:
+                    fh.write(chunk)
+                    digest.update(chunk)
+    finally:
+        resp.close()
+    return digest.hexdigest()
 
 
 def pull(
@@ -1774,17 +1792,26 @@ def pull(
     with_states: bool = True,
     regions: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """`<base_url>/latest.json` -> the version it names -> its two GeoParquet files, each checked
-    against the manifest's sha256 before anything is written, then the asset frames (only
+    """`<base_url>/latest.json` -> the version it names -> its two GeoParquet files, each streamed to
+    `work_dir` and checked against the manifest's sha256 before any frame is written, then the asset
+    frames (only
     `regions`' rows when given: `write_asset_frames`). Our own bucket, so robots.txt is not
     consulted. A version already held (`<out_dir>/us.osm.power.manifest.json`) with the same
-    region filter is not downloaded again."""
+    region filter is not downloaded again. No `latest.json` yet (HTTP 404: grid-layers.yml has not
+    promoted a national build) is `status: not_published`, not an error, and writes nothing, so the
+    server's other context builders run on and the frames it holds stay as they are."""
     from pipeline.connectors.http import PoliteSession
 
     wanted = check_regions(regions)
     session = session or PoliteSession()
     out_dir = out_dir or NORMALIZED_DIR
-    latest = json.loads(_fetch(session, f"{base_url}/{LATEST_NAME}"))
+    latest_url = f"{base_url}/{LATEST_NAME}"
+    probe = session.get(latest_url, honour_robots=False, timeout=300)
+    if probe.status_code == 404:
+        return {"source_id": SOURCE_ID, "status": NOT_PUBLISHED, "url": latest_url}
+    if probe.status_code != 200:
+        raise BuildError(f"{latest_url} answered HTTP {probe.status_code}")
+    latest = json.loads(probe.content)
     version = str(latest.get("version") or "")
     if not version or ".." in version or version.startswith("/"):
         raise BuildError(f"{base_url}/{LATEST_NAME} names no usable version: {version!r}")
@@ -1798,13 +1825,11 @@ def pull(
     try:
         for name in (GEO_LINES_NAME, GEO_SUBSTATIONS_NAME):
             expected = (latest.get("files") or {}).get(name) or {}
-            content = _fetch(session, f"{base_url}/{version}/{name}")
-            digest = hashlib.sha256(content).hexdigest()
+            digest = _fetch_to(session, f"{base_url}/{version}/{name}", geo_dir / name)
             if not expected.get("sha256") or digest != expected["sha256"]:
                 raise BuildError(
                     f"{name}: sha256 {digest} does not match the manifest's {expected.get('sha256')}"
                 )
-            (geo_dir / name).write_bytes(content)
         (geo_dir / MANIFEST_NAME).write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
         summary = write_asset_frames(geo_dir, out_dir, with_states=with_states, regions=wanted)
     finally:

@@ -1,0 +1,117 @@
+{
+ "count": 10,
+ "next": null,
+ "previous": null,
+ "results": [
+  {
+   "resource_id": "29607ad0-1287-4a6f-a6ae-9f0de8bf6766",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48241_lp.zip",
+   "filesize": 16709085,
+   "area_type_id": "e27a6181-5776-444c-9701-84a7b723d3ef",
+   "area_type_name": "Jasper",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "3300874a-4bba-41c6-9ca4-13072a987180",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48199_lp.zip",
+   "filesize": 16157551,
+   "area_type_id": "d96693de-2e91-42bd-9be7-36e74d056cf0",
+   "area_type_name": "Hardin",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "4e11a582-5404-46b5-bfd7-d28a06ae8991",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48201_lp.zip",
+   "filesize": 429896042,
+   "area_type_id": "3d86826d-3d91-4a18-a405-32ab76be1d23",
+   "area_type_name": "Harris",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "58ec7b11-072a-4ade-bfbd-75a7190d1362",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48245_lp.zip",
+   "filesize": 66543876,
+   "area_type_id": "17a36d4a-809e-4026-b542-cbf5ed7e4251",
+   "area_type_name": "Jefferson",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "920933d9-4596-43c7-9cb2-453d7a9d4a3f",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48261_lp.zip",
+   "filesize": 352951,
+   "area_type_id": "b27a1e30-6d78-4be2-9f3e-7a8f66b1d284",
+   "area_type_name": "Kenedy",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "9e172833-4e93-46f4-a64a-c2b656dee33d",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48351_lp.zip",
+   "filesize": 13946446,
+   "area_type_id": "a00a3c3a-b18a-4bed-abcf-fa176a278753",
+   "area_type_name": "Newton",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "c16de0d4-9d66-4b03-ae83-edc2fa332cbf",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48371_lp.zip",
+   "filesize": 4930801,
+   "area_type_id": "e4f17d6d-6c9b-4f2e-ae4e-fea5cf45bfc4",
+   "area_type_name": "Pecos",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "c989d9dd-4182-4f9d-921c-39b74728b175",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48_lp.zip",
+   "filesize": 2714312383,
+   "area_type_id": "94820f64-5148-4a5d-a04a-268e80246155",
+   "area_type_name": "Texas",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "state"
+  },
+  {
+   "resource_id": "d09067ee-58ff-4099-851b-375a8732747a",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48361_lp.zip",
+   "filesize": 22258004,
+   "area_type_id": "50311dd1-7bf4-4339-b326-5da11c5fc58d",
+   "area_type_name": "Orange",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  },
+  {
+   "resource_id": "e9fb4316-cf97-4741-bfcf-a6cf11382997",
+   "resource": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/resources/stratmap26-landparcels_48475_lp.zip",
+   "filesize": 4767798,
+   "area_type_id": "a1126b2d-85e6-4008-a8ce-06582e9f233e",
+   "area_type_name": "Ward",
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "resource_type_name": "Land Parcel",
+   "resource_type_abbreviation": "LP",
+   "area_type": "county"
+  }
+ ]
+}

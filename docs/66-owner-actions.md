@@ -16,6 +16,156 @@ version. Doc links point at the working branch until it merges to `main`.
 | 2 | **Get MISO's two sets of terms** (a security challenge blocks our fetcher). (a) **The API terms**, which govern prices: sign in to [MISO Data Exchange](https://data-exchange.misoenergy.org) with a MISO website account (Sign up links the two), open **Products**, pick the pricing API (real-time and day-ahead LMP), and open the **Terms of Use** linked beside the "I agree" box; copy the whole text. Don't subscribe yet. ([MISO's Data Exchange user guide](https://cdn.misoenergy.org/MISO%20Data%20Exchange%20User%20Guide674561.pdf?v=20250124142839) shows the screens.) (b) **The website terms**, which govern report downloads and the queue: [Legal and privacy](https://www.misoenergy.org/meet-miso/legal-and-privacy/) and [Terms and conditions](https://www.misoenergy.org/meet-miso/contact-us/terms-and-conditions/). Save each as a PDF and paste the clauses on using, copying, redistributing or republishing market data, commercial use and attribution. | 20 min | MISO hub prices and queue rows, public or internal | [`docs/62` §8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md#8-miso-legal-and-reuse-terms) |
 | 3 | **Deploy when told.** When the coordinator says a release is ready: open [deploy-beta](https://github.com/Tobombadil/Bankable/actions/workflows/deploy-beta.yml) → **Run workflow** → action `deploy`, tag empty → **Run workflow**. | 2 min | Each finished feature reaching [inframation.io](https://inframation.io) | [`docs/60`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/60-deployment.md) |
 
+## Site finder go-live (Texas first)
+
+Added 2026-10-23 (lane sf-golive; corrected the same day after review). The site finder needs three data builds
+that run on GitHub's machines, then one deploy. About 30 minutes of clicks, up to about 3 hours of waiting.
+**Start when the coordinator says the release is ready**, except step (a), which comes first. Detail:
+[`docs/25` §2.7, §5, §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/25-grid-interconnection-and-siting.md).
+
+**The worker's memory.** The Texas run peaked at 1.2 GB, and the server's worker is limited to 1 GB until the
+coordinator raises it to 3 GB (`infra/compose/compose.single.yml`). Until that change is deployed, the server
+pulls and loads the data but does not start the site finder run: it logs `site_finder_refresh: not run: the
+worker's memory limit is 1024 MB, below the 2048 MB a run needs`, and step (e) stays `false`. Nothing else is
+affected. Ask the coordinator whether the release holds the memory change before you start (d).
+
+**No new secret.** Every workflow below runs in the GitHub Environment `production` and reads only names that are
+already there: deploy-beta deployed the site with them (Done, 2026-10-22), and the buckets are the two it created.
+
+| Workflow | Secrets it reads | Variables it reads | Already set? |
+|---|---|---|---|
+| grid-layers.yml | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; optional `R2_ACCOUNT_ID`, `R2_TILES_BUCKET` | `DOMAIN`, `CLOUDFLARE_ACCOUNT_ID`; optional `R2_ACCOUNT_ID`, `R2_TILES_BUCKET` | Yes. Unset, the optional ones fall back to `CLOUDFLARE_ACCOUNT_ID` and the bucket `beta-object-storage-tiles-production` |
+| flood-layer.yml | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; optional `R2_ACCOUNT_ID`, `R2_BUCKET` | `CLOUDFLARE_ACCOUNT_ID`, `DOMAIN` (default inframation.io); optional `R2_ACCOUNT_ID`, `R2_BUCKET` | Yes. Unset, `R2_BUCKET` falls back to `beta-object-storage-production` |
+| prospect-layers.yml | as flood-layer.yml | `CLOUDFLARE_ACCOUNT_ID`; optional `R2_ACCOUNT_ID`, `R2_BUCKET` | Yes, same fallbacks |
+| parcels-layer.yml | as flood-layer.yml (the dry run reads none) | `DOMAIN` (default inframation.io), `CLOUDFLARE_ACCOUNT_ID`; optional `R2_ACCOUNT_ID`, `R2_BUCKET` | Yes, same fallbacks |
+| deploy-beta.yml | the `docs/64` §2 list | the `docs/64` §2 list, plus the new optional variables `GRID_LAYERS_REGIONS` and `PARCELS_COUNTIES` | Yes. Leave `GRID_LAYERS_REGIONS` **unset**: the deploy then sets `US-TX`. `all` is accepted with a warning: national does not fit this server. Leave `PARCELS_COUNTIES` unset too: the deploy then sets `all` (step (f)) |
+
+- [ ] **(a) Confirm Geofabrik's page and robots.txt (5 min). Do this before the coordinator merges the release to
+  `main`:** from then on grid-layers.yml also runs a national build by itself, on the 2nd of each month at 06:41
+  UTC, and `docs/25` §2.7 limit 4 asks for this check before the first national run. In a browser:
+  1. Open [download.geofabrik.de](https://download.geofabrik.de/) and find, word for word, "This open data
+     download service is offered free of charge by Geofabrik GmbH." and "License: ODbL 1.0". Compare them with
+     [`data/sources.yaml`, row `id: us.osm.power`, field `verified`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/data/sources.yaml#L4149)
+     (line 4149 today; search the file for `id: us.osm.power` if lines have moved): the passage that starts
+     "Fix round 2: read 2026-10-22 about 23:50 UTC through a fetch service" quotes both. On the same page, note
+     whether it says the files do not contain user names, user IDs or changeset IDs (`docs/25` §2.7 limit 4
+     reports that sentence on the front page; the register holds only the similar sentence from another page,
+     step 3).
+  2. Open [download.geofabrik.de/robots.txt](https://download.geofabrik.de/robots.txt). The same passage of
+     `verified` says "https://download.geofabrik.de/robots.txt answered HTTP 404 (no robots file)". If the browser
+     shows a file instead, copy it whole: what matters is any `Disallow:` line under `User-agent: *` that covers
+     `/north-america/` or `.osm.pbf` files.
+  3. Optional: open [www.geofabrik.de/data/download.html](https://www.geofabrik.de/data/download.html) and compare
+     the two sentences quoted at the end of the same row's `license` field
+     ([line 4140](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/data/sources.yaml#L4140)):
+     "All OpenStreetMap derived data on the download server is licensed under the Open Database License 1.0 ..."
+     and "The raw data files ( .osm.pbf , .osc.gz , .osm.bz2 ) on our public download server ( download.geofabrik.de )
+     do not contain these fields".
+  4. **Record it** by telling the coordinator one line, for example "Geofabrik checked 2026-10-24: front page and
+     robots.txt match", or paste what differs. The coordinator adds it to that `verified` field (date, result,
+     "confirmed by the owner in a browser"). The build does not read the field, so (b) need not wait for that
+     commit.
+- [ ] **(b) Run the three data builds (10 min of clicks; up to about 3 hours of waiting).** They do not depend on
+  each other (the flood build reads the LBNL lines, not the OpenStreetMap build), so start all three together. For
+  each: open the link, **Run workflow**, keep the branch the coordinator names (`main` once merged), set the inputs,
+  **Run workflow**.
+  1. [grid-layers](https://github.com/Tobombadil/Bankable/actions/workflows/grid-layers.yml): `states` = `all`
+     (the default). **It cannot publish one state**: a subset is uploaded but never promoted to `latest.json`, which
+     is all the server reads, so Texas comes from the national build (the server keeps Texas only). Not yet run in
+     Actions; the job may take up to its 3-hour limit. Done when the run is green and
+     [tiles.inframation.io/grid/osm-power/latest.json](https://tiles.inframation.io/grid/osm-power/latest.json)
+     opens.
+  2. [flood-layer](https://github.com/Tobombadil/Bankable/actions/workflows/flood-layer.yml): `states` = `TX`,
+     `allow_dropped_states` empty. One state builds on its own (a partial build); about 15 to 30 minutes (Texas took
+     12 in development). Done when the job "manifest and latest.json" is green. National later: `states` empty,
+     about 1.3 hours (estimated). Until the coordinator's change that buffers the OpenStreetMap lines lands (`docs/25`
+     §5.8 item 2), this build covers the floodplain near the LBNL lines only, and the finder leaves the other bands
+     out as "flood data not computed"; re-run this step once the coordinator says that change is in.
+  3. [prospect-layers](https://github.com/Tobombadil/Bankable/actions/workflows/prospect-layers.yml): `region` =
+     `texas`, `sources` empty. About 10 minutes. **Expect a red run** while PAD-US and Aqueduct have no file in the
+     inbox (step (c)): the other layers still publish, and the step "verify the pointer and its manifest are
+     readable" is then skipped (it runs only after a green build step), so do not wait for it. Done when the step
+     "build and upload (infra/scripts/build_prospect_layers.sh)" (open the run, then the job, then that step) shows
+     the line `[prospect-layers] published prospect/builds/texas/<build_id>/ and moved prospect/current/texas.json to it`,
+     or when the Cloudflare dashboard (**R2 Object Storage** > `beta-object-storage-production` > **Objects** >
+     `prospect` > `current`) lists `texas.json`. A Texas server reads only this `texas` build, never the national
+     one, and only this dispatch moves it (the monthly scheduled run builds `conus`): run it again whenever you
+     want fresher prospect layers. National later: `region` = `conus` (it then needs the national PAD-US zip,
+     1.5 GB).
+- [ ] **(c) Optional: the PAD-US and Aqueduct files (15 min).** Both hosts refuse automated download, so without
+  this the site finder shows no protected-land or water-stress values.
+  1. PAD-US for Texas: open [the ScienceBase item](https://www.sciencebase.gov/catalog/item/6759abcfd34edfeb8710a004)
+     and download `PADUS4_1_State_TX_GDB_KMZ.zip` (261 MB).
+  2. Aqueduct: open [WRI's Aqueduct 4.0 data page](https://www.wri.org/data/aqueduct-global-maps-40-data) and
+     download `aqueduct-4-0-water-risk-data.zip` (261 MB).
+  3. In the [Cloudflare dashboard](https://dash.cloudflare.com), **R2 Object Storage** > bucket
+     `beta-object-storage-production` > **Objects**: open or create the folders `prospect` > `inbox` > `padus` and
+     upload the PAD-US zip there; then `prospect` > `inbox` > `wri_aqueduct` for the Aqueduct zip (the dashboard
+     takes files up to 300 MB). Optional: beside each, a text file named like the zip with `.json` in place of
+     `.zip`, that is `PADUS4_1_State_TX_GDB_KMZ.json` and `aqueduct-4-0-water-risk-data.json` (not `.zip.json`),
+     holding `{"downloaded_at": "2026-10-24T15:00:00Z"}` (when you downloaded it); without it the file's time is
+     used and the record says so.
+  4. Run [prospect-layers](https://github.com/Tobombadil/Bankable/actions/workflows/prospect-layers.yml) again,
+     `region` = `texas`. It should now be green.
+- [ ] **(d) Deploy (5 min), once (b) is done.** Open [deploy-beta](https://github.com/Tobombadil/Bankable/actions/workflows/deploy-beta.yml)
+  > **Run workflow** > action `deploy`, tag empty > **Run workflow**. When it is green, run it again with action
+  `seed`: that queues the context build, which ends with the four pulls, then the load, then the site finder run
+  (about 35 minutes for Texas). Without `seed` the server pulls on its own on the 4th of the month at 02:43 UTC.
+- [ ] **(e) Check it worked (about 1 to 3 hours after `seed`).**
+  1. Open [api.inframation.io/v1/health](https://api.inframation.io/v1/health): it reads
+     `"site_finder": {"computed": true, "segments": ...}` (Texas had 120,699 segments in development). While it
+     reads `"computed": false` the run has not finished.
+  2. Open [inframation.io](https://inframation.io): the top menu shows **Site finder** after **Map** (it appears
+     only once the run has finished), and [inframation.io/site-finder](https://inframation.io/site-finder) lists
+     bands along Texas lines.
+  3. Still `false` 4 hours after `seed`: run deploy-beta with action `status` and send the coordinator the run's
+     summary (queue depths and the seed log). If the worker's log says `site_finder_refresh: not run: the worker's
+     memory limit`, the release did not hold the memory change (above): the coordinator ships it, then you run
+     (d) again.
+- [ ] **(f) Texas land parcels (15 min of clicks; up to several hours of waiting), once (e) shows the site finder.**
+  [parcels-layer](https://github.com/Tobombadil/Bankable/actions/workflows/parcels-layer.yml) builds TxGIO's
+  county parcel files on GitHub's machines into the private bucket; the server's monthly context build pulls the
+  counties `PARCELS_COUNTIES` names (`all` unless you set it) and the site finder run measures them. Until the first
+  build the server's log says the parcels are "not published", and nothing fails. The parcel files stay in the
+  private bucket `beta-object-storage-production`: never copy them to the tiles bucket or share them (the source is
+  derived only, `docs/25-siting-parcels.md` §8.1). The licence email to TxGIO is item 15 under "Soon"; it does not
+  block these steps, but Site finder Pro is not sold before the answer.
+  1. **Dry run.** Run the workflow with `counties` = `all` and `dry_run` ticked. It downloads nothing and reads no
+     secret. Done when the job "dry run (catalogue and a HEAD per county zip)" is green; its summary says how many
+     county files answered as catalogued and lists any that did not (warnings, not a stop). Send the coordinator
+     that count.
+  2. **Four counties.** Run it again with `counties` = `48351,48241,48199,48371` (Newton, Jasper, Hardin, Pecos)
+     and `dry_run` unticked: about 10 minutes (estimated). Done when the job "manifest, per-county report and latest.json" is
+     green; its summary lists the four with their parcels and holdings, and names the build's version
+     (`v1/...`). Then run [deploy-beta](https://github.com/Tobombadil/Bankable/actions/workflows/deploy-beta.yml)
+     with action `seed` (or wait for the 4th), so the server pulls them and the site finder measures them.
+  3. **Read the counts.** In the [Cloudflare dashboard](https://dash.cloudflare.com), **R2 Object Storage** >
+     `beta-object-storage-production` > **Objects** > `data` > `normalized` > `context` > `us.tx.txgio.parcels` >
+     `v1` > the version from step 2 > `counties`, open `48351.json`, `48241.json`, `48199.json` and `48371.json`.
+     Copy each file's `outlines` block (how often the county's roll stacks accounts on one outline, and how many
+     outlines overlap) and `owners` block (counts of named, blank, withheld and placeholder owners, and
+     `suspect_kept`: kept names that look like a placeholder) to the coordinator. These files hold counts only, no
+     name or address.
+  4. **Open three record links per county by hand.** On [inframation.io/site-finder](https://inframation.io/site-finder),
+     pick a county, open a band's drawer and, under "Land beside the line", open the appraisal link of three
+     holdings (or zoom the map in to a parcel and use its card). Newton, Jasper and Hardin link to the parcel's own
+     record on the district's `esearch` site: check that each opens a record, and that its acres and place match
+     the parcel. Pecos links to the district's search page with the property id to copy: search three of them. Tell
+     the coordinator which counties' links failed; those switch to search-page links (`docs/25-siting-parcels.md`
+     §8.4).
+  5. **All of Texas.** Run the workflow with `counties` = `all`, `dry_run` unticked. Not yet run in Actions: allow
+     several hours (each batch job may take up to its 4-hour limit). Done when the job "manifest, per-county report
+     and latest.json" has run; a county that failed is listed in its summary with the reason, keeps any version
+     already published, and turns the run red, while the others are published. The server pulls them at the next
+     `seed` or on the 4th: about 1.6 GB of files for the whole state. The Houston counties are the densest; the
+     map reads them in bounded chunks, measured only on synthetic data so far (`docs/25-siting-parcels.md` §8.9).
+  6. **Optional: fewer counties.** To have the server pull only some counties, add the Environment variable
+     `PARCELS_COUNTIES` (GitHub > Settings > Environments > `production` > Variables), for example
+     `48351,48241,48199,48371`: Texas county FIPS codes, comma separated, or `all`. A variable, not a secret; the
+     deploy refuses anything else (`351` alone, a county name). It takes effect at the next `deploy`, then the next
+     `seed` or the 4th. Fewer counties also means less disk: about 1.6 GB for all of Texas,
+     up to twice that while the previous version is kept (`docs/25-siting-parcels.md` §8.9).
+
 ## Soon (internal tier and wider coverage)
 
 | # | Action | Time | Unlocks | Detail |

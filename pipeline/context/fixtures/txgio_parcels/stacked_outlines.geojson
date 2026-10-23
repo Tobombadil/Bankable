@@ -1,0 +1,862 @@
+{
+ "type": "FeatureCollection",
+ "name": "stacked_outlines",
+ "description": "SYNTHETIC: every owner, care-of, situs, mailing and legal value is invented. Stacked and overlapping outlines, a right-of-way strip, exempt land and placeholder owners (pipeline/context/test_txgio_parcels.py describes each case).",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.5,
+       30.5
+      ],
+      [
+       -97.49,
+       30.5
+      ],
+      [
+       -97.49,
+       30.51
+      ],
+      [
+       -97.5,
+       30.51
+      ],
+      [
+       -97.5,
+       30.5
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3001,
+    "PROP_ID": "70001",
+    "GEO_ID": "S001-S1-land",
+    "OWNER_NAME": "SYNTH STACK ONE LLC",
+    "NAME_CARE": "SYNTH CARE STACK 1",
+    "SITUS_ADDR": "1 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9001 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 1",
+    "STAT_LAND_USE": "D1",
+    "MKT_VALUE": 300000,
+    "LAND_VALUE": 300000,
+    "TAX_YEAR": "2026",
+    "NOTE": "one owner, land account"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.49,
+       30.5
+      ],
+      [
+       -97.5,
+       30.5
+      ],
+      [
+       -97.5,
+       30.51
+      ],
+      [
+       -97.49,
+       30.51
+      ],
+      [
+       -97.49,
+       30.5
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3002,
+    "PROP_ID": "70002",
+    "GEO_ID": "S002-S1-home",
+    "OWNER_NAME": "Synth Stack One, L.L.C.",
+    "NAME_CARE": "SYNTH CARE STACK 2",
+    "SITUS_ADDR": "2 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9002 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 2",
+    "STAT_LAND_USE": "M1",
+    "MKT_VALUE": 40000,
+    "LAND_VALUE": 40000,
+    "TAX_YEAR": "2026",
+    "NOTE": "one owner, mobile-home account on the same outline"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.49,
+       30.5
+      ],
+      [
+       -97.48,
+       30.5
+      ],
+      [
+       -97.48,
+       30.51
+      ],
+      [
+       -97.49,
+       30.51
+      ],
+      [
+       -97.49,
+       30.5
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3003,
+    "PROP_ID": "70003",
+    "GEO_ID": "S003-S2-a",
+    "OWNER_NAME": "SYNTH STACK TWO",
+    "NAME_CARE": "SYNTH CARE STACK 3",
+    "SITUS_ADDR": "3 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9003 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 3",
+    "STAT_LAND_USE": "D1",
+    "MKT_VALUE": 250000,
+    "LAND_VALUE": 250000,
+    "TAX_YEAR": "2026",
+    "NOTE": "owner A of a shared outline"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.49,
+       30.5
+      ],
+      [
+       -97.48,
+       30.5
+      ],
+      [
+       -97.48,
+       30.51
+      ],
+      [
+       -97.49,
+       30.51
+      ],
+      [
+       -97.49,
+       30.5
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3004,
+    "PROP_ID": "70004",
+    "GEO_ID": "S004-S2-b",
+    "OWNER_NAME": "SYNTH STACK THREE",
+    "NAME_CARE": "SYNTH CARE STACK 4",
+    "SITUS_ADDR": "4 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9004 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 4",
+    "STAT_LAND_USE": "A1",
+    "MKT_VALUE": 90000,
+    "LAND_VALUE": 90000,
+    "TAX_YEAR": "2026",
+    "NOTE": "owner B of the same outline"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.5,
+       30.51
+      ],
+      [
+       -97.49,
+       30.51
+      ],
+      [
+       -97.49,
+       30.52
+      ],
+      [
+       -97.5,
+       30.52
+      ],
+      [
+       -97.5,
+       30.51
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3005,
+    "PROP_ID": "70005",
+    "GEO_ID": "S005-S3",
+    "OWNER_NAME": "SYNTH STACK FOUR",
+    "NAME_CARE": "SYNTH CARE STACK 5",
+    "SITUS_ADDR": "5 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9005 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 5",
+    "STAT_LAND_USE": "E",
+    "MKT_VALUE": 200000,
+    "LAND_VALUE": 200000,
+    "TAX_YEAR": "2026",
+    "NOTE": "overlapping pair, first"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.495,
+       30.51
+      ],
+      [
+       -97.485,
+       30.51
+      ],
+      [
+       -97.485,
+       30.52
+      ],
+      [
+       -97.495,
+       30.52
+      ],
+      [
+       -97.495,
+       30.51
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3006,
+    "PROP_ID": "70006",
+    "GEO_ID": "S006-S3-shifted",
+    "OWNER_NAME": "SYNTH STACK FOUR",
+    "NAME_CARE": "SYNTH CARE STACK 6",
+    "SITUS_ADDR": "6 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9006 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 6",
+    "STAT_LAND_USE": "E",
+    "MKT_VALUE": 200000,
+    "LAND_VALUE": 200000,
+    "TAX_YEAR": "2026",
+    "NOTE": "overlapping pair, second, half over the first"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.496,
+       30.504
+      ],
+      [
+       -97.494,
+       30.504
+      ],
+      [
+       -97.494,
+       30.506
+      ],
+      [
+       -97.496,
+       30.506
+      ],
+      [
+       -97.496,
+       30.504
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3007,
+    "PROP_ID": "70007",
+    "GEO_ID": "S007-S1-inner",
+    "OWNER_NAME": "SYNTH STACK SIX",
+    "NAME_CARE": "SYNTH CARE STACK 7",
+    "SITUS_ADDR": "7 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9007 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 7",
+    "STAT_LAND_USE": "E",
+    "MKT_VALUE": 20000,
+    "LAND_VALUE": 20000,
+    "TAX_YEAR": "2026",
+    "NOTE": "another owner's lot inside the first outline"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.47,
+       30.5
+      ],
+      [
+       -97.43873,
+       30.5
+      ],
+      [
+       -97.43873,
+       30.50027
+      ],
+      [
+       -97.47,
+       30.50027
+      ],
+      [
+       -97.47,
+       30.5
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3008,
+    "PROP_ID": "70008",
+    "GEO_ID": "S008-ROW",
+    "OWNER_NAME": "SYNTH RAILWAY CO",
+    "NAME_CARE": "SYNTH CARE STACK 8",
+    "SITUS_ADDR": "8 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9008 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 8",
+    "STAT_LAND_USE": "E",
+    "MKT_VALUE": 10000,
+    "LAND_VALUE": 10000,
+    "TAX_YEAR": "2026",
+    "NOTE": "a 30 m strip"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.47,
+       30.52
+      ],
+      [
+       -97.4655,
+       30.52
+      ],
+      [
+       -97.4655,
+       30.5245
+      ],
+      [
+       -97.47,
+       30.5245
+      ],
+      [
+       -97.47,
+       30.52
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3009,
+    "PROP_ID": "70009",
+    "GEO_ID": "S009-X",
+    "OWNER_NAME": "SYNTH COUNTY OF FIXTURE",
+    "NAME_CARE": "SYNTH CARE STACK 9",
+    "SITUS_ADDR": "9 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9009 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 9",
+    "STAT_LAND_USE": "X",
+    "MKT_VALUE": 0,
+    "LAND_VALUE": 0,
+    "TAX_YEAR": "2026",
+    "NOTE": "exempt land"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.5,
+       30.54
+      ],
+      [
+       -97.499,
+       30.54
+      ],
+      [
+       -97.499,
+       30.541
+      ],
+      [
+       -97.5,
+       30.541
+      ],
+      [
+       -97.5,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3010,
+    "PROP_ID": "70010",
+    "GEO_ID": "S010-lot",
+    "OWNER_NAME": "NOT ON FILE",
+    "NAME_CARE": "SYNTH CARE STACK 10",
+    "SITUS_ADDR": "10 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9010 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 10",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.499,
+       30.54
+      ],
+      [
+       -97.498,
+       30.54
+      ],
+      [
+       -97.498,
+       30.541
+      ],
+      [
+       -97.499,
+       30.541
+      ],
+      [
+       -97.499,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3011,
+    "PROP_ID": "70011",
+    "GEO_ID": "S011-lot",
+    "OWNER_NAME": "NOT ON FILE",
+    "NAME_CARE": "SYNTH CARE STACK 11",
+    "SITUS_ADDR": "11 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9011 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 11",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.498,
+       30.54
+      ],
+      [
+       -97.497,
+       30.54
+      ],
+      [
+       -97.497,
+       30.541
+      ],
+      [
+       -97.498,
+       30.541
+      ],
+      [
+       -97.498,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3012,
+    "PROP_ID": "70012",
+    "GEO_ID": "S012-lot",
+    "OWNER_NAME": "VARIOUS",
+    "NAME_CARE": "SYNTH CARE STACK 12",
+    "SITUS_ADDR": "12 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9012 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 12",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.497,
+       30.54
+      ],
+      [
+       -97.496,
+       30.54
+      ],
+      [
+       -97.496,
+       30.541
+      ],
+      [
+       -97.497,
+       30.541
+      ],
+      [
+       -97.497,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3013,
+    "PROP_ID": "70013",
+    "GEO_ID": "S013-lot",
+    "OWNER_NAME": "VARIOUS",
+    "NAME_CARE": "SYNTH CARE STACK 13",
+    "SITUS_ADDR": "13 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9013 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 13",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.496,
+       30.54
+      ],
+      [
+       -97.495,
+       30.54
+      ],
+      [
+       -97.495,
+       30.541
+      ],
+      [
+       -97.496,
+       30.541
+      ],
+      [
+       -97.496,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3014,
+    "PROP_ID": "70014",
+    "GEO_ID": "S014-lot",
+    "OWNER_NAME": "R.O.W.",
+    "NAME_CARE": "SYNTH CARE STACK 14",
+    "SITUS_ADDR": "14 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9014 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 14",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.495,
+       30.54
+      ],
+      [
+       -97.494,
+       30.54
+      ],
+      [
+       -97.494,
+       30.541
+      ],
+      [
+       -97.495,
+       30.541
+      ],
+      [
+       -97.495,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3015,
+    "PROP_ID": "70015",
+    "GEO_ID": "S015-lot",
+    "OWNER_NAME": "R.O.W.",
+    "NAME_CARE": "SYNTH CARE STACK 15",
+    "SITUS_ADDR": "15 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9015 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 15",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.494,
+       30.54
+      ],
+      [
+       -97.493,
+       30.54
+      ],
+      [
+       -97.493,
+       30.541
+      ],
+      [
+       -97.494,
+       30.541
+      ],
+      [
+       -97.494,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3016,
+    "PROP_ID": "70016",
+    "GEO_ID": "S016-lot",
+    "OWNER_NAME": "RESTRICTED",
+    "NAME_CARE": "SYNTH CARE STACK 16",
+    "SITUS_ADDR": "16 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9016 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 16",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.493,
+       30.54
+      ],
+      [
+       -97.492,
+       30.54
+      ],
+      [
+       -97.492,
+       30.541
+      ],
+      [
+       -97.493,
+       30.541
+      ],
+      [
+       -97.493,
+       30.54
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3017,
+    "PROP_ID": "70017",
+    "GEO_ID": "S017-lot",
+    "OWNER_NAME": "RESTRICTED",
+    "NAME_CARE": "SYNTH CARE STACK 17",
+    "SITUS_ADDR": "17 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9017 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 17",
+    "STAT_LAND_USE": "C1",
+    "MKT_VALUE": 5000,
+    "LAND_VALUE": 5000,
+    "TAX_YEAR": "2026",
+    "NOTE": "placeholder or withheld owner"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.49,
+       30.55
+      ],
+      [
+       -97.489,
+       30.55
+      ],
+      [
+       -97.489,
+       30.551
+      ],
+      [
+       -97.49,
+       30.551
+      ],
+      [
+       -97.49,
+       30.55
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3018,
+    "PROP_ID": "70018",
+    "GEO_ID": "S018-suspect-1",
+    "OWNER_NAME": "SYNTH ROAD RUNNER RANCH",
+    "NAME_CARE": "SYNTH CARE STACK 18",
+    "SITUS_ADDR": "18 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9018 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 18",
+    "STAT_LAND_USE": "D1",
+    "MKT_VALUE": 8000,
+    "LAND_VALUE": 8000,
+    "TAX_YEAR": "2026",
+    "NOTE": "suspect name"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.489,
+       30.55
+      ],
+      [
+       -97.488,
+       30.55
+      ],
+      [
+       -97.488,
+       30.551
+      ],
+      [
+       -97.489,
+       30.551
+      ],
+      [
+       -97.489,
+       30.55
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3019,
+    "PROP_ID": "70019",
+    "GEO_ID": "S019-suspect-2",
+    "OWNER_NAME": "SYNTH ROAD RUNNER RANCH",
+    "NAME_CARE": "SYNTH CARE STACK 19",
+    "SITUS_ADDR": "19 SYNTH SITUS STACK RD",
+    "MAIL_ADDR": "PO BOX 9019 SYNTH MAIL STACK",
+    "LEGAL_DESC": "SYNTH STACK ABST 19",
+    "STAT_LAND_USE": "D1",
+    "MKT_VALUE": 8000,
+    "LAND_VALUE": 8000,
+    "TAX_YEAR": "2026",
+    "NOTE": "suspect name"
+   }
+  }
+ ]
+}

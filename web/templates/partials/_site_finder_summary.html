@@ -10,5 +10,8 @@
   {%- if s.flood_unavailable_mi %}
   <p class="sf-note">{{ '{:,.1f}'.format(s.flood_unavailable_mi) }} miles of line that meet the other criteria have no FEMA flood map to check, so they are left out. Untick &ldquo;Leave out the floodplain&rdquo; to see them, marked &ldquo;No flood data&rdquo;.</p>
   {%- endif %}
+  {%- if s.parcels_unavailable_mi %}
+  <p class="sf-note">{{ '{:,.1f}'.format(s.parcels_unavailable_mi) }} miles of line that meet the other criteria are in counties whose parcels are not loaded{% if s.parcel_counties %} (parcels are loaded for {{ s.parcel_counties | join(', ') }}){% endif %}, so the acreage test leaves them out.</p>
+  {%- endif %}
 {%- endif %}
 </div>

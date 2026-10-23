@@ -25,7 +25,9 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                              -> enrich_tick           geocode backfill and later enrichment stages
                                 -> match_tick         proposal-opportunity matches (incremental)
     tick_resolve (daily)  ->  resolve_tick ...        safety net for rows loaded outside the chain
-    tick_context (monthly) -> context_build           rebuild normalized/context/ (builder CLIs)
+    tick_context (monthly) -> context_build           rebuild normalized/context/ (builder CLIs), then
+                                                     pull the published grid, flood, prospect and
+                                                     parcels files
                               -> context_load         plants, retirements, asset layers, owners,
                                                      then the companies index's figures
                                  -> site_finder_refresh   the site finder's candidate segments
@@ -543,7 +545,7 @@ def _tick_value(timestamp: int) -> None:
 RETENTION_TIMEOUT_S = 1800
 #: Daily at 01:47 UTC. Minute 47 is used by no other tick (cadence.py's `CRON_BY_BUCKET` and every
 #: `@app.periodic` in this module), and 01:xx is clear of the daily fetch bucket (03:07), the
-#: backup timer (03:17), the resolve and audit ticks (04:37, 04:52) and the context build (02:43, 3rd).
+#: backup timer (03:17), the resolve and audit ticks (04:37, 04:52) and the context build (02:43, 4th).
 RETENTION_CRON = "47 1 * * *"
 
 
@@ -737,10 +739,16 @@ def site_finder_refresh() -> dict[str, Any]:
     return _run_with_timeout(jobs.site_finder_refresh_job, timeout_s=SITE_FINDER_TIMEOUT_S)
 
 
-#: The 3rd of the month, 02:43 UTC: after the monthly bucket's EIA-860M fetch (the 1st) and the
+#: The 4th of the month, 02:43 UTC: after the monthly bucket's EIA-860M fetch (the 1st) and the
 #: annual bucket's EIA-860 and GHGRP fetches in their run month (the 2nd), whose snapshots the
-#: first builders read; before the daily bucket (03:07), which it does not otherwise touch.
-CONTEXT_CRON = "43 2 3 * *"
+#: first builders read, and after the scheduled GitHub Actions builds three of the last four builders
+#: pull have published: grid-layers.yml on the 2nd (06:41, 3-hour limit), flood-layer.yml quarterly and
+#: prospect-layers.yml monthly on the 3rd (04:41 and 06:41; their jobs' time limits add up to about
+#: 3 hours each). On the 3rd, as before 2026-10-23, the tick ran before both of those, so their
+#: builds reached the server a month late (infra/scheduler/test_context_and_match.py holds the
+#: order). parcels-layer.yml, the fourth, has no schedule: a person dispatches it, and the next tick
+#: (or deploy-beta's `seed`) pulls it. Before the daily bucket (03:07), which it does not otherwise touch.
+CONTEXT_CRON = "43 2 4 * *"
 
 
 @app.periodic(cron=CONTEXT_CRON, periodic_id="tick:context")
@@ -808,9 +816,12 @@ def org_enrich_apply() -> dict[str, Any]:
     return _store_pass("org_enrich_apply", jobs.org_enrich_apply_job, timeout_s=ORG_ENRICH_APPLY_TIMEOUT_S)
 
 
-#: The 4th of the month, 06:18 UTC: the day after `tick_context` (the 3rd, 02:43), whose
-#: `context_load` creates the owner and operator organisations the enrichment looks up; clear of the
-#: daily fetch bucket (03:07) and `tick_resolve` (04:37). Minute 17 is the ERCOT daily price tick's.
+#: The 4th of the month, 06:18 UTC: three and a half hours after `tick_context` (the 4th, 02:43 since
+#: 2026-10-23; it was the day after), whose `context_load` creates the owner and operator
+#: organisations the enrichment looks up (the builders took 5 to 7 minutes and the load about 3,
+#: docs/64 §7; a load not done by then leaves last month's organisations, which is all a late one
+#: costs). Clear of the daily fetch bucket (03:07) and `tick_resolve` (04:37). Minute 17 is the ERCOT
+#: daily price tick's.
 ORG_ENRICH_CRON = "18 6 4 * *"
 
 

@@ -692,6 +692,325 @@ who both advertise platform or reseller terms) before the first licensed state i
 4. Ask Regrid and ReportAll for **platform (display to subscribers) licence quotes**: Texas-only, five states,
    nationwide, so that A6 and A9 become numbers.
 
+## 8. As built (lane parcels, 2026-10-23; fix round the same day)
+
+Owner decisions 2026-10-23: Site finder Pro gets land parcels, Texas first, and Inframation serves the owner's own
+powered-land deals first. Code: `pipeline/context/txgio_parcels.py` (builder), `services/context_sample/parcels.py`
+(reader), `services/site_finder/parcels.py` and `cad_links.py` (per-segment figures, appraisal links),
+`services/api/site_finder.py` and `web/site_finder.py` (API and page), `.github/workflows/parcels-layer.yml` with
+`infra/scripts/build_parcels_layer.sh` (the statewide build). Manifest row `us.tx.txgio.parcels` (the id this lane
+was given; §1.6 proposed `us.tx.txgio.land_parcels`), `docs/13` §6.
+
+### 8.1 Source and route, measured from this sandbox
+
+| Request (platform user-agent) | Answer |
+|---|---|
+| `api.tnris.org/api/v1/collections/?search=parcels` | 200: seven Land Parcels vintages; newest `1d33dafb-6e9c-40ac-887d-f4577909ed9b`, acquired 2026-09-25, published 2026-10-01, `CC0-1.0`, spatial reference 4326, Donley excluded |
+| `api.tnris.org/api/v1/resources/?collection_id=...` | 200: 254 files, 253 county zips and the statewide zip; sizes as §1.5 |
+| `api.tnris.org/robots.txt`, `feature.geographic.texas.gov/robots.txt` | 404 (no rules) |
+| `data.geographic.texas.gov`: `robots.txt`, HEAD and GET of the smallest county zip (Kenedy, 352,951 bytes) | 403 "Request blocked" (CloudFront) |
+| `stratmap_land_parcels_48_most_recent/MapServer/0/query`: features, `returnCountOnly`, `returnIdsOnly`, `outStatistics` | 400 "Requested operation is not supported by this service" |
+
+So no TxGIO parcel was read here, and §1.4's proposed fill-rate statistics query is not possible on this service.
+Identify, find, WMS GetFeatureInfo, the zips' storage origin and web archives were not tried: each would get around
+an access control the publisher set. The route is the county zips, downloaded by the GitHub Actions build (§8.6)
+from GitHub's runners, one at a time per job with five seconds between counties, at most two jobs at once; the
+catalogue at no more than 0.5 requests a second and the file host at 0.2 (`RATE_LIMITS`), through the shared
+`PoliteSession` (robots.txt honoured where a host serves one; Inframation user-agent with contact URL). The
+statewide 2.7 GB zip is never fetched. The recorded catalogue answers are the tests' fixtures
+(`pipeline/context/fixtures/txgio_parcels/collections.json`, `resources.json`, trimmed to the counties used).
+
+Terms recorded: `reuse: open`, `publication: derived_only` (a privacy rule, §8.2), credit and no-endorsement notice
+as §1.6, and the note that **written confirmation of commercial display is requested from TxGIO** (§7 item 1; not
+yet sent or answered).
+
+**Where the build's files live (fix round).** The per-parcel file is the source table less its owner columns, so
+under `derived_only` ("do not mirror the source table", `docs/13`) it is never on a public host. The build writes
+to the private object store (`R2_BUCKET`, prefix `data/normalized/context/us.tx.txgio.parcels/`, the bucket and
+prefix scheme the flood build uses), never to the public tiles bucket, and a server pulls with its own object-store
+credentials. The public reads parcels only through the API, behind the register gate: withholding the source
+(`publish_state`, or TxGIO declining commercial display) withholds every parcel figure and outline at once. If the
+owner later decides that per-parcel rows are `raw_ok`, the register row changes first and the files may move.
+
+### 8.2 The privacy rule as implemented (option (b), stricter)
+
+This supersedes §0's and §4.7's "keyed hash" and §5.1 item 2's "owner key", "situs for non-residential" and
+"show `LEGAL_DESC`":
+
+- **Read:** the owner name is the only personal field read, into memory, for one county at a time. `NAME_CARE`,
+  `MAIL_*`, `SITUS_*`, `LEGAL_DESC` and `GEO_ID` are never read (`FIELD_NAMES` names the columns read; the zip
+  reader asks GDAL for those only). The in-memory frame leaves the owner list out of its repr, so no debug print or
+  traceback that shows locals can show a name.
+- **Screened, grouped, then dropped:** the name is normalised (`owner_key`: case, accents, punctuation and spacing
+  ignored, "&" read as AND, corporate suffixes written one way) and screened (`owner_screen`). A placeholder
+  ("NOT ON FILE", "NO NAME", "VARIOUS", "ROW", "R.O.W.", "PUBLIC ROAD", "SEE ACCT 12345", digits only and the like)
+  or a confidentiality marker ("CONFIDENTIAL" and its misspellings and abbreviations, "25.025", "RESTRICTED",
+  "PROTECTED", "WITHHELD", "PRIVATE" alone) names nobody. The rest are turned into integer codes and the strings are
+  discarded before any geometry work. Parcels with the same code that touch or lie within 30 m of each other
+  (equal-area plane, transitive) form a **holding**. No hash, code or name survives the build.
+- **Counted, never written:** each county's summary counts the named, blank, withheld and placeholder owners, and
+  the kept names that still look like a marker (`_SUSPECT`: "ROW", "ROAD", "PRIVATE", "ACCT", an account-like id),
+  with how many multi-parcel holdings those form. Counts only: the strings never leave memory. The first real build
+  shows whether a district writes a placeholder the lists lack.
+- **Written:** a holding id that is random per build (`secrets`, `h` + 12 hex), never derived from the owner;
+  per holding its parcel count (distinct outlines) and accounts, acres, owner count (always 1: a holding is one
+  owner's contiguous land), land-use category by acreage, values, the property id of its largest parcel (the
+  appraisal link), its kind (§8.3) and the land it shares with other holdings. Per band: how many distinct holdings
+  touch it. Two holdings of one owner more than 30 m apart stay two, and nothing says they share an owner.
+- **Confidential, placeholder or blank owners** never join a holding: each is a holding of one, indistinguishable
+  from any other single-parcel holding. Which parcels lack an owner is never written; the county summary gives only
+  counts.
+- **Tested:** the fixture counties (`synthetic_county.geojson`, `stacked_outlines.geojson`, every value synthetic)
+  carry owner, care-of, situs, mailing and legal-description strings; tests assert none of them, nor any fragment of
+  them, appears in the parquet files (rows and metadata), the county summary, the manifest, the build's log, the
+  frame's repr, the stored segment contexts, the API's responses or the page (`pipeline/context/test_txgio_parcels.py`,
+  `services/site_finder/test_parcels.py`, `services/api/test_site_finder.py`, `web/test_site_finder.py`).
+
+### 8.3 What a parcel and a holding carry
+
+Per parcel (`parcels/<fips>.parquet`, GeoParquet 1.1, WKB with a `bbox` covering column, rows in Z-order, row
+groups of 2,048, zstd), only: TxGIO record id, county FIPS, the appraisal district's property id (`PROP_ID`), acres
+computed in an Albers equal-area projection on GRS80 (standard parallels 27.5° and 35°, centre 18° N 100° W; a test
+checks it against the exact ellipsoidal area of a quadrangle) with the stated `GIS_AREA` in acres beside it, the
+state land-use code and its category (PTAD's categories: A, B residential; C1, C2 vacant lot; D1, D2 open-space and
+ag; E rural non-ag; F1 commercial; F2 industrial; G minerals; J utilities; L, M, O, S, X; a blank is "not stated"),
+land and market value with the tax year, the holding's id, acres, parcel count, land use, value per acre, link
+property id, kind and shared land, the outline simplified to about 1 m for display, and the source quartet. The
+geographic id is no longer kept (spec (3) does not list it; the record link uses `PROP_ID`).
+
+Per holding (`holdings/<fips>.parquet`): the figures above plus accounts, `overlap_acres` (land another holding's
+outline also covers), `overlap_partners`, `mean_width_m`, its box and a point on its largest parcel. Each county
+also gets `counties/<fips>.json`: counts, fill shares, the owner screen's counts, the kinds, the stacked and
+overlapping outlines (`outlines`), timings and the files' sha256.
+
+**Stacked and overlapping outlines (fix round).** Texas rolls draw several accounts on one geography (a land
+account and the mobile home or improvement account on it; each heir's undivided interest; condominium units), and
+TxGIO changes no value. So:
+
+- accounts on one outline (equal after rounding to about 1 cm, whatever the start vertex or direction) are **one
+  tract**: a holding's acres count each outline once, its parcel count is its distinct outlines, and the outline's
+  land use is its land account's (`USE_PRIORITY`: land before a mobile home, personal property or minerals; equal
+  acreages decided the same way); its record link is the land account's;
+- one owner's outlines that overlap count as their **union**;
+- land two holdings both cover (two owners on one outline; an account drawn inside another's outline) is listed
+  pairwise on both holdings (`holding_overlaps`: the partner and the acres shared, at most 32, largest first, and
+  the rest as one figure, `holding_overlap_rest_acres`). The site finder subtracts it when the second of the two
+  joins an assemblage, so one tract is never counted twice. Overlaps under 4 m² or 0.1% of the smaller outline are
+  drawing noise (two edges straight in degrees are not quite straight in the equal-area plane; adjacent tracts
+  digitised apart) and are ignored;
+- the county summary counts accounts on a repeated outline, repeats within one holding, outlines shared by holdings,
+  overlapping pairs (and those over 10% of the smaller), their acres, and holdings measured as a union.
+
+**Kinds (fix round).** A holding is `land`, or one of the kinds left out of every acreage figure: a right-of-way
+`strip` (20 acres or more, on average under 60 m across: twice its union's area over its perimeter; a 100 ft railroad
+right of way reads about 30 m, a square 20-acre tract 142 m), `exempt` land (category X) or `utility` land (category
+J, railroads included). A fee-owned railroad or road right of way along a line would otherwise top "largest
+holding" and pass "contiguous acres at least 500".
+
+### 8.4 Appraisal-district links, verified county by county (2026-10-23)
+
+Links only: no request is made to an appraisal district's site by any code or job. For each county the district's
+website is the one the Comptroller's county directory names; only its robots.txt, home page and search script were
+read (and, in the fix round, a HEAD of the Pecos and Ward search pages over HTTPS), and no property record was
+requested.
+
+| County (FIPS) | District site | Link given | Evidence |
+|---|---|---|---|
+| Newton (48351) | esearch.newtoncad.org | record: `/Property/View/<PROP_ID>` | the platform's `/js/_site.js` builds `/property/view/${id}` |
+| Jasper (48241) | esearch.jaspercad.org | record, same route | same script |
+| Hardin (48199) | esearch.hardin-cad.org | record, same route | same script |
+| Jefferson (48245) | esearch.jcad.org | record, same route | same script |
+| Orange (48361) | esearch.orangecad.net | search page and the property id to copy | an older release whose script shows no record route |
+| Pecos (48371) | https://www.pecoscad.org/home/PropertyAppraisal | search page and the property id | a keyword search form; no record route seen; HTTPS answers 200 |
+| Ward (48475) | https://www.wardcad.org/home/PropertyAppraisal | search page and the property id | as Pecos |
+| every other county | Comptroller directory page `county-directory/<name>.php` | the directory page and the property id | the directory names each district's site |
+
+**Not verified:** that TxGIO's `PROP_ID` is the id the esearch route takes (no TxGIO record could be read here).
+The first real build should open three record links per esearch county by hand; if they fail, set those counties
+to search-page links in `cad_links.py`.
+
+### 8.5 In the site finder
+
+- **Stored** in each segment's existing context (`SiteCandidate.context["parcels"]`): no migration, so no 0043.
+  Per width (0.25, 0.5, 1, 2 mi): coverage (`ok`, `partial`, `none`, with the counties not loaded), the count of
+  distinct holdings touching the band (`n`) and of those left out by kind (`x`), the largest contiguous acres from
+  at most 1, 3, 5 and 10 owners, and the counted holdings of 20 acres or more plus each width's ten largest (at most
+  150), with land use, value per acre and the link id for the largest. Holdings are keyed by county and id together
+  (`<fips>:<id>`): ids are drawn per county build.
+- **Criteria:** "Contiguous acres at least" (none, 20, 50, 100, 200, 500, 1,000) and "Owners at most" (any, 1, 3,
+  5; it applies with a minimum acreage). With 1 owner the figure is the largest single holding touching the band;
+  with 3 or 5, and with any (which assembles up to 10 holdings), it is a greedy join of neighbouring holdings
+  (parcels within 30 m), each touching the band, with land two holdings share counted once: a lower bound, said so
+  in the drawer. A page URL with another number snaps to the stricter offered choice (at least 75 acres reads as
+  100; at most 2 owners as 1; 10 or more owners as any). A segment in a county whose parcels the server does not
+  hold never passes an acreage criterion; the summary counts those miles (`parcels_unavailable_mi`) and the band
+  names the Texas counties ("parcels not loaded for this county"), or says "Parcels cover Texas only" for a place
+  outside Texas. New sort: largest holding, descending; bands without parcels last.
+- **Drawer:** "Land beside the line": the largest holding, how many holdings touch the band (exact for a band of one
+  segment or of large holdings only, else "at least": a band of several segments stores only its large holdings by
+  id), how many reach the chosen acreage (or 100 acres), the assembly figure, how many right-of-way, exempt or
+  utility holdings are left out, and the top holdings with acres, parcel count, land-use category, value per acre
+  and the appraisal link, under "Owner names are on the appraisal district's record; Inframation does not store
+  them." A band's figures are merged from its segments': exact for the largest holding, holdings of 20 acres or more
+  and each width's ten largest; "at least" for smaller holdings and the left-out count.
+- **Map:** parcel outlines from zoom 12 (`GET /v1/site-finder/parcels`, a box at most 0.5° wide, at most 4,000
+  outlines, ranked and cut in Arrow so only the kept outlines become Python objects); a click opens the parcel's
+  card with acres, land use, its holding, whether its kind is left out, and the appraisal link.
+- **Refresh after a pull:** on the server the monthly `context_build` runs the pull, and the full
+  `site_finder_refresh` after the load measures what it wrote (§8.9). By hand:
+  `python -m pipeline.context.txgio_parcels pull` (counties from `PARCELS_COUNTIES`; the private object store
+  from `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_ENDPOINT` or `R2_ACCOUNT_ID`, the names the
+  beta deploy already renders), then `python -m services.site_finder --parcels-only` re-measures the served run in
+  place. With `--counties`, only segments whose midpoint lies in those counties are
+  re-measured; a neighbouring county's band that reaches in is updated by a run without `--counties`. Each
+  measurement stamps the run with a new `measure_id`; the API keys its parcel caches on it and drops every cache
+  built from the run's segments when it changes, so a re-measure that keeps the layer's version (a wider
+  `PARCELS_COUNTIES` pulled from the same `latest.json`, a `--counties` run) is served from the new figures at the
+  next request.
+
+### 8.6 The statewide build (`.github/workflows/parcels-layer.yml`)
+
+Dispatched by a person (no schedule): `counties` (`all`, the default, or FIPS codes), `dry_run`, and
+`allow_dropped_counties`. The dry run uses no secret: it plans from the catalogue, HEADs every county zip and
+reports each answer, failures as warnings. A real run plans and uploads `plan.json`, builds the counties in batches
+(two at a time), uploads each county's files and then its summary, and publishes: `manifest.json` carries forward
+every county this build did not build or failed to build from the published `latest.json`, and the manifest is
+refused (exit 1, `latest.json` untouched) when a published county would be lost or a county's parcels fall by more
+than half. Every failed county is listed in the step summary with its reason; a county whose build process is
+killed (out of memory) is recorded as failed and the batch goes on. Everything goes to the private object store
+(`R2_BUCKET`, `data/normalized/context/us.tx.txgio.parcels/`) with the R2 values `flood-layer.yml` uses: no new
+secret. The script refuses to run (exit 2, nothing written) when `R2_BUCKET` names the tiles bucket, and the last
+step checks `latest.json` in the private store, not on a public host.
+
+### 8.7 Measured (development; synthetic parcels, real Texas lines)
+
+TxGIO's files cannot be read here (§8.1), so the counties below are **synthetic**: rectangles split to a lognormal
+size, clipped to each county's real TIGER outline, owners clustered so that multi-parcel holdings exist, written by
+GDAL as a TxGIO zip (geodatabase and shapefile). In the fix round 3% of outlines also carry the same owner's
+mobile-home account and 1% another owner's account, as stacked accounts do. The synthetic zips (6.5 to 9.5 MB) are
+in the order of the real ones (5 to 17 MB). Counties: Newton, Jasper and Hardin (the top default bands, Layfield to
+Hartburg 500 kV) and Pecos (Permian). This sandbox, 4 cores shared with other lanes. Fix-round figures (the first
+round's, before the overlap work, in brackets):
+
+| County | Rows (accounts) | Distinct outlines | Holdings | Multi-parcel | Largest, acres | ≥ 100 ac | ≥ 1,000 ac | Kinds left out (strip / exempt / utility) | Build, s | Peak memory | Output |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Newton 48351 | 68,402 | 65,772 | 34,110 | 2,015 | 3,023 | 1,024 | 36 | 38 / 662 / 330 | 14.2 (8.5) | 488 MB (437) | 8.0 MB |
+| Jasper 48241 | 59,810 | 57,510 | 27,721 | 1,987 | 3,176 | 1,011 | 53 | 29 / 524 / 272 | 12.6 (5.8) | 446 MB (428) | 7.0 MB |
+| Hardin 48199 | 57,574 | 55,361 | 28,733 | 1,864 | 3,069 | 938 | 54 | 26 / 544 / 267 | 13.3 (8.3) | 441 MB (471) | 6.8 MB |
+| Pecos 48371 | 45,556 | 43,804 | 16,646 | 1,180 | 17,384 | 3,958 | 789 | 2 / 313 / 286 | 11.0 (3.8) | 389 MB (298) | 4.8 MB |
+
+Build is the whole `county` command (read, group, measure, write). The fix round adds the outline keys (about 1 s a
+county), the overlap search (about 3 to 4 s: every pair of outlines that touch is tested for a shared interior) and
+the pairwise lists. In Newton 2,630 accounts sit on a repeated outline (1,934 within one holding, 696 outlines
+shared by two holdings, 1,275 holdings sharing land), no distinct outlines overlap, and the owner screen counts 711
+withheld and 657 blank owners and no placeholder (the synthetic names hold none). *Extrapolation, low-moderate
+confidence:* about 4.4 KB of memory per row above about 185 MB, so Harris (an estimated 1.4 to 1.6 million parcels;
+TxGIO publishes no count) needs about 7 GB: within a 16 GB runner, at the edge of a 7 GB one (a failure there is
+reported and its published version kept), and about 5 minutes. About 115 bytes of output per row: about 1.6 GB for
+the state's ~14 million parcels, in the private store and on a server that pulls `all`.
+
+Serving, on a copy of the Texas development store (120,699 segments; SQLite, in process; deleted after):
+
+| Step | Result |
+|---|---|
+| Pull of the four counties from the object store (8 files, sha256 checked) | 0.16 s |
+| Re-measure every segment (`--parcels-only`) | 67 s (62), 4,608 segments written, peak 639 MB (617) |
+| Re-measure with `--counties` (the four) | 47 s (41), 2,611 segments |
+| List, defaults (cold / warm) | 6.0 s / 0.88 s (6.5 / 0.89) |
+| List, Newton | 1.0 s / 0.32 s |
+| List, `min_acres=100` | 2.4 s / 0.22 s: 113 bands, 392 miles; 30,400 miles in counties without parcels |
+| List, `min_acres=500&max_owners=1` | 2.2 s / 0.20 s: 111 bands, 325 miles |
+| List, `min_acres=200&max_owners=3` | 1.6 s / 0.22 s: 113 bands, 391 miles |
+| List, sorted by largest holding | 2.4 s / 0.40 s |
+| One band by id (the drawer's data) | 0.21 s / 0.05 s |
+| Parcel outlines, zoom 12 / 13 / 14 | 0.45 s (4,000 of 16,162 in view) / 0.27 s (2,107) / 0.11 s (696), warm |
+| Parcel outlines, the widest view allowed (0.5° by 0.31°) | 0.63 s, 4,000 of 27,437 in view |
+| Page `/site-finder`, defaults | 3.0 s / 0.65 s |
+| Page with `min_acres=100` | 0.46 s / 0.25 s |
+| Drawer fragment, a Newton band | 0.17 s / 0.05 s |
+
+The default list's first band is Layfield to Hartburg 500 kV in Newton County: largest holding 1,866 acres
+(synthetic), 55 holdings of 100 acres or more, at least 398 holdings touching, 9 left out by kind. A Newton band's
+top holding links to `https://esearch.newtoncad.org/Property/View/<id>` (a synthetic id). On the same 0.5° Newton
+view (39,239 parcels), the outline ranking takes 546 ms against the first round's 806 ms (every row into Python
+lists and sorted there); the difference grows with the rows in view, so a zoom-12 view over a city (Harris, once
+pulled: several hundred thousand rows) costs Arrow time, not Python time, for all but the 4,000 drawn. Not measured
+on a real city's density.
+
+**Real run, to measure the same on TxGIO's files:** dispatch `parcels-layer.yml` with `dry_run: true`, then with
+`counties: 48351,48241,48199,48371`; pull with `PARCELS_COUNTIES=48351,48241,48199,48371` (and the server's `R2_*`
+values) and run `python -m services.site_finder --parcels-only`. Read each county's `outlines` and `owners` counts:
+they say how often the rolls stack accounts and whether a placeholder the screen lacks appears.
+
+### 8.8 Limits and open items
+
+1. **No real TxGIO record has been read** (403 here). Field names are handled as the schema PDF and the live
+   service spell them, with the shapefile's ten-character truncations; a county zip missing `PROP_ID` or the owner
+   column fails with the columns named. The first dispatched build is the validation.
+2. **`PROP_ID` and the esearch record id** are assumed to be the same (§8.4).
+3. **Holdings stop at county lines:** each county is built alone, so one owner's land across a county line is two
+   holdings.
+4. **Assembly is greedy** (a lower bound), and touching means within 30 m in the appraisal roll's outlines, which
+   are not survey grade.
+5. ~~**Go-live wiring**~~ **Done 2026-10-23 (lane parcels-wire), §8.9:** the monthly pull with the server's
+   `R2_*` values, `PARCELS_COUNTIES` (default `all`), the full refresh after it, the api's read-only mount. Open:
+   the API's and the worker's memory with all of Texas, and Harris in particular, are estimates (§8.9), not
+   measurements.
+6. **Cold requests:** the first list after a re-measure or for a new width is 1.6 to 6.0 s here; warm 0.2 to 0.9 s.
+7. **TxGIO's written confirmation** that CC0 covers display to paying subscribers (§7 item 1) and counsel items 1
+   and 2 (§6) before Pro is sold.
+8. **Heuristics to check on the first real build** (fix round): the strip rule (20 acres, 60 m mean width), the
+   overlap noise floor (4 m², 0.1% of the smaller outline), the placeholder and marker lists, and the kinds left out
+   (exempt and utility land; a reader may want public land listed apart rather than dropped). Each is one constant in
+   `pipeline/context/txgio_parcels.py` or `services/site_finder/parcels.py`.
+9. **Harris** (the largest county) is estimated at about 7 GB peak in the build (§8.7); if a 7 GB runner fails it,
+   the failure is reported and a larger runner is the fix.
+
+### 8.9 On the server (go-live wiring, lane parcels-wire, 2026-10-23)
+
+- **When.** `python -m pipeline.context.txgio_parcels pull` is the last of the four pulls in the worker's monthly
+  `context_build` (`infra/scheduler/jobs.py` `CONTEXT_BUILDERS`, the 4th at 02:43 UTC; deploy-beta's `seed` queues
+  the same build). `context_load` and then the full `site_finder_refresh` follow it, so each month's run measures
+  the parcels pulled minutes before; `--parcels-only` stays for a pull made by hand. `parcels-layer.yml` has no
+  schedule: a build a person dispatches mid-month reaches the server at the next `seed` or the next 4th.
+- **What.** The counties `PARCELS_COUNTIES` names: a GitHub Environment variable that `infra/ci/beta.py` renders
+  into the env file, `all` when unset, else Texas county FIPS codes (`48` and three digits, the pull's own rule);
+  the inputs check refuses anything else. Unset on a server whose env file lacks it (staging and production take
+  it from their SOPS file), the pull refuses to run and the build reports one failed builder; the others go on.
+- **Not published.** No `latest.json` in the private bucket (before the first build), or none of the server's
+  counties in it: the pull prints `status: not_published`, exits 0, and leaves what the server held. The build's
+  report lists it under `not_published`, never `failed`. A county file the manifest names but the bucket lacks,
+  a failed sha256 or a refused read is a failure, and `current.json` does not move.
+- **Where.** The pull writes to `services.context_sample.parcels.parcels_dir()`: `PARCELS_DATA_DIR` when set, else
+  `<INFRAQUE_DATA_DIR>/normalized/context/us.tx.txgio.parcels` (`/var/lib/infraque/data/...` in the image), the
+  directory `compute.load_parcels(connector_data_root())` and the API's `default_layer` open. Before this lane it
+  ignored `PARCELS_DATA_DIR`; nothing sets that variable on the beta, so the paths agreed there already. The files
+  come from the private bucket only, with the server's own credentials, and never touch the tiles host.
+- **The API.** On the single host the api container now mounts the worker's `connector_data` volume read-only at
+  the same path (`infra/compose/compose.single.yml`); before, its data directory was the image's empty one, so the
+  parcel outlines (`GET /v1/site-finder/parcels`), a band's flood pieces and `GET /v1/context/sample` had nothing to
+  read on the beta. The three-VM topology shares no volume between VMs and has no such mount.
+- **Disk.** About 115 bytes a parcel (§8.7): about 1.6 GB for the state's ~14 million parcels. The pull keeps the
+  current and the previous version, and a new `latest.json` version is downloaded whole (unchanged counties too),
+  so up to about 3.2 GB on the `connector_data` volume after the first rebuild. `docs/64` sizes no disk.
+- **Memory, estimated (low confidence; not measured on real parcels or a real city).** Measured so far: the full
+  Texas run without parcels peaked at 1.2 GB (`docs/25` §7), and the four synthetic rural counties' re-measure at
+  639 MB (§8.7). The per-chunk parcel read adds, for each chunk of 10 segments, the parcels within about 2 miles
+  of it (a box of about 90 to 150 km²) as Arrow columns (about 220 bytes a parcel measured on the fixtures, more
+  for real outlines with more vertices), then shapely geometries and Python lists (about 1 to 2 KB a parcel,
+  assumed). Rural Texas holds about 27 parcels per km² (Newton's synthetic count), so a few thousand per chunk;
+  central Houston perhaps 1,000 to 2,000 per km², so 0.1 to 0.3 million per chunk and about 0.1 to 0.6 GB on top
+  of the run's 1.2 GB. That stays inside the worker's 3 GB limit, but above the 1.2 GB peak that
+  `SITE_FINDER_MIN_MEMORY_BYTES` (2 GiB) was derived from. The API is the tighter one: its 1 GB container peaked at 606 to 638 MB without parcels
+  (`docs/60` §2). The outlines route (`services/api/site_finder.py::_parcel_features`) therefore never holds a
+  view's outlines: it ranks the view on `parcel_key`, `holding_acres` and the box alone (about 60 to 70 bytes a
+  parcel, so about 70 MB for a million), then reads the outlines of the 4,000 it keeps, `READ_CHUNK_GROUPS` row
+  groups (65,536 parcels) at a time, each chunk filtered before the next (`services/context_sample/parcels.py`;
+  coordinator, 2026-10-23, after the parcels-wire lane estimated that a one-pass read of a 0.5° central-Houston
+  view, 0.5 to 1 million parcels, could pass 1 GB). Estimated peak on top of the api's own: about 0.1 GB at the
+  widest Houston view; unmeasured on real outlines. Check the api's memory (`docker stats`) after the first pull
+  that includes Harris (48201). No limit changed.
+
 ## Assumptions
 
 - The DataHub API at `api.tnris.org` is the catalogue behind `data.geographic.texas.gov`. Evidence: the records'
