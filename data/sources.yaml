@@ -69,6 +69,9 @@ sources:
   auth: none
   format: xlsx
   cadence: weekly
+  # 2026-10-23: asked daily, conditionally (ETag/Last-Modified; the report answered Last-Modified Fri, 23 Oct 2026
+  # 08:03:52 GMT that morning). On the weekly bucket a failed first fetch waited until the next Monday.
+  poll: daily
   license: 'CAISO Terms of Use (rev. 2025-05-14), retrieved 2026-09-12 — "No material or information from this Website ... may be copied, reproduced, republished ... except (i) as authorized in these Terms of Use"; and "may be used by you provided that you keep intact all copyright ... notices and that you credit the California ISO"'
   reuse: attribution
   publication: derived_only
@@ -78,11 +81,21 @@ sources:
   effort: S
   connector: pipeline.vendor.gridstatus.queues.caiso_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, rows: 2278, note: 'connector run: 384,823 bytes, DQ pass; 3 sheets (queued/completed/withdrawn)'}
+  verified: {date: 2026-10-23, result: ok, rows: 2278, note: 'connector run d0834b70 2026-10-23T16:27:07Z from this sandbox (lane national-queues): the URL answers a CloudFront 301 to /documents/publicqueuereport.xlsx, then 200, 384,372 bytes, sha256 8c1d015b...4d4c, ETag "653405f596a92a957b81e9063758146f"; 2,278 rows, DQ pass; robots.txt (User-agent: * / Disallow: /resources/*) allows it. Production (api.inframation.io/v1/sources/us.iso.caiso.gen_queue, read 2026-10-23): implemented, publish_state public, last_success_at null, freshness never: no successful run since the server started (its seed queued the fetch on 2026-10-19 and 2026-10-22). 2026-09-12: 384,823 bytes, DQ pass'}
   notes: >-
     Public Records Act material; render credit "California ISO" on every derived record. API Terms bar using
     the API to monitor CAISO system availability or performance. Publish derived-only until counsel resolves
-    the tension between the two clauses. See docs/13-legal-data-rights.md section 1.2.
+    the tension between the two clauses. See docs/13-legal-data-rights.md section 1.2. Why production has no
+    CAISO rows (2026-10-23): registry, schedule, parser and publication all pass (the same connector fetches,
+    parses and passes DQ here); the fetch fails on the production host only, and the host's error text was
+    not recorded anywhere public. Of the 19 sources the 2026-10-22 seed queued, four have never succeeded:
+    CAISO, NYISO and EPA Class VI, whose hosts (www.caiso.com, www.nyiso.com, www.epa.gov) are served by
+    Amazon CloudFront, and the Permitting Dashboard, whose host's certificate chain also fails verification
+    from this sandbox. TED's API is on CloudFront too and succeeds from the server, so CloudFront as such is
+    not the cause; a WAF rule on those three distributions refusing the server's address is the leading
+    explanation, unproven (moderate-low confidence). The fetch now records the edge's own answer
+    (status, Server, Via, X-Cache, the CDN request id, the first words of the body) in source.last_error and
+    classes a 401/403/451 as `blocked`, so the next run says which it is.
 
 - id: us.iso.ercot.gen_queue
   name: ERCOT GIS Report (Generator Interconnection Status)
@@ -126,7 +139,7 @@ sources:
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-10-07, result: not_published, rows: 0, note: 'Rechecked 2026-10-07 (lane L11): the large-load integration page lists forms, Batch Zero and RFI material and no status report; the September 2026 LLWG meeting page lists no status report; the queue appears only as system-wide charts in PDF decks (e.g. March 2026 TAC report p.3, MW by study status: observed energized, approved to energize, planning studies approved, under ERCOT review, no studies submitted), with no county, zone table or project rows. The EMIL catalogue API (filter-emil-items-search.json) answered HTTP 403 with an Incapsula bot challenge to one GET from this environment, so the catalogue itself was not re-read and the connector''s next run from this host is expected to fail. 2026-09-12: registry id NP3-990-CD does not exist (EMIL answers Product Not Found); no large-load status report in the 5,837-product EMIL catalogue or the 184 public MIS report types; NPRR1267 section 3.2.7 (PUCT-approved 2025-07-31) requires a monthly report but what is published is a PDF slide deck to TAC/LLWG, per-project status going to TSPs only pending the Large Load Portal. Connector watches the EMIL catalogue and emits a change event when the product appears.'}
+  verified: {date: 2026-10-23, result: not_published, rows: 0, note: 'Rechecked 2026-10-23 (lane national-queues): connector run 2730fffd 2026-10-23T16:39:09Z answered 200 with 140 catalogue items for "large load", none a public large-load interconnection status product (the only "Large Load" items are Secure RPG project files, pg3-xxxx-m); the large-load integration page lists Batch Zero forms, attestations and RFI guides (latest 2026-10-14) and no status report or request list. Production ran it ok on 2026-10-22 (last_loaded 2026-10-22T00:24:20Z) with zero rows, which is why us.iso.ercot.large_load_queue has no loaded rows: ERCOT publishes none, and the coverage note ercot_large_load_not_request_level says so. Rechecked 2026-10-07 (lane L11): the large-load integration page lists forms, Batch Zero and RFI material and no status report; the September 2026 LLWG meeting page lists no status report; the queue appears only as system-wide charts in PDF decks (e.g. March 2026 TAC report p.3, MW by study status: observed energized, approved to energize, planning studies approved, under ERCOT review, no studies submitted), with no county, zone table or project rows. The EMIL catalogue API (filter-emil-items-search.json) answered HTTP 403 with an Incapsula bot challenge to one GET from this environment, so the catalogue itself was not re-read and the connector''s next run from this host is expected to fail. 2026-09-12: registry id NP3-990-CD does not exist (EMIL answers Product Not Found); no large-load status report in the 5,837-product EMIL catalogue or the 184 public MIS report types; NPRR1267 section 3.2.7 (PUCT-approved 2025-07-31) requires a monthly report but what is published is a PDF slide deck to TAC/LLWG, per-project status going to TSPs only pending the Large Load Portal. Connector watches the EMIL catalogue and emits a change event when the product appears.'}
   notes: >-
     The single most newsworthy queue in the country right now. Batch Zero process approved by PUCT June 2026.
     Same clause-5 permission as the GIS report; raw-ok. The product id NP3-990-CD recorded here in Phase 0 was
@@ -324,8 +337,10 @@ sources:
   notes: >-
     Commercial use requires written SPP authorisation on the face of the text; "Links to SPP website from
     other websites are permitted and encouraged". Link-out-only until authorisation or a counsel opinion that
-    normalised facts fall outside the clause. Acceptable Use Policy PDF (spp.org/Documents/22819/...) not yet
-    read. See docs/13-legal-data-rights.md section 1.4.
+    normalised facts fall outside the clause. The External Systems Acceptable Use Policy was read on
+    2026-10-22 for us.iso.spp.prices (docs/29 §2.4). Terms and Conditions re-read 2026-10-23 (HTTP 200, lane
+    national-queues): the Copyright clause is word for word the 2026-09-12 text, so SPP rows stay withheld here
+    and from LBNL's Queued Up file alike. See docs/13-legal-data-rights.md section 1.4.
 
 - id: us.iso.nyiso.gen_queue
   name: NYISO Interconnection Queue
@@ -337,6 +352,8 @@ sources:
   auth: none
   format: xlsx
   cadence: weekly
+  # 2026-10-23: asked daily, conditionally (the workbook answered Last-Modified Tue, 13 Oct 2026 18:56:50 GMT).
+  poll: daily
   license: 'NYISO Legal Notice, retrieved 2026-09-12 — only express prohibition is "Downloading, republishing, retransmitting, reproducing, or other use of any image or video on this website as a stand-alone file is strictly prohibited"; otherwise reserves rights; no assent clause; no data-reuse restriction'
   reuse: attribution
   publication: derived_only
@@ -346,10 +363,12 @@ sources:
   effort: S
   connector: pipeline.vendor.gridstatus.queues.nyiso_queue (vendored from gridstatus 0.36.0, 2026-10-07)
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok, rows: 1814, note: 'connector run: 1,814 identified rows (1,350 padding rows with no queue position, name, county or date are dropped); DQ warn: 2 queue positions duplicated in the workbook, suffixed'}
+  verified: {date: 2026-10-23, result: ok, rows: 1839, note: 'connector run d102a212 2026-10-23T16:28:14Z from this sandbox (lane national-queues): CloudFront 200, 482,652 bytes, Last-Modified Tue, 13 Oct 2026 18:56:50 GMT; 1,839 identified rows, DQ warn (repeated queue positions suffixed, as on 2026-09-12); robots.txt allows /documents/. Production (api.inframation.io/v1/sources/us.iso.nyiso.gen_queue, read 2026-10-23): implemented, publish_state public, last_success_at null, freshness never, although its seed queued the fetch on 2026-10-19 and 2026-10-22 (see us.iso.caiso.gen_queue notes). 2026-09-12: 1,814 identified rows (1,350 padding rows with no queue position, name, county or date are dropped)'}
   notes: >-
     Queue xlsx is not an image or video; no clause restricts its reuse. Derived-only at launch with credit
-    "NYISO"; raw-ok candidate after counsel sign-off. See docs/13-legal-data-rights.md section 1.5.
+    "NYISO"; raw-ok candidate after counsel sign-off. See docs/13-legal-data-rights.md section 1.5. Production
+    had no NYISO rows on 2026-10-23 for the reason recorded under us.iso.caiso.gen_queue: the fetch fails on
+    the production host only (www.nyiso.com is served by Amazon CloudFront).
 
 - id: us.iso.isone.gen_queue
   name: ISO-NE Interconnection Request Tracking Tool (IRTT) public report
@@ -372,8 +391,11 @@ sources:
   notes: >-
     Assent-by-use clause plus broad copyright warning; explicit IP-based throttling for excessive bandwidth,
     concurrent requests or invalid URLs. Link-out-only until counsel sign-off or written permission
-    (info@iso-ne.com). Connector rules - serial requests, conditional GET, no 404 retries. See
-    docs/13-legal-data-rights.md section 1.6.
+    (info@iso-ne.com). Connector rules - serial requests, conditional GET, no 404 retries. Legal and Privacy
+    re-read 2026-10-23 at https://www.iso-ne.com/legal-privacy (HTTP 200, lane national-queues): the assent,
+    copyright ("Any duplication of the Content or non-personal use may violate copyright, trademark, and other
+    laws") and throttling clauses are unchanged, so ISO-NE rows stay withheld here and from LBNL's Queued Up
+    file alike. See docs/13-legal-data-rights.md section 1.6.
 
 - id: us.iso.pjm.gen_queue
   name: PJM New Services Queue (Queue Point / Data Miner)
@@ -417,41 +439,89 @@ sources:
   effort: M
   connector: none yet (gridstatus.MISO.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
   probe: {method: GET, url: "https://www.misoenergy.org/api/giqueue/getprojects"}
-  verified: {date: 2026-09-12, result: blocked, note: "403 'Just a moment...' Cloudflare challenge from datacentre IP; worked for gridstatus historically"}
+  verified: {date: 2026-10-23, result: blocked, note: "Lane national-queues, one GET each, not bypassed: robots.txt, the legal page (meet-miso/legal-and-privacy/), the GI interactive queue page and the getprojects API all answered HTTP 403 with cf-mitigated: challenge ('Just a moment...'); WebFetch of the legal page answered 403. The Wayback availability API lists a 200 capture of the legal page at 2026-10-11T11:54:15Z (web.archive.org/web/20261011115415/...) and of the queue page at 2026-10-18T16:28:06Z, but web.archive.org is unreachable from this environment (connection reset by the egress proxy), so neither was read. 2026-09-12: 403 'Just a moment...' Cloudflare challenge from datacentre IP; worked for gridstatus historically"}
   notes: >-
     Terms page not retrievable on 2026-09-12 (Cloudflare managed challenge, HTTP 403; no Wayback snapshot).
     robots.txt retrieved 2026-09-12 declares "Content-Signal: search=yes,ai-train=no,use=reference" as an
     express DSM Art. 4 reservation — never train on MISO content. No MISO row is published in any tier until a
-    human reads the terms in a browser and records them here. Do not attempt challenge bypass. See
+    human reads the terms in a browser and records them here. Do not attempt challenge bypass. 2026-10-23
+    (lane national-queues): still not retrievable; robots.txt itself now answers the challenge, so the
+    2026-09-12 Content-Signal reading cannot be re-checked either. Two blockers stand: the terms are unread,
+    and the queue data (getprojects) sits behind the same managed challenge, so even a permissive reading
+    leaves no automated route that does not pass a challenge. Next steps (docs/13 §1.7, §7 item 2): a person
+    opens the legal page in a browser and saves a PDF (or reads the 2026-10-11 Wayback capture from a network
+    that reaches web.archive.org), and, if the terms allow, MISO is asked for an unchallenged route (an
+    allow-listed address or a file feed). MISO rows from LBNL's Queued Up file stay withheld meanwhile. See
     docs/13-legal-data-rights.md section 1.7.
 
 - id: us.lbnl.queued_up
-  name: LBNL / GridTracker "Queued Up" project-level dataset
+  name: LBNL "Queued Up" project-level interconnection queue data file (non-ISO regions)
   jurisdiction: US
-  category: aggregator
-  operator: Lawrence Berkeley National Laboratory
-  url: https://emp.lbl.gov/queues
+  # 2026-10-23: was `aggregator`. Berkeley Lab is a national laboratory publishing its own compilation under
+  # CC BY 4.0, not a private aggregator; the connector reads only Berkeley Lab's file from Berkeley Lab's host.
+  category: generation_queue
+  operator: Lawrence Berkeley National Laboratory, in collaboration with GridTracker
+  url: https://eta-publications.lbl.gov/publications/queued-2026-edition-characteristics
   access: bulk_file
-  auth: none (page 403 to non-browser clients; direct xlsx link works in browser)
+  auth: none (emp.lbl.gov answers non-browser clients with a Cloudflare block page and is never fetched; the publication page and the file on eta-publications.lbl.gov answer 200)
   format: xlsx
-  cadence: annual (data through 2025 published May–Jun 2026)
-  # release_month: the manifest's own 2026 observation above (data through 2025 published May–Jun 2026); https://emp.lbl.gov/queues answered 403 to the project User-Agent on 2026-09-27, so June, the end of the window, is used
-  release_month: 6
-  license: CC BY 4.0 (attribute LBNL and GridTracker)
-  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1266) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
+  cadence: annual (data through 2025 published May 2026)
+  # Once the hold is lifted, a new edition is noticed within a month of its release: the run is then `blocked`
+  # until a reviewer records the new edition's licence (pipeline/connectors/us_lbnl_queued_up, KNOWN_EDITION).
+  poll: monthly
+  # release_month: https://eta-publications.lbl.gov/publications/queued-2026-edition-characteristics "Date Published 05/2026" (read 2026-10-23); the data file answered Last-Modified Thu, 07 May 2026 18:07:07 GMT
+  release_month: 5
+  license: 'Publication page https://eta-publications.lbl.gov/publications/queued-2026-edition-characteristics, retrieved 2026-10-23 (HTTP 200) — "Copyright Notice: The Queued Up data file is licensed CC BY 4.0. You may use, share, or adapt the dataset as long as you attribute it to Lawrence Berkeley National Laboratory and GridTracker." and "Queued Up Data File. Copyright (c) 2026, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy) & GridTracker. CC BY 4.0. All rights reserved." The file''s Introduction sheet adds the DOE contract notice ("This dataset has been authored by an author at Lawrence Berkeley National Laboratory under Contract No. DE-AC02-05CH11231 with the U.S. Department of Energy ...") and the standard no-warranty disclaimer'
+  # 2026-10-23 review round: held. LBNL's own licence is CC BY 4.0 (the register class, docs/13 §6), but the rows
+  # kept are the non-ISO utilities' OASIS queues, whose terms are unread (us.oasis.non_iso_queues: unknown, none),
+  # and a compiler's licence cannot clear an operator's terms, so the class recorded here is the rows' own:
+  # `unknown`. The registry refuses scheduled runs (a person may run it into the quarantine store with
+  # --allow-restricted), the loader refuses every row, and the coverage page lists it as withheld. Most pending
+  # rows also cannot be matched to EIA-860M's planned units by the resolver (notes). Lifting either is an owner
+  # decision (docs/13 §2.1); `attribution` / `raw_ok` is the ceiling LBNL's licence allows.
   reuse: unknown
   publication: none
+  attribution: "Lawrence Berkeley National Laboratory and GridTracker, Queued Up data file (2026 edition), CC BY 4.0"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Inframation: non-ISO regions only; statuses and technologies mapped to Inframation's vocabulary."
+  notice: "Queued Up Data File. Copyright (c) 2026, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy) & GridTracker."
   tier: 1
   effort: S
+  connector: pipeline/connectors/us_lbnl_queued_up (2026-10-23, lane national-queues)
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: blocked_403_html, note: "site blocks non-browser UA; file itself is public"}
+  verified: {date: 2026-10-23, result: ok, rows: 12401, note: 'Review round (lane national-queues, 2026-10-23), the fixed connector re-run over that run''s stored file (no new fetch): 12,431 rows kept, 30 of TVA''s and Duke Energy Florida''s twice-listed positions collapsed to their located row (12,401 records; Duke Energy Florida''s position 2, listed at 1,701 MW and at 701 MW, stays two suffixed records, DQ warn); 7 developers read as natural persons removed; placeholder developers ("N/A" 863, "Masked" 203, "Third Party" 28) and 2 placeholder project names read as no name. Lifecycle: withdrawn 8,015, studied 1,699, built 1,462, filed 576, contracted 567, under construction 72, unknown 10 (LBNL''s own `unknown`, now unmapped whatever its phase); 2,914 pending requests hold 621.5 GW, 120 of them with a project name and 526 with a developer. Not loaded: held, reuse unknown and publication none (notes). First run: connector run cc9b1dac 2026-10-23T16:55:42Z (lane national-queues): queued-2027-edition-characteristics 404, queued-2026-edition-characteristics 200 with both licence sentences, then sites/default/files/2026-05/lbnl_ix_queue_data_file_thru2025.xlsx 200, 15,571,236 bytes, sha256 794582d3...08b6, ETag "69fcd4cb-ed9924", Last-Modified Thu, 07 May 2026 18:07:07 GMT; 3 requests. Sheet 03. Complete Queue Data 38,201 rows: West 8,097 and Southeast 4,334 kept (12,431); ERCOT 3,757, CAISO 2,868, NYISO 1,936 dropped (read first-hand); PJM 7,666, MISO 5,424, SPP 2,837, ISO-NE 1,282 dropped (withheld). Lifecycle (status map as committed, re-parse 9a1d1006): withdrawn 8,015, studied 1,699, built 1,492, filed 576, contracted 570, under construction 72, unknown 7 (LBNL''s own unknown, unmapped); 2,917 pending requests (filed to under construction) hold 621.5 GW. (That run''s note that nameless rows "list under their queue position" was wrong: the loader names a proposal after its developer first, and 2,790 rows would have been named after a developer string, 1,094 of them after a placeholder now read as no name.)'}
   notes: >-
-    Best backfill and normalisation reference. ~8,200 active projects, 1,312 GW generation + 749 GW storage at
-    end-2025. Includes codebook. Annual cadence only. The CC BY 4.0 claim above is UNVERIFIED as of 2026-09-12
-    (emp.lbl.gov returns 403 behind Cloudflare); the 2024 slide-deck PDF carries only the DOE contract notice
-    ("funded by the U.S. Department of Energy under Contract No. DE-AC02-05CH11231"), no Creative Commons
-    statement. Derived-only with credit "Lawrence Berkeley National Laboratory and GridTracker" until
-    verified. See docs/13-legal-data-rights.md section 2.1.
+    The national queue compilation of the 7 ISOs/RTOs and 50 non-ISO balancing areas (~98 % of US installed
+    capacity), one edition a year. Only its non-ISO rows are kept (LBNL region West or Southeast: TVA, Southern,
+    Duke, FPL, PacifiCorp, BPA, APS, NV Energy, Xcel Colorado and 40 more transmission providers), the queues no
+    other connector reads. ERCOT, CAISO and NYISO rows are dropped because those queues are read first-hand;
+    PJM rows are dropped because PJM rows are not public until a licence exists (CLAUDE.md); MISO, SPP and
+    ISO-NE rows are dropped because their operators' recorded status (unknown, restricted, restricted) withholds
+    them and a compiler's CC BY notice cannot license what the operator's terms withhold. Dropped rows are never
+    stored as records; the snapshot meta counts them. GridTracker, LBNL's collaborator and co-licensor, is the
+    company behind Interconnection.fyi (the file's Introduction sheet names two Interconnection.fyi authors);
+    Interconnection.fyi itself is never fetched (us.gridtracker.interconnection_fyi). Every run (scheduled once
+    the hold is lifted; until then only a person's quarantine run) re-reads the reviewed edition's publication page and is `blocked` if its Notes block (licence statement, copyright line
+    and their links) differs in any way from the one read on 2026-10-23, or if a later edition's page answers:
+    a new edition is published only after a reviewer records its licence here. Held at reuse unknown and
+    publication none (review round, 2026-10-23) for two reasons. (1) Terms: the West and Southeast rows restate the OASIS queues of TVA,
+    Southern, Duke, PacifiCorp, BPA and the other non-ISO transmission providers, recorded here as
+    us.oasis.non_iso_queues with terms unread; the rule applied to MISO's rows (a compiler's CC BY cannot license
+    what the operator's terms withhold) applies to them as well until the owner decides otherwise, for instance
+    on the ground that those postings are required by FERC Order 2003/2023 rather than published under terms of
+    their own. (2) Double counting: 2,794 of the 2,914 pending requests have no project name and 2,388 no
+    developer, so the resolver's evidence against an EIA-860M unit is county, capacity and COD at most (0.35,
+    below MIN_EVIDENCE 0.50) and the pair is never eligible. Measured on the 2026-10-23 EIA-860M frame: of 529
+    planned EIA units in non-ISO balancing areas in these states, 247 have a pending LBNL request in the same
+    county with a compatible technology within 10 % of its MW (861 pairs, 616 of them below the evidence floor);
+    within 5 % there are 62 one-to-one pairs and 51 of them can never match (e.g. EIA "Hammond" storage, Floyd
+    County GA, 57.5 MW and SOCO IC-1267, 57.5 MW, no name or developer). A bridge in the resolver for a nameless
+    queue row with a unique same-county, same-family counterpart within 5 % MW (review-only) is the precondition
+    for publishing pending rows. Not SPP rows: WAPA-IS (273 rows; in the SPP RTO since October 2015, every
+    queue_date on or before 2015) and the April 2026 SPP RTO-West joiners (TSGT 104, WAPA-RM 110, PRPA 62, CSU 8,
+    BHCT 51 rows), whose queues moved into SPP's process after LBNL's end-2025 snapshot; LBNL places all of them
+    in its West region and their rows predate the move, so they are the utilities' own queues, held with the
+    rest. See docs/13-legal-data-rights.md section 2.1.
 
 - id: us.ourgridfuture.transmission_projects
   name: OurGridFuture planned transmission projects database (GIS shapefile)
@@ -614,7 +684,13 @@ sources:
   notes: >
     ~25–30% of US queued capacity lives outside the seven ISOs. No single API. This is where a durable
     data moat could exist because every entry costs labour. Prioritise by queued MW: Duke Energy Carolinas,
-    Southern Company, TVA, PacifiCorp, APS, NV Energy, Xcel Colorado, BPA.
+    Southern Company, TVA, PacifiCorp, APS, NV Energy, Xcel Colorado, BPA. 2026-10-23 (lane national-queues):
+    LBNL's Queued Up file (us.lbnl.queued_up) restates these queues once a year, 12,401 records under 49
+    LBNL transmission-provider codes; it is held (reuse unknown, publication none) while these terms are
+    unread, because a compiler's CC BY cannot license what an operator's own terms withhold (docs/13 §2.1).
+    Reading each
+    utility's OASIS or website terms, largest queue first, clears both rows for that utility; an owner decision
+    that FERC-mandated OASIS postings carry no reuse restriction of their own would clear them together.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C. US FEDERAL REGULATORY & PERMITTING (project-stage signals)
@@ -2768,12 +2844,17 @@ sources:
   auth: none
   format: pdf/xlsx
   cadence: per-batch
-  license: EirGrid terms
-  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1298) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
-  reuse: unknown
+  license: 'EirGrid Legal Statement https://www.eirgrid.ie/legal, retrieved 2026-10-23 (HTTP 200) — "Materials on this website may not be copied, modified, reproduced, republished, uploaded, posted, transmitted, publicly displayed, performed, distributed or used for any public or commercial purposes except as expressly provided for on this website or expressly authorised in writing by EirGrid and strictly on the condition that all content is kept intact and in the same format as on this website."'
+  # 2026-10-23: terms read (docs/13 §2.20); was `unknown`. Public or commercial use needs EirGrid's written authorisation.
+  reuse: restricted
   publication: none
   tier: 3
   effort: M
+  verified: {date: 2026-10-23, result: ok, note: 'Lane national-queues (research only): the Generator Connections page (200) links the batch results as documents, not a register: ECP-GSS-2 results (March-2026-Batch-ECP-GSS-2-Results-Initial Publication.docx), ECP-GSS-1 final batch (Enduring-Connection-Policy-GSS-1-Final-Batch-May-2026.docx), ECP-2.5/2.5.1 results (PDF, May 2025). robots.txt allows all but /api/, /search and preview paths.'}
+  notes: >-
+    Project-level lists of the applicants admitted to each Enduring Connection Policy batch (Ireland's
+    connection queue), published as Word and PDF documents. Restricted on the face of the Legal Statement; a
+    written authorisation from EirGrid is the route (docs/05-international-queues.md).
 
 - id: ca.ieso.connection_status
   name: IESO Connection Assessment application status (Ontario)
@@ -2785,14 +2866,25 @@ sources:
   auth: none
   format: html/xlsx
   cadence: monthly
-  license: IESO terms
-  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1299) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
-  reuse: unknown
-  publication: none
+  license: 'IESO Terms of Use https://www.ieso.ca/en/Terms-of-Use, retrieved 2026-10-23 (HTTP 200) — "Subject to these Terms of Use and provided that the following is included on all reproductions, “Copyright © 2004-2022 Independent Electricity System Operator, all rights reserved. This information is subject to the Terms of Use set out in the IESO’s website (www.ieso.ca)”, you are granted a limited, non-exclusive, non-sublicensable, non-transferrable licence to use and reproduce the Content." and "By using this website, you agree to follow and be bound by the terms and conditions of these Terms of Use."'
+  # 2026-10-23: terms read (docs/13 §2.20); was `unknown`. Nothing built: the row records the ceiling the terms allow.
+  status: pending
+  reuse: attribution
+  publication: derived_only
+  licence_url: "https://www.ieso.ca/en/Terms-of-Use"
+  # The licence is conditional on this line "on all reproductions" (Terms of Use, read 2026-10-23).
+  notice: "Copyright © 2004-2022 Independent Electricity System Operator, all rights reserved. This information is subject to the Terms of Use set out in the IESO’s website (www.ieso.ca)"
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok}
+  verified: {date: 2026-10-23, result: ok, rows: 2085, note: 'Lane national-queues (research only): the Application Status page (200, "Last Updated: October 7, 2026") renders its table from https://www.ieso.ca/-/media/files/IESO/files/applicationstatusdata.json (200, 854,072 bytes, 2,085 connection assessment applications with Applicant, Name, CaaId, Location, Type, Size, ProposedInServiceDate, SiaStatus; Type includes New Generation 321, Load 143, Additional Load 53, Transmission 152). robots.txt disallows only sitecore and upload paths.'}
+  notes: >-
+    Ontario's connection assessment register: every connection proposal (generation, load, transmission)
+    with an executed assessment agreement, from one JSON file. The licence to reproduce is conditional on the
+    IESO's copyright line on every reproduction (`notice`) and is non-sublicensable, so a connector would
+    publish derived fields with that line and offer no redistribution right onward: before it is built, the API
+    and export terms must say that IESO-derived rows carry no sublicence (open item, docs/13 §2.20;
+    docs/05-international-queues.md).
 
 - id: ca.aeso.connection_list
   name: AESO Connection Project List (Alberta) — ArcGIS dashboard
@@ -2804,12 +2896,18 @@ sources:
   auth: none (ArcGIS FeatureServer)
   format: json
   cadence: weekly
-  license: AESO terms
-  # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1300) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
-  reuse: unknown
+  license: 'AESO Legal https://www.aeso.ca/legal/, retrieved 2026-10-23 (HTTP 200) — "All material on this Web site is protected by copyright. The material may be used and copied for non-commercial, personal or educational purposes, provided that the material is not modified and that copyright notices are not deleted. Any other use of this material without the AESO''s written permission is prohibited."'
+  # 2026-10-23: terms read (docs/13 §2.20); was `unknown`. Normalising is modifying, and the grant is non-commercial, personal or educational only.
+  reuse: restricted
   publication: none
   tier: 2
   effort: S
+  verified: {date: 2026-10-23, result: ok, note: 'Lane national-queues (research only): the list is published at https://www.aeso.ca/grid/transmission-projects/connection-project-reporting/ (200, "Project list and Map updated 2026-10-09"), which links the monthly Excel list (/assets/Uploads/project-reporting/October-2026-Project-List.xlsx), a GIS shapefile, a KML and a Power BI dashboard. aeso.ca serves no robots.txt (404).'}
+  notes: >-
+    Alberta's monthly connection project list (in-progress projects with an accepted System Access Service
+    Request, plus recently energised and cancelled ones), project-level. The terms allow unmodified,
+    non-commercial copies only, so nothing is published without the AESO's written permission
+    (docs/05-international-queues.md).
 
 - id: ca.iaac.registry
   name: Canadian Impact Assessment Registry — Assessment Inventory (ArcGIS REST)
@@ -2840,15 +2938,20 @@ sources:
   auth: none (site 403 to non-browser UA)
   format: xlsx/pdf
   cadence: quarterly (scorecard); monthly (Generation Information)
-  license: AEMO terms (attribution, non-modification)
+  license: 'AEMO Copyright Permissions https://www.aemo.com.au/privacy-and-legal-notices/copyright-permissions, as indexed by a search engine on 2026-10-23 (the page itself answered a Cloudflare challenge, not bypassed) — "AEMO confirms its general permission for anyone to use AEMO Material for any purpose, but only with accurate and appropriate attribution of the relevant AEMO Material and AEMO as its author. You do not need to obtain specific permission to use AEMO Material in this way." Earlier record: "AEMO terms (attribution, non-modification)"'
   reuse: attribution
   publication: derived_only
-  licence_url_pending: "terms URL not recorded in docs/13; no connector yet; record it when the terms are read before ingest"
+  licence_url: "https://www.aemo.com.au/privacy-and-legal-notices/copyright-permissions"
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: blocked_403}
-  notes: 64 GW pipeline (Dec 2025). Use "NEM Generation Information" xlsx for project-level data.
+  verified: {date: 2026-10-23, result: blocked_challenge, note: 'Lane national-queues (research only): the Generation Information page and the Copyright Permissions page answered HTTP 403 with a Cloudflare "Just a moment..." challenge, as did WebFetch; not bypassed. robots.txt answered 200. The permission sentence above is the search index''s copy; a person confirms it in a browser before any connector is built.'}
+  notes: >-
+    64 GW pipeline (Dec 2025). Use "NEM Generation Information" xlsx for project-level data (proposed,
+    anticipated and committed generation and storage projects by region; not re-read on 2026-10-23 because
+    the page is challenged). The permission is broad (any purpose, with attribution), but the site answers
+    automated clients with a challenge, so an automated route needs AEMO's agreement first
+    (docs/05-international-queues.md).
 
 - id: au.dcceew.epbc_referrals
   name: Australia EPBC Referrals public dataset (ArcGIS Hub)

@@ -591,23 +591,59 @@ def install(env: Any) -> None:
     formatting.install(env)
 
 
-#: The public site's section names (docs/16 §3.1, U-6): the one place they live, so renaming a section
-#: is a one-line change. `partials/_sections.html` reads them through the `section_labels` Jinja global
-#: (nav, masthead, footer, list headers, record breadcrumbs) and the page routes read them for the
-#: JSON-LD breadcrumbs, so the visible and structured breadcrumbs cannot disagree. They are the
-#: coordinator's recommendation pending the owner's ratification (docs/16 §7 question 1); routes, the
-#: API and the data model keep `proposal`, `opportunity`, `asset` and `interconnection point`.
+#: The public site's section and page names (docs/30 §11.2-§11.3, Navigation v2; decision rows of
+#: 2026-10-22 "The section names stand" and 2026-10-23 "Navigation v2"): the one place they live, so
+#: renaming one is a one-line change. `partials/_sections.html` reads them through the `section_labels`
+#: Jinja global (top bar, section bars, the phone Menu, footer, list headers, record breadcrumbs) and the
+#: page routes read them for the JSON-LD breadcrumbs, so the visible and structured breadcrumbs cannot
+#: disagree. Routes, the API and the data model keep `proposal`, `opportunity`, `asset` and
+#: `interconnection point`; code keys and decision rows keep `prospect`, `originate` and `syndicate`.
 SECTION_LABELS: dict[str, str] = {
+    # The top bar's three sections, in the order a reader moves through them (Find, Build a deal,
+    # Get funded). "Market" is the copy rule's short form for a bar that must fit 360px.
+    "market": "Market",
+    "my_pipeline": "My pipeline",
+    "funding": "Funding",
+    # Market's pages.
     "map": "Map",
     # docs/25 "Site finder" (2026-10-23): land beside high-voltage lines, near a substation and out
-    # of the floodplain; after Map in the primary links.
+    # of the floodplain; after Map in the Market bar.
     "site_finder": "Site finder",
     "projects": "Projects",
     "companies": "Companies",
+    # Becomes "RFPs" in the change that moves grants, loans and programmes to Funding (docs/30 §11.3,
+    # lane V4): until `/funding` exists this list still holds them, so the name says so.
     "rfps": "RFPs & funding",
     "infrastructure": "Infrastructure",
+    "prices": "Prices",
+    "prices_hubs": "Hubs & zones",
+    "prices_states": "State averages",
+    # My pipeline's pages (signed in, `MY_PIPELINE=on`).
+    "tracker": "Tracker",
+    "invitations": "Invitations",
+    # Funding's pages.
+    "funding_grants": "Grants & loans",
+    "funders": "Funders",
+    # Utilities and reference. "About & sources" is the utility link (section bar, Menu, footer);
+    # "About" is the first page of the About bar.
     "alerts": "Alerts",
     "about": "About & sources",
+    "about_page": "About",
+    "about_sources": "Sources & licences",
+    "methodology": "Coverage & methodology",
+    "attribution": "Attribution",
+    "api": "API & feeds",
+    # Infrastructure's two URL tabs.
     "assets": "Plants, pipelines & lines",
     "points": "Grid connection points",
+}
+
+#: Each section bar's title (docs/30 §11.3), drawn at its left end from 1280px. The copy rule
+#: (2026-10-22) puts the long form of Market wherever there is room, which the bar's title has; the
+#: others are their sections' own names.
+SECTION_TITLES: dict[str, str] = {
+    "market": "Market intelligence",
+    "my_pipeline": SECTION_LABELS["my_pipeline"],
+    "funding": SECTION_LABELS["funding"],
+    "about": SECTION_LABELS["about_page"],
 }

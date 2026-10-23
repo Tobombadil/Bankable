@@ -1,0 +1,63 @@
+# us.lbnl.queued_up: LBNL's standardised queue status (`q_status`) and study phase
+# (`IA_phase_clean`) -> lifecycle. Both vocabularies are LBNL's own, from the data file's
+# "04. Data Codebook" sheet (2026 edition, through 2025):
+#   q_status:       active, withdrawn, suspended, operational, and `unknown` (10 rows, all of
+#                   them in the West and Southeast regions this connector keeps)
+#   IA_phase_clean: IA Executed, Withdrawn, System Impact Study, Feasibility Study, Facility Study,
+#                   In Progress (unknown study), Cluster Study, IA Pending, Not Started,
+#                   Construction, Suspended (blank on 7,167 of 38,201 rows)
+# The refine rules read `ia_phase` (IA_phase_clean); first match wins.
+version: 1
+updated: 2026-10-23
+canonical_states: [announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled, unknown]
+sources:
+  lbnl_queued_up:
+    field: Status
+    map:
+      operational: built
+      withdrawn: withdrawn
+      # An active request with no stated phase, or one whose study has not started, is lodged and
+      # nothing more is claimed for it.
+      active: filed
+      # A suspended request is still lodged; without an executed agreement nothing more is claimed.
+      suspended: filed
+      # LBNL's own `unknown` (10 rows) is left unmapped, whatever its study phase: it falls through to
+      # `unknown` with the rule `lbnl_queued_up.unmapped`, which the DQ gate counts (`unknown` is never
+      # a mapping target). Three of them carry the phase "IA Executed" (Xcel Colorado, raw phase "SGIA
+      # signed"); an executed agreement under a status LBNL itself could not read is not evidence
+      # enough to claim `contracted` (2026-10-23 review), so no refine rule reads `unknown`.
+    refine:
+      - id: lbnl_queued_up.active_construction
+        when: {status_raw: active, ia_phase: Construction}
+        then: under_construction
+      - id: lbnl_queued_up.active_ia_executed
+        when: {status_raw: active, ia_phase: IA Executed}
+        then: contracted
+      - id: lbnl_queued_up.suspended_ia_executed
+        when: {status_raw: suspended, ia_phase: IA Executed}
+        then: contracted
+        note: The agreement stands and the build is paused, as SPP's and ISO-NE's suspensions.
+      - id: lbnl_queued_up.active_ia_pending
+        when: {status_raw: active, ia_phase: IA Pending}
+        then: studied
+        note: Studies done, agreement not executed; SPP's IA PENDING is read the same way.
+      - id: lbnl_queued_up.active_cluster_study
+        when: {status_raw: active, ia_phase: Cluster Study}
+        then: studied
+      - id: lbnl_queued_up.active_feasibility_study
+        when: {status_raw: active, ia_phase: Feasibility Study}
+        then: studied
+      - id: lbnl_queued_up.active_system_impact_study
+        when: {status_raw: active, ia_phase: System Impact Study}
+        then: studied
+      - id: lbnl_queued_up.active_facility_study
+        when: {status_raw: active, ia_phase: Facility Study}
+        then: studied
+      - id: lbnl_queued_up.active_study_in_progress
+        when: {status_raw: active, ia_phase: In Progress (unknown study)}
+        then: studied
+    caveats:
+      - >-
+        LBNL imputes "IA Executed" for every operational request (codebook), so an operational row's
+        phase is not evidence of an agreement date; the lifecycle reads `q_status` first.
+      - 5 active requests carry the phase "Suspended"; they stay `filed`, the base for `active`.

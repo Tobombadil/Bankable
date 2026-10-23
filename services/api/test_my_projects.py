@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import logging
 import pathlib
 import re
 import uuid
@@ -48,7 +49,7 @@ from services.db.models import (
 )
 from services.ids import public_id
 from services.posture import publishable_reuse_classes
-from services.projects import authz
+from services.projects import authz, data_room_store
 from services.projects import models as pm
 from tests.conftest import make_account, make_api_key, make_user
 from tests.test_api_contract import assert_valid
@@ -165,7 +166,8 @@ def _depends_on(route: APIRoute, predicate: Callable[[Any], bool]) -> bool:
 
 def test_every_project_route_depends_on_project_access() -> None:
     routes = [route for route in my_projects.router.routes if isinstance(route, APIRoute)]
-    assert len(routes) == 30, "a route was added or removed: document it in api/openapi.yaml"
+    # 30 before the data room (lane data-rooms, 2026-10-23) added 9.
+    assert len(routes) == 39, "a route was added or removed: document it in api/openapi.yaml"
     for route in routes:
         assert my_projects.is_private_path(route.path), route.path
         assert _depends_on(route, lambda call: call is my_projects.private_request_guard), route.path
@@ -1999,3 +2001,512 @@ def test_track_from_a_site_makes_a_project_at_the_site(
         json={"title": "x", "kind": "bid", "from": {"record_type": "site", "public_id": site.public_id}},
     )
     assert refused.status_code == 400
+
+
+# ================================================================================= data rooms
+# docs/19 §3 and "Data rooms, as built" (lane data-rooms, 2026-10-23): the HTTP boundary. The store
+# is a directory under the test's temporary path; the seals use a fixed test key.
+ROOM_KEY = "ZGF0YS1yb29tLWFwaS10ZXN0LWtleS0zMi1ieXRlcyE="  # base64 of 32 test bytes  # gitleaks:allow
+ROOM_PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
+ROOM_SENTINEL = "SENTINELdr9Kq"
+
+
+@pytest.fixture()
+def rooms_on(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> pathlib.Path:
+    root = tmp_path / "room-store"
+    monkeypatch.setenv("DATA_ROOMS", "on")
+    monkeypatch.setenv("DATA_ROOM_STORE", "local")
+    monkeypatch.setenv("DATA_ROOM_LOCAL_DIR", str(root))
+    monkeypatch.setenv("DATA_ROOM_KEY", ROOM_KEY)
+    monkeypatch.delenv("DATA_ROOM_SCANNER", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    return root
+
+
+def _room(tab: TestClient, project: str) -> dict[str, Any]:
+    resp = tab.get(f"/v1/my/projects/{project}/documents")
+    assert resp.status_code == 200, resp.text
+    data: dict[str, Any] = resp.json()["data"]
+    return data
+
+
+def _folder_id(tab: TestClient, project: str, key: str = "permits") -> str:
+    return next(f["folder_id"] for f in _room(tab, project)["folders"] if f["key"] == key)
+
+
+def _upload(
+    tab: TestClient,
+    project: str,
+    folder: str,
+    *,
+    name: str = f"{ROOM_SENTINEL} lease.pdf",
+    data: bytes = ROOM_PDF,
+    **kwargs: Any,
+) -> Any:
+    return tab.post(
+        f"/v1/my/projects/{project}/documents",
+        data={"folder_id": folder},
+        files={"file": (name, data, "application/octet-stream")},
+        **kwargs,
+    )
+
+
+def _objects(root: pathlib.Path) -> list[pathlib.Path]:
+    folder = root / "data-rooms"
+    return sorted(folder.iterdir()) if folder.is_dir() else []
+
+
+#: Headers whose values differ per response; their names are compared, not their values.
+_PER_RESPONSE_HEADERS = frozenset({"date", "content-length", "x-request-id", "server-timing"})
+
+
+def _header_names(resp: Any) -> set[str]:
+    return {name.lower() for name in resp.headers}
+
+
+def _unsent_body(read: list[bool], size: int = 64) -> Iterator[bytes]:
+    """A request body that records whether the server ever asked for it."""
+    read.append(True)
+    yield b"x" * size
+
+
+def test_data_rooms_are_the_unknown_404_until_switched_on(
+    browser: Browser, person: UserFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    missing = tab.get(f"/v1/my/projects/{MISSING_PROJECT}")
+    for path in (
+        f"/v1/my/projects/{project}/documents",
+        f"/v1/my/projects/{project}/documents/log",
+        f"/v1/my/projects/{project}/documents/folders/{uuid.uuid4()}",
+        f"/v1/my/projects/{project}/documents/{uuid.uuid4()}/download",
+    ):
+        resp = tab.get(path)
+        assert resp.status_code == 404, path
+        assert _comparable(resp.json()) == _comparable(missing.json())
+    assert _upload(tab, project, str(uuid.uuid4())).status_code == 404
+
+    # Off, the upload route's length check says nothing either (review of 2026-10-23, finding 2): a
+    # body longer than any file may be, and a body that gives no length, meet the same 404, with the
+    # same headers, as a POST to an unknown project, and no byte of either body is read. Before the
+    # fix both were a 400 naming the upload ("larger than any file may be", "must give its
+    # Content-Length"), with `connection: close`, MY_PIPELINE off or on.
+    path = f"/v1/my/projects/{project}/documents"
+    form = {"Content-Type": "multipart/form-data; boundary=b"}
+    for pipeline in ("on", "off"):
+        monkeypatch.setenv("MY_PIPELINE", pipeline)
+        unknown = tab.post(f"/v1/my/projects/{MISSING_PROJECT}/documents", content=b"x", headers=form)
+        assert unknown.status_code == 404, pipeline
+        read: list[bool] = []
+        oversize = tab.post(path, content=_unsent_body(read), headers={**form, "Content-Length": "60000000"})
+        chunked = tab.post(path, content=_unsent_body(read), headers=form)
+        assert "content-length" not in {k.lower() for k in chunked.request.headers}
+        for resp in (oversize, chunked):
+            assert resp.status_code == 404, (pipeline, resp.text)
+            assert _comparable(resp.json()) == _comparable(unknown.json()) == _comparable(missing.json())
+            assert (
+                _header_names(resp) - _PER_RESPONSE_HEADERS == _header_names(unknown) - _PER_RESPONSE_HEADERS
+            )
+            assert resp.headers.get("connection") != "close"
+        assert read == [], "an upload's body is read only while the data room is on"
+
+
+def test_a_data_room_upload_and_download_round_trip(
+    browser: Browser, person: UserFactory, spec: dict[str, Any], rooms_on: pathlib.Path
+) -> None:
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    room = tab.get(f"/v1/my/projects/{project}/documents").json()
+    assert_valid(spec, "MyDataRoomResponse", room)
+    assert [f["key"] for f in room["data"]["folders"]] == list(pm.DATA_ROOM_FOLDER_KEYS)
+    assert (
+        room["data"]["can_upload"]
+        and room["data"]["can_audit"]
+        and room["data"]["scanning"]["scanner"] is None
+    )
+    assert "not scanned" in room["data"]["scanning"]["text"]
+    folder = _folder_id(tab, project)
+
+    created = _upload(tab, project, folder)
+    assert created.status_code == 201, created.text
+    assert_valid(spec, "MyDocumentResponse", created.json())
+    document = created.json()["data"]
+    assert (document["file_name"], document["type"], document["size_bytes"]) == (
+        f"{ROOM_SENTINEL} lease.pdf",
+        "pdf",
+        len(ROOM_PDF),
+    )
+    (stored,) = _objects(rooms_on)
+    assert ROOM_PDF not in stored.read_bytes() and ROOM_SENTINEL not in stored.name
+
+    listing = tab.get(f"/v1/my/projects/{project}/documents/folders/{folder}")
+    assert listing.status_code == 200
+    assert_valid(spec, "MyFolderListResponse", listing.json())
+    assert [d["document_id"] for d in listing.json()["data"]["documents"]] == [document["document_id"]]
+
+    download = tab.get(document["download"])
+    assert download.status_code == 200 and download.content == ROOM_PDF
+    headers = download.headers
+    assert headers["content-type"] == "application/pdf"
+    assert headers["content-disposition"] == "attachment"
+    assert headers["x-content-type-options"] == "nosniff"
+    assert headers["content-security-policy"].startswith("sandbox")
+    assert headers["cache-control"] == "private, no-store"
+    assert headers["x-robots-tag"] == "noindex, nofollow" and headers["referrer-policy"] == "no-referrer"
+    assert all(ROOM_SENTINEL not in value for value in headers.values()), "no header names the file"
+
+    log = tab.get(f"/v1/my/projects/{project}/documents/log")
+    assert_valid(spec, "MyDataRoomLogResponse", log.json())
+    assert [line["action"] for line in log.json()["data"]] == ["downloaded", "viewed", "uploaded"]
+
+    assert tab.delete(f"/v1/my/projects/{project}/documents/{document['document_id']}").status_code == 204
+    assert _objects(rooms_on) == []
+    assert tab.get(document["download"]).status_code == 404
+
+
+def test_a_markup_file_never_runs_in_the_sites_origin(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path
+) -> None:
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    folder = _folder_id(tab, project, "other")
+    for name, data in (
+        ("page.html", b"<html><script>alert(1)</script></html>"),
+        ("page.txt", b"<html><script>alert(1)</script></html>"),
+        ("logo.svg", b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"),
+        ("setup.exe", b"MZ" + b"\x00" * 64),
+        ("bundle.zip", b"PK\x03\x04" + b"\x00" * 64),
+    ):
+        resp = _upload(tab, project, folder, name=name, data=data)
+        assert resp.status_code == 400, name
+        assert resp.json()["title"] == "File not accepted"
+    # Text with markup inside is stored as text and served as a sandboxed attachment.
+    csv = _upload(tab, project, folder, name="cells.csv", data=b"a,b\n1,<script>alert(1)</script>\n")
+    assert csv.status_code == 201
+    served = tab.get(csv.json()["data"]["download"])
+    assert served.headers["content-type"].startswith("text/csv")
+    assert served.headers["content-disposition"] == "attachment"
+    assert "sandbox" in served.headers["content-security-policy"]
+    refused = tab.get(f"/v1/my/projects/{project}/documents/log").json()["data"]
+    assert sum(1 for line in refused if line["action"] == "upload_refused") == 5
+
+
+def test_data_room_outsiders_get_the_404_and_roles_their_403(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path
+) -> None:
+    owner, viewer, outsider = person(), person("viewer@example.org"), person()
+    owner_tab, viewer_tab, outsider_tab = browser(owner), browser(viewer), browser(outsider)
+    project = _create(owner_tab)["public_id"]
+    _invite_and_join(owner_tab, project, viewer_tab, "viewer@example.org", "viewer")
+    folder = _folder_id(owner_tab, project)
+    document = _upload(owner_tab, project, folder).json()["data"]
+    base = f"/v1/my/projects/{project}/documents"
+    missing_base = f"/v1/my/projects/{MISSING_PROJECT}/documents"
+    for suffix in ("", "/log", f"/folders/{folder}", f"/{document['document_id']}/download"):
+        real, missing = outsider_tab.get(base + suffix), outsider_tab.get(missing_base + suffix)
+        assert real.status_code == missing.status_code == 404, suffix
+        assert _comparable(real.json()) == _comparable(missing.json())
+    assert _upload(outsider_tab, project, folder).status_code == 404
+    assert outsider_tab.delete(f"{base}/{document['document_id']}").status_code == 404
+    assert outsider_tab.post(f"{base}/folders", json={"name": "x"}).status_code == 404
+    # A viewer reads and downloads; uploading, deleting and the log are the roles above them.
+    assert viewer_tab.get(document["download"]).content == ROOM_PDF
+    assert not viewer_tab.get(base).json()["data"]["can_upload"]
+    for resp in (
+        _upload(viewer_tab, project, folder),
+        viewer_tab.delete(f"{base}/{document['document_id']}"),
+        viewer_tab.get(f"{base}/log"),
+        viewer_tab.post(f"{base}/folders", json={"name": "Mine"}),
+    ):
+        assert resp.status_code == 403 and resp.json()["code"] == "forbidden_role", resp.text
+    # A file id from another item is the same 404, even to that item's own owner.
+    other = _create(owner_tab, title="Other item")["public_id"]
+    assert (
+        owner_tab.get(f"/v1/my/projects/{other}/documents/{document['document_id']}/download").status_code
+        == 404
+    )
+
+
+def test_data_room_writes_need_the_site_and_the_right_body(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path
+) -> None:
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    folder = _folder_id(tab, project)
+    path = f"/v1/my/projects/{project}/documents"
+    del tab.headers["Origin"]
+    assert _upload(tab, project, folder).status_code == 400
+    assert _upload(tab, project, folder, headers={"Origin": "https://evil.example"}).status_code == 400
+    tab.headers["Origin"] = ORIGIN
+    # JSON is not an upload; a form is not a folder change.
+    assert tab.post(path, json={"folder_id": folder}).status_code == 400
+    form = tab.post(f"{path}/folders", files={"file": ("a.pdf", ROOM_PDF)}, data={"name": "x"})
+    assert form.status_code == 400
+    # An upload must say how long it is, and no longer than any file may be.
+    too_long = tab.post(
+        path,
+        content=b"x",
+        headers={"Content-Type": "multipart/form-data; boundary=b", "Content-Length": "60000000"},
+    )
+    assert too_long.status_code == 400 and too_long.headers["cache-control"] == "private, no-store"
+    unknown_field = tab.post(
+        path, data={"folder_id": folder, "owner": "me"}, files={"file": ("a.pdf", ROOM_PDF)}
+    )
+    assert unknown_field.status_code == 400
+    no_file = tab.post(path, data={"folder_id": folder}, files={"other": ("a.pdf", ROOM_PDF)})
+    assert no_file.status_code == 400
+    cross_site = tab.get(f"{path}/{uuid.uuid4()}/download", headers={"Sec-Fetch-Site": "cross-site"})
+    assert cross_site.status_code in (400, 404)
+    document = _upload(tab, project, folder).json()["data"]
+    refused = tab.get(document["download"], headers={"Sec-Fetch-Site": "cross-site"})
+    assert refused.status_code == 400
+
+
+def test_an_office_file_with_hidden_macros_is_refused_through_the_api(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path
+) -> None:
+    """The third file of the 2026-10-23 review: before the fix this upload was a 201, stored as
+    `x.docm.docx`. Now it is a 400 that says why, nothing is stored, and the owner's log says so."""
+    from services.projects.data_room_files import REFUSAL_TEXT
+    from services.projects.test_data_room_files import macros_by_character_reference
+
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    resp = _upload(
+        tab, project, _folder_id(tab, project), name="x.docm", data=macros_by_character_reference()
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == REFUSAL_TEXT["macros"]
+    assert _objects(rooms_on) == [] and _room(tab, project)["documents"] == 0
+    (line,) = [
+        row for row in tab.get(f"/v1/my/projects/{project}/documents/log").json()["data"] if row["reason"]
+    ]
+    assert (line["action"], line["reason"]) == ("upload_refused", "macros")
+
+
+def test_an_upload_over_the_configured_cap_is_refused_before_its_body_is_read(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bound is the configured cap plus the form (`upload_body_limit`), not the 50 MiB ceiling:
+    with `DATA_ROOM_MAX_FILE_MB=1`, a 2 MiB body is refused unread (it was read before the fix)."""
+    monkeypatch.setenv("DATA_ROOM_MAX_FILE_MB", "1")
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    limit = 1024 * 1024 + data_room_store.UPLOAD_FORM_OVERHEAD
+    assert my_projects.upload_body_limit() == limit
+    read: list[bool] = []
+    resp = tab.post(
+        f"/v1/my/projects/{project}/documents",
+        content=_unsent_body(read),
+        headers={"Content-Type": "multipart/form-data; boundary=b", "Content-Length": str(limit + 1)},
+    )
+    assert resp.status_code == 400 and resp.json()["errors"][0]["field"] == "Content-Length"
+    assert resp.json()["detail"] == "The file is larger than the limit for one file."
+    assert read == []
+
+
+def test_one_upload_at_a_time_per_user_and_the_slot_is_taken_before_the_body(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second upload while the user's first is in progress is a 429, and an upload that finds every
+    transfer slot taken is a 503 once the wait runs out: both before a byte of the body is read, so
+    parallel uploads from one account cannot fill the API's memory (review of 2026-10-23)."""
+    user = person()
+    tab = browser(user)
+    project = _create(tab)["public_id"]
+    path = f"/v1/my/projects/{project}/documents"
+    headers = {"Content-Type": "multipart/form-data; boundary=b", "Content-Length": "64"}
+    read: list[bool] = []
+    with data_room_store.user_upload(str(user.id)):
+        busy_user = tab.post(path, content=_unsent_body(read), headers=headers)
+    assert busy_user.status_code == 429 and busy_user.json()["code"] == "rate_limited"
+    assert busy_user.headers["retry-after"] == "5"
+    monkeypatch.setenv("DATA_ROOM_TRANSFERS", "1")
+    monkeypatch.setattr(data_room_store, "TRANSFER_WAIT_SECONDS", 0.2)
+    with data_room_store.transfer_slot():
+        busy_room = tab.post(path, content=_unsent_body(read), headers=headers)
+    assert busy_room.status_code == 503 and busy_room.headers["retry-after"] == "5"
+    assert read == []
+    # Released, the next upload goes through.
+    assert _upload(tab, project, _folder_id(tab, project)).status_code == 201
+
+
+def test_deleting_files_and_folders_is_rate_limited(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(my_projects, "FILE_DELETES_PER_HOUR", 1)
+    monkeypatch.setattr(my_projects, "FOLDER_CHANGES_PER_HOUR", 1)
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    base = f"/v1/my/projects/{project}/documents"
+    folder = _folder_id(tab, project)
+    first, second = (_upload(tab, project, folder).json()["data"]["document_id"] for _ in range(2))
+    assert tab.delete(f"{base}/{first}").status_code == 204
+    limited = tab.delete(f"{base}/{second}")
+    assert limited.status_code == 429 and limited.json()["code"] == "rate_limited"
+    added = tab.post(f"{base}/folders", json={"name": "Drone survey"}).json()["data"]["folder_id"]
+    assert tab.delete(f"{base}/folders/{added}").status_code == 429
+
+
+def test_folders_through_the_api(
+    browser: Browser, person: UserFactory, spec: dict[str, Any], rooms_on: pathlib.Path
+) -> None:
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    base = f"/v1/my/projects/{project}/documents/folders"
+    created = tab.post(base, json={"name": "Site photos"})
+    assert created.status_code == 201
+    assert_valid(spec, "MyFolderResponse", created.json())
+    folder = created.json()["data"]["folder_id"]
+    renamed = tab.patch(f"{base}/{folder}", json={"name": "Drone survey"})
+    assert renamed.status_code == 200 and renamed.json()["data"]["name"] == "Drone survey"
+    assert tab.patch(f"{base}/{_folder_id(tab, project)}", json={"name": "Mine"}).status_code == 400
+    assert tab.post(base, json={"name": "x", "project_id": project}).status_code == 400
+    _upload(tab, project, folder)
+    assert tab.delete(f"{base}/{folder}").status_code == 204
+    assert _objects(rooms_on) == []
+    assert tab.delete(f"{base}/{_folder_id(tab, project)}").status_code == 400
+
+
+def test_deleting_an_item_or_an_account_removes_its_files(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path
+) -> None:
+    owner = person()
+    tab = browser(owner)
+    first, second = _create(tab)["public_id"], _create(tab, title="Second")["public_id"]
+    _upload(tab, first, _folder_id(tab, first))
+    _upload(tab, second, _folder_id(tab, second))
+    assert len(_objects(rooms_on)) == 2
+    assert tab.delete(f"/v1/my/projects/{first}").status_code == 204
+    assert len(_objects(rooms_on)) == 1
+    from services.billing.fake import InMemoryBilling
+    from services.crm.fake import InMemoryCrm
+    from services.sor.wiring import get_billing_port, get_crm_port
+
+    app.dependency_overrides[get_crm_port] = InMemoryCrm
+    app.dependency_overrides[get_billing_port] = InMemoryBilling
+    try:
+        gone = tab.request("DELETE", "/v1/me", json={"password": "correct horse battery staple"})
+    finally:
+        app.dependency_overrides.pop(get_crm_port, None)
+        app.dependency_overrides.pop(get_billing_port, None)
+    assert gone.status_code in (200, 204), gone.text
+    assert _objects(rooms_on) == []
+
+
+def test_files_names_and_contents_never_reach_a_log(
+    browser: Browser,
+    person: UserFactory,
+    rooms_on: pathlib.Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = f"%PDF-1.7\n({ROOM_SENTINEL} contents)\n%%EOF\n".encode()
+    owner_tab = browser(person())
+    error_tab = browser(person(), raise_errors=False)
+    project = _create(owner_tab)["public_id"]
+    folder = _folder_id(owner_tab, project)
+    with caplog.at_level(logging.DEBUG):
+        document = _upload(owner_tab, project, folder, data=content).json()["data"]
+        owner_tab.get(document["download"])
+        owner_tab.get(f"/v1/my/projects/{project}/documents/folders/{folder}")
+        _upload(owner_tab, project, folder, name=f"{ROOM_SENTINEL}.exe", data=b"MZ" + b"\x00" * 64)
+        owner_tab.delete(f"/v1/my/projects/{project}/documents/{document['document_id']}")
+        # An unexpected failure mid-upload: a 500, and still nothing about the file in any log line.
+        other = _create(error_tab, title="Other")["public_id"]
+        other_folder = _folder_id(error_tab, other)
+
+        def broken(*args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("store exploded")
+
+        monkeypatch.setattr(data_room_store.LocalObjectStore, "put", broken)
+        failed = _upload(error_tab, other, other_folder, data=content)
+        assert failed.status_code == 500
+    for record in caplog.records:
+        text = " ".join([record.getMessage(), repr(record.__dict__)])
+        assert ROOM_SENTINEL not in text, record.name
+    # An error report for the same request keeps nothing of the body (infra/observability.py).
+    from infra.observability import before_send
+
+    event = before_send(
+        {
+            "request": {
+                "method": "POST",
+                "url": f"https://inframation.io/v1/my/projects/{other}/documents",
+                "data": f'Content-Disposition: form-data; name="file"; filename="{ROOM_SENTINEL}.pdf"',
+                "headers": {"Content-Type": "multipart/form-data; boundary=x"},
+            },
+            "exception": {"values": [{"type": "RuntimeError", "value": f"failed on {ROOM_SENTINEL}"}]},
+        }
+    )
+    assert event is not None and ROOM_SENTINEL not in json.dumps(event)
+
+
+def test_a_public_answer_is_byte_identical_whether_or_not_a_data_room_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    browser: Browser,
+    person: UserFactory,
+    world: dict[str, Any],
+    rooms_on: pathlib.Path,
+) -> None:
+    """Nothing from a data room reaches a public answer (CLAUDE.md guardrail): the record's API
+    responses, anonymous and signed in, are byte-identical before and after an item tracking it gets
+    a data room with a file in it."""
+    monkeypatch.setattr("services.api.serialize.utcnow", lambda: dt.datetime(2026, 10, 23, 12, 0, tzinfo=UTC))
+    monkeypatch.setattr("services.api.request_context.new_request_id", lambda: "req_fixed0000")
+    reader = browser(person())
+    proposal = world["proposal"].public_id
+    paths = (
+        f"/v1/proposals/{proposal}",
+        f"/v1/proposals/{proposal}/events",
+        "/v1/proposals",
+        "/v1/opportunities",
+    )
+
+    def snapshot() -> list[bytes]:
+        out = []
+        for path in paths:
+            for caller in (client, reader):
+                resp = caller.get(path)
+                assert resp.status_code == 200, (path, resp.text)
+                out.append(resp.content)
+        return out
+
+    before = snapshot()
+    tab = browser(person())
+    item = _create(
+        tab, title=f"{ROOM_SENTINEL} item", **{"from": {"record_type": "proposal", "public_id": proposal}}
+    )
+    assert _upload(tab, item["public_id"], _folder_id(tab, item["public_id"])).status_code == 201
+    after = snapshot()
+    assert after == before
+    assert all(ROOM_SENTINEL.encode() not in body for body in after)
+
+
+def test_an_upload_with_an_idempotency_key_is_stored_once_and_never_replayed(
+    browser: Browser, person: UserFactory, db: Session, rooms_on: pathlib.Path
+) -> None:
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    folder = _folder_id(tab, project)
+    first = _upload(tab, project, folder, headers={"Idempotency-Key": "upload-key-0001"})
+    assert first.status_code == 201, first.text
+    assert db.scalar(select(func.count()).select_from(IdempotencyRecord)) == 0
+
+
+def test_a_configured_scanner_that_does_not_answer_stores_nothing(
+    browser: Browser, person: UserFactory, rooms_on: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tab = browser(person())
+    project = _create(tab)["public_id"]
+    folder = _folder_id(tab, project)
+    monkeypatch.setenv("DATA_ROOM_SCANNER", "clamd")
+    monkeypatch.setenv("CLAMD_ADDRESS", "127.0.0.1:9")
+    room = _room(tab, project)
+    assert room["scanning"]["scanner"] == "clamd" and "ClamAV" in room["scanning"]["text"]
+    resp = _upload(tab, project, folder)
+    assert resp.status_code == 503 and resp.json()["code"] == "unavailable"
+    assert _objects(rooms_on) == []
+    assert _room(tab, project)["documents"] == 0

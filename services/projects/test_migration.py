@@ -374,7 +374,8 @@ def test_0040_down_and_up_on_postgres(pg_engine: sa.Engine) -> None:
     model_columns = {
         (t.name, c.name) for t in Base.metadata.sorted_tables if t.name in TABLES for c in t.columns
     }
-    assert set(types) == model_columns
+    # The data-room tables (0043) share the `private_project` prefix; this test owns 0040's tables.
+    assert {key for key in types if key[0] in TABLES} == model_columns
     checks = {c["name"] for c in inspector.get_check_constraints("private_project_item")}
     assert "ck_private_project_item_status_vocab" in checks
     fks = {

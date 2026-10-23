@@ -1,0 +1,793 @@
+{
+ "activity_rule": "A change event counts on the UTC day its source showed it (observed_at, the fetch that saw it) when the public tier serves it (event_visibility_filter: the subject is public, the source and licence are publishable, never removed_from_source) and it came from a source run that compared against a snapshot this store already held: not a source's first run here (first_load: the source's earliest run that promoted output, a seed or a first fetch, whose rows are all new to the store), not an operator's backfill (backfill), not a run released from a data-quality hold (released_hold: the row-drift and churn gates hold re-keys and scope changes), and not an event no source run wrote (no_source_run: matches, merges and edits are not changes at a source).",
+ "as_of": "2026-10-23",
+ "attribution_line": "Sources: Register gb.test.register; Register us.test.queue.",
+ "bucket_filters": {
+  "by_country": null,
+  "by_iso": "iso",
+  "by_kind": "kind",
+  "by_lifecycle_state": "lifecycle_state",
+  "by_state": "jurisdiction",
+  "by_technology": "technology"
+ },
+ "convention": "State as the public tier served it at generated_at on as_of; activity over the previous UTC day (activity.window).",
+ "generated_at": "2026-10-23T20:04:05.401384Z",
+ "kind": "inframation.trends.daily",
+ "metrics": {
+  "activity": {
+   "counted": {
+    "by_event_type": {
+     "capacity_changed": 1,
+     "created": 1,
+     "status_change": 1,
+     "withdrawn": 1
+    },
+    "by_subject_type": {
+     "opportunity": {
+      "by_event_type": {
+       "created": 1
+      },
+      "events": 1
+     },
+     "proposal": {
+      "by_event_type": {
+       "capacity_changed": 1,
+       "status_change": 1,
+       "withdrawn": 1
+      },
+      "events": 3
+     }
+    },
+    "events": 4
+   },
+   "left_out": {
+    "backfill": 1,
+    "first_load": 2,
+    "no_source_run": 1,
+    "released_hold": 1
+   },
+   "rule": "genuine-change-v1",
+   "visible_events": 9,
+   "window": {
+    "from": "2026-10-22T00:00:00Z",
+    "to_exclusive": "2026-10-23T00:00:00Z"
+   }
+  },
+  "opportunities": {
+   "announced": {
+    "all": {
+     "by_country": {
+      "US": 1
+     },
+     "by_kind": {
+      "rfp": 1
+     },
+     "records": 1
+    },
+    "energy": {
+     "by_country": {
+      "US": 1
+     },
+     "by_kind": {
+      "rfp": 1
+     },
+     "records": 1
+    }
+   },
+   "open": {
+    "all": {
+     "by_country": {
+      "GB": 1,
+      "US": 2
+     },
+     "by_kind": {
+      "grant": 1,
+      "rfp": 2
+     },
+     "records": 3
+    },
+    "energy": {
+     "by_country": {
+      "GB": 1,
+      "US": 1
+     },
+     "by_kind": {
+      "grant": 1,
+      "rfp": 1
+     },
+     "records": 2
+    }
+   },
+   "visible": {
+    "records": 5
+   }
+  },
+  "proposals": {
+   "active": {
+    "by_country": {
+     "GB": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "US": {
+      "capacity_mw": 550.0,
+      "capacity_records": 5,
+      "demand_mw": 300.0,
+      "demand_records": 1,
+      "mw_missing": 1,
+      "not_summed_records": 1,
+      "records": 8,
+      "storage_mwh": 400.0,
+      "storage_mwh_records": 1
+     },
+     "other": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_iso": {
+     "ERCOT": {
+      "capacity_mw": 350.0,
+      "capacity_records": 3,
+      "demand_mw": 300.0,
+      "demand_records": 1,
+      "mw_missing": 0,
+      "not_summed_records": 1,
+      "records": 5,
+      "storage_mwh": 400.0,
+      "storage_mwh_records": 1
+     },
+     "MISO": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "SPP": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "_unstated": {
+      "capacity_mw": 200.0,
+      "capacity_records": 2,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 1,
+      "not_summed_records": 0,
+      "records": 3,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_kind": {
+     "generation": {
+      "capacity_mw": 650.0,
+      "capacity_records": 6,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 1,
+      "not_summed_records": 0,
+      "records": 7,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "load": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": 300.0,
+      "demand_records": 1,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "storage": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": 400.0,
+      "storage_mwh_records": 1
+     },
+     "transmission": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 1,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_lifecycle_state": {
+     "announced": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": 300.0,
+      "demand_records": 1,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "contracted": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 1,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "filed": {
+      "capacity_mw": 550.0,
+      "capacity_records": 5,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 5,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "permitted": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "studied": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": 400.0,
+      "storage_mwh_records": 1
+     },
+     "under_construction": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 1,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_state": {
+     "US-OK": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "US-TX": {
+      "capacity_mw": 350.0,
+      "capacity_records": 3,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 1,
+      "not_summed_records": 1,
+      "records": 5,
+      "storage_mwh": 400.0,
+      "storage_mwh_records": 1
+     },
+     "US-VA": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": 300.0,
+      "demand_records": 1,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "_unstated": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_technology": {
+     "_unstated": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 1,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "bess_li_ion": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": 400.0,
+      "storage_mwh_records": 1
+     },
+     "load": {
+      "capacity_mw": null,
+      "capacity_records": 0,
+      "demand_mw": 300.0,
+      "demand_records": 1,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "solar": {
+      "capacity_mw": 450.0,
+      "capacity_records": 4,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 1,
+      "not_summed_records": 0,
+      "records": 5,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "wind": {
+      "capacity_mw": 200.0,
+      "capacity_records": 2,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 2,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "total": {
+     "capacity_mw": 750.0,
+     "capacity_records": 7,
+     "demand_mw": 300.0,
+     "demand_records": 1,
+     "mw_missing": 1,
+     "not_summed_records": 1,
+     "records": 10,
+     "storage_mwh": 400.0,
+     "storage_mwh_records": 1
+    }
+   },
+   "active_not_listed": {
+    "by_country": {
+     "US": {
+      "capacity_mw": 50.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_iso": {
+     "ERCOT": {
+      "capacity_mw": 50.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_kind": {
+     "generation": {
+      "capacity_mw": 50.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "total": {
+     "capacity_mw": 50.0,
+     "capacity_records": 1,
+     "demand_mw": null,
+     "demand_records": 0,
+     "mw_missing": 0,
+     "not_summed_records": 0,
+     "records": 1,
+     "storage_mwh": null,
+     "storage_mwh_records": 0
+    }
+   },
+   "built": {
+    "by_country": {
+     "US": {
+      "capacity_mw": 80.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_iso": {
+     "ERCOT": {
+      "capacity_mw": 80.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_kind": {
+     "generation": {
+      "capacity_mw": 80.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_technology": {
+     "solar": {
+      "capacity_mw": 80.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "total": {
+     "capacity_mw": 80.0,
+     "capacity_records": 1,
+     "demand_mw": null,
+     "demand_records": 0,
+     "mw_missing": 0,
+     "not_summed_records": 0,
+     "records": 1,
+     "storage_mwh": null,
+     "storage_mwh_records": 0
+    }
+   },
+   "unknown": {
+    "by_country": {
+     "US": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_kind": {
+     "generation": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "total": {
+     "capacity_mw": 100.0,
+     "capacity_records": 1,
+     "demand_mw": null,
+     "demand_records": 0,
+     "mw_missing": 0,
+     "not_summed_records": 0,
+     "records": 1,
+     "storage_mwh": null,
+     "storage_mwh_records": 0
+    }
+   },
+   "visible": {
+    "by_country": {
+     "GB": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "US": {
+      "capacity_mw": 980.0,
+      "capacity_records": 10,
+      "demand_mw": 300.0,
+      "demand_records": 1,
+      "mw_missing": 1,
+      "not_summed_records": 1,
+      "records": 13,
+      "storage_mwh": 400.0,
+      "storage_mwh_records": 1
+     },
+     "other": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "total": {
+     "capacity_mw": 1180.0,
+     "capacity_records": 12,
+     "demand_mw": 300.0,
+     "demand_records": 1,
+     "mw_missing": 1,
+     "not_summed_records": 1,
+     "records": 15,
+     "storage_mwh": 400.0,
+     "storage_mwh_records": 1
+    }
+   },
+   "withdrawn": {
+    "by_country": {
+     "US": {
+      "capacity_mw": 200.0,
+      "capacity_records": 2,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 2,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_iso": {
+     "CAISO": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "ERCOT": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_kind": {
+     "generation": {
+      "capacity_mw": 200.0,
+      "capacity_records": 2,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 2,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_lifecycle_state": {
+     "cancelled": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "withdrawn": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "by_technology": {
+     "solar": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     },
+     "wind": {
+      "capacity_mw": 100.0,
+      "capacity_records": 1,
+      "demand_mw": null,
+      "demand_records": 0,
+      "mw_missing": 0,
+      "not_summed_records": 0,
+      "records": 1,
+      "storage_mwh": null,
+      "storage_mwh_records": 0
+     }
+    },
+    "total": {
+     "capacity_mw": 200.0,
+     "capacity_records": 2,
+     "demand_mw": null,
+     "demand_records": 0,
+     "mw_missing": 0,
+     "not_summed_records": 0,
+     "records": 2,
+     "storage_mwh": null,
+     "storage_mwh_records": 0
+    }
+   }
+  }
+ },
+ "queries": {
+  "activity.visible_events": "/v1/events?observed_at[from]=2026-10-22T00:00:00Z&observed_at[to]=2026-10-22T23:59:59.999999Z",
+  "opportunities.announced.all": "/v1/opportunities?status=announced",
+  "opportunities.announced.energy": "/v1/opportunities?status=announced&relevance=energy",
+  "opportunities.open.all": "/v1/opportunities?status=open",
+  "opportunities.open.energy": "/v1/opportunities?status=open&relevance=energy",
+  "opportunities.visible": "/v1/opportunities?status=unknown,announced,open,frozen,reinstated,closed,cancelled,awarded",
+  "proposals.active": "/v1/proposals?lifecycle_state=announced,filed,studied,permitted,contracted,under_construction&listed=true",
+  "proposals.active_not_listed": "/v1/proposals?lifecycle_state=announced,filed,studied,permitted,contracted,under_construction&listed=false",
+  "proposals.built": "/v1/proposals?lifecycle_state=built",
+  "proposals.unknown": "/v1/proposals?lifecycle_state=unknown",
+  "proposals.visible": "/v1/proposals",
+  "proposals.withdrawn": "/v1/proposals?lifecycle_state=withdrawn,cancelled"
+ },
+ "schema_version": 1,
+ "sources": [
+  {
+   "attribution_text": null,
+   "counted_events": 0,
+   "licence_id": "attr-lic",
+   "licence_name": "attribution licence",
+   "licence_url": null,
+   "name": "Register gb.test.register",
+   "operator": "Test Operator",
+   "opportunity_links": 0,
+   "proposal_links": 1,
+   "requires_link_back": false,
+   "retrieved_at_max": "2026-10-22T20:04:05.520227Z",
+   "reuse_class": "attribution",
+   "source_id": "gb.test.register"
+  },
+  {
+   "attribution_text": null,
+   "counted_events": 4,
+   "licence_id": "open-lic",
+   "licence_name": "Open Licence",
+   "licence_url": null,
+   "name": "Register us.test.queue",
+   "operator": "Test Operator",
+   "opportunity_links": 4,
+   "proposal_links": 14,
+   "requires_link_back": false,
+   "retrieved_at_max": "2026-10-23T19:04:05.563746Z",
+   "reuse_class": "open",
+   "source_id": "us.test.queue"
+  }
+ ],
+ "visibility": {
+  "active_rule": "announced through under_construction, listed by a register the tier may read",
+  "opportunity_relevance": "relevance=energy, rules opportunity-relevance@v1 (services/match/relevance.py)",
+  "platform_posture": "commercial",
+  "predicate": "services/api/visibility.py at the public tier; values as served (GatedRecord)",
+  "publishable_reuse_classes": [
+   "attribution",
+   "open"
+  ],
+  "tier": "public",
+  "withheld_sources": 2
+ }
+}

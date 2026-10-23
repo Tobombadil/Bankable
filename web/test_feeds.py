@@ -121,7 +121,8 @@ def test_footer_links_the_api_page_and_it_lists_every_feed(transport: FakeTransp
     with TestClient(web_app) as client:
         about = client.get("/proposals").text
         page = client.get("/docs/api")
-    assert '<a href="/docs/api">API and feeds</a>' in about
+    # The footer's reference links take their words from web/labels.py (Navigation v2, docs/30 §11.3).
+    assert '<a href="/docs/api">API &amp; feeds</a>' in about
     assert page.status_code == 200
     for name in ("proposals", "opportunities", "events"):
         for fmt in ("rss", "json"):

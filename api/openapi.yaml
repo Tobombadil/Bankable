@@ -5382,6 +5382,332 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+  # Data rooms (docs/19 §3 and "Data rooms, as built"): every path below is the same `404` until the deployment
+  # sets `DATA_ROOMS=on` as well as `MY_PIPELINE=on`.
+  /v1/my/projects/{project_id}/documents:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: getMyDataRoom
+      tags: [Private projects]
+      summary: An item's data room, its folders and what you may do there
+      description: >-
+        Any member. The item's folders, the checklist's six (Contracts, Finance, Security, Permits, Feasibility,
+        Legal & Corporate) and Other, created the first time anyone opens the data room, then any a member added;
+        each with its file count and size and, for a checklist folder, the item's checklist counts there ("N of M
+        done", your status). Also the caller's role and what it allows, the caller's own storage allowance (every
+        file they uploaded, in any item), the file-size cap, the accepted types (read from a file's bytes, never
+        its name) and, in plain words, what is and is not scanned for malware.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      responses:
+        '200':
+          description: The data room.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyDataRoomResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: uploadMyDocument
+      tags: [Private projects]
+      summary: Upload one file into one of the item's folders
+      description: >-
+        Owner or editor, as `multipart/form-data` with `folder_id` and one `file`; `Content-Length` is required and
+        a body over the configured cap on one file plus 64 KiB for the form is refused before it is read. One upload
+        in progress per user at a time (another is a `429`), and an upload waits up to 20 seconds for a transfer slot
+        before its body is read (then a `503` with `Retry-After`). The file's type is read from its bytes: PDF, Word,
+        Excel and PowerPoint (read as packages: no macros, ActiveX controls, embedded objects or links that load from
+        outside the file, such as an attached template; hyperlinks are allowed), PNG, JPEG, TIFF, and CSV or plain
+        text (by name, UTF-8, not markup or a script). Programs, scripts, archives, older and password-protected
+        Office files, and any file over the cap or past the uploader's allowance are refused with a `400` that says
+        why (`MyRefusalReason`), and the refusal is logged for the item's owner. When a virus scanner is configured
+        the file is scanned first: a flagged file is refused, and a scanner that does not answer is a `503` with
+        nothing stored. An accepted file is sealed (AES-256-GCM under its own key) and stored in the private
+        bucket under a random key; nothing about it reaches a log.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MyDocumentUpload'
+      responses:
+        '201':
+          description: The stored file.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyDocumentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/documents/folders:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    post:
+      operationId: createMyFolder
+      tags: [Private projects]
+      summary: Add a folder to the item's data room
+      description: >-
+        Owner or editor. A name of 1 to 80 characters, not one already used in the item (any case). At most 30
+        folders an item (`409 conflict`). Logged for the item's owner.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyFolderWrite'
+      responses:
+        '201':
+          description: The new folder.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyFolderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/documents/folders/{folder_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyFolderId'
+    get:
+      operationId: listMyFolder
+      tags: [Private projects]
+      summary: A folder's files
+      description: >-
+        Any member. Newest first: each file's name, type, size, uploader (a departed member as "Former member"),
+        date and scan status, whether the caller may delete it, and its download path. Opening the list is a view
+        in the item's access log (once per member and folder in ten minutes).
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      responses:
+        '200':
+          description: The folder and its files.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyFolderListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    patch:
+      operationId: renameMyFolder
+      tags: [Private projects]
+      summary: Rename a folder a member added
+      description: Owner or editor. The default folders keep the checklist's names (`400`).
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyFolderWrite'
+      responses:
+        '200':
+          description: The folder.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyFolderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    delete:
+      operationId: deleteMyFolder
+      tags: [Private projects]
+      summary: Delete a folder a member added, with every file in it
+      description: >-
+        Owner. The files' rows go now and their stored objects once this commits. The default folders cannot be
+        deleted (`400`); delete the files in them instead.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      responses:
+        '204':
+          description: Deleted.
+          headers: *private_headers
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/documents/{document_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyDocumentId'
+    delete:
+      operationId: deleteMyDocument
+      tags: [Private projects]
+      summary: Delete a file
+      description: >-
+        The owner deletes any file; an editor the files they uploaded (`403 forbidden_role` otherwise). The row goes
+        now and the stored object once this commits. Logged for the item's owner, with the file's name.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      responses:
+        '204':
+          description: Deleted.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/documents/{document_id}/download:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyDocumentId'
+    get:
+      operationId: downloadMyDocument
+      tags: [Private projects]
+      summary: Download a file
+      description: >-
+        Any member. The file itself, streamed through this authorised route (the object store is never addressed by
+        a browser), checked against the hash taken at upload, with the `Content-Type` its bytes were recognised as,
+        `Content-Disposition: attachment` (no name: the proxy logs response headers, and the page names the file
+        through its link), `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox; default-src
+        'none'`, so an uploaded file never runs in the site's origin. A request the browser marks `Sec-Fetch-Site:
+        cross-site` is refused (`400`). Logged for the item's owner.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      responses:
+        '200':
+          description: The file, as an attachment.
+          headers: *private_headers
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/documents/log:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyDataRoomLog
+      tags: [Private projects]
+      summary: The data room's access log
+      description: >-
+        Owner. Newest first: who viewed a folder's file list, downloaded, uploaded or deleted which file (by its name
+        at the time), refused uploads with the reason, and folder changes, with when. A departed member is "Former
+        member". Kept for the life of the item; never written to the public change feed, analytics or a log.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §3
+      security: *sec_private
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: The access log.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyDataRoomLogResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
   /v1/my/kinds:
     get:
       operationId: listMyKinds
@@ -8365,6 +8691,18 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/MyInvitationPublicId'
+    MyFolderId:
+      name: folder_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
+    MyDocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
     MyIdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -10927,6 +11265,216 @@ components:
         schema:
           type: string
           const: inframation.my-export/1
+    MyDocumentType:
+      type: string
+      description: What a file's bytes were recognised as (never its name); decides the `Content-Type` it is served with.
+      enum: [pdf, docx, xlsx, pptx, png, jpeg, tiff, csv, txt]
+    MyRefusalReason:
+      type: string
+      enum: [empty, too_large, type_not_accepted, executable, script, archive, macros, external_content, legacy_office, encrypted, malware, quota]
+    MyFolder:
+      type: object
+      required: [folder_id, key, name, default, documents, size_bytes, checklist]
+      properties:
+        folder_id:
+          $ref: '#/components/schemas/MyRowId'
+        key:
+          description: A default folder's key; `null` for one a member added.
+          oneOf:
+            - type: string
+              enum: [contracts, finance, security, permits, feasibility, legal_corporate, other]
+            - type: 'null'
+        name: {type: string, minLength: 1, maxLength: 80}
+        default: {type: boolean, description: A default folder keeps its name and cannot be deleted.}
+        documents: {type: integer, minimum: 0}
+        size_bytes: {type: integer, minimum: 0}
+        checklist:
+          description: The item's checklist counts in this folder ("N of M done", your status); `null` for Other and added folders.
+          oneOf:
+            - type: object
+              required: [done, total]
+              properties:
+                done: {type: integer, minimum: 0}
+                total: {type: integer, minimum: 0}
+              additionalProperties: false
+            - type: 'null'
+      additionalProperties: false
+    MyFolderWrite:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 80}
+      additionalProperties: false
+    MyDocument:
+      type: object
+      required: [document_id, folder_id, file_name, type, type_label, media_type, size_bytes, uploaded_by, uploaded_at, scan_status, scanned_with, mine, can_delete, download]
+      properties:
+        document_id:
+          $ref: '#/components/schemas/MyRowId'
+        folder_id:
+          $ref: '#/components/schemas/MyRowId'
+        file_name: {type: string, minLength: 1, maxLength: 200, description: As uploaded, cleaned; ends in one of its type's extensions.}
+        type:
+          $ref: '#/components/schemas/MyDocumentType'
+        type_label: {type: string}
+        media_type: {type: string}
+        size_bytes: {type: integer, minimum: 1}
+        uploaded_by:
+          $ref: '#/components/schemas/MyPerson'
+        uploaded_at: {type: string, format: date-time}
+        scan_status:
+          type: string
+          enum: [not_scanned, clean]
+          description: '`not_scanned` when no virus scanner was configured at upload; a flagged file is never stored.'
+        scanned_with:
+          oneOf:
+            - type: string
+              enum: [clamd]
+            - type: 'null'
+        mine: {type: boolean}
+        can_delete: {type: boolean}
+        download: {type: string, description: The download path on this API.}
+      additionalProperties: false
+    MyDocumentUpload:
+      type: object
+      required: [folder_id, file]
+      properties:
+        folder_id:
+          $ref: '#/components/schemas/MyRowId'
+        file:
+          type: string
+          format: binary
+    MyDataRoom:
+      type: object
+      required: [project_id, folders, documents, size_bytes, role, can_upload, can_manage, can_audit, quota, limits, scanning]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        folders:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyFolder'
+        documents: {type: integer, minimum: 0}
+        size_bytes: {type: integer, minimum: 0}
+        role:
+          $ref: '#/components/schemas/MyRole'
+        can_upload: {type: boolean}
+        can_manage: {type: boolean, description: Delete any file and the folders members added (the owner).}
+        can_audit: {type: boolean, description: Read the access log (the owner).}
+        quota:
+          type: object
+          required: [used_bytes, limit_bytes]
+          description: The caller's own allowance, across every item.
+          properties:
+            used_bytes: {type: integer, minimum: 0}
+            limit_bytes: {type: [integer, 'null']}
+          additionalProperties: false
+        limits:
+          type: object
+          required: [max_file_bytes, accepted_types]
+          properties:
+            max_file_bytes: {type: [integer, 'null']}
+            accepted_types:
+              type: array
+              items:
+                type: object
+                required: [type, label, extensions]
+                properties:
+                  type:
+                    $ref: '#/components/schemas/MyDocumentType'
+                  label: {type: string}
+                  extensions:
+                    type: array
+                    items: {type: string}
+                additionalProperties: false
+          additionalProperties: false
+        scanning:
+          type: object
+          required: [scanner, text]
+          description: What is and is not scanned for malware, in plain words.
+          properties:
+            scanner:
+              oneOf:
+                - type: string
+                  enum: [clamd]
+                - type: 'null'
+            text: {type: string}
+          additionalProperties: false
+      additionalProperties: false
+    MyDataRoomEvent:
+      type: object
+      required: [action, occurred_at, actor, mine, file_name, folder_name, document_id, folder_id, reason, reason_text, size_bytes]
+      properties:
+        action:
+          type: string
+          enum: [viewed, downloaded, uploaded, deleted, upload_refused, folder_created, folder_renamed, folder_deleted]
+        occurred_at: {type: string, format: date-time}
+        actor:
+          $ref: '#/components/schemas/MyPerson'
+        mine: {type: boolean, description: The caller did it.}
+        file_name: {type: [string, 'null'], description: The file's name at the time.}
+        folder_name: {type: [string, 'null']}
+        document_id:
+          oneOf:
+            - $ref: '#/components/schemas/MyRowId'
+            - type: 'null'
+        folder_id:
+          oneOf:
+            - $ref: '#/components/schemas/MyRowId'
+            - type: 'null'
+        reason:
+          oneOf:
+            - $ref: '#/components/schemas/MyRefusalReason'
+            - type: 'null'
+        reason_text: {type: [string, 'null']}
+        size_bytes: {type: [integer, 'null']}
+      additionalProperties: false
+    MyDataRoomResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyDataRoom'
+    MyFolderResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyFolder'
+    MyFolderListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [folder, documents]
+              properties:
+                folder:
+                  $ref: '#/components/schemas/MyFolder'
+                documents:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/MyDocument'
+              additionalProperties: false
+    MyDocumentResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyDocument'
+    MyDataRoomLogResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyDataRoomEvent'
     MyProjectListResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'

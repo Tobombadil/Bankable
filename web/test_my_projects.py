@@ -13,6 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -33,6 +34,7 @@ from services.api.conftest import (
 from services.api.deps import get_db
 from services.api.ratelimit import default_limiter
 from tests.web_alerts_support import memory_sessionmaker
+from web import my_projects
 from web.api_client import ApiClient
 from web.app import app as web_app
 from web.my_projects import changed_view, deadline_view, track_offer
@@ -650,3 +652,286 @@ def test_the_badge_and_deadline_words() -> None:
         {"changed": True, "reason": "status", "text": "Status changed", "count": 2, "at": None}
     )
     assert many is not None and many["text"] == "2 status changes"
+
+
+# ------------------------------------------------------------------------------------ data room
+ROOM_KEY = "d2ViLWRhdGEtcm9vbS10ZXN0LWtleS0zMi1ieXRlcyE="  # base64 of 32 test bytes  # gitleaks:allow
+ROOM_PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
+_FOLDER_HREF = re.compile(r"/documents/folders/([0-9a-f-]{36})")
+
+
+@pytest.fixture()
+def rooms_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    root = tmp_path / "room-store"
+    monkeypatch.setenv("DATA_ROOMS", "on")
+    monkeypatch.setenv("DATA_ROOM_STORE", "local")
+    monkeypatch.setenv("DATA_ROOM_LOCAL_DIR", str(root))
+    monkeypatch.setenv("DATA_ROOM_KEY", ROOM_KEY)
+    monkeypatch.delenv("DATA_ROOM_SCANNER", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    return root
+
+
+def _site_upload(tab: TestClient, item: str, folder: str, name: str, data: bytes, **kwargs: Any) -> Any:
+    return tab.post(
+        f"/my/items/{item}/documents/upload",
+        data={"folder_id": folder},
+        files={"file": (name, data, "application/octet-stream")},
+        headers=ORIGIN,
+        follow_redirects=False,
+        **kwargs,
+    )
+
+
+def test_the_data_room_tab_is_off_until_its_switch_is_on(
+    browser: Browser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DATA_ROOMS", raising=False)
+    tab = browser("owner@example.org")
+    item = _blank(tab, "project", "North Ridge")
+    assert "Data room" not in tab.get(f"/my/items/{item}").text
+    unknown_path = "/my/items/prj_0000000000000000000000000/nothing-here"
+    unknown = tab.get(unknown_path).text.replace(unknown_path, "")
+    for path in (
+        f"/my/items/{item}/documents",
+        f"/my/items/{item}/documents/log",
+        f"/my/items/{item}/documents/folders/00000000-0000-4000-8000-000000000000",
+    ):
+        resp = tab.get(path)
+        # The page an unknown address gets, byte for byte but for its own address.
+        assert resp.status_code == 404 and resp.text.replace(path, "") == unknown, path
+
+
+def test_upload_view_download_and_delete_through_the_site(
+    browser: Browser, rooms_on: Path, world: dict[str, str]
+) -> None:
+    tab = browser("owner@example.org")
+    item = _blank(tab, "project", "North Ridge")
+    overview = tab.get(f"/my/items/{item}")
+    assert f'href="/my/items/{item}/documents"' in overview.text and ">Data room" in overview.text
+    room = tab.get(f"/my/items/{item}/documents")
+    assert room.status_code == 200
+    for header, value in (
+        ("cache-control", "private, no-store"),
+        ("x-robots-tag", "noindex, nofollow"),
+        ("referrer-policy", "no-referrer"),
+    ):
+        assert room.headers[header] == value
+    assert "not scanned for viruses" in room.text and 'enctype="multipart/form-data"' in room.text
+    for name in (
+        "Contracts",
+        "Finance",
+        "Security",
+        "Permits",
+        "Feasibility",
+        "Legal &amp; Corporate",
+        "Other",
+    ):
+        assert name in room.text, name
+    folders = _FOLDER_HREF.findall(room.text)
+    assert len(folders) == 7
+    permits = folders[3]
+
+    uploaded = _site_upload(tab, item, permits, "Site lease 2026.pdf", ROOM_PDF)
+    assert uploaded.status_code == 303, uploaded.text
+    assert uploaded.headers["location"] == f"/my/items/{item}/documents/folders/{permits}?done=uploaded"
+    page = tab.get(uploaded.headers["location"])
+    assert page.status_code == 200
+    assert "File uploaded." in page.text and 'download="Site lease 2026.pdf"' in page.text
+    assert "<title>" in page.text and "Site lease" not in page.text.split("</title>")[0]
+    assert "Not scanned" in page.text and "PDF" in page.text
+    link = re.search(r'href="(/my/items/[^"]+/download)"', page.text)
+    assert link
+    download = tab.get(link.group(1))
+    assert download.status_code == 200 and download.content == ROOM_PDF
+    assert download.headers["content-disposition"] == "attachment"
+    assert download.headers["x-content-type-options"] == "nosniff"
+    assert download.headers["content-security-policy"].startswith("sandbox")
+    assert download.headers["cache-control"] == "private, no-store"
+    assert all("lease" not in value.lower() for value in download.headers.values())
+    assert tab.get(link.group(1), headers={"sec-fetch-site": "cross-site"}).status_code == 403
+
+    refused = _site_upload(tab, item, permits, "setup.exe", b"MZ" + b"\x00" * 64)
+    assert refused.status_code == 400 and "Programs are not accepted." in refused.text
+
+    log = tab.get(f"/my/items/{item}/documents/log")
+    assert log.status_code == 200
+    for words in ("uploaded", "downloaded", "opened the folder", "tried to upload", "setup.exe"):
+        assert words in log.text, words
+
+    document_id = re.search(r"/documents/files/([0-9a-f-]{36})/delete", page.text)
+    assert document_id
+    deleted = tab.post(
+        f"/my/items/{item}/documents/files/{document_id.group(1)}/delete",
+        data={"folder_id": permits},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    assert deleted.status_code == 303
+    assert "File deleted." in tab.get(deleted.headers["location"]).text
+    assert not any((rooms_on / "data-rooms").iterdir())
+
+
+_LOG_LINE = re.compile(r'<li class="my-log__line">(.*?)</li>', re.DOTALL)
+
+
+def _log_text(tab: TestClient, item: str) -> str:
+    """The access log's lines, without the page around them."""
+    resp = tab.get(f"/my/items/{item}/documents/log")
+    assert resp.status_code == 200
+    return "\n".join(_LOG_LINE.findall(resp.text))
+
+
+def test_a_head_request_never_downloads_or_logs(browser: Browser, rooms_on: Path) -> None:
+    """Review of 2026-10-23: the site serves HEAD as GET, so a HEAD on a download read the file and
+    wrote "downloaded" in the owner's log. Now it is a 405 that reads and logs nothing."""
+    tab = browser("owner@example.org")
+    item = _blank(tab, "project", "North Ridge")
+    permits = _FOLDER_HREF.findall(tab.get(f"/my/items/{item}/documents").text)[3]
+    page = tab.get(_site_upload(tab, item, permits, "lease.pdf", ROOM_PDF).headers["location"])
+    link = re.search(r'href="(/my/items/[^"]+/download)"', page.text)
+    assert link
+    head = tab.head(link.group(1))
+    assert head.status_code == 405 and head.headers["allow"] == "GET"
+    assert head.headers["cache-control"] == "private, no-store"
+    assert "downloaded" not in _log_text(tab, item)
+    assert tab.get(link.group(1)).content == ROOM_PDF
+    assert "downloaded" in _log_text(tab, item)
+
+
+def test_the_site_reads_no_upload_over_the_configured_cap(
+    browser: Browser, rooms_on: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The relay's bound is the configured cap and the form, not the 50 MiB ceiling: a 1.5 MiB file
+    with `DATA_ROOM_MAX_FILE_MB=1` is refused by the site before it is read or relayed (before the
+    fix the site read and relayed it, and the API refused it)."""
+    monkeypatch.setenv("DATA_ROOM_MAX_FILE_MB", "1")
+    assert my_projects.upload_body_limit() == 1024 * 1024 + my_projects.UPLOAD_FORM_OVERHEAD
+    tab = browser("owner@example.org")
+    item = _blank(tab, "project", "North Ridge")
+    permits = _FOLDER_HREF.findall(tab.get(f"/my/items/{item}/documents").text)[3]
+    big = b"%PDF-1.7\n" + b"0" * (3 * 512 * 1024)
+    refused = _site_upload(tab, item, permits, "big.pdf", big)
+    assert refused.status_code == 400 and "larger than the limit for one file" in refused.text
+    assert "tried to upload" not in _log_text(tab, item), "the API never saw it"
+
+
+def test_the_site_relays_a_bounded_number_of_uploads_at_once(browser: Browser, rooms_on: Path) -> None:
+    tab = browser("owner@example.org")
+    item = _blank(tab, "project", "North Ridge")
+    permits = _FOLDER_HREF.findall(tab.get(f"/my/items/{item}/documents").text)[3]
+    taken = 0
+    try:
+        while my_projects._relay_slots.acquire(blocking=False):
+            taken += 1
+        assert taken == my_projects.RELAYED_UPLOADS
+        busy = _site_upload(tab, item, permits, "lease.pdf", ROOM_PDF)
+        assert busy.status_code == 503 and "try again in a moment" in busy.text
+    finally:
+        for _ in range(taken):
+            my_projects._relay_slots.release()
+    assert _site_upload(tab, item, permits, "lease.pdf", ROOM_PDF).status_code == 303
+
+
+def test_folders_through_the_site(browser: Browser, rooms_on: Path) -> None:
+    tab = browser("owner@example.org")
+    item = _blank(tab, "project", "North Ridge")
+    added = tab.post(
+        f"/my/items/{item}/documents/folders",
+        data={"name": "Drone survey"},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    assert added.status_code == 303
+    room = tab.get(added.headers["location"]).text
+    assert "Folder added." in room and "Drone survey" in room
+    folder = _FOLDER_HREF.findall(room)[-1]
+    renamed = tab.post(
+        f"/my/items/{item}/documents/folders/{folder}/rename",
+        data={"name": "Site photos"},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    assert "Site photos" in tab.get(renamed.headers["location"]).text
+    unconfirmed = tab.post(f"/my/items/{item}/documents/folders/{folder}/delete", headers=ORIGIN)
+    assert unconfirmed.status_code == 400 and "Tick the box" in unconfirmed.text
+    gone = tab.post(
+        f"/my/items/{item}/documents/folders/{folder}/delete",
+        data={"confirm": "delete"},
+        headers=ORIGIN,
+        follow_redirects=False,
+    )
+    assert gone.status_code == 303 and "Site photos" not in tab.get(gone.headers["location"]).text
+
+
+def test_data_room_forms_need_the_same_origin(browser: Browser, rooms_on: Path) -> None:
+    tab = browser("owner@example.org")
+    item = _blank(tab, "project", "North Ridge")
+    folder = _FOLDER_HREF.findall(tab.get(f"/my/items/{item}/documents").text)[0]
+    cross = tab.post(
+        f"/my/items/{item}/documents/upload",
+        data={"folder_id": folder},
+        files={"file": ("a.pdf", ROOM_PDF)},
+        headers={"origin": "https://evil.example"},
+    )
+    assert cross.status_code == 403
+    assert not (rooms_on / "data-rooms").exists() or not any((rooms_on / "data-rooms").iterdir())
+
+
+def test_someone_elses_data_room_is_the_404(browser: Browser, rooms_on: Path) -> None:
+    owner = browser("owner@example.org")
+    item = _blank(owner, "project", "North Ridge")
+    folder = _FOLDER_HREF.findall(owner.get(f"/my/items/{item}/documents").text)[0]
+    stranger = browser("stranger@example.org")
+    for path in (
+        f"/my/items/{item}/documents",
+        f"/my/items/{item}/documents/folders/{folder}",
+        f"/my/items/{item}/documents/log",
+    ):
+        assert stranger.get(path).status_code == 404, path
+    assert _site_upload(stranger, item, folder, "a.pdf", ROOM_PDF).status_code == 404
+
+
+def test_a_public_record_page_is_byte_identical_whether_or_not_a_data_room_exists(
+    web_client: TestClient,
+    browser: Browser,
+    world: dict[str, str],
+    rooms_on: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing from a data room reaches a public page (CLAUDE.md guardrail)."""
+    monkeypatch.setattr("services.api.serialize.utcnow", lambda: dt.datetime(2026, 10, 23, 12, 0, tzinfo=UTC))
+    monkeypatch.setattr("services.api.request_context.new_request_id", lambda: "req_fixed0000")
+    anonymous = TestClient(web_app)
+    reader = browser("reader@example.org")
+    pages = (f"/proposals/{world['proposal_slug']}", "/proposals", "/", "/robots.txt")
+
+    def snapshot() -> list[bytes]:
+        return [client.get(path).content for path in pages for client in (anonymous, reader)]
+
+    before = snapshot()
+    tab = browser("owner@example.org")
+    item = _track(tab, "proposal", world["proposal"])
+    folder = _FOLDER_HREF.findall(tab.get(f"/my/items/{item}/documents").text)[0]
+    assert _site_upload(tab, item, folder, "SENTINELwebroom.pdf", ROOM_PDF).status_code == 303
+    after = snapshot()
+    assert after == before
+    assert all(b"SENTINELwebroom" not in body for body in after)
+    anonymous.close()
+
+
+def test_file_sizes_read_as_people_expect() -> None:
+    from web.my_projects import filesize
+
+    mib = 1024 * 1024
+    sizes = (0, 1023, 1024, 14 * 1024 + 200, int(3.2 * mib), 25 * mib, 1024 * mib)
+    assert [filesize(n) for n in sizes] == [
+        "0 bytes",
+        "1023 bytes",
+        "1.0 KB",
+        "14 KB",
+        "3.2 MB",
+        "25 MB",
+        "1.0 GB",
+    ]
+    assert filesize(None) == "" and filesize(-1) == "" and filesize(True) == ""

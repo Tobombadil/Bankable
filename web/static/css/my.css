@@ -159,3 +159,38 @@
 @media (max-width: 719px) {
   .track-block__button { width: 100%; }
 }
+
+/* ---------- the Data room tab (docs/19 §3; docs/30 §11.9.4) ---------- */
+.my-room { min-width: 0; }
+.my-room__title { font-size: var(--text-4); margin: 0 0 var(--space-1); overflow-wrap: anywhere; }
+.my-room-crumbs { font-size: var(--text-1); color: var(--text-muted); margin: 0 0 var(--space-2); overflow-wrap: anywhere; }
+.my-room-crumbs a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.my-room-scan {
+  margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-2);
+  background: var(--family-neutral-fill); color: var(--family-neutral-text); font-size: var(--text-1); max-width: 68ch;
+}
+.my-room-scan--off { background: var(--family-committed-fill); color: var(--family-committed-text); }
+.my-upload input[type="file"] { font: inherit; font-size: var(--text-2); min-height: 2.75rem; max-width: 100%; }
+.my-room-folders, .my-files, .my-log { list-style: none; padding: 0; margin: var(--space-3) 0; }
+.my-room-folder { border-bottom: 1px solid var(--border); }
+.my-room-folder:first-child { border-top: 1px solid var(--border); }
+.my-room-folder a {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-3);
+  min-height: 2.75rem; padding: var(--space-2) 0; text-decoration: none;
+}
+.my-room-folder__name { font-weight: 600; overflow-wrap: anywhere; }
+.my-room-link { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.my-file { border-bottom: 1px solid var(--border); padding: var(--space-3) 0; }
+.my-file:first-child { border-top: 1px solid var(--border); }
+.my-file p { margin: var(--space-1) 0; }
+.my-file__name { font-size: var(--text-3); overflow-wrap: anywhere; }
+.my-file__name a { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.my-file__meta { color: var(--text-muted); font-size: var(--text-1); overflow-wrap: anywhere; }
+.my-scan { display: inline-block; padding: 0 var(--space-2); border-radius: var(--radius-1); }
+.my-scan--not_scanned { background: var(--family-committed-fill); color: var(--family-committed-text); }
+.my-scan--clean { background: var(--family-success-fill); color: var(--family-success-text); }
+.my-log__line { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.my-log__when { color: var(--text-muted); font-size: var(--text-1); }
+@media (min-width: 720px) {
+  .my-log__line { grid-template-columns: 13rem minmax(0, 1fr); }
+}

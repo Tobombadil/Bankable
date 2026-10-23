@@ -1,0 +1,95 @@
+{#- The top bar (Navigation v2, docs/30 §11.2 and §11.8): the global tier on every page, 48px and sticky
+    at every width, the only sticky bar on the site. Rendered by base.html, which sets `nav_path`, `nav`
+    (web/page.py `nav_state`), `nav_here` (the live section holding this page, or "") and `fresh` (how
+    current the sources are), and imports `partials/_sections.html` as `sections`.
+
+    - From 1080px: the wordmark, the sections (Market · My pipeline · Funding, those that are live), then
+      the search field, Alerts and the account.
+    - From 720 to 1079px the search field is an icon button that opens it over the bar.
+    - Below 720px: the wordmark, the search button and Menu. Menu opens a panel in place under the bar
+      (`#site-menu`): each section a group (`<details>`, the current section's open), then Alerts, the
+      account, About & sources and the freshness line.
+
+    Without scripts the buttons are not shown: the search field stays in the bar and, below 720px, the
+    Menu panel stays open (styles.css keys every collapsed rule on `.js`). The account menu and the Menu's
+    groups are `<details>`, so they open without scripts too.
+
+    The account (§11.2): signed in, "Account" opens Account, Pricing (only where `paid_tiers_offered`
+    allows it) and Sign out. Signed out, "Sign in"; where Pricing is offered it opens Sign in, Create an
+    account and Pricing, so Pricing is only ever in the account menu (owner 2026-10-10: paid tiers off
+    and out of the way under the noncommercial posture). -#}
+{%- set open_group = nav_here if nav_here in sections.top else "market" %}
+<header class="site-header top-bar">
+  <div class="top-bar__row">
+    <a class="wordmark" href="/">Inframation</a>
+    <nav class="top-bar__sections" aria-label="Site sections">
+      {%- for key in sections.top if nav.live[key] %}
+      <a href="{{ sections.href[key] }}"{{ sections.section_current(key, nav_path, nav_here) }}>{{ sections.label[key] }}</a>
+      {%- endfor %}
+    </nav>
+    <div class="top-bar__utils">
+      <button type="button" class="search-toggle" aria-expanded="false" aria-controls="site-search"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-search"/></svg><span class="visually-hidden">Search</span></button>
+      <form class="site-search" id="site-search" action="/search" method="get" role="search" aria-label="Site search">
+        <label class="visually-hidden" for="site-search-q">Search projects, companies, RFPs and infrastructure</label>
+        <input id="site-search-q" type="search" name="q" placeholder="Search by name, sponsor, queue ID&hellip;" value="{{ request.query_params.get('q', '') }}">
+        <button type="submit" class="site-search__submit"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-search"/></svg><span class="visually-hidden">Search</span></button>
+        <button type="button" class="site-search__close">Close</button>
+      </form>
+      <a class="top-bar__link" href="{{ sections.href.alerts }}"{{ sections.current('alerts', nav_path) }}>{{ sections.label.alerts }}</a>
+      {%- if nav.signed_in %}
+      <details class="account-menu">
+        <summary class="top-bar__link account-menu__toggle">Account</summary>
+        <ul class="account-menu__list">
+          <li><a href="/account"{% if nav_path == '/account' %} aria-current="page"{% endif %}>Account</a></li>
+          {%- if nav.pricing %}
+          <li><a href="/pricing"{% if nav_path == '/pricing' %} aria-current="page"{% endif %}>Pricing</a></li>
+          {%- endif %}
+          <li><form method="post" action="/logout"><button type="submit">Sign out</button></form></li>
+        </ul>
+      </details>
+      {%- elif nav.pricing %}
+      <details class="account-menu">
+        <summary class="top-bar__link account-menu__toggle">Sign in</summary>
+        <ul class="account-menu__list">
+          <li><a href="/login" data-signin{% if nav_path == '/login' %} aria-current="page"{% endif %}>Sign in</a></li>
+          <li><a href="/register"{% if nav_path == '/register' %} aria-current="page"{% endif %}>Create an account</a></li>
+          <li><a href="/pricing"{% if nav_path == '/pricing' %} aria-current="page"{% endif %}>Pricing</a></li>
+        </ul>
+      </details>
+      {%- else %}
+      <a class="top-bar__link" href="/login" data-signin{% if nav_path == '/login' %} aria-current="page"{% endif %}>Sign in</a>
+      {%- endif %}
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu">Menu</button>
+    </div>
+  </div>
+  <div class="site-menu" id="site-menu">
+    <nav class="site-menu__sections" aria-label="Menu">
+      {%- for key in sections.top if nav.live[key] %}
+      <details class="site-menu__group"{% if key == open_group %} open{% endif %}>
+        <summary>{{ sections.label[key] }}</summary>
+        <ul>
+          {%- for page in sections.pages[key] if nav.live[page] %}
+          <li><a href="{{ sections.href[page] }}"{{ sections.current(page, nav_path) }}>{{ sections.label[page] }}</a></li>
+          {%- endfor %}
+        </ul>
+      </details>
+      {%- endfor %}
+    </nav>
+    <ul class="site-menu__utils">
+      <li><a href="{{ sections.href.alerts }}"{{ sections.current('alerts', nav_path) }}>{{ sections.label.alerts }}</a></li>
+      {%- if nav.signed_in %}
+      <li><a href="/account"{% if nav_path == '/account' %} aria-current="page"{% endif %}>Account</a></li>
+      {%- else %}
+      <li><a href="/login" data-signin{% if nav_path == '/login' %} aria-current="page"{% endif %}>Sign in</a></li>
+      {%- endif %}
+      {%- if nav.pricing %}
+      <li><a href="/pricing"{% if nav_path == '/pricing' %} aria-current="page"{% endif %}>Pricing</a></li>
+      {%- endif %}
+      {%- if nav.signed_in %}
+      <li><form method="post" action="/logout"><button type="submit">Sign out</button></form></li>
+      {%- endif %}
+      <li><a href="{{ sections.href.about }}"{{ sections.current('about', nav_path) }}>{{ sections.label.about }}</a></li>
+    </ul>
+    <p class="site-menu__fresh">{{ sections.freshness(fresh) }}</p>
+  </div>
+</header>

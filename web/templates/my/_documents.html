@@ -1,0 +1,139 @@
+{#- The Data room tab (docs/19 §3; "Data rooms, as built"; docs/30 §11.9.4): three views, one job each.
+    `overview`: the folders with their file counts and checklist counts, and the upload form (primary
+    action). `folder`: a folder's files (name, type, size, uploader, date, scan status), each a download
+    link that names the file through `download` (no response header carries a name) and, for whoever may,
+    a delete button. `log`: the owner's access log. What is and is not scanned is said on every view. -#}
+{%- set base = '/my/items/' ~ item.public_id ~ '/documents' %}
+{%- set accept = '.pdf,.docx,.xlsx,.pptx,.png,.jpg,.jpeg,.tif,.tiff,.csv,.txt' %}
+<section class="my-room" aria-labelledby="room-heading">
+  {%- if room_view == 'folder' %}
+  <nav class="my-room-crumbs" aria-label="Data room"><a href="{{ base }}">Data room</a> / <span>{{ folder.name }}</span></nav>
+  <h2 id="room-heading" class="my-room__title">{{ folder.name }}</h2>
+  <p class="my-muted tnum">{{ folder.documents }} {{ 'file' if folder.documents == 1 else 'files' }}{% if folder.checklist %} &middot; checklist {{ folder.checklist.done }} of {{ folder.checklist.total }} done (your status){% endif %}</p>
+  {%- elif room_view == 'log' %}
+  <nav class="my-room-crumbs" aria-label="Data room"><a href="{{ base }}">Data room</a> / <span>Access log</span></nav>
+  <h2 id="room-heading" class="my-room__title">Access log</h2>
+  <p class="my-muted">Who opened a folder, downloaded, uploaded or deleted which file, and when. Only you, the owner, see this.</p>
+  {%- else %}
+  <h2 id="room-heading" class="visually-hidden">Data room</h2>
+  {%- endif %}
+
+  <p class="my-room-scan my-room-scan--{{ room.scanning.scanner or 'off' }}" role="note">{{ room.scanning.text }}</p>
+
+  {%- if room_view != 'log' and room.can_upload %}
+  <form class="auth-form my-form my-upload" method="post" action="{{ base }}/upload" enctype="multipart/form-data">
+    {%- if room_view == 'folder' %}
+    <input type="hidden" name="folder_id" value="{{ folder.folder_id }}">
+    {%- else %}
+    <div class="field">
+      <label for="upload-folder">Folder</label>
+      <select id="upload-folder" name="folder_id">
+        {%- for entry in room.folders %}
+        <option value="{{ entry.folder_id }}">{{ entry.name }}</option>
+        {%- endfor %}
+      </select>
+    </div>
+    {%- endif %}
+    <div class="field">
+      <label for="upload-file">File</label>
+      <input id="upload-file" name="file" type="file" accept="{{ accept }}" required>
+      <p class="field-hint">{% if max_file_text %}Up to {{ max_file_text }} a file. {% endif %}Accepted: {{ accepted_text }}. Programs, scripts, archives and Office files with macros are refused. Your storage: {{ quota_text }}.</p>
+    </div>
+    <div class="form-actions"><button type="submit">Upload</button></div>
+  </form>
+  {%- endif %}
+
+  {%- if room_view == 'folder' %}
+  {%- if documents %}
+  <ul class="my-files">
+    {%- for document in documents %}
+    <li class="my-file">
+      <p class="my-file__name"><a href="{{ document.href }}" download="{{ document.file_name }}">{{ document.file_name }}</a></p>
+      <p class="my-file__meta">{{ document.type_label }} &middot; <span class="tnum">{{ document.size }}</span> &middot; {{ document.uploader or 'A member' }} &middot; <time datetime="{{ document.uploaded_at }}">{{ document.when }}</time> &middot; <span class="my-scan my-scan--{{ document.scan_status }}">{{ document.scan_label }}</span></p>
+      {%- if document.can_delete %}
+      <form class="my-inline-form" method="post" action="{{ base }}/files/{{ document.document_id }}/delete">
+        <input type="hidden" name="folder_id" value="{{ folder.folder_id }}">
+        <button type="submit" class="button-secondary button-secondary--danger">Delete<span class="visually-hidden"> {{ document.file_name }}</span></button>
+      </form>
+      {%- endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- else %}
+  <p class="my-empty">No files in this folder yet.</p>
+  {%- endif %}
+  {%- if not folder.default and room.can_upload %}
+  <details class="my-details">
+    <summary>Rename this folder</summary>
+    <form class="auth-form my-form" method="post" action="{{ base }}/folders/{{ folder.folder_id }}/rename">
+      <div class="field">
+        <label for="folder-rename">Folder name</label>
+        <input id="folder-rename" name="name" type="text" maxlength="80" required value="{{ folder.name }}">
+      </div>
+      <div class="form-actions"><button type="submit" class="button-secondary">Rename</button></div>
+    </form>
+  </details>
+  {%- endif %}
+  {%- if not folder.default and room.can_manage %}
+  <details class="my-details">
+    <summary>Delete this folder</summary>
+    <form class="auth-form my-form" method="post" action="{{ base }}/folders/{{ folder.folder_id }}/delete">
+      <div class="field field--choices">
+        <label><input type="checkbox" name="confirm" value="delete"> Delete this folder and every file in it, for every member</label>
+      </div>
+      <div class="form-actions"><button type="submit" class="button-secondary button-secondary--danger">Delete folder</button></div>
+    </form>
+  </details>
+  {%- endif %}
+
+  {%- elif room_view == 'log' %}
+  {%- if log %}
+  <ul class="my-log">
+    {%- for line in log %}
+    <li class="my-log__line">
+      <time class="my-log__when" datetime="{{ line.occurred_at }}">{{ line.when }}</time>
+      <span>{{ line.who or 'A member' }} {{ line.verb }}
+        {%- if line.action in ('viewed', 'folder_created', 'folder_renamed', 'folder_deleted') %} <q>{{ line.folder_name }}</q>
+        {%- elif line.file_name %} <q>{{ line.file_name }}</q>{% if line.folder_name %} in {{ line.folder_name }}{% endif %}
+        {%- endif %}
+        {%- if line.reason_text %}: refused. {{ line.reason_text }}{% endif %}</span>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- else %}
+  <p class="my-empty">Nothing yet.</p>
+  {%- endif %}
+
+  {%- else %}
+  {%- if room.folders %}
+  <ul class="my-room-folders">
+    {%- for entry in room.folders %}
+    <li class="my-room-folder">
+      <a href="{{ base }}/folders/{{ entry.folder_id }}"><span class="my-room-folder__name">{{ entry.name }}</span>
+        <span class="my-muted tnum">{{ entry.documents }} {{ 'file' if entry.documents == 1 else 'files' }}{% if entry.checklist %} &middot; {{ entry.checklist.done }} of {{ entry.checklist.total }} done{% endif %}</span></a>
+    </li>
+    {%- endfor %}
+  </ul>
+  <p class="my-muted">Checklist counts are your own statuses, not verified.</p>
+  {%- else %}
+  <p class="my-empty">No folders: this item was archived before its data room was first opened, so nothing was ever stored in it.</p>
+  {%- endif %}
+  {%- if room.can_upload %}
+  <details class="my-details">
+    <summary>Add a folder</summary>
+    <form class="auth-form my-form" method="post" action="{{ base }}/folders">
+      <div class="field">
+        <label for="folder-name">Folder name</label>
+        <input id="folder-name" name="name" type="text" maxlength="80" required>
+      </div>
+      <div class="form-actions"><button type="submit" class="button-secondary">Add folder</button></div>
+    </form>
+  </details>
+  {%- endif %}
+  {%- if room.can_audit %}
+  <p><a class="my-room-link" href="{{ base }}/log">Access log</a>: who opened, downloaded, uploaded and deleted what.</p>
+  {%- endif %}
+  {%- endif %}
+
+  <p class="my-footnote">Only this item's members can see these files. Each is stored encrypted in private storage and always downloads as a file; it never opens inside the site. Downloads, uploads and deletions are logged for the item's owner.</p>
+</section>

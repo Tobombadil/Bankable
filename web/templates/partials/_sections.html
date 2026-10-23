@@ -1,12 +1,17 @@
-{#- The public site's sections (docs/16 §3.1, U-6): the one place their reader-facing names live,
-    so renaming a section is a one-line change here. The names are the coordinator's recommendation
-    pending the owner's ratification (docs/16 §7 question 1). Routes, the API and the data model keep
+{#- The public site's sections and pages (Navigation v2, docs/30 §11.2-§11.3; decision rows of 2026-10-22
+    "The section names stand" and 2026-10-23 "Navigation v2"): which sections there are, which pages each
+    holds and in what order, where each lives, and the `aria-current` rule. Imported by base.html and the
+    shell partials (the top bar, the section bar, the phone Menu, the footer), the list pages (H1, title,
+    the Infrastructure tabs) and the record pages (breadcrumbs). Routes, the API and the data model keep
     `proposal`, `opportunity`, `asset` and `interconnection point` whatever these say (docs/30 §1,
-    "Names"). Imported by base.html (primary nav, masthead, footer), the five list pages (H1,
-    title, the Infrastructure tabs) and the record pages (breadcrumbs). Every value is plain text: Jinja escapes the `&` on output. -#}
-{#- The names themselves live in web/labels.py `SECTION_LABELS` (a Jinja global), shared with the
-    JSON-LD breadcrumbs the routes build. -#}
+    "Names"). Every value is plain text: Jinja escapes the `&` on output.
+
+    The words live in web/labels.py (`SECTION_LABELS`, `SECTION_TITLES`, Jinja globals), shared with the
+    JSON-LD breadcrumbs the routes build. Which pages are live for this request (the site finder once it
+    has a run, My pipeline signed in with its switch on, pages not built yet left out) is web/page.py
+    `nav_state`; a page that is not live is left out, never shown disabled (§11.3). -#}
 {%- set label = section_labels -%}
+{%- set title = section_titles -%}
 {#- Each list page's H1 (docs/16 §3.1 table; Map and Alerts keep their own). -#}
 {%- set heading = {
   "projects": "Projects in development",
@@ -15,31 +20,66 @@
   "companies": "Companies",
 } -%}
 {%- set href = {
+  "market": "/",
+  "my_pipeline": "/my",
+  "funding": "/funding",
   "map": "/",
   "site_finder": "/site-finder",
   "projects": "/proposals",
   "companies": "/organizations",
   "rfps": "/opportunities",
   "infrastructure": "/assets",
+  "prices": "/prices",
+  "tracker": "/my",
+  "invitations": "/my/invitations",
+  "funding_grants": "/funding",
   "alerts": "/alerts",
   "about": "/about",
+  "about_page": "/about",
+  "about_sources": "/about/sources",
+  "methodology": "/methodology",
+  "attribution": "/attribution",
+  "api": "/docs/api",
   "assets": "/assets",
   "points": "/interconnection-points",
 } -%}
-{#- The primary links, in order. About & sources is a masthead and footer link (reference, not a
-    destination); Pricing and Sign in are added by base.html, which knows the posture and the session. -#}
-{#- The site finder sits after Map: the other map, of land a project could use (docs/25). -#}
-{%- set primary = ["map", "site_finder", "projects", "companies", "rfps", "infrastructure", "alerts"] -%}
-{#- The routes each section holds, so its link is marked on every page under it: a record page, or
-    the other Infrastructure tab. Site pages are reached from projects (their breadcrumb says so). -#}
+{#- The top bar's sections, in the order a reader moves through them (Find, Build a deal, Get funded);
+    search, Alerts and the account follow them as utilities (§11.2). -#}
+{%- set top = ["market", "my_pipeline", "funding"] -%}
+{#- Every section bar, in order: the three sections, then About, the reference pages reached from the
+    footer, the Menu and "About & sources" (§11.3). -#}
+{%- set bars = ["market", "my_pipeline", "funding", "about"] -%}
+{#- Each bar's pages in order. Market: the map-shaped tools first (the landing, then the finder), the record
+    lists in the ratified order, then Prices (aggregates, not records). Alerts is a top-bar utility, not a
+    page of a section. Funders joins Funding after counsel has read docs/18 §4. -#}
+{%- set pages = {
+  "market": ["map", "site_finder", "projects", "companies", "rfps", "infrastructure", "prices"],
+  "my_pipeline": ["tracker", "invitations"],
+  "funding": ["funding_grants"],
+  "about": ["about_page", "about_sources", "methodology", "attribution", "api"],
+} -%}
+{#- The name a section bar is announced by: `<nav aria-label="{name} pages">`. -#}
+{%- set bar_name = {"market": label.market, "my_pipeline": label.my_pipeline, "funding": label.funding, "about": title.about} -%}
+{#- The routes each section or page holds, so its link is marked on every page under it: a record page,
+    or the other Infrastructure tab. Site pages are reached from projects (their breadcrumb says so). A
+    root of "/" holds only the home page. -#}
 {%- set holds = {
+  "market": ["/", "/site-finder", "/proposals", "/sites", "/organizations", "/opportunities", "/assets", "/interconnection-points", "/prices"],
+  "my_pipeline": ["/my"],
+  "funding": ["/funding"],
+  "about": ["/about", "/methodology", "/attribution", "/docs/api"],
   "site_finder": ["/site-finder"],
   "projects": ["/proposals", "/sites"],
   "companies": ["/organizations"],
   "rfps": ["/opportunities"],
   "infrastructure": ["/assets", "/interconnection-points"],
+  "prices": ["/prices"],
+  "tracker": ["/my/items"],
+  "invitations": ["/my/invitations"],
+  "funding_grants": ["/funding"],
   "alerts": ["/alerts"],
-  "about": ["/about"],
+  "methodology": ["/methodology"],
+  "about_sources": ["/about/sources"],
   "assets": ["/assets"],
   "points": ["/interconnection-points"],
 } -%}
@@ -55,6 +95,39 @@
 {%- if path == href[key] %} aria-current="page"
 {%- else %}{% for root in holds.get(key, []) if path == root or path.startswith(root ~ "/") %}{% if loop.first %} aria-current="true"{% endif %}{% endfor %}
 {%- endif %}
+{%- endmacro %}
+
+{#- The live section bar that holds `path` ("market", "my_pipeline", "funding", "about"), or nothing:
+    search, Alerts, the account, sign-in, Pricing and the legal pages have no bar (§11.3). A section that
+    is not live holds nothing, so a switched-off `/my` renders exactly as an unknown address does. -#}
+{%- macro section_of(path, live) -%}
+{%- set found = namespace(key="") -%}
+{%- for key in bars if live[key] and not found.key -%}
+{%- for root in holds[key] if path == root or path.startswith(root ~ "/") %}{% set found.key = key %}{% endfor -%}
+{%- endfor -%}
+{{- found.key -}}
+{%- endmacro %}
+
+{#- A top-bar section: ` aria-current="page"` on its landing page, ` aria-current="true"` on every other
+    page it holds (§11.2). -#}
+{%- macro section_current(key, path, here) -%}
+{%- if path == href[key] %} aria-current="page"{% elif key == here %} aria-current="true"{% endif -%}
+{%- endmacro %}
+
+{#- How current the sources are, from `/v1/coverage` (web/viewmodels.py `source_freshness`), in the words
+    the masthead used (docs/30 §11.2 keeps them): the section bar's right end from 1280px and the phone
+    Menu print it. The header used to say "Every record and every change live" whatever the fetch dates
+    were. -#}
+{%- macro freshness(fresh) -%}
+<span class="fresh-line">
+  {%- if fresh.available and not fresh.behind -%}
+  All {{ fresh.scheduled }} scheduled sources fetched on schedule
+  {%- elif fresh.available -%}
+  <a href="/methodology#vintage">{{ fresh.behind | length }} of {{ fresh.scheduled }} sources behind their fetch schedule</a>
+  {%- else -%}
+  <a href="/methodology#vintage">Source fetch dates</a>
+  {%- endif -%}
+</span>
 {%- endmacro %}
 
 {#- A section's pages as a row of tabs (docs/16 §3.2): plain links, each its own server-rendered URL,

@@ -52,7 +52,7 @@ from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.beta import feedback_href
-from web.page import get_lag_days, paid_tiers_offered, site_finder_listed
+from web.page import get_lag_days, nav_state, paid_tiers_offered, site_finder_listed
 from web.viewmodels import footer_build as vm_footer_build
 from web.viewmodels import source_freshness as vm_source_freshness
 from web.viewmodels import web_relative_url
@@ -87,12 +87,15 @@ templates.env.globals["footer_lag_days"] = get_lag_days
 # The navigation leaves "Pricing" out under the noncommercial posture (`web/page.py`).
 templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 templates.env.globals["site_finder_listed"] = site_finder_listed
+# Navigation v2 (docs/30 §11): the header's session, posture and live pages (`web/page.py`).
+templates.env.globals["nav_state"] = nav_state
 templates.env.globals["beta_feedback_href"] = feedback_href  # web/beta.py, as in web/page.py
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 # The header, tier notice and footer state how current the sources are (web/viewmodels.py).
 templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))
 templates.env.globals["asset_version"] = ASSET_VERSION
 templates.env.globals["section_labels"] = labels.SECTION_LABELS
+templates.env.globals["section_titles"] = labels.SECTION_TITLES
 
 
 # ---------------------------------------------------------------------------------------- CSRF
@@ -106,6 +109,23 @@ def _is_same_origin(request: Request) -> bool:
     if not parsed.scheme or not parsed.netloc:
         return False
     return (parsed.scheme, parsed.netloc) == (request.url.scheme, request.url.netloc)
+
+
+def _is_same_origin_form(request: Request) -> bool:
+    """`_is_same_origin`, or a browser's own word that the form it posts is this site's: the rule
+    `web/my_projects.py::same_origin_form` applies (which imports this module, so it cannot be imported
+    here; `web/test_auth.py` pins the two to the same answers).
+
+    For a form every page carries: the header's Sign out (Navigation v2, docs/30 §11.2). The My
+    pipeline pages are served with `Referrer-Policy: no-referrer` (docs/19 §5.2 item 6), under which
+    Chromium posts with `Origin: null` and no `Referer`, so `_is_same_origin` alone refused Sign out
+    there with a 403 and left the session cookie set (review of lane nav-shell, 2026-10-23).
+    `Sec-Fetch-Site`, which no page script can set, then decides: `same-origin` passes; anything else,
+    or no header at all, fails closed."""
+    if _is_same_origin(request):
+        return True
+    origin = request.headers.get("origin")
+    return origin in (None, "null") and request.headers.get("sec-fetch-site") == "same-origin"
 
 
 def _csrf_rejection() -> PlainTextResponse:
@@ -239,7 +259,8 @@ def register_submit(
 # ------------------------------------------------------------------------------------- logout
 @router.post("/logout")
 def logout(request: Request) -> Response:
-    if not _is_same_origin(request):
+    # The header's Sign out posts here from every page, the no-referrer My pipeline pages included.
+    if not _is_same_origin_form(request):
         return _csrf_rejection()
     redirect = RedirectResponse(url="/", status_code=303)
     cookie = request.cookies.get(SESSION_COOKIE_NAME)

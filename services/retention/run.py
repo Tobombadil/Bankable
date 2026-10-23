@@ -33,6 +33,10 @@ Each rule as applied (`RULES` holds the text each one follows; ages are measured
 * **documents per their licence flags** — skipped: no code writes `document` rows
   (`services/api/documents.py`), and no licence flag on `licence` states a retention period, so the
   rule has neither data nor a period to apply.
+* **data-room orphans** (docs/19 §3, "the retention job sweeps orphans") — `services.retention.data_rooms`:
+  an object under `data-rooms/` in the private bucket that no document row names is deleted once it
+  is 6 hours old. Runs only where data rooms are in use (`DATA_ROOMS=on` or `DATA_ROOM_STORE` named);
+  the report holds counts, never a key or a file name.
 * **`docs/13` §5.4 rule 7** (personal fields of withdrawn/cancelled projects purged at 24 months) is
   not DA-10's but is the retention rule DA-13 adopts; skipped: which fields are "personal fields",
   what the 24 months run from, and whether a purge redacts or deletes are not settled
@@ -74,6 +78,8 @@ from pipeline.connectors.registry import Registry
 from services.db.models import Alert, Event, Snapshot, Source, UserSession
 from services.db.session import get_engine, get_sessionmaker, session_scope
 from services.ids import public_id
+from services.projects.data_room_store import ObjectStore as DataRoomStore
+from services.retention import data_rooms
 from services.retention.snapshots import (
     RAW_SNAPSHOT_MONTHS,
     SourceOutcome,
@@ -112,6 +118,7 @@ RULES: dict[str, str] = {
     "withdrawn_personal_fields": (
         "withdrawn/cancelled projects have their personal fields purged at 24 months (docs/13 §5.4 rule 7)"
     ),
+    data_rooms.RULE_NAME: data_rooms.RULE,
 }
 
 SKIPPED: dict[str, str] = {
@@ -278,6 +285,7 @@ def apply_retention(
     dry_run: bool = False,
     media: Sequence[tuple[str, ObjectBackend]] | None = None,
     source_ids: Iterable[str] | None = None,
+    data_room_store: DataRoomStore | None = None,
 ) -> dict[str, Any]:
     """Apply every rule (module docstring) and return the report. Writes go through `db`; the caller
     commits (or `run_retention` does). With `dry_run`, nothing is written or deleted and `changed` is
@@ -304,6 +312,7 @@ def apply_retention(
         outcomes, media=[name for name, _ in chosen], cutoff=raw_cutoff, dry_run=dry_run
     )
     rules["snapshot_rows"] = classify_snapshot_rows(db, outcomes, dry_run=dry_run)
+    rules[data_rooms.RULE_NAME] = data_rooms.sweep_orphans(db, at, dry_run=dry_run, store=data_room_store)
     for name, reason in SKIPPED.items():
         rules[name] = {"status": "skipped", "rule": RULES[name], "reason": reason}
     return {
@@ -312,7 +321,7 @@ def apply_retention(
         "dry_run": dry_run,
         "data_root": str(data_root),
         "rules": rules,
-        "errors": len(rules["raw_snapshots"]["errors"]),
+        "errors": len(rules["raw_snapshots"]["errors"]) + int(rules[data_rooms.RULE_NAME].get("errors", 0)),
     }
 
 
@@ -358,6 +367,7 @@ def run_retention(
     dry_run: bool = False,
     media: Sequence[tuple[str, ObjectBackend]] | None = None,
     source_ids: Iterable[str] | None = None,
+    data_room_store: DataRoomStore | None = None,
 ) -> dict[str, Any]:
     """`apply_retention` and, unless `dry_run`, the run-log row, in one transaction."""
     if data_root is None:
@@ -372,6 +382,7 @@ def run_retention(
             dry_run=dry_run,
             media=media,
             source_ids=source_ids,
+            data_room_store=data_room_store,
         )
         if not dry_run:
             event = persist_run(db, report)

@@ -788,7 +788,7 @@ def test_the_annual_tick_fetches_only_the_sources_whose_run_month_it_is(
     if "us.census.cartographic_boundaries" not in january:
         raise AssertionError("an annual source without release_month keeps the January default")
     weekly = {s["id"] for s in scheduler_app.due_sources("weekly", at(10))}
-    if SOURCE_ID in weekly or "us.iso.caiso.gen_queue" not in weekly:
+    if SOURCE_ID in weekly or "us.epa.echo.icis_air" not in weekly:
         raise AssertionError("non-annual buckets are unaffected by the month")
 
 

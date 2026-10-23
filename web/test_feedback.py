@@ -187,9 +187,12 @@ def test_in_beta_mode_every_page_links_to_the_form_with_its_own_path(
     href = _beta_link(body)
     assert href == f"/feedback?from=%2F{path[1:]}", href
     assert "Tell us what you were trying to do</a>" in body
-    # In the header (the banner landmark), above the masthead, so it shows at 400px too.
-    header = body.split('<header class="site-header">')[1].split("</header>")[0]
-    assert header.index('class="beta-bar"') < header.index('class="masthead')
+    # Above the top bar (docs/30 §11.2), at every width, and outside the sticky banner so it scrolls
+    # away instead of staying on screen with it.
+    shell = body.split('<a class="skip-link"', 1)[1].split('<main id="main"', 1)[0]
+    beta = shell.index('<div class="beta-bar" role="region" aria-label="Private beta">')
+    top_bar = shell.index('<header class="site-header top-bar">')
+    assert beta < top_bar and "beta-bar" not in shell[top_bar:]
 
 
 def test_the_signal_is_the_shared_login_setting(monkeypatch: pytest.MonkeyPatch) -> None:

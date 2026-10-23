@@ -33,6 +33,14 @@ procedure is docs/21 §6.6 as far as the code reaches today, with the 2026-09-19
   name, never the values.
 - `export`, `match_dismissal`: unchanged; they hold no personal data and point at the now-anonymous
   user id.
+- **Data rooms** (docs/19 §3, §5.4; `services.projects.data_room.erase_user_data_rooms`): in the items
+  the user owns, every file, folder and access-log line is deleted, and the files' objects are removed
+  from the private bucket once this transaction commits (deleting a row destroys the file's sealed
+  key, so an object the store does not remove at once is unreadable, and the retention job sweeps
+  it). In other people's items the files the user uploaded stay as that item's content, shown as
+  uploaded by "Former member", and the access-log lines they caused lose their author: the rule the
+  owner set for notes (2026-10-22). The rest of a private project's erasure (the items themselves,
+  memberships, notes) is lane P4's.
 
 The CRM goes first (`CrmPort.request_personal_data_deletion`, which opens a task for a human in the
 CRM; it never deletes, docs/00-PLAN.md 2026-09-13) because it needs the real address and can fail:
@@ -69,6 +77,7 @@ from services.db.models import (
     UserSession,
     WebhookEndpoint,
 )
+from services.projects import data_room, data_room_store
 from services.sor.ports import BillingPort, CrmPort
 
 #: The reserved-TLD tombstone an erased user's `email` becomes (RFC 2606 `.invalid`): a
@@ -130,6 +139,8 @@ class ErasureResult:
     webhooks_disabled: int
     account_closed: bool
     billing: dict[str, Any]
+    #: The data room's part (`data_room.erase_user_data_rooms`), as counts.
+    data_rooms: data_room.DataRoomErasure | None = None
 
     @property
     def billing_pending(self) -> bool:
@@ -225,6 +236,7 @@ def erase_user(
             webhooks_disabled += 1
 
     account_closed = _close_personal_account(db, user)
+    data_rooms = data_room.erase_user_data_rooms(db, user, _data_room_store())
     db.flush()
 
     event = record_audit_event(
@@ -247,6 +259,8 @@ def erase_user(
             "alerts_redacted": alerts_redacted,
             "webhooks_disabled": webhooks_disabled,
             "account": "closed" if account_closed else "unchanged",
+            "data_room_documents_deleted": data_rooms.documents_deleted,
+            "data_room_documents_kept_as_former_member": data_rooms.documents_kept_as_former_member,
             **billing_outcome,
         },
     )
@@ -259,7 +273,17 @@ def erase_user(
         webhooks_disabled=webhooks_disabled,
         account_closed=account_closed,
         billing=billing_outcome,
+        data_rooms=data_rooms,
     )
+
+
+def _data_room_store() -> data_room_store.ObjectStore | None:
+    """Where the erased user's files are, to remove them after the commit; `None` when no store is
+    configured (the rows, and with them the files' keys, still go)."""
+    try:
+        return data_room_store.store_from_env()
+    except data_room_store.DataRoomUnavailable:
+        return None
 
 
 __all__ = [

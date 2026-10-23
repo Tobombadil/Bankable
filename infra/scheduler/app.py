@@ -38,6 +38,7 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
     tick_value (daily)    -> value_tick               ECB rates refreshed; every opportunity's value
                                                       and USD equivalent restated (no last_changed)
     tick_retention (daily) -> retention_tick          DA-10: old sessions, alert addresses, raw snapshots
+    tick_trends (hourly :58) -> trends_tick          the daily metrics snapshot (05:58; later, if missing)
     tick_stalled_jobs (10 min) -> retry_stalled_jobs  jobs a dead worker left `doing` (queue_maintenance.py)
     tick_prune_jobs (daily) -> remove_old_jobs        finished jobs past their keep period
     admin release         ->  release_held_run        a DQ-held run an operator released (2026-09-27):
@@ -565,6 +566,31 @@ def _tick_retention(timestamp: int) -> None:
         retention_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous retention_tick still queued or running")
+
+
+# The daily metrics snapshot (lane metrics-recorder; docs/24-trends.md; `jobs.trends_tick_job`). Hourly
+# at minute 58, which no other tick uses: the 05:58 run writes the day's document, every other run
+# writes today's only if it is missing, so a deploy that missed 05:58 still records the day. A median
+# 0.304 s on a 9,563-proposal SQLite store, 0.733 s with 1,500 opportunities and 5,000 events in the
+# day (docs/24-trends.md §7); 15 minutes leaves room for Postgres and a store many times larger.
+TRENDS_CRON = f"{jobs.TRENDS_DAILY_AT.minute} * * * *"
+TRENDS_TIMEOUT_S = 900
+
+
+@app.task(name="trends_tick", queue="audit", retry=0, queueing_lock="trends_tick")
+def trends_tick(mode: str = jobs.TRENDS_DAILY) -> dict[str, Any]:
+    """Today's metrics document, written locally and mirrored to the private bucket. Reads the store
+    only, so it holds no store-wide lock; `retry=0`: the next hour's tick is the retry."""
+    return _run_with_timeout(lambda: jobs.trends_tick_job(mode), timeout_s=TRENDS_TIMEOUT_S)
+
+
+@app.periodic(cron=TRENDS_CRON, periodic_id="tick:trends")
+@app.task(name="tick_trends", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_trends(timestamp: int) -> None:
+    try:
+        trends_tick.defer(mode=jobs.trends_mode_for(timestamp))
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous trends_tick still queued or running")
 
 
 # Procrastinate's own upkeep (infra/scheduler/queue_maintenance.py; docs/51 §2.9 item 2): the

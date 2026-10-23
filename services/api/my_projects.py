@@ -57,15 +57,24 @@ project page, and a project from a site, a plant or a grid connection point (`ki
 
 **Handed to lane P4:** `export_user_data` (docs/19 §5.5) is the body of `GET /v1/my/export`; the
 route around it (session, headers, download, the daily limit) is here.
+
+**Data rooms** (docs/19 §3, §12; `DATA_ROOMS=on` as well as the workspace switch): nine routes under
+`/v1/my/projects/{project_id}/documents`, each through `project_access` with the data-room actions
+(`download`, `upload`, `manage_files`, `audit`). The upload is the one private write whose body is
+not JSON (`multipart/form-data`, parsed in memory as it streams; `UPLOAD_ROUTE`), bounded by its
+`Content-Length` before any body is read (`upload_length_refusal`). A download is streamed through
+its route as an attachment (`DOWNLOAD_HEADERS`), never a signed URL, and no header names the file.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import io
+import json
 import os
 import re
 import uuid as _uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Annotated, Any, Final
@@ -73,6 +82,8 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Body, Depends, Request, Response
 from fastapi.responses import JSONResponse
+from python_multipart.exceptions import MultipartParseError
+from python_multipart.multipart import MultipartParser, parse_options_header
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -81,7 +92,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from services.api.auth import AuthContext, get_auth_context
 from services.api.client_ip import is_internal_request
-from services.api.common import WEB_HOST, iso
+from services.api.common import API_HOST, WEB_HOST, iso, new_request_id
 from services.api.deps import get_db
 from services.api.errors import ProblemError, unknown_parameter
 from services.api.geo import effective_placement
@@ -135,7 +146,15 @@ from services.db.models import (
     Source,
     User,
 )
-from services.projects import authz, checklist, invitations
+from services.projects import (
+    authz,
+    checklist,
+    data_room,
+    data_room_files,
+    data_room_scan,
+    data_room_store,
+    invitations,
+)
 from services.projects import kinds as item_kinds
 from services.projects import models as pm
 from services.sites.switch import sites_enabled
@@ -293,7 +312,79 @@ class PrivateHeadersMiddleware:
                 apply_private_headers(MutableHeaders(scope=message))
             await send(message)
 
+        refusal = upload_length_refusal(scope)
+        if refusal is not None:
+            await _send_problem(send_private, str(scope.get("path", "")), refusal)
+            return
         await self.app(scope, receive, send_private)
+
+
+#: The one private route that takes a body other than JSON: a data-room upload, as
+#: `multipart/form-data` (docs/19 §3).
+UPLOAD_ROUTE: Final = "/v1/my/projects/{project_id}/documents"
+_UPLOAD_PATH = re.compile(r"/v1/my/projects/[^/]+/documents")
+
+
+def upload_body_limit() -> int:
+    """The longest upload body accepted: the configured cap on one file plus the form around it
+    (`data_room_store.upload_body_limit`). A misconfigured cap falls back to the ceiling; the route
+    then answers `503` before it reads anything."""
+    try:
+        return data_room_store.upload_body_limit(data_room_store.limits_from_env())
+    except data_room_store.DataRoomUnavailable:
+        return data_room_store.UPLOAD_BODY_CEILING
+
+
+def upload_length_refusal(scope: Scope) -> str | None:
+    """Why an upload is refused before a byte of its body is read, or `None`.
+
+    Only while the data room is on (`MY_PIPELINE=on` and `DATA_ROOMS=on`). Off, this says nothing
+    and the request goes on to the router like any other, which answers the `404` an unknown project
+    gets before any body is read (`private_request_guard`, then `data_rooms_on`), so neither the
+    length nor its absence shows that the route exists (review of 2026-10-23, finding 2).
+
+    On, an upload must say how long it is (`Content-Length`, which the server holds the body to) and
+    be no longer than the configured cap on one file plus the form around it (`upload_body_limit`).
+    A file over the cap inside that margin is refused on the file itself, with its line in the
+    item's access log. The app-wide `Idempotency-Key` handling reads a whole body before any route
+    runs, so the bound has to come first, here."""
+    if scope.get("method") != "POST" or not _UPLOAD_PATH.fullmatch(str(scope.get("path", ""))):
+        return None
+    if not (workspace_enabled() and data_room_store.data_rooms_enabled()):
+        return None
+    lengths = [value for name, value in scope.get("headers") or [] if name.lower() == b"content-length"]
+    if len(lengths) != 1 or not lengths[0].strip().isdigit():
+        return "An upload must give its Content-Length."
+    if int(lengths[0]) > upload_body_limit():
+        return data_room_files.REFUSAL_TEXT["too_large"]
+    return None
+
+
+async def _send_problem(send: Send, path: str, detail: str) -> None:
+    body = json.dumps(
+        {
+            "type": f"{API_HOST}/errors/validation_error",
+            "title": "Invalid request",
+            "status": 400,
+            "code": "validation_error",
+            "request_id": new_request_id(),
+            "instance": path,
+            "detail": detail,
+            "errors": [{"field": "Content-Length", "message": detail}],
+        }
+    ).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 400,
+            "headers": [
+                (b"content-type", b"application/problem+json"),
+                (b"content-length", str(len(body)).encode()),
+                (b"connection", b"close"),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 async def private_unhandled_exception_handler(request: Request, exc: Exception) -> Response:
@@ -372,8 +463,15 @@ def private_request_guard(request: Request) -> None:
             )
     if _has_body(request):
         content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type == "multipart/form-data" and _is_upload(request):
+            return
         if content_type != "application/json":
             raise _invalid("Content-Type", "the body must be application/json")
+
+
+def _is_upload(request: Request) -> bool:
+    route = request.scope.get("route")
+    return request.method == "POST" and getattr(route, "path", None) == UPLOAD_ROUTE
 
 
 router = APIRouter(dependencies=[Depends(private_request_guard)])
@@ -1967,6 +2065,8 @@ def update_my_project(db: _Db, ctx: _Ctx, access: _ProjectRead, body: _Body) -> 
 
 @router.delete("/v1/my/projects/{project_id}", status_code=204)
 def delete_my_project(db: _Db, access: _ProjectDelete) -> Response:
+    """With everything in it: its data room's files go from the object store once this commits."""
+    data_room.forget_project(db, access, _store_or_none())
     authz.delete_project(db, access)
     return Response(status_code=204)
 
@@ -2652,3 +2752,499 @@ def export_my_data(request: Request, db: _Db, ctx: _Ctx, user: _User) -> Any:
         document,
         headers={"Content-Disposition": 'attachment; filename="inframation-my-data.json"'},
     )
+
+
+# ================================================================================ data rooms
+# docs/19 §3 and "Data rooms, as built"; next-wave item C of the decision row of 2026-10-23. Every
+# route below answers the one `404` until `DATA_ROOMS=on` (as well as `MY_PIPELINE=on`), takes the
+# item through `project_access`, and reaches files only through `services.projects.data_room`.
+#: Uploads a user may send in an hour, and downloads they may take (each is logged for the owner).
+UPLOADS_PER_HOUR: Final = 60
+DOWNLOADS_PER_HOUR: Final = 300
+#: Adding, renaming and deleting folders, together.
+FOLDER_CHANGES_PER_HOUR: Final = 60
+FILE_DELETES_PER_HOUR: Final = 300
+#: A download is always a file to save, never a page: no name in the header (the proxy's access log
+#: records response headers, and a name must never reach a log; the page names the file through
+#: the link's `download` attribute), no sniffing, and a sandbox with nothing allowed should a browser
+#: ever render it anyway (an uploaded HTML or SVG never runs in the site's origin).
+DOWNLOAD_HEADERS: Final[Mapping[str, str]] = {
+    "Content-Disposition": "attachment",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "sandbox; default-src 'none'; frame-ancestors 'none'",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Download-Options": "noopen",
+}
+#: The form fields an upload carries, and the most a non-file field may hold.
+_UPLOAD_FIELDS: Final = ("folder_id", "file")
+_FIELD_MAX_BYTES: Final = 256
+
+
+def data_rooms_on() -> None:
+    """The data room's own switch (`data_room_store.data_rooms_enabled`): off, every data-room route
+    is the `404` an unknown id gets."""
+    if not data_room_store.data_rooms_enabled():
+        raise authz.project_not_found()
+
+
+_RoomsOn = Annotated[None, Depends(data_rooms_on)]
+_ProjectDownload = Annotated[authz.ProjectAccess, Depends(authz.project_access("download"))]
+_ProjectUpload = Annotated[authz.ProjectAccess, Depends(authz.project_access("upload"))]
+_ProjectManageFiles = Annotated[authz.ProjectAccess, Depends(authz.project_access("manage_files"))]
+_ProjectAudit = Annotated[authz.ProjectAccess, Depends(authz.project_access("audit"))]
+
+
+def _room_unavailable() -> ProblemError:
+    return ProblemError(
+        "unavailable",
+        "Documents are not available right now",
+        detail="The data room cannot reach its storage. Nothing was stored or changed; try again later.",
+    )
+
+
+def _store_or_none() -> data_room_store.ObjectStore | None:
+    """The store, for removing objects; `None` when it is not configured (a leftover object is
+    unreadable once its row, which holds its key, is gone, and the retention job sweeps it)."""
+    try:
+        return data_room_store.store_from_env()
+    except data_room_store.DataRoomUnavailable:
+        return None
+
+
+def _room_parts() -> tuple[data_room_store.ObjectStore, data_room_store.Sealer, data_room_store.Limits]:
+    try:
+        return (
+            data_room_store.store_from_env(),
+            data_room_store.sealer_from_env(),
+            data_room_store.limits_from_env(),
+        )
+    except data_room_store.DataRoomUnavailable:
+        raise _room_unavailable() from None
+
+
+def _row_id_or_404(value: str) -> _uuid.UUID:
+    try:
+        return _uuid.UUID(value)
+    except ValueError:
+        raise authz.project_not_found() from None
+
+
+def _type_json(doc_type: str) -> dict[str, Any]:
+    kind = data_room_files.TYPES[doc_type]
+    return {"type": kind.key, "type_label": kind.label, "media_type": kind.media_type.split(";", 1)[0]}
+
+
+def _folder_json(summary: data_room.FolderSummary) -> dict[str, Any]:
+    folder = summary.folder
+    checklist_counts = (
+        {"done": summary.checklist_done, "total": summary.checklist_total}
+        if summary.checklist_total is not None
+        else None
+    )
+    return {
+        "folder_id": str(folder.id),
+        "key": folder.key,
+        "name": folder.name,
+        "default": folder.key is not None,
+        "documents": summary.documents,
+        "size_bytes": summary.bytes,
+        "checklist": checklist_counts,
+    }
+
+
+def _document_json(
+    document: pm.PrivateProjectDocument,
+    access: authz.ProjectAccess,
+    people: Mapping[_uuid.UUID, User],
+    members: set[_uuid.UUID],
+) -> dict[str, Any]:
+    return {
+        "document_id": str(document.id),
+        "folder_id": str(document.folder_id),
+        "file_name": document.file_name,
+        **_type_json(document.doc_type),
+        "size_bytes": document.size_bytes,
+        "uploaded_by": _person(document.uploaded_by_user_id, people, members),
+        "uploaded_at": _when(document.uploaded_at),
+        "scan_status": document.scan_status,
+        "scanned_with": document.scanner,
+        "mine": document.uploaded_by_user_id == access.user.id,
+        "can_delete": data_room.may_delete(access, document),
+        "download": (
+            f"{PRIVATE_API_PREFIX}/projects/{access.project.public_id}/documents/{document.id}/download"
+        ),
+    }
+
+
+def _documents_json(
+    db: Session, access: authz.ProjectAccess, documents: Sequence[pm.PrivateProjectDocument]
+) -> list[dict[str, Any]]:
+    members = _member_ids(db, access.project.id)
+    people = _people(db, [document.uploaded_by_user_id for document in documents])
+    return [_document_json(document, access, people, members) for document in documents]
+
+
+def _room_json(db: Session, access: authz.ProjectAccess) -> dict[str, Any]:
+    summaries = data_room.folder_summaries(db, access)
+    try:
+        limits: data_room_store.Limits | None = data_room_store.limits_from_env()
+    except data_room_store.DataRoomUnavailable:
+        limits = None
+    scanner = data_room_scan.scanner_mode()
+    archived = access.project.archived_at is not None
+    return {
+        "project_id": access.project.public_id,
+        "folders": [_folder_json(summary) for summary in summaries],
+        "documents": sum(summary.documents for summary in summaries),
+        "size_bytes": sum(summary.bytes for summary in summaries),
+        "role": access.role,
+        "can_upload": access.allows("upload") and not archived,
+        "can_manage": access.allows("manage_files") and not archived,
+        "can_audit": access.allows("audit"),
+        "quota": {
+            "used_bytes": data_room.quota_used(db, access.user.id),
+            "limit_bytes": limits.quota_bytes if limits else None,
+        },
+        "limits": {
+            "max_file_bytes": limits.max_file_bytes if limits else None,
+            "accepted_types": data_room_files.accepted_types(),
+        },
+        "scanning": {
+            "scanner": None if scanner == "off" else scanner,
+            "text": data_room_scan.SCANNING_TEXT[scanner],
+        },
+    }
+
+
+@router.get("/v1/my/projects/{project_id}/documents")
+def get_my_data_room(request: Request, db: _Db, ctx: _Ctx, rooms: _RoomsOn, access: _ProjectDownload) -> Any:
+    """The item's folders with their file counts (and, for a checklist folder, its checklist counts),
+    what the caller may do, their own storage allowance, the accepted types and what is scanned."""
+    check_allowed(request, set())
+    return _envelope(ctx, _room_json(db, access))
+
+
+@router.get("/v1/my/projects/{project_id}/documents/folders/{folder_id}")
+def list_my_folder(
+    request: Request, folder_id: str, db: _Db, ctx: _Ctx, rooms: _RoomsOn, access: _ProjectDownload
+) -> Any:
+    """A folder's files, newest first: name, type, size, uploader, date and scan status. Opening it
+    is a view in the item's access log."""
+    check_allowed(request, set())
+    folder, documents = data_room.folder_documents(db, access, _row_id_or_404(folder_id))
+    summary = next(row for row in data_room.folder_summaries(db, access) if row.folder.id == folder.id)
+    data = {"folder": _folder_json(summary), "documents": _documents_json(db, access, documents)}
+    return _envelope(ctx, data)
+
+
+@router.post("/v1/my/projects/{project_id}/documents/folders", status_code=201)
+def create_my_folder(db: _Db, ctx: _Ctx, rooms: _RoomsOn, access: _ProjectUpload, body: _Body) -> Any:
+    _only(body, ("name",))
+    _limit(f"data-room-folders:{access.user.id}", FOLDER_CHANGES_PER_HOUR, 3600, "folder changes")
+    folder = data_room.create_folder(db, access, body.get("name"))
+    return _envelope(ctx, _folder_json(data_room.FolderSummary(folder, 0, 0, None, None)))
+
+
+@router.patch("/v1/my/projects/{project_id}/documents/folders/{folder_id}")
+def rename_my_folder(
+    folder_id: str, db: _Db, ctx: _Ctx, rooms: _RoomsOn, access: _ProjectUpload, body: _Body
+) -> Any:
+    _only(body, ("name",))
+    _limit(f"data-room-folders:{access.user.id}", FOLDER_CHANGES_PER_HOUR, 3600, "folder changes")
+    folder = data_room.rename_folder(db, access, _row_id_or_404(folder_id), body.get("name"))
+    summary = next(row for row in data_room.folder_summaries(db, access) if row.folder.id == folder.id)
+    return _envelope(ctx, _folder_json(summary))
+
+
+@router.delete("/v1/my/projects/{project_id}/documents/folders/{folder_id}", status_code=204)
+def delete_my_folder(folder_id: str, db: _Db, rooms: _RoomsOn, access: _ProjectManageFiles) -> Response:
+    """The owner deletes a folder a member added, with every file in it; the default folders stay.
+    A folder change: the same hourly limit as adding and renaming one."""
+    _limit(f"data-room-folders:{access.user.id}", FOLDER_CHANGES_PER_HOUR, 3600, "folder changes")
+    data_room.delete_folder(db, access, _row_id_or_404(folder_id), _store_or_none())
+    return Response(status_code=204)
+
+
+@dataclass
+class UploadForm:
+    """An upload's form, read in memory: never spooled to a disk (docs/19 §3)."""
+
+    folder_id: str = ""
+    file_name: str | None = None
+    data: bytes = b""
+
+
+class _FormReader:
+    """`python_multipart`'s streaming parser, keeping the `folder_id` field and the one `file` part.
+    Any other field, a second file or a field over `_FIELD_MAX_BYTES` is a `400` that names no
+    value."""
+
+    def __init__(self) -> None:
+        self.form = UploadForm()
+        self._header_field = bytearray()
+        self._header_value = bytearray()
+        self._headers: dict[bytes, bytes] = {}
+        self._name: str | None = None
+        self._buffer = bytearray()
+        #: The file part, written as it streams in. `getvalue()` hands over this buffer rather than
+        #: copying it, so the file is held once (a `bytearray` turned into `bytes` is held twice).
+        self._file = io.BytesIO()
+        self._seen: set[str] = set()
+
+    def on_part_begin(self) -> None:
+        self._headers = {}
+        self._name = None
+        self._buffer = bytearray()
+
+    def on_header_field(self, data: bytes, start: int, end: int) -> None:
+        self._header_field += data[start:end]
+
+    def on_header_value(self, data: bytes, start: int, end: int) -> None:
+        self._header_value += data[start:end]
+
+    def on_header_end(self) -> None:
+        self._headers[bytes(self._header_field).strip().lower()] = bytes(self._header_value).strip()
+        self._header_field = bytearray()
+        self._header_value = bytearray()
+
+    def on_headers_finished(self) -> None:
+        disposition, options = parse_options_header(self._headers.get(b"content-disposition", b""))
+        raw_name = options.get(b"name")
+        if disposition != b"form-data" or raw_name is None:
+            raise _invalid("body", "each part of the form must be named")
+        name = raw_name.decode("utf-8", "replace")
+        if name not in _UPLOAD_FIELDS or name in self._seen:
+            raise _invalid(_body_key(name), f"{_body_key(name)} cannot be sent here")
+        self._seen.add(name)
+        self._name = name
+        if name == "file":
+            filename = options.get(b"filename")
+            if filename is None:
+                raise _invalid("file", "file must be a file")
+            self.form.file_name = filename.decode("utf-8", "replace")
+
+    def on_part_data(self, data: bytes, start: int, end: int) -> None:
+        if self._name == "file":
+            self._file.write(data[start:end])
+            return
+        self._buffer += data[start:end]
+        if len(self._buffer) > _FIELD_MAX_BYTES:
+            raise _invalid(self._name or "body", "the field is too long")
+
+    def on_part_end(self) -> None:
+        if self._name == "file":
+            self.form.data = self._file.getvalue()
+            self._file = io.BytesIO()
+        elif self._name == "folder_id":
+            self.form.folder_id = self._buffer.decode("utf-8", "replace").strip()
+        self._buffer = bytearray()
+
+
+async def read_upload_form(request: Request) -> UploadForm:
+    """The upload's body, parsed as it streams in (the middleware has already bounded its length)."""
+    content_type, options = parse_options_header(request.headers.get("content-type", "").encode("latin-1"))
+    boundary = options.get(b"boundary")
+    if content_type != b"multipart/form-data" or not boundary:
+        raise _invalid("Content-Type", "an upload is multipart/form-data")
+    reader = _FormReader()
+    callbacks: Any = {
+        "on_part_begin": reader.on_part_begin,
+        "on_header_field": reader.on_header_field,
+        "on_header_value": reader.on_header_value,
+        "on_header_end": reader.on_header_end,
+        "on_headers_finished": reader.on_headers_finished,
+        "on_part_data": reader.on_part_data,
+        "on_part_end": reader.on_part_end,
+    }
+    parser = MultipartParser(boundary, callbacks, max_size=upload_body_limit())
+    try:
+        async for chunk in request.stream():
+            parser.write(chunk)
+        parser.finalize()
+    except MultipartParseError:
+        raise _invalid("body", "the form could not be read") from None
+    if reader.form.file_name is None:
+        raise _invalid("file", "file is required")
+    if not reader.form.folder_id:
+        raise _invalid("folder_id", "folder_id is required")
+    return reader.form
+
+
+def _upload_rate(access: _ProjectUpload) -> None:
+    """Spent before the body is read, so a refused caller costs nothing more."""
+    _limit(f"data-room-uploads:{access.user.id}", UPLOADS_PER_HOUR, 3600, "uploads")
+
+
+def _upload_in_progress() -> ProblemError:
+    return ProblemError(
+        "rate_limited",
+        "Another upload is in progress",
+        detail="Your other upload is still being stored; send this one when it has finished.",
+        headers={"Retry-After": "5"},
+    )
+
+
+async def _upload_slot(access: _ProjectUpload) -> AsyncIterator[None]:
+    """Taken after the hourly limit and before a byte of the body is read, held until the route
+    returns: the caller's one upload in progress (`data_room_store.user_upload`), then one of the
+    process's transfer slots, waited for without holding a worker thread. So at most
+    `DATA_ROOM_TRANSFERS` upload bodies are in memory at once, and no one account holds them all."""
+    try:
+        with data_room_store.user_upload(str(access.user.id)):
+            async with data_room_store.transfer_slot_async(
+                wait_seconds=data_room_store.TRANSFER_WAIT_SECONDS
+            ):
+                yield
+    except data_room_store.UploadInProgress:
+        raise _upload_in_progress() from None
+    except data_room_store.DataRoomBusy:
+        raise _busy() from None
+
+
+def _refusal_response(request: Request, refusal: data_room_files.Refusal) -> Response:
+    """A refused upload's `400`, returned rather than raised so the line it wrote in the item's
+    access log commits with the response."""
+    problem = ProblemError(
+        "validation_error",
+        "File not accepted",
+        detail=refusal.text,
+        errors=[{"field": "file", "message": refusal.text}],
+    )
+    return JSONResponse(
+        status_code=problem.status, content=problem.to_body(request), media_type="application/problem+json"
+    )
+
+
+def _busy() -> ProblemError:
+    return ProblemError(
+        "unavailable",
+        "The data room is busy",
+        detail="Other files are being uploaded or downloaded; try again in a moment.",
+        headers={"Retry-After": "5"},
+    )
+
+
+@router.post("/v1/my/projects/{project_id}/documents", status_code=201)
+def upload_my_document(
+    request: Request,
+    db: _Db,
+    ctx: _Ctx,
+    rooms: _RoomsOn,
+    access: _ProjectUpload,
+    rate: Annotated[None, Depends(_upload_rate)],
+    slot: Annotated[None, Depends(_upload_slot, scope="function")],
+    form: Annotated[UploadForm, Depends(read_upload_form)],
+) -> Any:
+    """One file into one of the item's folders (`multipart/form-data`: `folder_id`, `file`). Checked
+    from its bytes, counted against the uploader's allowance, scanned when a scanner is configured,
+    sealed and stored; a refusal is a `400` that says why and is logged for the item's owner. The
+    transfer slot is taken before the body is read (`_upload_slot`)."""
+    store, sealer, limits = _room_parts()
+    try:
+        scanner = data_room_scan.scanner_from_env()
+        outcome = data_room.store_upload(
+            db,
+            access,
+            folder_id=_row_id_or_404(form.folder_id),
+            raw_name=form.file_name or "",
+            data=form.data,
+            store=store,
+            sealer=sealer,
+            scanner=scanner,
+            limits=limits,
+        )
+    except (data_room_scan.ScannerUnavailable, data_room_store.DataRoomUnavailable):
+        raise ProblemError(
+            "unavailable",
+            "The file could not be stored right now",
+            detail="The virus scanner or the storage did not answer, so nothing was stored. Try again later.",
+        ) from None
+    if isinstance(outcome, data_room_files.Refusal):
+        return _refusal_response(request, outcome)
+    data = _documents_json(db, access, [outcome])[0]
+    return JSONResponse(status_code=201, content=_envelope(ctx, data))
+
+
+async def _download_slot(request: Request, access: _ProjectDownload) -> AsyncIterator[None]:
+    """Before a download reads anything: no unknown parameter, not a cross-site request, the hourly
+    limit, then a transfer slot, waited for without holding a worker thread and held until the route
+    returns."""
+    check_allowed(request, set())
+    if request.headers.get("sec-fetch-site", "").strip().lower() == "cross-site":
+        raise ProblemError(
+            "validation_error",
+            "Cross-site request refused",
+            detail="Download files from this site.",
+            errors=[{"field": "Sec-Fetch-Site", "message": "must not be cross-site"}],
+        )
+    _limit(f"data-room-downloads:{access.user.id}", DOWNLOADS_PER_HOUR, 3600, "downloads")
+    try:
+        async with data_room_store.transfer_slot_async(wait_seconds=data_room_store.TRANSFER_WAIT_SECONDS):
+            yield
+    except data_room_store.DataRoomBusy:
+        raise _busy() from None
+
+
+@router.get("/v1/my/projects/{project_id}/documents/{document_id}/download")
+def download_my_document(
+    document_id: str,
+    db: _Db,
+    rooms: _RoomsOn,
+    access: _ProjectDownload,
+    slot: Annotated[None, Depends(_download_slot, scope="function")],
+) -> Response:
+    """The file, as an attachment (`DOWNLOAD_HEADERS`), through this authorised route only: the
+    object store is never addressed by the browser. Every download is logged for the item's owner."""
+    store, sealer, _limits = _room_parts()
+    try:
+        document, data = data_room.open_document(
+            db, access, _row_id_or_404(document_id), store=store, sealer=sealer
+        )
+    except (data_room_store.DataRoomUnavailable, data_room.DocumentDamaged):
+        raise ProblemError(
+            "unavailable",
+            "This file cannot be opened right now",
+            detail="The stored copy could not be read. Nothing was changed; try again later.",
+        ) from None
+    media_type = data_room_files.TYPES[document.doc_type].media_type
+    return Response(content=data, media_type=media_type, headers=dict(DOWNLOAD_HEADERS))
+
+
+@router.delete("/v1/my/projects/{project_id}/documents/{document_id}", status_code=204)
+def delete_my_document(document_id: str, db: _Db, rooms: _RoomsOn, access: _ProjectUpload) -> Response:
+    """The owner deletes any file; an editor the files they uploaded. The object goes once this commits."""
+    _limit(f"data-room-deletes:{access.user.id}", FILE_DELETES_PER_HOUR, 3600, "file deletions")
+    data_room.delete_document(db, access, _row_id_or_404(document_id), _store_or_none())
+    return Response(status_code=204)
+
+
+@router.get("/v1/my/projects/{project_id}/documents/log")
+def list_my_data_room_log(
+    request: Request, db: _Db, ctx: _Ctx, rooms: _RoomsOn, access: _ProjectAudit
+) -> Any:
+    """The item's access log, newest first: who viewed a folder, downloaded, uploaded or deleted which
+    file, refused uploads and folder changes, and when. The owner's alone."""
+    check_allowed(request, {"limit"})
+    raw = request.query_params.get("limit", str(data_room.ACCESS_LOG_DEFAULT_LIMIT))
+    if not _ASCII_COUNT.fullmatch(raw) or not 1 <= int(raw) <= data_room.ACCESS_LOG_MAX_LIMIT:
+        raise _invalid("limit", f"limit is between 1 and {data_room.ACCESS_LOG_MAX_LIMIT}")
+    rows = data_room.access_log(db, access, limit=int(raw))
+    members = _member_ids(db, access.project.id)
+    people = _people(db, [row.actor_user_id for row in rows])
+    data = [
+        {
+            "action": row.action,
+            "occurred_at": _when(row.occurred_at),
+            "actor": _person(row.actor_user_id, people, members),
+            "mine": row.actor_user_id == access.user.id,
+            "file_name": row.file_name,
+            "folder_name": row.folder_name,
+            "document_id": str(row.document_id) if row.document_id else None,
+            "folder_id": str(row.folder_id) if row.folder_id else None,
+            "reason": row.reason,
+            "reason_text": data_room_files.REFUSAL_TEXT[row.reason] if row.reason else None,
+            "size_bytes": row.size_bytes,
+        }
+        for row in rows
+    ]
+    return _envelope(ctx, data)
