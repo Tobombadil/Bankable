@@ -142,7 +142,11 @@ def test_the_plain_map_opens_with_three_live_figures_each_linking_to_its_list(in
         "/v1/proposals",
         {"lifecycle_state": ",".join(ACTIVE_PROPOSAL_STATES), "kind": "load", "limit": 1, "include": "count"},
     )
-    assert open_calls == ("/v1/opportunities", {"status": "open", "limit": 1, "include": "count"})
+    # Energy-relevant notices only, as the RFPs page lists by default, so the figure and its list agree.
+    assert open_calls == (
+        "/v1/opportunities",
+        {"status": "open", "relevance": "energy", "limit": 1, "include": "count"},
+    )
 
 
 def test_the_preview_card_leads_with_the_figures_and_names_the_page(install: Any) -> None:
