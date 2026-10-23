@@ -2380,6 +2380,11 @@ _MAP_COVERED = """() => {
   return 100 * hit / n;
 }"""
 _BOX = "(el) => { const b = el.getBoundingClientRect(); return [b.left, b.top, b.width, b.height]; }"
+#: Several elements' boxes read in one frame, so a scroll or animation between reads cannot skew a comparison.
+_BOXES = (
+    "(sels) => sels.map((s) => { const b = document.querySelector(s).getBoundingClientRect();"
+    " return [b.left, b.top, b.width, b.height]; })"
+)
 _DROP_PREVIEW_LABEL = "() => { const b = document.querySelector('.preview-banner'); if (b) b.remove(); }"
 #: A map-bar summary's marker: no native one (list-item or `::-webkit-details-marker`), and the
 #: chevron its `::after` draws (first in its flex row), whose turn says closed or open.
@@ -3364,8 +3369,9 @@ def test_the_count_line_says_what_matches_and_what_no_map_can_place(server: obje
             phone.goto(BASE_URL + "/")
             phone.wait_for_function(_COUNT_READY, timeout=30000)
             assert phone.inner_text("#map-result-count") == "6,009 projects match these filters."
-            count_box = phone.locator("#map-result-count").evaluate(_BOX)
-            brief_box = phone.locator(".map-notice__brief").evaluate(_BOX)
+            # Both boxes are read in one frame: two separate reads can straddle a smooth scroll and
+            # compare positions from different moments (CI, 2026-10-23).
+            count_box, brief_box = phone.evaluate(_BOXES, ["#map-result-count", ".map-notice__brief"])
             middles = [count_box[1] + count_box[3] / 2, brief_box[1] + brief_box[3] / 2]
             assert abs(middles[0] - middles[1]) <= 2, (count_box, brief_box)  # one line, as before
             phone.click("#map-panel-toggle")
@@ -3375,7 +3381,8 @@ def test_the_count_line_says_what_matches_and_what_no_map_can_place(server: obje
                 "1,000 of the 6,009 that match these filters can’t be placed on the map"
                 " (the Projects list has them)."
             )
-            assert note.evaluate(_BOX)[1] < phone.locator("#map-overview").evaluate(_BOX)[1]  # first
+            note_box, overview_box = phone.evaluate(_BOXES, ["#unplaced-note", "#map-overview"])
+            assert note_box[1] < overview_box[1], (note_box, overview_box)  # first
         finally:
             browser.close()
 
