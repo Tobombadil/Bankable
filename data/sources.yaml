@@ -4134,11 +4134,14 @@ sources:
   publication: raw_ok
   attribution: "Source: ERCOT"
   licence_url: "https://www.ercot.com/help/terms"
-  status: pending
+  # Built 2026-10-22 (lane price-hubs, docs/29 slice 1): the seven hubs and eight load zones. Run by
+  # pipeline/connectors/prices (not the record runner); scheduled by infra/scheduler/prices.py.
+  runner: prices
+  connector: pipeline.connectors.prices.ercot (annual workbooks parsed by pipeline.vendor.gridstatus.prices, gridstatus main 5c48466)
   tier: 1
   effort: M
   probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=12301"}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.1. Public API limit "30 requests per minute" and "regions outside the United States of America are restricted" (developer.ercot.com/applications/pubapi/known-limits/, 19:08:58Z); archive "retained for at least 7 years". Settlement point list (doc 1288962582, CIM_Oct_ML3, 254,175 bytes, sha256 aad449c0…d0abb2): 19,514 electrical buses, 1,043 resource nodes at 710 substations, hubs HB_HOUSTON/NORTH/PAN/SOUTH/WEST plus HB_BUSAVG and HB_HUBAVG, load zones; no coordinates.'}
+  verified: {date: 2026-10-22, result: ok, rows: 1186845, note: 'Price run 2026-10-22 (lane price-hubs, public routes, no key). Backfill: 2 document lists, the 4 annual workbooks (RTMLZHBSPP and DAMLZHBSPP 2025 and 2026 year to date; each downloaded once that day and stored by DocID, so each report''s three-a-year count stands at 1), then 10 dated cdr pages for the days after the year-to-date file: 28,984,615 bytes, 1,186,845 interval rows (2025-01-01 to 2026-10-23), 475 s, most of it parsing the two real-time workbooks. Daily: no request once the store is complete; latest: one 60 KB page, 304 when unchanged. The 2025-11-02 workbook rows and that day''s cdr page agree on all 1,500 intervals. Re-parsed 2026-10-23 from the stored snapshots, no request to ERCOT (review fixes, docs/29 §9.1): a backfill now keeps the trailing 366 days, 659,520 interval rows (21 MB of parquet), in 195-225 s; the whole run peaks at 359 MB in a memory cgroup (was 2,073 MB RSS); each workbook download is on the download ledger before it is sent, so the count of 1 per report survives a run that dies mid-parse. Terms: docs/29 §2.1. Public API limit "30 requests per minute" and "regions outside the United States of America are restricted" (developer.ercot.com/applications/pubapi/known-limits/, 19:08:58Z); archive "retained for at least 7 years". Settlement point list (doc 1288962582, CIM_Oct_ML3, 254,175 bytes, sha256 aad449c0…d0abb2): 19,514 electrical buses, 1,043 resource nodes at 710 substations, hubs HB_HOUSTON/NORTH/PAN/SOUTH/WEST plus HB_BUSAVG and HB_HUBAVG, load zones; no coordinates.'}
   notes: >-
     The cleanest ISO grant: raw data may be redistributed in compilations and analyses with no delay, so the
     trailing statistics and a latest-price readout are both allowed. Store every downloaded file once
@@ -4171,11 +4174,14 @@ sources:
   publication: derived_only
   attribution: "Source: California ISO"
   licence_url: "https://www.caiso.com/privacy-terms-of-use"
-  status: pending
+  # Built 2026-10-22 (lane price-hubs): the three trading hubs and four DLAPs, day-ahead and
+  # fifteen-minute; statistics only leave the building (derived-only).
+  runner: prices
+  connector: pipeline.connectors.prices.caiso (OASIS parse vendored from gridstatus main 5c48466)
   tier: 1
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.2. OASIS Interface Specification v5.1.2: an ALL or ALL_APNODES query "will return only 1-days'' worth of data for all nodes at a time"; error 1004 "Data can be requested for period of 31 days only"; error 1017 "Please select a maximum of 10 nodes or use the ALL option". No published request rate; 1 request per 5 s (gridstatus default) assumed. Not fetched: no OASIS price file was requested by this lane.'}
+  verified: {date: 2026-10-22, result: ok, rows: 307776, note: 'Price run 2026-10-22 (lane price-hubs): backfill 24 SingleZip requests (PRC_LMP DAM and PRC_RTPD_LMP, seven nodes, 31-day windows) at 1 per 5 s, 14,557,357 bytes, 307,776 rows (61,824 day-ahead, 245,952 fifteen-minute), 526 s; daily is two requests. Derived-only: statistics publish, no raw price. Terms: docs/29 §2.2. OASIS Interface Specification v5.1.2: an ALL or ALL_APNODES query "will return only 1-days'' worth of data for all nodes at a time"; error 1004 "Data can be requested for period of 31 days only"; error 1017 "Please select a maximum of 10 nodes or use the ALL option". No published request rate; 1 request per 5 s (gridstatus default) assumed. Not fetched: no OASIS price file was requested by this lane.'}
   notes: >-
     Same terms and the same register reading as us.iso.caiso.gen_queue (docs/13 §1.2): derived-only with the
     credit, so twelve-month statistics publish and the raw interval price (a latest-price readout) does not
@@ -4233,11 +4239,14 @@ sources:
   publication: derived_only
   attribution: "Source: NYISO"
   licence_url: "https://www.nyiso.com/legal-notice"
-  status: pending
+  # Built 2026-10-22 (lane price-hubs): the eleven zones, day-ahead and real-time hourly;
+  # statistics only leave the building (derived-only). Generator nodes are tranche 2.
+  runner: prices
+  connector: pipeline.connectors.prices.nyiso (csv parse vendored from gridstatus main 5c48466)
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-10-22, result: ok, rows: 832, note: 'docs/29 §2.5. generator.csv (20:21:12Z): 832 rows, 813 active, 563 active with NYISO latitude/longitude; 162 of the 250 without are external proxy buses (zones PJM, NPX, H Q, O H). Archives start 1999-11 (P-2A, P-2B, P-24A index pages, 20:43Z).'}
+  verified: {date: 2026-10-22, result: ok, rows: 199540, note: 'Price run 2026-10-22 (lane price-hubs): backfill 68 requests (24 monthly zips plus daily csv files), 3,087,239 bytes, 193,512 zone rows, 145 s; then a daily of 2 requests (the current month''s zips, 164,822 bytes, 6,028 rows). The daily csv files are kept about ten days only (2026-10-11 gone on 2026-10-22), so days older than that are read from the month zip, which NYISO rewrites each morning (23 files on 2026-10-22); a backfill is now 26 requests. The July 2026 real-time zip holds 12 days (07-19, 07-21 to 07-31), so real-time coverage of the trailing year is 91.8% and those days cannot be filled from the public tree. Earlier: docs/29 §2.5. generator.csv (20:21:12Z): 832 rows, 813 active, 563 active with NYISO latitude/longitude; 162 of the 250 without are external proxy buses (zones PJM, NPX, H Q, O H). Archives start 1999-11 (P-2A, P-2B, P-24A index pages, 20:43Z).'}
   notes: >-
     Same register reading as us.iso.nyiso.gen_queue: derived-only with credit, raw-ok candidate after counsel.
     Zonal statistics for the eleven zones are tranche 1; generator-node statistics are tranche 2 (placement
@@ -4291,18 +4300,28 @@ sources:
     of SPP." External Systems Acceptable Use Policy (v3.0, latest revision 6/27/2014), retrieved
     2026-10-22T20:20:25Z, sha256 641ba7ff…2c9a2658: users must get approval in advance for "polling of systems
     at a frequency higher than necessary for basic reconciliation of data".
-  reuse: restricted
-  publication: none
-  status: pending
+  # Owner decision 2026-10-22: SPP prices are treated as noncommercial (the grant permits copying
+  # "with appropriate citation" except in a commercial publication); published only while
+  # PLATFORM_POSTURE=noncommercial and withdrawn at a flip (docs/26 §5). The register row
+  # (docs/13 §6) says the same. Not fetched at all under the commercial posture.
+  reuse: noncommercial
+  publication: raw_ok
+  attribution: "Source: Southwest Power Pool"
+  licence_url: "https://www.spp.org/terms-conditions/"
+  rate_limit_rps: 0.2
+  runner: prices
+  connector: pipeline.connectors.prices.spp (hubs only; price contour map daily and hourly, portal day-ahead files for backfill)
   tier: 2
   effort: M
   probe: {method: GET, url: "https://pricecontourmap.spp.org/arcgis/rest/services/PCM?f=json"}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.4. The price contour map services answered 200: PCM/DA_Features and PCM/RTBM_Features carry point features for hubs (SPPNORTH_HUB, SPPSOUTH_HUB, SWPW_HUB), interfaces and DC ties only, not nodes. portal.spp.org is a JavaScript app; the file-browser API is the one gridstatus uses.'}
+  verified: {date: 2026-10-22, result: ok, rows: 2235, note: 'Price run 2026-10-22 (lane price-hubs, PLATFORM_POSTURE=noncommercial): backfill 30 portal day-ahead files at 1 per 5 s, 127,667,586 bytes (about 4.3 MB each, every settlement location; hub rows kept), 2,160 hub rows, 151 s; daily one 23,669-byte map query (72 rows); latest one 2,543-byte real-time readout (3 rows); placement_drift pass. Real-time statistics are not built (acceptable-use policy). Terms: docs/29 §2.4. The price contour map services answered 200: PCM/DA_Features and PCM/RTBM_Features carry point features for hubs (SPPNORTH_HUB, SPPSOUTH_HUB, SWPW_HUB), interfaces and DC ties only, not nodes. portal.spp.org is a JavaScript app; the file-browser API is the one gridstatus uses.'}
   notes: >-
-    Kept `restricted` to match us.iso.spp.gen_queue, whose register row reads the same clause. The clause is a
-    noncommercial grant in substance; whether SPP rows move to the `noncommercial` class under the platform's
-    posture is an owner decision for both SPP rows together, and moving them adds SPP to the sources that must
-    grant commercial reuse before the posture flips (docs/29 §6). Link out meanwhile.
+    Noncommercial since the owner's decision of 2026-10-22, which moves this prices row only:
+    us.iso.spp.gen_queue keeps `restricted` until the owner decides it too (docs/29 §2.4 recommended moving both
+    together). SPP joins the sources that must grant commercial reuse before the posture flips (docs/29 §6).
+    Hubs only (SPPNORTH_HUB, SPPSOUTH_HUB, SWPW_HUB): day-ahead statistics and latest day-ahead and real-time
+    readouts; real-time statistics would need SPP's daily real-time files, a heavier pull than the acceptable-use
+    policy's "basic reconciliation", and are not built.
 
 - id: us.iso.isone.prices
   name: ISO New England LMPs — day-ahead hourly and real-time five-minute and hourly, pricing nodes, hub and load zones
@@ -4387,13 +4406,16 @@ sources:
     in a half hour period for data that is only updated on a half hourly basis".
   reuse: attribution
   publication: raw_ok
+  # The [year] in the licence's statement is the year of the data shown: the API renders this line
+  # with the years of the rows it serves (services/api/prices.py `elexon_credit`).
   attribution: "Contains BMRS data © Elexon Limited copyright and database right 2026"
   licence_url: "https://www.elexon.co.uk/bsc/data/balancing-mechanism-reporting-agent/copyright-licence-bmrs-data/"
-  status: pending
+  runner: prices
+  connector: pipeline.connectors.prices.elexon (system sell price per half-hour; never MID)
   tier: 2
   effort: S
   probe: {method: GET, url: "https://data.elexon.co.uk/bmrs/api/v1/balancing/settlement/system-prices/2026-10-21?format=json"}
-  verified: {date: 2026-10-22, result: ok, rows: 48, note: 'docs/29 §2.8. 48 settlement periods for 2026-10-21 (systemSellPrice, systemBuyPrice, netImbalanceVolume). The licence ends automatically if the attribution or the no-endorsement and no-misrepresentation conditions are not met.'}
+  verified: {date: 2026-10-22, result: ok, rows: 17615, note: 'Price run 2026-10-22 (lane price-hubs): backfill 366 requests (one settlement date each) at 0.5 a second, 15,592,994 bytes, 17,568 half-hour rows (2025-10-20T23:00Z to 2026-10-21T22:30Z), 736 s; latest one request (41 KB, 47 periods of today so far). docs/29 §2.8. 48 settlement periods for 2026-10-21 (systemSellPrice, systemBuyPrice, netImbalanceVolume). The licence ends automatically if the attribution or the no-endorsement and no-misrepresentation conditions are not met.'}
   notes: >-
     GB has one wholesale price zone, so this is a national readout, not a node layer. The [year] in the
     credit is the year of the data shown. Market Index Data is a separate row (gb.elexon.market_index_data).
@@ -4578,15 +4600,19 @@ sources:
     tariff quote or a delivered price for a new load; the page says so.
 
 - id: us.eia.retail_sales
-  name: EIA retail sales of electricity — average price by state and sector, monthly (EIA-861M; Electric Power Monthly Table 5.6.A; API v2 electricity/retail-sales)
+  name: EIA retail sales of electricity — average price by state and sector, monthly (EIA-861M sales and revenue file, the data behind Electric Power Monthly Tables 5.6.A and 5.6.B)
   jurisdiction: US
   category: market_price
   operator: US EIA
-  url: https://api.eia.gov/v2/electricity/retail-sales/
-  access: api
-  auth: api_key (free)
-  format: json
+  # 2026-10-22 (lane price-hubs): the public file needs no key; the API v2 route
+  # (https://api.eia.gov/v2/electricity/retail-sales/) needs one and is not used.
+  url: https://www.eia.gov/electricity/data/eia861m/xls/sales_revenue.xlsx
+  access: bulk_file
+  auth: none
+  format: xlsx (sheet Monthly-States, 2010 to the latest month)
   cadence: monthly
+  runner: prices
+  connector: pipeline.connectors.prices.eia_retail
   license: >-
     public domain (17 U.S.C. §105); EIA Copyrights and Reuse as us.eia.861 (retrieved 2026-10-22T20:33:56Z).
     API documentation, https://www.eia.gov/opendata/documentation.php (20:33:59Z): "our API only returns a
@@ -4594,12 +4620,11 @@ sources:
     hour".
   reuse: open
   publication: raw_ok
-  attribution: "Source: U.S. Energy Information Administration, Electric Power Monthly"
-  status: pending
+  attribution: "Source: U.S. Energy Information Administration, Form EIA-861M and Electric Power Monthly"
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.12. EIA-861M: July 2026 data released 2026-09-24, August 2026 due end of October 2026.'}
+  verified: {date: 2026-10-22, result: ok, rows: 50745, note: 'Price run 2026-10-22 (lane price-hubs): one GET, 2,269,132 bytes, Last-Modified Thu, 24 Sep 2026 13:48:22 GMT; 50,745 rows (50 states and DC, five sectors, 2010-01 to 2026-07; the sheet has no US row), 15 s; the next run was a 304. docs/29 §2.12. EIA-861M: July 2026 data released 2026-09-24, August 2026 due end of October 2026.'}
 
 - id: us.openei.urdb
   name: OpenEI Utility Rate Database (URDB) — utility tariffs (energy, demand and fixed charges) for over 3,700 US utilities

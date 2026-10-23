@@ -1,0 +1,11 @@
+{#- The credits of the rows shown on /prices, each statement verbatim and linked to its licence where
+    the licence has a page: Elexon's licence asks for "a link to this licence" where possible, and
+    its rights end automatically if a condition is not met (docs/29 §2.8; review 2026-10-23).
+    Included by `prices.html` and, with `oob`, by `_price_rows.html`, so a filtered htmx swap of the
+    rows brings the credits of the rows it shows (`hx-swap-oob`). -#}
+<ul id="price-credit-list" class="price-credit-list"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% for credit in credits %}
+  <li>{{ credit.text }}{% if credit.licence_url %} · <a href="{{ credit.licence_url }}" rel="noopener nofollow">licence<span class="visually-hidden">: {{ credit.text }}</span></a>{% endif %}</li>
+  {% endfor %}
+  {% if retail_credit %}<li>{{ retail_credit }}</li>{% endif %}
+</ul>

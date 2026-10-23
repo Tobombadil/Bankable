@@ -252,6 +252,12 @@ from web.sites import router as sites_router  # noqa: E402
 
 app.include_router(sites_router)
 
+# Energy prices, slice 1 (docs/29; owner decision 2026-10-22): `/prices`, hubs and zones and EIA's
+# state retail averages, read from `/v1/prices/*` (own router in web/prices.py).
+from web.prices import router as prices_router  # noqa: E402
+
+app.include_router(prices_router)
+
 from web.coverage_statement import uncovered_iso_notes  # noqa: E402
 
 # Audit 2026-10-07 UX-6: `/docs/api` and the development relay for `/feeds/*` (web/feeds.py).

@@ -282,6 +282,12 @@ from services.api.sites import router as sites_router  # noqa: E402
 
 app.include_router(sites_router)
 
+# Energy prices, slice 1 (docs/29; owner decision 2026-10-22): hub and zone statistics, the latest
+# readout and daily series where the terms allow raw rows, and EIA's state retail prices.
+from services.api.prices import router as prices_router  # noqa: E402
+
+app.include_router(prices_router)
+
 # Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
 # metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
 # this file's `list_events` share.

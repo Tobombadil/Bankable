@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Prices: hubs, zones and state averages — Inframation{% endblock %}
+{% block meta_description %}Wholesale electricity prices at the trading hubs and load zones of ERCOT, SPP, CAISO and NYISO and Great Britain's system price, with twelve-month averages, basis, negative-price hours and daily spread, and EIA's average retail price by state.{% endblock %}
+{% block content %}
+{#- docs/29 slice 1 (owner decision 2026-10-22). Every number is the API's (`/v1/prices/hubs`,
+    `/v1/prices/retail`); the page formats, it does not compute. Average user first: what each
+    figure means comes before the table, one line each. -#}
+<div class="page-header">
+  <h1>Prices</h1>
+</div>
+<p class="list-lede">What power sells for at the main trading hubs and load zones, averaged over the last twelve months where the history allows, and what businesses pay on average in each state.</p>
+
+<dl class="price-glossary">
+  <div><dt>Wholesale price (LMP)</dt><dd>The market price of electricity at a place on the grid: set the day before for each hour of the next day in the day-ahead market, and every few minutes as the power flows in real time.</dd></div>
+  <div><dt>Basis</dt><dd>How far a location's price sits above or below its market's reference hub on average; a negative basis means power sells for less there.</dd></div>
+  <div><dt>Negative-price hours</dt><dd>The share of hours priced below zero, when there is more power nearby than the grid can carry away; a generator earns less, a battery or a flexible load can be paid to use power.</dd></div>
+  <div><dt>Daily spread</dt><dd>The average gap between each day's four highest and four lowest hourly prices: a rough ceiling on what a four-hour battery could earn moving energy, before losses.</dd></div>
+</dl>
+
+<h2 id="hubs">Hubs and zones</h2>
+{{ m.filter_toggle("price-filters") }}
+<form id="price-filters" class="filter-bar" data-collapse method="get" action="/prices" hx-get="/prices" hx-target="#price-rows" hx-push-url="true" hx-trigger="change, submit" role="search" aria-label="Filter hubs and zones">
+  <div class="filter-field">
+    <label for="f-price-market">Market</label>
+    <select id="f-price-market" name="market">
+      <option value="">All</option>
+      {% for value, label in market_options %}<option value="{{ value }}" {% if filters.get('market') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-price-kind">Kind</label>
+    <select id="f-price-kind" name="kind">
+      <option value="">Hubs and zones</option>
+      <option value="hub" {% if filters.get('kind') == 'hub' %}selected{% endif %}>Hubs</option>
+      <option value="zone" {% if filters.get('kind') == 'zone' %}selected{% endif %}>Zones</option>
+    </select>
+  </div>
+  {% if sort_param %}<input type="hidden" name="sort" value="{{ sort_param }}">{% endif %}
+  {% if filters.get('rsort') %}<input type="hidden" name="rsort" value="{{ filters.get('rsort') }}">{% endif %}
+  <button class="filter-bar__submit" type="submit">Apply filters</button>
+  {% if filters.get('market') or filters.get('kind') %}<a class="filter-bar__clear" href="/prices">Clear all</a>{% endif %}
+</form>
+
+<div id="price-rows">
+  {% include "partials/_price_rows.html" %}
+</div>
+
+<section class="price-linkouts" aria-labelledby="linkouts">
+  <h2 id="linkouts">Link-out markets</h2>
+  <p>These markets' prices are not shown here. Each link goes to the market's own price page.</p>
+  <ul>
+    {% for lo in link_outs %}
+    <li><a href="{{ lo.url }}" rel="nofollow noopener">{{ lo.label }} prices</a> — {{ lo.reason }}</li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="price-states" aria-labelledby="states">
+  <h2 id="states">Average retail price by state</h2>
+  <p class="list-lede">Average revenue per kilowatt-hour that utilities in each state collected from industrial, commercial and residential customers{% if retail_period %}, for {{ retail_period }} (the latest month EIA has published) and the twelve months to it{% endif %}. In cents per kWh.</p>
+  {% if retail_note %}<p class="attribution-line">{{ retail_note }}</p>{% endif %}
+  {%- set rh = retail_headers or {} %}
+  {% if states %}
+  <div class="table-scroll">
+  <table class="record-table record-table--compact price-table price-table--states">
+    <caption class="visually-hidden">Average retail electricity price by state and sector.</caption>
+    <thead>
+      <tr>
+        {{ m.sort_th("State", rh.state) }}
+        {{ m.sort_th("Industrial, latest month", rh.industrial_latest, num=True, short="Industrial") }}
+        {{ m.sort_th("Industrial, 12-month average", rh.industrial_avg, num=True, short="Ind. 12 mo") }}
+        {{ m.sort_th("Commercial, latest month", rh.commercial_latest, num=True, short="Commercial") }}
+        {{ m.sort_th("Commercial, 12-month average", rh.commercial_avg, num=True, short="Com. 12 mo") }}
+        {{ m.sort_th("Residential, latest month", rh.residential_latest, num=True, short="Residential") }}
+        {{ m.sort_th("Residential, 12-month average", rh.residential_avg, num=True, short="Res. 12 mo") }}
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in states %}
+      <tr>
+        <td data-label="State" class="cell-title">{{ s.name }}{% if s.preliminary %}<span class="price-flag" title="EIA marks this month preliminary"> (preliminary)</span>{% endif %}</td>
+        <td data-label="Industrial, latest month" class="num tnum cell-meta{% if not s.industrial_latest %} is-empty{% endif %}"><span class="cell-unit">Industrial </span>{{ s.industrial_latest or '—' }}</td>
+        <td data-label="Industrial, 12-month average" class="num tnum cell-meta{% if not s.industrial_avg %} is-empty{% endif %}"{% if s.industrial_avg_why %} title="{{ s.industrial_avg_why }}"{% endif %}><span class="cell-unit">12-month </span>{{ s.industrial_avg or '—' }}</td>
+        <td data-label="Commercial, latest month" class="num tnum cell-meta{% if not s.commercial_latest %} is-empty{% endif %}"><span class="cell-unit">Commercial </span>{{ s.commercial_latest or '—' }}</td>
+        <td data-label="Commercial, 12-month average" class="num tnum cell-meta cell-opt"{% if s.commercial_avg_why %} title="{{ s.commercial_avg_why }}"{% endif %}>{{ s.commercial_avg or '—' }}</td>
+        <td data-label="Residential, latest month" class="num tnum cell-meta{% if not s.residential_latest %} is-empty{% endif %}"><span class="cell-unit">Residential </span>{{ s.residential_latest or '—' }}</td>
+        <td data-label="Residential, 12-month average" class="num tnum cell-meta cell-opt"{% if s.residential_avg_why %} title="{{ s.residential_avg_why }}"{% endif %}>{{ s.residential_avg or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state"><p>EIA's state prices have not been loaded yet.</p></div>
+  {% endif %}
+  {% if retail_credit %}<p class="attribution-line">{{ retail_credit }}.</p>{% endif %}
+</section>
+
+<section class="price-credits" aria-labelledby="credits">
+  <h2 id="credits">Sources and credits</h2>
+  {% with oob = False %}{% include "partials/_price_credits.html" %}{% endwith %}
+  {% if screening_note %}<p class="price-screening"><strong>For screening, not a forecast.</strong> {{ screening_note }}</p>{% endif %}
+  <p class="attribution-line">Each statistic covers the trailing twelve months ending with the last complete operating day, or as much of them as the history held here allows; a figure resting on under 90% of the intervals its window should hold is not shown. <a href="#method">How these figures are worked out</a>.</p>
+</section>
+
+<section class="price-method" aria-labelledby="method">
+  <h2 id="method">How these figures are worked out</h2>
+  <ul>
+    <li><strong>Averages</strong> are the plain mean of every interval in the window (every interval of a market has the same length), not weighted by load. The window is the trailing twelve months to the last complete operating day; where less history is held, the window column says so and a short window is marked in its cell.</li>
+    <li><strong>Day-ahead and real-time</strong> are each market's own: ERCOT's real-time prices are 15-minute settlement point prices, SPP's 5-minute (read once an hour), CAISO's the 15-minute pre-dispatch market (RTPD), NYISO's the hourly integrated price, and Great Britain's the half-hourly system (imbalance) price, which has no day-ahead counterpart.</li>
+    <li><strong>Basis</strong> is the location's price minus its market's reference hub's, interval by interval, averaged; NYISO has no reference hub here, so it has no basis.</li>
+    <li><strong>Negative-price hours</strong> are the share of the window's intervals priced below zero.</li>
+    <li><strong>Daily spread</strong> is each complete day's four highest hourly prices less its four lowest (real-time prices averaged to the hour first), averaged over the days.</li>
+    <li><strong>Sorting:</strong> the last-30-days, basis, negative and spread columns show the day-ahead figure where a market has one and the real-time one for Great Britain, and sort on what they show. Pound prices sort after dollar prices, never between them.</li>
+  </ul>
+</section>
+{% endblock %}

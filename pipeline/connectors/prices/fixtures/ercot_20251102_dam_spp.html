@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="x-ua-compatible" content="IE=8" >
+<meta http-equiv='pragma'  content='no-cache'>
+<meta http-equiv='Cache-Control' content='no-cache'>
+<script type="text/javascript" src="/ruxitagentjs_ICA7NQVfqrux_10345260810170330.js" data-dtconfig="rid=RID_227369553|rpid=-1739986492|domain=ercot.com|reportUrl=/rb_b41ed366-424d-4b61-8d7a-8b07c2fd7a11|app=b4c8ff390fce92cc|owasp=1|featureHash=ICA7NQVfqrux|msl=153600|srsr=1000|rdnt=1|uxrgce=1|cuc=1o2mss9s|srms=2,1,0,0%2Ftextarea%2Cinput%2Cselect%2Coption;0%2Fdatalist;0%2Fform%20button;0%2F%5Bdata-dtrum-input%5D;0%2F.data-dtrum-input;0%2F%5Bcontenteditable%5D%3Anot%28%5Bcontenteditable%3D%22false%22%5D%29;0%2F%5Brole%3D%22textbox%22%5D%2C%5Brole%3D%22checkbox%22%5D%2C%5Brole%3D%22radio%22%5D%2C%5Brole%3D%22option%22%5D%2C%5Brole%3D%22combobox%22%5D%2C%5Brole%3D%22slider%22%5D%2C%5Brole%3D%22searchbox%22%5D%2C%5Brole%3D%22switch%22%5D%2C%5Brole%3D%22spinbutton%22%5D;1%2F%5Edata%28%28%5C-.%2B%24%29%7C%24%29|mel=100000|expw=1|dpvc=1|lastModification=1791571832492|tp=500,50,0|srbbv=2|agentUri=/ruxitagentjs_ICA7NQVfqrux_10345260810170330.js"></script><link rel='stylesheet' type='text/css' href='/content/styles/cdr_reports.css' />
+<script type="text/javascript" src="/static-assets/data/analytics.js"></script>
+<script type="text/javascript" src="/static-assets/data/scripts/agreement.js"></script>
+<script>
+function open_window(url) {
+  window.open(url,"help",'toolbar=0,location=0,directories=0,status=0,menubar=0,scrollbars=yes,resizable=0,width=750,height=825');
+};
+</script>
+<script>
+  setTimeout("window.location.reload(true);",3600000);
+</script>
+<title>DAM Settlement Point Prices Display</title>
+</head>
+<body class='bodyStyle'>
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PH5D2W5" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<div style="display: inline-block;">
+<div>
+<div class='header1'>DAM Settlement Point Prices Display</div>
+<div class='helpLink rightAlign'><a href="javascript:open_window('/help/popup/damSppHelp')">Help?</a></div>
+</div>
+<br>
+<div class="header2">
+<form style="margin:0">
+Operating Day:
+<select name="dates" id="dates" onChange="switchPageDate(this.form);">
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="today">Today</option>
+<option value="tomorrow">Tomorrow</option></select></form></div>
+<br>
+<input type="hidden" id="currentDate" value="11/03/2025" />
+<p class="dataUnavailable">
+The Day-Ahead Market for the current operating day has not completed. Please check back after 2:00 PM for today's market results or use the drop-down menu to view previous days' results.
+</p><script> function getFile(){var file_name = document.location.href; var end = (file_name.indexOf('?') == -1) ? file_name.length : file_name.indexOf('?'); ret=file_name.substring(file_name.lastIndexOf('/')+1, end); return ret.match(/^\d+_/) ? ret.substr(9) : ret;} var dateOption = document.getElementById("dates"); var numberOfOptions = dateOption.options.length; var optionHistoryLength = 0; for (var i=0; i < numberOfOptions; i++){if (dateOption[i].value == "history") optionHistoryLength++;} var currentDate = new Date(); var optionDate = new Date(); optionDate.setDate(optionDate.getDate() - optionHistoryLength); for (var i = 0; i < numberOfOptions; i++) {   var month = optionDate.getMonth() + 1;   var monthStr = (month < 10) ? '0' + month : month + '';   var dayOfMonth = optionDate.getDate();   var dayOfMonthStr = dayOfMonth < 10 ? '0' + dayOfMonth : dayOfMonth + '';   var dateString = monthStr + '/' + dayOfMonthStr + '/' + optionDate.getFullYear() + '';   dateOption[i].innerHTML = dateString;   dateOption[i].value = optionDate.getFullYear() + '' + monthStr + '' + dayOfMonthStr;   if (document.getElementById("currentDate").value == dateString) { dateOption[i].selected = true; }   optionDate.setDate(dayOfMonth + 1); } function switchPageDate(theForm) {   var uri= theForm.dates.options[theForm.dates.selectedIndex].value + '_' + getFile();   window.open(uri,'_self'); } </script>
+</div>
+<script type="text/javascript" src="/_Incapsula_Resource?SWJIYLWA=719d34d31c8e3a6e6fffd425f7e032f3&ns=2&cb=1463576023" async></script></body>
+</html>

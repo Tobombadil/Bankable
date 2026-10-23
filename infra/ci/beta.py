@@ -53,6 +53,10 @@ VARIABLES = (
     "SENDER_POSTAL_ADDRESS",
 )
 OPTIONAL_VARIABLES = ("SENDER_LEGAL_NAME", "PRODUCT_CONTACT_EMAIL", "PRODUCT_NAME", "SITE_ACCESS")
+#: The ERCOT Public API account (docs/29 §2.1; owner, 2026-10-22: a person registers it). All three
+#: or none: without them the ERCOT price connector works from the public MIS downloads and display
+#: pages, and with them it may also use api.ercot.com (pipeline/connectors/prices/ercot_api.py).
+OPTIONAL_SECRETS = ("ERCOT_API_SUBSCRIPTION_KEY", "ERCOT_API_USERNAME", "ERCOT_API_PASSWORD")
 #: `SITE_ACCESS`: `basic` (the shared login, the default) or `open` (public; owner, 2026-10-20).
 SITE_ACCESS_VALUES = ("basic", "open")
 #: docs/00-PLAN.md decisions log, 2026-09-18.
@@ -205,6 +209,23 @@ def check_inputs(
             access if access else "default: basic (the shared login)",
         )
     )
+    ercot_set = [name for name in OPTIONAL_SECRETS if env.get(name, "")]
+    for name in OPTIONAL_SECRETS:
+        value = env.get(name, "")
+        if value:
+            problem = _secret_problem(name, value)
+        elif ercot_set:
+            problem = f"set all three ERCOT API values or none ({', '.join(ercot_set)} set)"
+        else:
+            problem = None
+        rows.append(
+            row(
+                name,
+                "secret, optional",
+                problem,
+                "set" if value else "not set: ERCOT prices use the public downloads",
+            )
+        )
 
     if not TAG.fullmatch(tag):
         tag_problem: str | None = (
@@ -527,6 +548,12 @@ def render_env(
         ("POSTGRES_PASSWORD", password),
         ("LOG_LEVEL", "info"),
         ("BACKUP_RETENTION_DAYS", "35"),
+        # The ERCOT API account, only when the owner has added all three (check_inputs refuses one or two).
+        *[
+            (name, env[name].strip())
+            for name in OPTIONAL_SECRETS
+            if all(env.get(n, "") for n in OPTIONAL_SECRETS)
+        ],
     ]
 
 

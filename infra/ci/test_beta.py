@@ -72,6 +72,36 @@ def test_complete_inputs_pass_and_resolve_the_product_name_from_the_code() -> No
     )
 
 
+ERCOT_ENV = {
+    "ERCOT_API_SUBSCRIPTION_KEY": "fake-ercot-key",
+    "ERCOT_API_USERNAME": "person@example.org",
+    "ERCOT_API_PASSWORD": "fake-ercot-password",
+}
+
+
+def test_the_ercot_api_account_is_optional_and_all_three_or_none() -> None:
+    """Lane price-hubs (2026-10-22): the ERCOT price connector uses api.ercot.com only when the
+    owner has registered the account and added all three values; none is the normal case today."""
+    expect(check(GOOD_ENV) == [], "unset is fine")
+    expect(check(GOOD_ENV | ERCOT_ENV) == [], "all three is fine")
+    partial = check(GOOD_ENV | {"ERCOT_API_USERNAME": "person@example.org"})
+    names = {r.name for r in partial}
+    expect(names == {"ERCOT_API_SUBSCRIPTION_KEY", "ERCOT_API_PASSWORD"}, partial)
+    expect(all("all three" in str(r.problem) for r in partial), partial)
+    padded = check(GOOD_ENV | ERCOT_ENV | {"ERCOT_API_PASSWORD": " pasted "})
+    expect([r.name for r in padded] == ["ERCOT_API_PASSWORD"], padded)
+
+
+def test_the_env_file_carries_the_ercot_account_only_when_complete() -> None:
+    env = GOOD_ENV | {"PRODUCT_NAME": "Example Product"}
+    without = dict(beta.render_env(env, outputs(), site_hash="aGFzaA=="))
+    expect(not set(beta.OPTIONAL_SECRETS) & set(without), "absent when unset")
+    full = dict(beta.render_env(env | ERCOT_ENV, outputs(), site_hash="aGFzaA=="))
+    expect(all(full[k] == v for k, v in ERCOT_ENV.items()), "all three rendered verbatim")
+    partial = dict(beta.render_env(env | {"ERCOT_API_USERNAME": "x"}, outputs(), site_hash="aGFzaA=="))
+    expect(not set(beta.OPTIONAL_SECRETS) & set(partial), "never one of three")
+
+
 def test_every_missing_input_is_listed_at_once() -> None:
     problems = check({})
     missing = {r.name for r in problems if r.status == "missing"}

@@ -63,6 +63,12 @@ misfiled. The class will be applied source by source as terms are read, starting
   out to grant noncommercial reuse. Each gets its own docs/13 §2 quote and §6 row before the manifest changes.
 - `global.gem.trackers` TZ-ID rows (CC BY-NC 4.0, docs/13 §2.2), currently dropped at ingest; a candidate for
   a separate `noncommercial` source id under this posture, not a reclassification of the CC BY parent.
+- `us.iso.spp.prices` — SPP's Terms and Conditions grant copying "with appropriate citation" except "within a
+  commercial publication" (`docs/29` §2.4, read 2026-10-22). Moved to `noncommercial` by owner decision
+  2026-10-22 (energy prices, tranche 1; the docs/13 §6 row moved first). Its hub prices are published only while
+  `PLATFORM_POSTURE=noncommercial`; under `commercial` the gate withholds them and `/prices` lists SPP among
+  the link-out markets with that reason. `us.iso.spp.gen_queue` keeps its own `restricted` row until the
+  owner decides it.
 
 ## 3. The three preconditions the coordinator is putting to the owner (open items)
 

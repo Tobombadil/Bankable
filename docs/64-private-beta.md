@@ -101,6 +101,9 @@ GitHub's secret fields: never into chat, an email or the repository.
   | `SENDER_LEGAL_NAME` | variable, optional | default: Compass International Trading Group LLC (decided 2026-09-18) |
   | `PRODUCT_CONTACT_EMAIL` | variable, optional | default: `hello@<your domain>` |
   | `PRODUCT_NAME` | variable, optional | default: the product name in the code |
+  | `ERCOT_API_SUBSCRIPTION_KEY` | secret, optional | the ERCOT Public API subscription key, once a person has registered the account at apiexplorer.ercot.com (ERCOT bars accounts "registered by bots"). All three ERCOT values or none; without them ERCOT prices use the public downloads (docs/29 §2.1) |
+  | `ERCOT_API_USERNAME` | secret, optional | that account's user name |
+  | `ERCOT_API_PASSWORD` | secret, optional | that account's password |
 - [ ] **G. Tell the coordinator.** The coordinator runs the workflow with `deploy`, then `seed`, then
   `preflight`, checking with `status` in between. Each run's summary page says what it did. A run with a missing
   or malformed value stops before it touches any account and lists every value to fix.

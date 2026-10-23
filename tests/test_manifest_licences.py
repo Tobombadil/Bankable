@@ -277,8 +277,11 @@ def test_only_the_named_sources_are_noncommercial() -> None:
     (docs/13 §6.2) — both read from the same RRC Site Policies clause, quoted there and in
     `data/sources.yaml`. Extend this list only after the register row moves first (docs/26 §2).
     2026-10-21: the four AEP operating companies' RFP pages (AEP Terms and Conditions, quoted in
-    docs/28 §5 and `data/vendored/rfp_issuers/issuers.yaml`; register rows added from docs/28 §10)."""
+    docs/28 §5 and `data/vendored/rfp_issuers/issuers.yaml`; register rows added from docs/28 §10).
+    2026-10-22: SPP's hub prices (owner decision; SPP's grant excludes use "within a commercial
+    publication", docs/29 §2.4; the register row, docs/13 §6, moved first)."""
     assert sorted(e["id"] for e in load_manifest(MANIFEST) if e.get("reuse") == "noncommercial") == [
+        "us.iso.spp.prices",
         "us.rfp.appalachian_power",
         "us.rfp.indiana_michigan_power",
         "us.rfp.pso",

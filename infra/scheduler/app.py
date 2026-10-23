@@ -75,7 +75,7 @@ import procrastinate
 import sqlalchemy.exc
 import yaml
 
-from infra.scheduler import jobs, queue_maintenance
+from infra.scheduler import jobs, prices, queue_maintenance
 from infra.scheduler.cadence import (
     CRON_BY_BUCKET,
     execution_lock_for,
@@ -171,7 +171,7 @@ CONTEXT_LOAD_TIMEOUT_S = 3600
 #: The org-enrich network phase: about 250 Query Service queries (each followed by a pause as long as
 #: it ran) and up to `SEARCH_BUDGET` (3,000) searches at one per second, which stop after
 #: `SEARCH_MINUTES` (90) whatever the host's `Retry-After`s. It runs on the `fetch` queue, holding
-#: one worker slot, once a month (the 4th, 06:17, when the daily fetch bucket is done); two and a half
+#: one worker slot, once a month (the 4th, 06:18, when the daily fetch bucket is done); two and a half
 #: hours bounds that slot. It holds no lock and no transaction, so an abandoned thread costs requests only.
 ORG_ENRICH_FETCH_TIMEOUT_S = 9000
 ORG_ENRICH_APPLY_TIMEOUT_S = 1800
@@ -334,6 +334,8 @@ def due_sources(bucket: str, timestamp: int) -> list[dict[str, Any]]:
     month = dt.datetime.fromtimestamp(timestamp, tz=dt.UTC).month
     due = []
     for source in _load_sources():
+        if prices.is_price_source(source):
+            continue  # the price ticks below run these (infra/scheduler/prices.py)
         try:
             if is_due(source, bucket, month):
                 due.append(source)
@@ -772,10 +774,10 @@ def org_enrich_apply() -> dict[str, Any]:
     return _store_pass("org_enrich_apply", jobs.org_enrich_apply_job, timeout_s=ORG_ENRICH_APPLY_TIMEOUT_S)
 
 
-#: The 4th of the month, 06:17 UTC: the day after `tick_context` (the 3rd, 02:43), whose
+#: The 4th of the month, 06:18 UTC: the day after `tick_context` (the 3rd, 02:43), whose
 #: `context_load` creates the owner and operator organisations the enrichment looks up; clear of the
-#: daily fetch bucket (03:07) and `tick_resolve` (04:37).
-ORG_ENRICH_CRON = "17 6 4 * *"
+#: daily fetch bucket (03:07) and `tick_resolve` (04:37). Minute 17 is the ERCOT daily price tick's.
+ORG_ENRICH_CRON = "18 6 4 * *"
 
 
 @app.periodic(cron=ORG_ENRICH_CRON, periodic_id="tick:org_enrich")
@@ -785,6 +787,80 @@ def _tick_org_enrich(timestamp: int) -> None:
         org_enrich_fetch.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous org_enrich_fetch still queued or running")
+
+
+# Energy prices (docs/29 slice 1; lane price-hubs, 2026-10-22): each price source's own ticks, the
+# load after a run that wrote rows, and the daily statistics (schedule and bodies in prices.py).
+@app.task(name="price_fetch", queue="fetch", retry=FETCH_RETRY, pass_context=True)
+def price_fetch(context: procrastinate.JobContext, source_id: str, mode: str) -> None:
+    """One price run through its CLI; on new rows, queue `price_load` under the source's lock.
+    Retried like `run_connector`: a transient failure only, with the same backoff and dead letter."""
+    attempts = int(getattr(context.job, "attempts", 0) or 0)
+    final_attempt = FETCH_RETRY.max_attempts is not None and attempts >= FETCH_RETRY.max_attempts
+    trigger = jobs.RETRY_TRIGGER if attempts > 0 else jobs.SCHEDULED_TRIGGER
+    outcome = prices.price_fetch_job(
+        source_id, mode, trigger=trigger, attempt=attempts + 1, final_attempt=final_attempt
+    )
+    status = outcome["status"]
+    if status == "ok" and outcome.get("ts"):
+        try:
+            price_load.configure(
+                lock=execution_lock_for(source_id), queueing_lock=f"price-load:{safe_id(source_id)}"
+            ).defer(source_id=source_id, ts=outcome["ts"])
+        except procrastinate.exceptions.AlreadyEnqueued:
+            logger.info("skipped: previous price load still queued", extra={"source_id": source_id})
+    if status in ("ok", "unchanged", "partial", "refused"):
+        return
+    if outcome.get("transient"):
+        raise TransientConnectorFailure(
+            f"price run failed for {source_id} ({status}); will retry with backoff"
+        )
+    raise ConnectorRunFailed(f"price run for {source_id} ended {status}; not retried")
+
+
+@app.task(name="price_load", queue="normalise", retry=LOAD_RETRY)
+def price_load(source_id: str, ts: str) -> dict[str, Any]:
+    """Load one price run's months into the price tables, as its own process (`services/prices/
+    load.py --run`; review 2026-10-23: the load's memory leaves with the process). The process has
+    its own `LOAD_TIMEOUT_S`; this bound is a minute longer, so that one fires first."""
+    return _run_with_timeout(
+        lambda: prices.price_load_job(source_id, ts), timeout_s=prices.LOAD_TIMEOUT_S + 60
+    )
+
+
+@app.task(name="price_stats", queue="normalise", retry=0, queueing_lock="price_stats")
+def price_stats() -> dict[str, Any]:
+    """The trailing price statistics, daily; tomorrow's tick is the retry."""
+    return _run_with_timeout(prices.price_stats_job, timeout_s=prices.STATS_TIMEOUT_S)
+
+
+def _register_price_tick(tick: prices.PriceTick) -> None:
+    @app.periodic(cron=tick.cron, periodic_id=tick.periodic_id)
+    @app.task(name=f"tick_price_{safe_id(tick.source_id)}_{tick.mode}", queue=SCHEDULER_ONLY_QUEUE)
+    def _tick(timestamp: int, _tick: prices.PriceTick = tick) -> None:
+        try:
+            price_fetch.configure(
+                lock=execution_lock_for(_tick.source_id),
+                queueing_lock=f"price:{safe_id(_tick.source_id)}:{_tick.mode}",
+            ).defer(source_id=_tick.source_id, mode=_tick.mode)
+        except procrastinate.exceptions.AlreadyEnqueued:
+            logger.info(
+                "skipped: previous price fetch still queued or running",
+                extra={"source_id": _tick.source_id, "mode": _tick.mode},
+            )
+
+
+for _price_tick in prices.PRICE_TICKS:
+    _register_price_tick(_price_tick)
+
+
+@app.periodic(cron=prices.PRICE_STATS_CRON, periodic_id="tick:price_stats")
+@app.task(name="tick_price_stats", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_price_stats(timestamp: int) -> None:
+    try:
+        price_stats.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous price_stats still queued or running")
 
 
 @app.periodic(cron="37 4 * * *", periodic_id="tick:resolve")  # after the daily fetch bucket (03:07)

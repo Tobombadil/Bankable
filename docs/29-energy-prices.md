@@ -1,7 +1,10 @@
 # 29 — Energy prices on the map: wholesale, delivered and contract prices
 
-Phase 2 data doc. Owner: legal-compliance agent (lane prices-research). Status: v1, 2026-10-22, research only:
-nothing is built, every new manifest row is `status: pending` or `status: excluded`. Companion to
+Phase 2 data doc. Owner: legal-compliance agent (lane prices-research). Status: v1, 2026-10-22, research; v1.1,
+2026-10-23: **slice 1 is built** (lane price-hubs, §9.1): hub and zone prices for ERCOT, SPP (published only under
+the noncommercial posture), CAISO and NYISO (statistics only), Great Britain's system price, and EIA's state retail
+prices, on `/prices` and `GET /v1/prices/*`. Their manifest rows carry `runner: prices` and no `status`; every
+other new row is still `status: pending` or `status: excluded`. Companion to
 `13-legal-data-rights.md` (§1 ISO terms, §6 register rows added for every source below), `26-platform-posture.md`
 (the `noncommercial` posture the site runs today), `25-grid-interconnection-and-siting.md` (interconnection points,
 the line layer and its POI matcher) and the 2026-10-22 decision rows in `docs/00-PLAN.md` (powered-land site
@@ -813,7 +816,11 @@ for each calendar year.
 
 - **Average day-ahead price:** the time-weighted mean of hourly day-ahead prices, $/MWh. Not load-weighted.
 - **Average real-time price:** the mean of the real-time intervals: ERCOT's 15-minute settlement point prices,
-  CAISO's five-minute LMP.
+  CAISO's five-minute LMP. *As built for hubs and zones (slice 1, §9.1):* ERCOT 15-minute settlement point prices;
+  SPP five-minute, read once an hour (a readout, not a full series); CAISO the 15-minute pre-dispatch market
+  (`PRC_RTPD_LMP`, the §7.4 fallback, a third of the five-minute volume); NYISO the hourly integrated real-time
+  LBMP (`rtlbmp`); Great Britain the half-hourly system price. The five-minute CAISO market is a node-level
+  (tranche 2) question. `/prices` names each market's real-time series in its method section and on each figure.
 - **Basis to hub:** the mean of node minus reference hub, interval by interval, in each market. The reference hub
   is ERCOT's hub for the node's load zone, or the CAISO trading hub whose zone contains the node. It is not
   computed where no hub is defined (most WEIM areas), and the page says so.
@@ -972,6 +979,48 @@ withheld:
 
 That is accurate. The coordinator may prefer to keep the excluded rows out, by category, until the price layer
 ships. The four private-aggregator rows are excluded automatically (`category: aggregator`).
+
+### 9.1 Slice 1 as built (lane price-hubs, 2026-10-22; review fixes 2026-10-23)
+
+Built as one family package, `pipeline/connectors/prices/` (not `pipeline/prices/`; same contract as the P1 row),
+with `services/prices/` (tables, loader, statistics), migration `0041_prices.py`, `services/api/prices.py` and
+`/prices`. What the build settled that this document did not:
+
+- **ERCOT's MIS routes and robots.txt.** `www.ercot.com/robots.txt` disallows `/misapp` and `/misdownload`. The
+  document lists and annual workbooks are read there with the robots override, as the ERCOT queue connector reads
+  the same documented MIS data-product route; the display pages under `/content/cdr/`, which robots.txt allows, are
+  read honouring it. The header above ("robots.txt read first where one exists") describes the research reads;
+  this exception is recorded as a decision row for `docs/00-PLAN.md` (2026-10-23).
+- **The three-downloads rule, enforced at the fetch (2026-10-23).** Each capped download (`meta.max_downloads`)
+  is written to a download ledger (`prices/<source>/downloads/`) before it is sent, and rewritten once stored or
+  failed; the runner counts the ledger and the run records and refuses a fourth download in twelve months on every
+  path (a planned download, a stored copy that fails its SHA-256 or is gone). A capped request is sent once, without
+  the HTTP session's in-call retries. A download whose process died before its outcome is counted. A daily tick
+  escalates to a backfill only while the source has automatic tries left (ERCOT one, the others three), counted from
+  a marker each backfill writes before it fetches, so a killed backfill is not started again by the next tick or a
+  queue retry.
+- **The backfill window.** A backfill parses only the workbook sheets and rows inside the trailing 366 days (the
+  workbooks stay stored whole). ERCOT's interval store is 21 MB for those days, against 38 MB for the 22 months the
+  first build kept.
+- **Memory, for the worker's 1 GB container (2026-10-23).** Annual workbooks are parsed one monthly sheet at a time
+  (`ercot_annual_spp_sheets`, vendored change 10) in a forked child process, normalised column by column, and spilled
+  to a month-partitioned staging area; each backfill month is merged in a forked child, as Arrow tables; the CLI uses
+  Arrow's system allocator. The loader reads no `raw` column, shares one string per distinct value, summarises one
+  local month at a time over three UTC months, and runs as its own process (`python -m services.prices.load
+  <source> --run <ts>`), not in the worker.
+
+| Measured on the stored ERCOT snapshots (replayed through a fake network into an empty store) | First build | Since 2026-10-23 |
+|---|---|---|
+| ERCOT backfill: requests | 2 lists, 4 workbooks, 10 pages | the same (16) |
+| ERCOT backfill: interval rows stored | 1,186,845 (2025-01-01 on) | 659,520 (366 days) |
+| ERCOT backfill: time | 387 s | 195-225 s |
+| ERCOT backfill: peak memory | 2,073 MB RSS, one process | 359 MB for the whole run, children included, measured as a memory cgroup's peak (page cache included); completes under a 400 MB cgroup limit, fails cleanly (the run recorded `failed`, the parent alive) under 320 MB |
+| ERCOT full load (13 months into `price_daily` and `price_latest`) | 2,601 MB RSS, 94 s | 327 MB RSS, 26 s (a process of its own) |
+| Statistics, ERCOT (30 rows) | | 1.6 s |
+
+Page and API latency and the other markets' figures are the review's measurements on the first build (2026-10-23:
+`GET /v1/prices/hubs` p50 37 ms and 111 KB; an ERCOT series 46 ms and 130 KB; `/prices` 100-340 ms and 112 KB;
+statistics 3.0 s for 37 locations).
 
 ## 10. Open items and counsel flags
 

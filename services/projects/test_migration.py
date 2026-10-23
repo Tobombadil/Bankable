@@ -141,11 +141,15 @@ def test_0040_round_trip_matches_the_models_on_sqlite(sqlite_url: str) -> None:
     engine.dispose()
 
 
-def test_0040_is_the_single_head_after_the_newest_numbered_revision() -> None:
+def test_0040_is_on_the_single_line_after_the_newest_numbered_revision() -> None:
+    """One head, with 0040 on its line. Not "0040 is the head": 0041 (prices) revises 0040, and a
+    pin on the head breaks whenever a later revision lands (tests/test_migration_0033.py)."""
     cfg = Config(str(MIGRATIONS_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(MIGRATIONS_DIR))
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0040"]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert "0040" in {rev.revision for rev in script.iterate_revisions(heads[0], "base")}
     # 0038 on this lane's base; the coordinator relinks to 0039 when the site finder lands first.
     assert _down_revision() in ("0038", "0039")
 

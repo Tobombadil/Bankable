@@ -1,0 +1,54 @@
+{# The hubs-and-zones rows of /prices: one `.record-table` inside `.table-scroll`, sortable headings
+   (`web/list_sort.py`, largest first), compact two-line rows below 720px (docs/16 U-10): the
+   location, then market · kind and each figure with its word. A figure the API withheld renders an
+   em dash whose tooltip gives the API's reason; never "None". The latest-price column shows only
+   for a source whose terms allow raw rows; a derived-only source says so in that cell. #}
+{% import "_macros.html" as m %}
+<p class="result-count" aria-live="polite">
+  {%- if records -%}{{ total }} hub{{ 's' if total != 1 }} and zone{{ 's' if total != 1 }}, {{ sort_caption }}.{%- else -%}No hubs or zones match these filters.{%- endif -%}
+</p>
+{% if records %}
+{%- set sh = sort_headers or {} %}
+<div class="table-scroll">
+<table class="record-table record-table--compact price-table">
+  <caption class="visually-hidden">Hub and zone prices, {{ sort_caption }}.</caption>
+  <thead>
+    <tr>
+      {{ m.sort_th("Hub or zone", sh.name) }}
+      {{ m.sort_th("Day-ahead average", sh.da, num=True, short="Day-ahead") }}
+      {{ m.sort_th("Real-time average", sh.rt, num=True, short="Real-time") }}
+      {{ m.sort_th("Last 30 days", sh.recent, num=True, short="30 days") }}
+      {{ m.sort_th("Basis to reference hub", sh.basis, num=True, short="Basis") }}
+      {{ m.sort_th("Negative-price hours", sh.negative, num=True, short="Negative") }}
+      {{ m.sort_th("Daily spread (top 4 − bottom 4)", sh.spread, num=True, short="Spread") }}
+      {%- if any_latest %}{{ m.sort_th("Latest real-time", sh.latest, num=True, short="Latest") }}{% endif %}
+      <th scope="col">Window</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td data-label="Hub or zone" class="cell-title">{{ r.label }}<span class="cell-sub"> {{ r.market }} · {{ r.kind_label }}</span></td>
+      <td data-label="Day-ahead average" class="num tnum cell-meta{% if not r.da %} is-empty{% endif %}"{% if not r.da and r.da_why %} title="{{ r.da_why }}"{% elif r.da_label %} title="{{ r.market }} {{ r.da_label }}"{% endif %}><span class="cell-unit">day-ahead </span>{{ r.da or '—' }}{% if r.da and r.short_window and r.lead_market == 'day-ahead' %}<span class="price-short"> ({{ r.short_window }})</span>{% endif %}</td>
+      <td data-label="Real-time average" class="num tnum cell-meta{% if not r.rt %} is-empty{% endif %}"{% if not r.rt and r.rt_why %} title="{{ r.rt_why }}"{% elif r.rt_label %} title="{{ r.market }} {{ r.rt_label }}"{% endif %}><span class="cell-unit">real-time </span>{{ r.rt or '—' }}{% if r.rt and r.short_window and r.lead_market == 'real-time' %}<span class="price-short"> ({{ r.short_window }})</span>{% endif %}</td>
+      <td data-label="Last 30 days" class="num tnum cell-meta{% if not r.recent %} is-empty{% endif %}"{% if not r.recent and r.recent_why %} title="{{ r.recent_why }}"{% endif %}><span class="cell-unit">last 30 days </span>{{ r.recent or '—' }}</td>
+      <td data-label="Basis to reference hub" class="num tnum cell-meta{% if not r.basis %} is-empty{% endif %}"{% if r.basis_reference %} title="Against {{ r.basis_reference }}"{% elif r.basis_why %} title="{{ r.basis_why }}"{% endif %}><span class="cell-unit">basis </span>{% if r.is_reference %}<span class="price-ref">reference</span>{% else %}{{ r.basis or '—' }}{% endif %}</td>
+      <td data-label="Negative-price hours" class="num tnum cell-meta{% if not r.negative %} is-empty{% endif %}"{% if not r.negative and r.negative_why %} title="{{ r.negative_why }}"{% endif %}>{{ r.negative or '—' }}<span class="cell-unit"> negative</span></td>
+      <td data-label="Daily spread" class="num tnum cell-meta{% if not r.spread %} is-empty{% endif %}"{% if not r.spread and r.spread_why %} title="{{ r.spread_why }}"{% endif %}><span class="cell-unit">spread </span>{{ r.spread or '—' }}</td>
+      {%- if any_latest %}
+      <td data-label="Latest real-time" class="num tnum cell-meta{% if not r.latest %} cell-opt{% endif %}"{% if r.latest_at %} title="Interval ending {{ r.latest_at }}"{% endif %}>{% if r.latest %}<span class="cell-unit">latest </span>{{ r.latest }}{% elif r.derived_only %}<span class="price-withheld">not published</span>{% else %}—{% endif %}</td>
+      {%- endif %}
+      <td data-label="Window" class="cell-meta cell-opt price-window">{% if r.window_from %}{{ r.window_from }} – {{ r.window_to }}{% if r.samples %}<span class="price-samples"> · {{ '{:,}'.format(r.samples) }} {{ 'intervals' if r.lead_market == 'real-time' else 'hours' }}</span>{% endif %}{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="attribution-line">Prices in each market's own currency per megawatt-hour; Great Britain's are in pounds and sort after the dollar markets, never between them. Basis, negative hours, spread and the 30-day figure are day-ahead where the market has a day-ahead price, real-time for Great Britain, and sort on the figure shown. Real-time is each market's own (hover a figure, or see <a href="#method">how these figures are worked out</a>). CAISO and NYISO allow derived figures only, so their latest prices are not published here.</p>
+{% else %}
+<div class="empty-state">
+  <p>No hubs or zones match these filters.</p>
+  <p><a href="/prices">Clear all filters</a></p>
+</div>
+{% endif %}
+{%- if oob_credits %}{% with oob = True %}{% include "partials/_price_credits.html" %}{% endwith %}{% endif %}

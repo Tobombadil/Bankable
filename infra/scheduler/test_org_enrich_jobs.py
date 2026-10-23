@@ -97,7 +97,7 @@ def test_the_tasks_run_monthly_on_queues_the_worker_consumes(scheduler_app: Any)
     assert apply.retry_strategy is scheduler_app.LOAD_RETRY
     periodic = scheduler_app.app.periodic_registry.periodic_tasks
     assert (
-        periodic[("tick_org_enrich", "tick:org_enrich")].cron == scheduler_app.ORG_ENRICH_CRON == "17 6 4 * *"
+        periodic[("tick_org_enrich", "tick:org_enrich")].cron == scheduler_app.ORG_ENRICH_CRON == "18 6 4 * *"
     )
 
 

@@ -2166,3 +2166,37 @@ a.button-secondary:visited { color: var(--link); }
 @media (max-width: 719px) {
   .beta-bar__text { padding: var(--space-1) var(--space-4); }
 }
+
+/* ---------- Prices (2026-10-22; web/prices.py, docs/29 slice 1) ----------
+   The glossary is four short definitions, two columns from 720px, one below. The two tables are
+   the shared `.record-table--compact` list (two-line rows below 720px); `.cell-sub` puts market and
+   kind under the location's name on wide screens and beside it on the compact row. A withheld or
+   unpublished figure is muted text, never colour alone. Every colour comes from the tokens, so both
+   themes hold. */
+.price-glossary { display: grid; gap: var(--space-2) var(--space-5); margin: var(--space-3) 0 var(--space-5); }
+.price-glossary div { margin: 0; }
+.price-glossary dt { font-weight: 600; }
+.price-glossary dd { margin: 0; color: var(--text-muted); }
+@media (min-width: 720px) {
+  .price-glossary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.price-table .cell-sub { display: block; font-size: var(--text-1); color: var(--text-muted); }
+.price-table .price-window { white-space: nowrap; font-size: var(--text-1); }
+.price-table .price-withheld,
+.price-table .price-ref { color: var(--text-muted); font-style: italic; }
+.price-flag { color: var(--text-muted); font-size: var(--text-1); }
+.price-linkouts ul,
+.price-credits ul,
+.price-method ul { padding-inline-start: var(--space-5); }
+.price-linkouts li,
+.price-credits li,
+.price-method li { margin-bottom: var(--space-2); }
+.price-screening { margin: var(--space-4) 0; }
+/* 2026-10-23: a figure resting on a short history says so in its cell, in muted text (SPP's 30 days
+   beside twelve months); the method section reads as a short list like the credits. */
+.price-table .price-short { color: var(--text-muted); font-size: var(--text-1); white-space: nowrap; }
+.price-method { max-width: 72ch; }
+@media (max-width: 719px) {
+  .price-table .cell-sub { display: inline; }
+  .price-table .price-window { white-space: normal; }
+}

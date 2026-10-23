@@ -91,6 +91,8 @@ tags:
     description: Proposal ↔ opportunity matches with score and rationale (docs/21 §3.11).
   - name: Map
     description: Clustered GeoJSON for the map-first surface (docs/04 §2.2). Same filters and tier rules as the lists.
+  - name: Prices
+    description: Energy prices (docs/29) — hub and zone statistics, the latest price where the source's terms allow raw rows, and EIA's state retail averages. Context data with no lifecycle; every value carries its provenance and credit.
   - name: Interconnection points
     description: Where proposals connect to the grid, as each register names it (docs/21 §3.24), with the queue behind each point. Totals are computed per request over the proposals the caller's tier may see.
   - name: Sites
@@ -2344,6 +2346,148 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  # ───────────────────────── Energy prices, slice 1 (docs/29; owner decision 2026-10-22) ─────────────────────────
+  /v1/prices/hubs:
+    get:
+      operationId: listPriceHubs
+      tags: [Prices]
+      summary: Hub and zone price statistics, with the latest price where the terms allow it
+      description: |
+        Every trading hub and load zone the platform prices (ERCOT, SPP, CAISO, NYISO and Great Britain's system
+        price), each with its trailing statistics per market (`da` day-ahead, `rt` real-time): the average price,
+        the last 30 days' average, basis to the market's reference hub, the share of negative-price intervals and
+        the average daily top-4 minus bottom-4 hourly spread, with the window, sample count and coverage behind
+        them. A figure under 90% interval coverage is `null`, with the reason in `withheld`.
+
+        Gated by the visibility predicate: a location appears only when its source is on the caller's surface and
+        its licence class is publishable under the platform posture (SPP is `noncommercial`). `latest` and
+        `series_url` are present only where the source's licence allows raw publication (`publication: raw_ok`);
+        a derived-only source (CAISO, NYISO) carries statistics alone. PJM, MISO and ISO New England have no rows:
+        `notes.link_outs` names each with its own price page and the reason. Not paged (under 50 rows).
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: market
+          in: query
+          description: Market codes, comma-separated for OR.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [ERCOT, SPP, CAISO, NYISO, GB]
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [hub, zone]
+        - name: sort
+          in: query
+          description: >-
+            One statistic of one market (`da_mean`, `rt_mean_30d`, `da_basis`, `rt_negative_share`, `da_spread`, ...),
+            a statistic of each location's `lead_market` (`mean`, `mean_30d`, `basis`, `negative_share`, `spread`:
+            day-ahead where the location has day-ahead statistics, else real-time, as the page shows them),
+            `latest_rt`, `latest_da`, `name` or `market`; prefix `-` for descending. Numbers sort within their
+            currency, dollar rows before pound rows, never interleaved. Locations without the figure sort last in
+            both directions. Default `-da_mean`.
+          schema:
+            type: string
+            pattern: '^-?((da_|rt_)?(mean|mean_30d|basis|negative_share|spread)|latest_rt|latest_da|name|market)$'
+      responses:
+        '200':
+          description: Hub and zone prices inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHubListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/prices/hubs/{location_id}/series:
+    get:
+      operationId: getPriceHubSeries
+      tags: [Prices]
+      summary: One hub or zone, with its daily averages for a year where the terms allow raw rows
+      description: |
+        The location as in the list, plus `series`: one row per market-local day for the trailing year (mean,
+        min, max, intervals present and expected, negative intervals, the day's top-4 minus bottom-4 spread).
+        A day holding under 90% of its intervals (today so far; SPP's hourly real-time readouts) is left out.
+        Only where the source's licence allows raw publication; for a derived-only source `series` is `null`
+        and `series_withheld_reason` says why, and the statistics are returned instead. A location the caller's
+        tier may not see is `404`, as an unknown id is.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: location_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z]+\.[a-z0-9_]+$'
+            examples: [ercot.hb_north]
+      responses:
+        '200':
+          description: The location and its daily series inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHubSeriesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/prices/retail:
+    get:
+      operationId: listRetailPrices
+      tags: [Prices]
+      summary: Average retail electricity price by state, latest month and 12-month average (EIA)
+      description: |
+        EIA-861M's average price (revenue per kilowatt-hour sold) for each state and sector, the latest month and
+        the trailing twelve-month average (revenue over sales across the twelve months), in cents per kWh. Public
+        domain; the credit names the file's release date, as EIA asks. An average, not a tariff, and not what a
+        new large load would pay.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: sector
+          in: query
+          description: The sector `latest_cents_kwh`, `avg_12m_cents_kwh` and the sort read. Default `industrial`.
+          schema:
+            type: string
+            enum: [industrial, commercial, residential]
+        - name: sort
+          in: query
+          description: '`state`, `latest` or `avg_12m`; prefix `-` for descending. Default `-latest`.'
+          schema:
+            type: string
+            pattern: '^-?(state|latest|avg_12m)$'
+      responses:
+        '200':
+          description: State retail prices inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetailPriceListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         <<: *common_errors
 
   # ───────────────────────── Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14) ─────────────────────────
@@ -14574,6 +14718,415 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/RegionFeatureCollection'
+
+    # ---------- Energy prices, slice 1 (docs/29; services/api/prices.py) ----------
+    PriceStatistics:
+      type: object
+      description: >-
+        Trailing statistics of one location and market (docs/29 §7.2): the trailing 365 days ending with the last
+        complete market-local day, or from the first day held. Derived values; `provenance` names the rows
+        they summarise. A figure under 90% interval coverage is `null` with its reason in `withheld`.
+      required: [window, window_start, window_end, days, sample_count, expected_count, coverage, interval_minutes,
+        mean, mean_30d, basis, negative_share, spread, withheld, provenance]
+      properties:
+        window:
+          type: string
+          enum: [trailing_12m]
+        window_start:
+          type: string
+          format: date
+        window_end:
+          type: string
+          format: date
+        days:
+          type: integer
+          minimum: 0
+        sample_count:
+          type: integer
+          minimum: 0
+          description: Intervals (real time) or hours (day ahead) behind the figures.
+        expected_count:
+          type: integer
+          minimum: 0
+        coverage:
+          type: [number, 'null']
+        interval_minutes:
+          type: integer
+        mean:
+          type: [number, 'null']
+          description: Time-weighted average price over the window, in the location's unit.
+        mean_30d:
+          type: [number, 'null']
+        window_30d_start:
+          type: [string, 'null']
+          format: date
+        samples_30d:
+          type: integer
+        basis:
+          type: [number, 'null']
+          description: Mean of location minus `basis_reference_id`, interval by interval.
+        basis_reference_id:
+          type: [string, 'null']
+        basis_samples:
+          type: integer
+        negative_share:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+        spread:
+          type: [number, 'null']
+          description: Average daily top-4 minus bottom-4 hourly price; a signal, not revenue.
+        spread_days:
+          type: integer
+        withheld:
+          type: object
+          additionalProperties:
+            type: string
+        computed_at:
+          type: [string, 'null']
+          format: date-time
+        provenance:
+          type: object
+          required: [source_id, source_url, retrieved_at, licence_id, derived]
+          properties:
+            source_id:
+              $ref: '#/components/schemas/SourceIdValue'
+            source_url:
+              type: string
+            retrieved_at:
+              type: [string, 'null']
+              format: date-time
+            licence_id:
+              $ref: '#/components/schemas/LicenceIdValue'
+            derived:
+              type: boolean
+    PriceLatest:
+      type: object
+      required: [interval_start, interval_end, price, retrieved_at, source_url]
+      properties:
+        interval_start:
+          type: string
+          format: date-time
+        interval_end:
+          type: string
+          format: date-time
+        price:
+          type: number
+        retrieved_at:
+          type: string
+          format: date-time
+        source_url:
+          type: string
+    PricePlacement:
+      type: object
+      description: >-
+        Where the location is drawn (docs/29 §5): `point` only at a position the market publishes (SPP's price
+        map), with `lat`/`lon`; otherwise `region`, drawn as the `region_id` polygon of `GET /v1/geo/regions`, with
+        no coordinate and a `label_point` that is a label position, never a location.
+      required: [grade, method, basis, region_id, lat, lon]
+      properties:
+        grade:
+          type: string
+          enum: [point, region]
+        method:
+          type: string
+        basis:
+          type: string
+        region_id:
+          type: string
+        lat:
+          type: [number, 'null']
+        lon:
+          type: [number, 'null']
+        evidence_url:
+          type: [string, 'null']
+        label_point:
+          type: [object, 'null']
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+            method:
+              type: string
+    PriceHub:
+      type: object
+      required: [id, name, label, market, kind, currency, unit, publication, placement, statistics, latest,
+        series_url, credit, provenance]
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z]+\.[a-z0-9_]+$'
+        name:
+          type: string
+          description: The source's own spelling (`HB_NORTH`, `TH_SP15_GEN-APND`, `N.Y.C.`).
+        label:
+          type: string
+        market:
+          type: string
+          enum: [ERCOT, SPP, CAISO, NYISO, GB]
+        kind:
+          type: string
+          enum: [hub, zone]
+        currency:
+          type: string
+          enum: [USD, GBP]
+        unit:
+          type: string
+        markets:
+          type: array
+          items:
+            type: string
+            enum: [da, rt]
+        market_labels:
+          type: object
+          description: What each market's figures are built from (CAISO real-time is the 15-minute RTPD market, NYISO's the hourly integrated price, ...).
+          additionalProperties:
+            type: string
+        lead_market:
+          type: string
+          enum: [da, rt]
+          description: The market the shared figures and the unprefixed sort tokens read, day-ahead where it has statistics, else real-time.
+        note:
+          type: [string, 'null']
+        publication:
+          type: string
+          enum: [raw_ok, derived_only]
+        reference:
+          type: [object, 'null']
+          properties:
+            id:
+              type: string
+            label:
+              type: [string, 'null']
+        placement:
+          $ref: '#/components/schemas/PricePlacement'
+        statistics:
+          type: object
+          properties:
+            da:
+              oneOf:
+                - $ref: '#/components/schemas/PriceStatistics'
+                - type: 'null'
+            rt:
+              oneOf:
+                - $ref: '#/components/schemas/PriceStatistics'
+                - type: 'null'
+        latest:
+          description: '`null` where the licence withholds raw rows (derived-only).'
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties:
+                $ref: '#/components/schemas/PriceLatest'
+        series_url:
+          type: [string, 'null']
+        credit:
+          type: [string, 'null']
+          description: The source's credit line verbatim (Elexon's with the years of the data served).
+        licence_url:
+          type: [string, 'null']
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvenanceQuartet'
+    PriceLinkOut:
+      type: object
+      required: [market, label, url, reason]
+      properties:
+        market:
+          type: string
+        label:
+          type: string
+        url:
+          type: string
+          format: uri
+        reason:
+          type: string
+        reference:
+          type: string
+    PriceHubListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          required: [notes]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/PriceHub'
+            notes:
+              type: object
+              required: [screening_note, credits, link_outs]
+              properties:
+                sort:
+                  type: string
+                posture:
+                  type: string
+                  enum: [commercial, noncommercial]
+                screening_note:
+                  type: string
+                credits:
+                  type: array
+                  description: >-
+                    Each credit of the rows returned, once, with its licence's URL: a page shows the statement and links
+                    the licence (Elexon's BMRS licence asks for the link where possible).
+                  items:
+                    type: object
+                    required: [text]
+                    properties:
+                      text:
+                        type: string
+                      licence_url:
+                        type: [string, 'null']
+                      source_id:
+                        type: [string, 'null']
+                markets:
+                  type: array
+                  description: The markets visible to this caller before filters (SPP only under the noncommercial posture).
+                  items:
+                    type: string
+                    enum: [ERCOT, SPP, CAISO, NYISO, GB]
+                link_outs:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PriceLinkOut'
+    PriceDailyRow:
+      type: object
+      required: [day, mean, min, max, intervals, expected_intervals, negative_intervals]
+      properties:
+        day:
+          type: string
+          format: date
+        mean:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        intervals:
+          type: integer
+        expected_intervals:
+          type: integer
+        negative_intervals:
+          type: integer
+        spread:
+          type: [number, 'null']
+        retrieved_at:
+          type: string
+          format: date-time
+    PriceHubSeriesResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/PriceHub'
+                - type: object
+                  required: [series, series_withheld_reason]
+                  properties:
+                    series:
+                      oneOf:
+                        - type: 'null'
+                        - type: object
+                          properties:
+                            da:
+                              type: array
+                              items:
+                                $ref: '#/components/schemas/PriceDailyRow'
+                            rt:
+                              type: array
+                              items:
+                                $ref: '#/components/schemas/PriceDailyRow'
+                    series_withheld_reason:
+                      type: [string, 'null']
+            notes:
+              type: object
+              properties:
+                screening_note:
+                  type: string
+                posture:
+                  type: string
+    RetailPriceSummary:
+      type: object
+      required: [latest_period, latest_cents_kwh, avg_12m_cents_kwh, months]
+      properties:
+        latest_period:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        latest_cents_kwh:
+          type: [number, 'null']
+        latest_status:
+          type: [string, 'null']
+        avg_12m_cents_kwh:
+          type: [number, 'null']
+          description: >-
+            Revenue over sales across the twelve calendar months to `latest_period`; null when any of them is not
+            published or has no revenue or sales figure (`avg_12m_withheld` says which).
+        avg_12m_from:
+          type: [string, 'null']
+        avg_12m_to:
+          type: [string, 'null']
+        avg_12m_withheld:
+          type: [string, 'null']
+        months:
+          type: integer
+        preliminary_months:
+          type: integer
+    RetailPriceRow:
+      type: object
+      required: [state, sectors, latest_cents_kwh, avg_12m_cents_kwh, provenance]
+      properties:
+        state:
+          type: string
+          pattern: '^[A-Z]{2}$'
+        sectors:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: 'null'
+              - $ref: '#/components/schemas/RetailPriceSummary'
+        latest_cents_kwh:
+          type: [number, 'null']
+        avg_12m_cents_kwh:
+          type: [number, 'null']
+        provenance:
+          type: object
+          required: [source_id, source_url, retrieved_at, licence_id]
+          properties:
+            source_id:
+              $ref: '#/components/schemas/SourceIdValue'
+            source_url:
+              type: string
+            retrieved_at:
+              type: [string, 'null']
+              format: date-time
+            licence_id:
+              $ref: '#/components/schemas/LicenceIdValue'
+    RetailPriceListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          required: [notes]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/RetailPriceRow'
+            notes:
+              type: object
+              properties:
+                sector:
+                  type: string
+                sort:
+                  type: string
+                credit:
+                  type: [string, 'null']
+                released:
+                  type: [string, 'null']
+                note:
+                  type: string
     UiEventCreateRequest:
       type: object
       required: [name]
