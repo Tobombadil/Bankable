@@ -11,7 +11,13 @@
     "Why?": it shows at every width, between the short form and what "Why?" opens (docs/17 §6,
     D-2/D-34: the source on every screen). -#}
 {% import "_macros.html" as m %}
-{%- set lifecycle_line = not lifecycle_explicit -%}
+{#- Every Status box unticked (`lifecycle_state=none`, owner 2026-10-22): nothing is drawn, and the
+    notice says why at every width (not behind "Why?"), with the way back. map.js runs "Clear all"
+    in place for the link; without scripts it is the map's default view. -#}
+{%- if no_status %}
+<p class="view-notice map-notice__none" role="status">No status chosen: projects are hidden. Tick a status under Status, or <a href="/" data-clear-all>Clear all</a> to show active proposals.</p>
+{%- endif %}
+{%- set lifecycle_line = not lifecycle_explicit and not no_status -%}
 {%- if lifecycle_line or unlisted_notice %}
 <p class="map-notice__brief">
   {%- if lifecycle_line %}{{ 'Withdrawn included.' if include_withdrawn else 'Active only.' }}

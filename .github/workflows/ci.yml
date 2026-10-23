@@ -421,10 +421,11 @@ jobs:
       # infra/scheduler/test_queue_schema.py's real-Postgres case (`ensure` inside a throwaway
       # schema) skipped everywhere until 2026-10-07: this step did not name it (audit QA-5).
       # infra/scheduler/test_store_pass_lock.py: the store-wide passes' advisory lock (2026-10-10).
-      - name: app on Postgres (tests/test_postgres.py, services/db/test_types_postgis.py, infra/scheduler/test_queue_schema.py, infra/scheduler/test_store_pass_lock.py)
+      # services/projects/test_migration.py: migration 0040 up and down, the NUL check and the one-owner race (docs/19, 2026-10-22).
+      - name: app on Postgres (tests/test_postgres.py, services/db/test_types_postgis.py, infra/scheduler/test_queue_schema.py, infra/scheduler/test_store_pass_lock.py, services/projects/test_migration.py)
         env:
           POSTGIS_TEST_URL: postgresql+psycopg://infraque:infraque-ci-only@localhost:5432/infraque_ci
-        run: pytest tests/test_postgres.py services/db/test_types_postgis.py infra/scheduler/test_queue_schema.py infra/scheduler/test_store_pass_lock.py -p no:warnings
+        run: pytest tests/test_postgres.py services/db/test_types_postgis.py infra/scheduler/test_queue_schema.py infra/scheduler/test_store_pass_lock.py services/projects/test_migration.py -p no:warnings
 
   security:
     name: gitleaks + pip-audit

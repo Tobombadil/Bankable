@@ -867,24 +867,18 @@ h3 { font-size: var(--text-4); }
 .empty-state a { font-weight: 600; }
 
 /* ---------- 8. Map page ---------- */
-.map-layout { display: grid; grid-template-columns: 1fr 22rem; gap: var(--space-4); align-items: start; }
+/* Owner, 2026-10-22 (docs/31 §5.19): the map takes the full content width, and one panel floating
+   over its top right holds what is in view and the key. */
 #map {
   height: 70vh; min-height: 24rem; border: 1px solid var(--border); border-radius: var(--radius-3);
   background: var(--surface);
 }
-.map-side {
-  border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--surface);
-  max-height: 70vh; overflow-y: auto; padding: var(--space-4);
-}
-.map-side h2 { font-size: var(--text-4); margin-bottom: var(--space-2); }
 .in-view-list { list-style: none; margin: 0; padding: 0; }
 .in-view-list li { border-bottom: 1px solid var(--border); padding: var(--space-2) 0; }
 .in-view-list a { text-decoration: none; color: var(--text); font-weight: 600; }
 .in-view-list .meta { display: block; font-size: var(--text-1); color: var(--text-muted); }
-/* docs/17 M-5: the in-view header in words: proposals in view, their status families (the key's
-   glyph and words) and stated capacity; a region's summary in the drawer uses the same parts. */
-.in-view-summary { margin: 0 0 var(--space-2); font-size: var(--text-1); color: var(--text-muted); }
-.in-view-summary__count { color: var(--text); font-weight: 600; }
+/* docs/17 M-5: status families in words with the key's glyph (the panel's header, the overview and
+   a region's summary in the drawer): the glyph takes the family's colour, the words the text's. */
 .in-view-summary__family { white-space: nowrap; }
 .in-view-summary__family .legend__icon { vertical-align: -1px; margin-inline-end: var(--space-1); }
 .in-view-summary__family--neutral .legend__icon { color: var(--family-neutral-text); }
@@ -893,7 +887,154 @@ h3 { font-size: var(--text-4); }
 .in-view-summary__family--success .legend__icon { color: var(--family-success-text); }
 .in-view-summary__family--danger .legend__icon { color: var(--family-danger-text); }
 .unplaced-group summary { cursor: pointer; font-weight: 600; padding: var(--space-2) 0; }
+/* The panel (home_map.html `#map-panel`; owner, 2026-10-22). From 720px it floats over the map's top
+   right, inset 12px, 300px wide to 1079px and 340px from 1080px, never taller than the map: its
+   body scrolls inside. Translucent: --surface at 88% over a light blur of the map. Every word on it
+   keeps 4.5:1 or more whatever is drawn behind, measured against the surface mixed at 88% with
+   black (light theme) or white (dark theme), the worst a map could put there
+   (web/test_map_a11y.py): so its muted words take the darker grey of the neutral family (6.6:1 on
+   white), and the key's words are --text beside their coloured glyph or swatch. A reader who asks
+   for less transparency gets the plain surface. Below 720px it is a bar under the map (8.3). */
+/* The panel and the drawer take their height from the map's own (#map: 70vh, at least 24rem), not
+   from the frame, which also holds the basemap note under the canvas when the tiles fail. */
+.map-frame { --map-panel-inset: var(--space-3); --map-panel-width: 18.75rem; --map-height: max(70vh, 24rem); }
+@media (min-width: 1080px) { .map-frame { --map-panel-width: 21.25rem; } }
+.map-panel {
+  --text-muted: var(--family-neutral-text);
+  position: absolute; z-index: 3; top: var(--map-panel-inset); right: var(--map-panel-inset);
+  height: calc(var(--map-height) - 2 * var(--map-panel-inset)); width: var(--map-panel-width);
+  display: flex; flex-direction: column; overflow: hidden; color: var(--text);
+  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border: 1px solid var(--border); border-radius: var(--radius-3); box-shadow: var(--shadow-1);
+}
+.map-panel.is-collapsed { height: auto; }
+@media (prefers-reduced-transparency: reduce) {
+  .map-panel { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+.map-panel__head {
+  flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  gap: var(--space-1) var(--space-2); padding: var(--space-2) var(--space-3);
+}
+.map-panel:not(.is-collapsed) .map-panel__head { border-bottom: 1px solid var(--border); }
+/* The panel's title (an h2, so the h3s inside follow the page's h1 in order) holds the header's
+   button and looks like it: the button's words, not a heading's face. */
+.map-panel__title {
+  grid-column: 1; display: block; min-width: 0; margin: 0; font: inherit; font-weight: 600; line-height: inherit;
+}
+.map-panel__toggle {
+  grid-column: 1; display: flex; align-items: center; gap: var(--space-2); min-height: 2.25rem; min-width: 0;
+  width: 100%; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-weight: 600;
+  text-align: left; cursor: pointer;
+}
+.map-panel__count { flex: 1 1 auto; min-width: 0; font-variant-numeric: tabular-nums; }
+/* A chevron of two borders in currentColor, as a disclosure's: up while open (a click folds the body
+   up into the header), down while collapsed (a click drops the body down). */
+.map-panel__chevron {
+  flex: none; width: 0.5em; height: 0.5em; margin: 0 0.2em; border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor; transform: translateY(0.15em) rotate(-135deg);
+}
+.map-panel.is-collapsed .map-panel__chevron { transform: translateY(-0.15em) rotate(45deg); }
+.map-panel__keybtn {
+  grid-column: 2; font: inherit; font-size: var(--text-1); min-height: 2.25rem; padding: 0 var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-2); background: var(--surface);
+  color: var(--text); cursor: pointer;
+}
+/* The thin bar by status family, in the map's own colours (the families' text hues, which are the
+   markers' rings); 1px of panel between the parts. The words under it say the same counts. */
+.map-panel__bar {
+  grid-column: 1 / -1; display: flex; gap: 1px; height: 0.375rem; border-radius: var(--radius-1);
+  overflow: hidden;
+}
+.map-panel__seg { display: block; min-width: 2px; }
+.map-panel__seg--neutral { background: var(--family-neutral-text); }
+.map-panel__seg--progress { background: var(--family-progress-text); }
+.map-panel__seg--committed { background: var(--family-committed-text); }
+.map-panel__seg--success { background: var(--family-success-text); }
+.map-panel__seg--danger { background: var(--family-danger-text); }
+/* Two lines are kept for the words from first paint, so the header is as tall before the data as
+   after it (three families fit two lines at 300px) and the first fit, under a collapsed header,
+   does not end behind it. */
+.map-panel__families {
+  grid-column: 1 / -1; margin: 0; display: flex; flex-wrap: wrap; align-content: flex-start;
+  gap: 0 var(--space-3); min-height: 3em; font-size: var(--text-1); line-height: 1.5; color: var(--text);
+}
+.map-panel__body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.map-panel__tabs { flex: none; display: flex; gap: var(--space-2); padding: 0 var(--space-3); border-bottom: 1px solid var(--border); }
+.map-panel__tab {
+  font: inherit; font-size: var(--text-2); min-height: 2.5rem; padding: 0 var(--space-2); margin-bottom: -1px;
+  border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-muted); cursor: pointer;
+}
+.map-panel__tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); font-weight: 600; }
+.map-panel__scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--space-1) var(--space-3) var(--space-3);
+}
+.map-panel__heading {
+  font-family: var(--font-mono); font-size: var(--text-1); font-weight: 400; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted); margin: var(--space-3) 0 var(--space-1);
+}
+.map-panel__aside { text-transform: none; letter-spacing: normal; font-family: var(--font-body); }
+/* Without scripts the panel shows its key; with them, nothing flashes before map.js lays it out:
+   the body waits where the panel starts collapsed (below 1080px), the key tab where it starts open. */
+.js .map-panel:not([data-ready]) #map-tabpanel-key { display: none; }
+@media (max-width: 1079px) { .js .map-panel:not([data-ready]) .map-panel__body { display: none; } }
+/* "In view" at national and multi-state views: rows of a name, a count and a meter of its share. */
+.map-overview__rows { list-style: none; margin: 0; padding: 0; }
+.map-overview__row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 0 var(--space-2);
+  padding: var(--space-1) 0; font-size: var(--text-1);
+}
+.map-overview__name { min-width: 0; color: var(--text); }
+.map-overview__name .legend__icon { vertical-align: -2px; }
+.map-overview__count { color: var(--text-muted); white-space: nowrap; }
+.map-overview__meter {
+  grid-column: 1 / -1; display: block; height: 0.25rem; margin-top: 2px; border-radius: var(--radius-1);
+  background: var(--border); overflow: hidden;
+}
+.map-overview__fill { display: block; height: 100%; background: var(--text-muted); }
+/* Five rows kept for the busiest areas, each as tall as an area's row is drawn (its 24px button and
+   4px above and below), so their answer landing moves nothing under them (review 2026-10-22: 140px
+   were kept for five rows of 32px). */
+.map-overview__areas { --map-area-row: calc(1.5rem + 2 * var(--space-1)); min-height: calc(5 * var(--map-area-row)); }
+.map-overview__row--area { align-items: center; min-height: var(--map-area-row); }
+.map-overview__area {
+  font: inherit; font-size: var(--text-2); color: var(--link); background: none; border: 0; padding: 0;
+  min-height: 1.5rem; text-align: left; text-decoration: underline; cursor: pointer;
+}
+.map-overview__empty, .map-overview__also, .map-overview__hint { font-size: var(--text-1); color: var(--text-muted); }
+.map-overview__also { margin: var(--space-3) 0 0; }
+/* The overview's first line: why there is no list at this zoom, and how to get one. */
+.map-overview__hint { margin: var(--space-2) 0 0; font-weight: 600; color: var(--text); }
+/* The key tab: the words a first visitor reads, a glyph or swatch beside each in the mark's hue. */
+.map-key .legend { flex-direction: column; flex-wrap: nowrap; gap: var(--space-1); border: 0; margin: 0; padding: 0; }
+.map-key .legend + .legend:not([hidden]) { border-top: 1px solid var(--border); margin-top: var(--space-3); }
+.map-key .legend > .map-panel__heading:first-child { margin-top: var(--space-2); }
+.map-key__intro { margin: 0 0 var(--space-1); font-size: var(--text-1); color: var(--text-muted); }
+.map-key .legend__item { align-items: flex-start; gap: var(--space-2); padding: 2px var(--space-1); border-radius: var(--radius-2); }
+.map-key .legend__item > .legend__icon, .map-key .legend__item > .legend__sample { margin-top: 2px; }
+.map-key [data-highlight]:hover { background: var(--bg); }
+.map-panel .legend__words { color: var(--text); }
+.map-panel .legend__detail { color: var(--text-muted); }
+.map-key .legend__group { gap: 0 var(--space-3); }
+.map-key .legend__group-name { flex-basis: 100%; margin-top: var(--space-2); color: var(--text); }
+.map-key .legend__note { padding-left: var(--space-1); }
+/* The list in the panel's width: the status chip (or a row's kind) and Details on the first line,
+   the name under them, then the muted line, so a long name never pushes Details onto a line alone. */
+.map-panel .in-view-list li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px var(--space-2);
+}
+.map-panel .in-view-list li > :first-child { grid-column: 1; grid-row: 1; justify-self: start; }
+.map-panel .in-view-list li > :not(:first-child):not(.details-btn) { grid-column: 1 / -1; }
+.map-panel .in-view-list li > .details-btn { grid-column: 2; grid-row: 1; margin: 0; }
+.map-panel .in-view-list li.in-view-list__group-name { display: block; }
+.map-panel .in-view-list .chip-slot .chip { margin: 0; }
 .in-view-list__unplaced { font-size: var(--text-1); color: var(--text-muted); padding: var(--space-2) 0; margin: 0; }
+/* How many matches no map can place: from 720px the count line above the map says it (map.js
+   `renderCountLine`); below 720px that line shares a row with the notice's short form, so there
+   "In view" opens with it instead (8.3). */
+.map-panel__unplaced { display: none; }
 /* Legend: icon + label per family, never colour alone (D-5) -- reuses the chip icon set. */
 .legend { display: flex; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-3) 0; font-size: var(--text-1); border-top: 1px solid var(--border); margin-top: var(--space-2); }
 .legend__item { display: flex; align-items: center; gap: var(--space-1); }
@@ -952,14 +1093,9 @@ a.button-secondary:visited { color: var(--link); }
 /* docs/17 M-1, M-4, M-6, M-11 (lane m-layout): the wrappers the phone layout needs lay out as if
    absent from 720px, and the controls only a phone draws are not drawn, so the wide map page is as
    it was. The phone rules are in "8.3 The map page below 720px", further down. */
-.map-overlay .map-overlay__rail, .map-overlay .map-controls--jump, .map-status__actions { display: contents; }
+.map-overlay .map-overlay__rail, .map-overlay .map-controls--jump { display: contents; }
 .map-jump__toggle, .map-jump__home, .filter-bar__done--top, .map-intro__stop, .map-intro__about,
-.map-notice__brief, .map-drawer__expand { display: none; }
-
-@media (max-width: 1079px) {
-  .map-layout { grid-template-columns: 1fr; }
-  .map-side { max-height: none; }
-}
+.map-notice__brief, .map-drawer__expand, .map-drawer__back { display: none; }
 
 /* Existing-assets type picker (docs/00-PLAN.md 2026-09-19 option (a)): one checkbox per asset
    type, laid out like the placement fieldset so the two read as the same control family. A type
@@ -1073,6 +1209,34 @@ a.button-secondary:visited { color: var(--link); }
   transition: transform var(--motion-fast) ease-out; z-index: 50;
 }
 .map-drawer.is-open { transition-duration: var(--motion-base); transform: translateX(0); }
+/* From 720px the drawer opens in the panel's place over the map (owner, 2026-10-22: the two never
+   overlap), on the plain --surface (no blur on the drawer, D-7), with "Back to what's in view"
+   beside Close. The covered panel keeps its tab and scroll for when the drawer closes. */
+@media (min-width: 720px) {
+  .map-frame > .map-drawer {
+    position: absolute; top: var(--map-panel-inset); right: var(--map-panel-inset); bottom: auto;
+    height: calc(var(--map-height) - 2 * var(--map-panel-inset)); width: var(--map-panel-width); z-index: 4;
+    padding: 0 var(--space-4) var(--space-4);
+    border: 1px solid var(--border); border-radius: var(--radius-3);
+    transform: translateX(var(--space-3)); opacity: 0;
+    transition: transform var(--motion-fast) ease-out, opacity var(--motion-fast) ease-out;
+  }
+  .map-frame > .map-drawer.is-open { transform: none; opacity: 1; transition-duration: var(--motion-base); }
+  .map-panel.is-covered { visibility: hidden; }
+  .map-drawer__bar {
+    position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-2); margin: 0 calc(-1 * var(--space-4)) var(--space-3); padding: var(--space-1) var(--space-3);
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .map-frame > .map-drawer .map-drawer__close { padding: var(--space-2) 0; }
+  .map-drawer__back {
+    display: inline-flex; align-items: center; min-height: 2.25rem; padding: 0; border: 0; background: none;
+    font: inherit; font-size: var(--text-1); color: var(--link); text-decoration: underline; cursor: pointer;
+  }
+}
+@media (max-width: 1079px) {
+  .map-frame > .map-drawer h2 { font-size: var(--text-4); }
+}
 .map-drawer__close {
   /* Quiet button (docs/31 §5.16). */
   font: inherit; font-size: var(--text-1);
@@ -1483,59 +1647,89 @@ a.button-secondary:visited { color: var(--link); }
   margin: 0 0 var(--space-2);
 }
 .map-status .result-count { margin: 0; }
+/* The count's second sentence, how many matches no map can place (map.js `renderCountLine`), on a
+   line of its own under "N projects match these filters." (not drawn below 720px, 8.3). */
+.map-status__unplaced { display: block; }
+/* "Open these in the list · Save this search as an alert" (owner, 2026-10-22: the view switch left
+   the map; the alert page offers the same search as an RSS feed). */
+.map-status__actions {
+  margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-1); font-size: var(--text-1);
+}
+.map-status__actions a { display: inline-flex; align-items: center; min-height: 1.5rem; font-weight: 600; white-space: nowrap; }
 .map-status__save { font-size: var(--text-1); }
 .map-status #map-notice { flex: 1 1 28rem; }
 .map-status .view-notice { padding: 0; margin: 0; }
 .map-empty { margin-top: var(--space-2); font-size: var(--text-1); }
-/* Zoom buttons and region jumps sit on the map, top left, as map controls do, so nothing stands
-   between the filters and the canvas. */
+/* Zoom buttons, region jumps and the search field sit on the map, top left, as map controls do, so
+   nothing stands between the filters and the canvas; from 720px they wrap short of the panel. */
 .map-frame { position: relative; }
 .map-overlay {
   position: absolute; top: var(--space-2); left: var(--space-2); right: var(--space-2); z-index: 2;
-  display: flex; flex-wrap: wrap; gap: var(--space-2); pointer-events: none;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2); pointer-events: none;
 }
+@media (min-width: 720px) {
+  .map-overlay { right: calc(var(--map-panel-width) + 2 * var(--map-panel-inset)); }
+  /* The key is a tab of the panel: the rail's "Key" is a phone's (8.3). */
+  .map-overlay .map-controls--key { display: none; }
+  /* Beside "Key", the collapsed count wraps to two lines ("4,139 projects in view · 742.7 GW" in
+     196px); both are kept from first paint ("Loading projects…"), so the header does not grow when
+     the data lands and the national view, fitted under it, stays clear of it. */
+  .map-panel.is-collapsed .map-panel__count { display: flex; align-items: center; min-height: 3em; }
+}
+/* The search field (owner, 2026-10-22): on the map, top left, from 720px, in the controls' row (the
+   phone layout is in 8.3). The box is the map controls' height with the site's input outline in
+   --text-muted, 5.5:1 on --surface (SC 1.4.11). Its suggestions open under it over the map, and
+   close on a pick, Escape or a tap elsewhere. */
+.map-search { position: relative; flex: 0 1 20rem; min-width: 14rem; pointer-events: auto; }
+.map-search__input {
+  display: block; width: 100%; box-sizing: border-box; min-height: 2.25rem; margin: 0;
+  padding: 0 2.25rem 0 2rem; font: inherit; font-size: var(--text-2); color: var(--text);
+  background: var(--surface); border: 1px solid var(--text-muted); border-radius: var(--radius-2);
+  box-shadow: var(--shadow-1); -webkit-appearance: none; appearance: none;
+}
+.map-search__input::placeholder { color: var(--text-muted); opacity: 1; }
+/* The browser's own clear mark would sit beside the one drawn here. */
+.map-search__input::-webkit-search-cancel-button,
+.map-search__input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.map-search__icon { position: absolute; left: 0.625rem; top: 0.625rem; color: var(--text-muted); pointer-events: none; }
+.map-search__clear {
+  position: absolute; top: 0; right: 0; width: 2.25rem; height: 2.25rem; padding: 0; margin: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: none; color: var(--text-muted); cursor: pointer;
+}
+.map-search__clear:hover { color: var(--text); }
+.map-search__list, .map-search__empty {
+  position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 6;
+  width: max(100%, 22rem); max-width: calc(100vw - 2 * var(--space-4)); box-sizing: border-box;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
+  box-shadow: var(--shadow-1);
+}
+/* Clipped to itself and its shadow: headless Chromium painted a copy of a scrolling panel's
+   background below it, as it did for the compact key the panel replaced. */
+.map-search__list {
+  max-height: min(60vh, 28rem); overflow-y: auto; padding: var(--space-1) 0;
+  clip-path: inset(-3px -3px -4px -3px round var(--radius-2));
+}
+.map-search__empty { margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-1); color: var(--text); }
+.map-search__group + .map-search__group { border-top: 1px solid var(--border); }
+.map-search__group-name {
+  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-muted); padding: var(--space-2) var(--space-3) var(--space-1);
+}
+.map-search__option {
+  display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 2.75rem;
+  padding: var(--space-1) var(--space-3); cursor: pointer;
+}
+.map-search__option:hover, .map-search__option.is-active { background: var(--bg); }
+.map-search__option.is-active { box-shadow: inset 3px 0 0 var(--link); }
+.map-search__label { color: var(--text); font-weight: 600; font-size: var(--text-2); }
+.map-search__detail { color: var(--text-muted); font-size: var(--text-1); }
+.map-search__detail .chip { padding: 0 var(--space-1); margin-inline-end: var(--space-1); }
 .map-overlay .map-controls { margin: 0; pointer-events: auto; }
 .map-overlay .map-controls button { box-shadow: var(--shadow-1); }
-/* The map key on the map (review 2026-10-10 §2.6 item 2: it sat under the canvas, below the fold
-   at 1440x900 and 400x800). It takes its own row under the zoom and region controls, top left
-   (the default view has ocean there, not the dense Northeast): a panel from 720px, a strip with
-   short labels below that (the full words stay for screen readers). The page ground behind the
-   words keeps every legend hue at the contrast measured for it on --bg (web/test_map_a11y.py).
-   "Key" (map.js) hides and shows it. */
+/* The rail's "Key" (below 720px; docs/17 M-1): it opens the panel's Key tab under the map. */
 .map-controls--key button { padding: 0 var(--space-3); font-size: var(--text-1); }
 .map-controls--key button[aria-expanded="true"] { border-color: var(--text); font-weight: 600; }
-.map-key { flex: 0 0 100%; }
-.map-key__panel {
-  pointer-events: auto; background: var(--bg); border: 1px solid var(--border);
-  border-radius: var(--radius-2); box-shadow: var(--shadow-1); overflow-y: auto;
-}
-.map-key .legend { border-top: 0; margin: 0; padding: 0; }
-.map-key .legend + .legend:not([hidden]) {
-  border-top: 1px solid var(--border); margin-top: var(--space-2); padding-top: var(--space-2);
-}
-.legend__short { display: none; }
-@media (min-width: 720px) {
-  .map-key__panel {
-    width: 17rem; max-height: calc(70vh - 2.25rem - var(--space-8)); padding: var(--space-2) var(--space-3);
-  }
-  .map-key .legend--lifecycle, .map-key .legend__group {
-    flex-direction: column; align-items: flex-start; gap: var(--space-1);
-  }
-  .map-key .legend--lifecycle .legend__note { margin: var(--space-1) 0; }
-}
-@media (max-width: 719px) {
-  .map-key__panel { max-height: 9rem; padding: var(--space-1) var(--space-2); }
-  /* Closed from first paint, not only once map.js runs after the CDN scripts (review of lane
-     w1-map: on a slow phone the open key covered the map until then), as the filter bar does. */
-  .js .map-key:not([data-ready]) { display: none; }
-  .map-key .legend--lifecycle { gap: 0 var(--space-3); }
-  .map-key .legend--lifecycle .legend__group-name { display: none; }
-  .map-key .legend__short { display: inline; }
-  .map-key .legend__long, .map-key .legend__detail, .map-key .legend--lifecycle > .legend__note {
-    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
-    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
-  }
-}
 .map-intro + .preview-banner { margin-top: var(--space-3); }
 /* docs/31 §6 map error: the problem title and request id, a retry and the list as a way on. */
 .map-error {
@@ -1548,9 +1742,7 @@ a.button-secondary:visited { color: var(--link); }
 .in-view-list__more { border-bottom: none; padding: var(--space-3) 0; }
 .show-more-btn { font-size: var(--text-1); width: 100%; }
 .in-view-list__empty { color: var(--text-muted); }
-@media (max-width: 1079px) {
-  .map-side { margin-top: var(--space-2); }
-}
+/* What is in view, and the key, keep their place in the map frame's flow below 720px (8.3). */
 @media (max-width: 719px) {
   #map { height: 58vh; min-height: 18rem; }
   .map-intro__title { font-size: var(--text-4); }
@@ -1566,8 +1758,17 @@ a.button-secondary:visited { color: var(--link); }
      in "Jump to". The region row, three rows of buttons and the key covered 38% of the map. */
   .map-frame { display: flex; flex-direction: column; }
   .map-overlay { display: contents; }
+  /* Owner, 2026-10-22: the search field is a full-width bar above the canvas, so it covers none of
+     the map; the column starts under it, 8px into the canvas as before. Its box and clear button are
+     44px tall, the phone target. Suggestions open under the bar, over the map, while typing. */
+  .map-search { order: -1; flex: none; width: 100%; min-width: 0; margin: 0 0 var(--space-2); }
+  .map-search__input { min-height: 2.75rem; padding-left: 2.25rem; padding-right: 2.75rem; }
+  .map-search__icon { top: 0.875rem; left: 0.75rem; }
+  .map-search__clear { width: 2.75rem; height: 2.75rem; }
+  .map-search__list, .map-search__empty { width: 100%; max-width: none; }
+  .map-search__list { max-height: 50vh; }
   .map-overlay .map-overlay__rail {
-    position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2;
+    position: absolute; top: calc(2.75rem + 2 * var(--space-2)); right: var(--space-2); z-index: 2;
     display: flex; flex-direction: column; gap: var(--space-2); pointer-events: none;
   }
   .map-overlay__rail .map-controls { flex-direction: column; flex-wrap: nowrap; gap: var(--space-2); }
@@ -1594,12 +1795,26 @@ a.button-secondary:visited { color: var(--link); }
     border: 0; border-radius: 0; background: transparent; box-shadow: none;
   }
   .map-overlay .map-controls--regions .map-jump__home { display: block; border-top: 1px solid var(--border); }
-  /* M-1 (c): the key opens under the map frame, in the page, as the filters and the menu open in
-     place (docs/31 §3), so it covers nothing and needs no inner scroll; its layer sections start
-     closed (map.js), so the status strip shows first. After the canvas (and its basemap note). */
-  .map-key { order: 1; flex: none; margin-top: var(--space-2); pointer-events: auto; }
-  .map-key__panel, .map-key--compact .map-key__panel {
-    max-height: none; overflow: visible; box-shadow: none; padding: var(--space-2) var(--space-3);
+  /* Owner, 2026-10-22 (docs/17 M-1 (c) kept): the panel does not float on a phone. It is a bar under
+     the map frame ("N projects in view", with "Key" while closed) that opens in the page, as the
+     filters and the menu open in place (docs/31 §3), so it covers nothing and needs no inner scroll.
+     After the canvas (and its basemap note). Closed from first paint, before map.js runs. */
+  .map-panel, .map-panel.is-collapsed {
+    position: static; order: 1; width: auto; height: auto; margin-top: var(--space-2); overflow: visible;
+    background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none;
+  }
+  .map-panel__scroll { overflow: visible; }
+  .js .map-panel:not([data-ready]) .map-panel__body { display: none; }
+  .js .map-panel:not([data-ready]) .map-panel__bar, .js .map-panel:not([data-ready]) .map-panel__families,
+  .map-panel.is-collapsed .map-panel__bar, .map-panel.is-collapsed .map-panel__families { display: none; }
+  .map-panel__toggle, .map-panel__keybtn { min-height: 2.75rem; }
+  .map-panel__keybtn { min-width: 2.75rem; }
+  .map-panel__tab { min-height: 2.75rem; }
+  /* The count line keeps one row with "Active only. Why?" (M-6), so how many matches no map can
+     place is said where "In view" opens instead (review 2026-10-22). */
+  .map-status__unplaced { display: none; }
+  .map-panel__unplaced:not([hidden]) {
+    display: block; margin: var(--space-2) 0 0; font-size: var(--text-1); color: var(--text);
   }
 
   /* M-4: the drawer is a bottom sheet, at most 45% of the screen: the record's name, status,
@@ -1636,8 +1851,8 @@ a.button-secondary:visited { color: var(--link); }
   .map-drawer .drawer-open-link { margin-top: var(--space-3); }
 
   /* M-6: the map into the first screen. The lede is its first sentence ("About this map" opens the
-     rest); the count and the notice's short form share a line ("Why?" opens the notice); the save
-     link and the view switch share the next. Keyed on `.js`: without scripts all of it shows. */
+     rest); the count and the notice's short form share a line ("Why?" opens the notice); "Open these
+     in the list" and the save link share the next. Keyed on `.js`: without scripts all of it shows. */
   .map-intro { padding-top: var(--space-3); }
   .js .map-intro__more { display: none; }
   .js .map-intro__lede.is-open .map-intro__more { display: inline; }
@@ -1655,10 +1870,7 @@ a.button-secondary:visited { color: var(--link); }
   .map-notice__detail, .map-status .map-empty, .map-status .view-notice--gap { flex-basis: 100%; }
   .js #map-notice:not(.is-why-open) .map-notice__detail { display: none; }
   .map-status .view-notice:last-child { padding-bottom: 0; }
-  .map-status__actions {
-    display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; justify-content: space-between;
-    gap: var(--space-1) var(--space-3);
-  }
+  .map-status__actions { flex: 1 1 100%; }
 
   /* M-11: the bar's disclosures are full-width rows, left-aligned, each with its marker (they sat
      at the right edge, `align-self: end`, and read as stray links); "Show the map" is at the top of
@@ -1703,10 +1915,9 @@ a.button-secondary:visited { color: var(--link); }
 }
 .view-switch__link:visited { color: var(--link); }
 .view-switch__link[aria-current="page"] { border-color: var(--text); color: var(--text); font-weight: 600; }
-/* Below 720px the switch shares the map's status row with "Save this search as an alert" (156px of
-   368px), as it did before "RSS feed" joined it: the "View as" text is visually hidden (the nav's
-   aria-label still names the control) and the links take 8px side padding, 274px -> about 183px.
-   Stacked, the row cost 23px above the map at 400x800 (web/test_e2e.py's fold budget). */
+/* Below 720px the "View as" text is visually hidden (the nav's aria-label still names the control)
+   and the links take 8px side padding, 274px -> about 183px, so the switch fits a phone row (it sat
+   in the map's status row until the map dropped it, owner 2026-10-22; the list keeps it). */
 @media (max-width: 719px) {
   .view-switch__label {
     position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
@@ -1799,43 +2010,9 @@ a.button-secondary:visited { color: var(--link); }
 .site-panel__list li { margin-bottom: var(--space-1); }
 .record-table tr.site-row--unit td:first-child { padding-left: var(--space-5); }
 
-/* ---------- 2026-10-10 lane F: the compact map key, and the map's filter bar at 720-1079px ----------
-   (docs/31 §5.4 "Map key" and §5.9 as built; measured in docs/30 §5.1.) */
-
-/* Each layer's key is a section that closes (home_map.html `.map-key__section`, a native
-   disclosure: keyboard and screen reader for free). The summary keeps its triangle and the group
-   names' muted weight; 1.5rem tall, the SC 2.5.8 target. */
-.map-key__section { flex: 1 1 100%; min-width: 0; }
-.map-key__section > summary {
-  cursor: pointer; min-height: 1.5rem; font-weight: 600; color: var(--text-muted);
-}
-.map-key__section[open] > summary { margin-bottom: var(--space-1); }
-.map-key__section-body { display: flex; flex-direction: column; gap: var(--space-2); }
-/* With the existing-asset or retired layer on (map.js `syncKeyCompact`): before, the panel grew
-   to the map's foot at 1440x900 (272x554px, 23% of the canvas, Seattle to San Diego under it).
-   Now the status key is the narrow layout's strip of short words (the full words stay for screen
-   readers), groups flow in rows, and from 720px the panel stops at 15rem and scrolls inside, so
-   it covers less than the no-layer key. Without a layer none of this applies. */
-.map-key--compact .legend__short { display: inline; }
-/* A scrolling panel painted a panel-sized copy of its background below itself (headless Chromium
-   141, also before this change wherever the panel scrolled, e.g. 400px with a layer on; not
-   checked on a GPU-composited browser). Clipping to the panel and its 1px shadow removes it.
-   From 720px only: below it the panel is in the page and never scrolls (docs/17 M-1). */
-@media (min-width: 720px) {
-  .map-key--compact .map-key__panel { clip-path: inset(-3px -3px -4px -3px round var(--radius-2)); }
-}
-.map-key--compact .legend__long, .map-key--compact .legend__detail,
-.map-key--compact .legend--lifecycle > .legend__note {
-  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
-  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
-}
-@media (min-width: 720px) {
-  .map-key--compact .map-key__panel { max-height: 15rem; }
-  .map-key--compact .legend--lifecycle, .map-key--compact .legend__group {
-    flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3);
-  }
-  .map-key--compact .legend__group-name { flex-basis: 100%; }
-}
+/* ---------- 2026-10-10 lane F: the map's filter bar at 720-1079px ----------
+   (docs/31 §5.9 as built; measured in docs/30 §5.1. Lane F's compact key went with the floating key,
+   owner 2026-10-22: the key is a tab of the map's panel, which scrolls.) */
 
 /* The map's filter bar at 720-1079px (designer D-3): two rows of filters put the map's top at
    634px of 768 at 1024x768 and 761px of 900 at 720x900. It is the "Filters (N active)"

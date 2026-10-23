@@ -37,6 +37,9 @@ def get_engine(url: str | None = None, *, connect_args: dict[str, object] | None
             # connection so every session in a process (and this sprint's tests) sees the
             # same schema and data.
             kwargs["poolclass"] = StaticPool
+    # Database errors never echo bound parameters into exception text, logs or error reports: a
+    # parameter can be a private note, an invitation address or a token (docs/19 §5.3).
+    kwargs["hide_parameters"] = True
     engine = create_engine(url, future=True, connect_args=connect_args, **kwargs)
     if made.get_backend_name() == "sqlite":
         from sqlalchemy import event as sa_event

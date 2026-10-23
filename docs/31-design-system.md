@@ -194,10 +194,10 @@ for tabular data at any breakpoint (D-1, D-7, banned #13).
 
 | Breakpoint | Layout behaviour |
 |---|---|
-| ≥1440px | 12-col grid, map + side list side-by-side (§5.1 wireframe), table at full column set |
-| 1080–1439px | 12-col grid, map/list panel ratio narrows, table unaffected |
-| 720–1079px | Side list becomes a collapsible panel over the map; table scrolls horizontally inside its own container only |
-| 360–719px | Map: the record drawer is a bottom sheet (§5.8), the controls one column on the map's right edge and the key under the map (§5.17); the in-view list, while the page has one, follows the map in the page (the home map drops it, `docs/00-PLAN.md` 2026-10-22) (D-32); table collapses to key/value row cards; filter bar becomes a single "Filters" button opening a sheet |
+| ≥1440px | 12-col grid; the map at the full content width with one panel, what is in view and the key, floating over its top right (§5.19; changed 2026-10-22, it was the map + side list side-by-side of §5.1's wireframe); table at full column set |
+| 1080–1439px | 12-col grid; the panel 340px wide, open by default; table unaffected |
+| 720–1079px | The panel 300px wide over the map, collapsed to its header by default; table scrolls horizontally inside its own container only |
+| 360–719px | Map: the record drawer is a bottom sheet (§5.8), the controls one column on the map's right edge, the search field a bar above the canvas (§5.18) and the panel a bar under the map that opens in the page (§5.19; changed 2026-10-22: before, the key under the map, §5.17) (D-32); table collapses to key/value row cards; filter bar becomes a single "Filters" button opening a sheet |
 
 **As built at 400–719px (2026-10-07, layout lane; owner to ratify):** the filter bar and the site navigation are
 "Filters (N active)" and "Menu" disclosures that open in place rather than as sheets, so nothing is covered and
@@ -269,6 +269,18 @@ map's controls are one column on its right edge and the key opens under it (§5.
   target in `docs/17` M-6 is not met: the masthead line (28px) and the header bar (67px) are base.html's, and the
   two-line H1 (58px) and the Filters button row (52px) are what is left above the map. `web/test_e2e.py` holds the
   map top to 368px (`PHONE_MAP_TOP_BUDGET`: 360 measured, 8px for a fallback font).
+
+**As built 2026-10-22 (lane home-map; owner decisions of 2026-10-22, `docs/00-PLAN.md`).** The home map takes
+the full content width: the side list (`.map-layout`, `.map-side`) is gone, and what it held returns as the
+"In view" tab of one panel floating over the map, beside the key (§5.19). A search field joins the map's
+controls (§5.18). The "View as Map / List / RSS feed" row left the map: "Open these in the list" now sits
+beside "Save this search as an alert" under the count, and the alert page offers the same search as an RSS
+feed ("Or follow it by RSS"); the proposals list keeps its own switch. Below 720px the search field is a
+bar above the canvas, so the map starts 44px lower (404px at 390x844 on the dev store, 360px before; the
+line under the count is 8px shorter without the switch), and `web/test_e2e.py`'s phone fold budget
+(`PHONE_MAP_TOP_BUDGET`) moves with it. Every Status box can be unticked (`lifecycle_state=none`): no
+project is drawn, the count, the notice and the panel say "No status chosen: projects are hidden.", a
+reload keeps it, and "Clear all" returns to the default (§5.9).
 
 No fixed width wider than the viewport at any breakpoint; only tables, the map canvas, and code blocks may
 scroll horizontally, each inside its own `overflow-x` container — the page body never scrolls horizontally
@@ -453,7 +465,8 @@ is not redrawn as the pointer moves on from a state's wash into a county inside 
 
 **The breakdown on touch (2026-10-21, lane m-behaviour; `docs/17` M-5).** D-10 asks for the cluster breakdown on
 hover or focus, without a click. A touch screen never shows a hover card, so the breakdown also lives in the in-view
-header (`#in-view-summary`, under "In view"). On every device that header says what the drawn markers stand for (a
+header (`#in-view-summary`, under "In view"; since 2026-10-22 the panel's header, `#map-panel-count`, the bar
+and its words under it, which count region-placed projects in the total, §5.19). On every device that header says what the drawn markers stand for (a
 cluster for its `count`, a point for one): the number in view, one part per lifecycle family (most first, with the
 key's glyph and words), the stated capacity (GW from 1,000 MW, through `fmtMWNumber`), then any proposals placed only
 by area. On the dev store at the national view: "2,229 proposals in view · 1,595 in process · 561 announced or
@@ -488,6 +501,12 @@ A country with a quick-view button of its own also offers "Show {region} on the 
 used to do. The region's row in the in-view list has a Details button that opens the same summary from the keyboard
 (D-14). Dialog, focus trap, focus return and motion are as for a record. Record drawers are unchanged and keep their
 source line.
+
+**In the panel's place from 720px (2026-10-22, lane home-map).** The drawer no longer slides over the page's
+right edge: it opens in the box of the map's panel (§5.19), on the plain `--surface`, as tall as the map less
+the insets, with "Back to what's in view" beside Close, and the panel comes back as it was when it closes.
+At 720 to 1079px that box is 300px wide and the title steps down to `--text-4`. Below 720px it is the bottom
+sheet, unchanged.
 
 **Bottom sheet below 720px (2026-10-22, lane m-layout; `docs/17` M-4).** At 390×844 the drawer was a 351×844 side
 panel over 93% of the map, the tapped point under it. Below 720px it is a sheet across the foot of the screen, at
@@ -634,6 +653,11 @@ filled ink on the report form.
 
 ### 5.17 Map key (added 2026-10-10, as built: placement lane H, compact state lane F)
 
+**Superseded 2026-10-22 (lane home-map).** The key is the "Key" tab of the map's panel (§5.19), in plain words;
+the floating key (`.map-key__panel`), its "Key" toggle from 720px, the compact state with a layer on and its
+layer sections are gone (the panel scrolls). Below 720px the rail's "Key" stays and opens the Key tab under the
+map. The fit for the open key (M-7) is now the fit for the panel. The record below is kept as history.
+
 **Anatomy:** `.map-key` (`#map-key`), its own row in the map frame's overlay (`.map-overlay`) under the zoom and
 region controls, top left, where the national view has ocean rather than the dense Northeast. One
 `.map-key__panel` on the page ground (`--bg`, so each legend hue keeps the contrast measured for it on `--bg`),
@@ -709,6 +733,157 @@ replaced by:
   at the top of the screen 10.1% → 4.6% with the key closed and 38.1% → 4.6% with it open (`docs/17` asked for under
   6%). At 1440×900 the key and the controls cover 14.3% of the map before and after.
 
+### 5.18 Map search field (added 2026-10-22, lane home-map; owner decision of 2026-10-22)
+
+**Anatomy:** `form.map-search` (`role="search"`, "Find on the map"), first in the map's overlay: a search
+icon, the box (`#map-search-input`, `role="combobox"`, placeholder "Find a project, company or place"), a
+clear button, and the suggestions (`#map-search-list`, a `listbox` of three named groups of `option`s:
+Places, Companies, Projects). From 720px it is in the controls' row on the map, top left, 20rem wide
+(14rem at least), as tall as the map controls; below 720px it is a full-width bar above the canvas, 44px
+tall, so it covers none of the map, and the right-edge column starts under it. Without scripts it is the
+site search (`action="/search"`).
+**Behaviour:** suggestions after two characters and a 250ms pause, from `GET /api/map/search`
+(`web/map_search.py`): places are the US states and counties the map already shades (the vendored Census
+files `GET /v1/geo/regions` serves) and the region quick views on the page; companies are
+`GET /v1/organizations?q=` (an organisation that is a natural person is not offered, `docs/13` §5.5);
+projects are `GET /v1/proposals?q=` in every lifecycle state, each with its status chip. No third-party
+geocoder is called. A newer query aborts the one before it, and only the newest answer is shown. A place is
+fitted; a project opens its drawer (provenance included) and the map flies to its site, or fits its county
+or state, with a ring round it; a company's projects under the current filters are fitted, or its page
+opens when none is drawn. Escape or the clear button empties the box and lifts the ring.
+**Rule satisfied:** D-2 (the drawer's source line), D-8, SC 4.1.2 (combobox, listbox and options named).
+
+### 5.19 The map's panel: what is in view, and the key (added 2026-10-22, lane home-map)
+
+The owner, 2026-10-22: "the right panel is kinda nice, just a bit confusing while zoomed all the way out.
+could we keep the big map view but add a floating transparent box for what is in view? Further layering in
+the key and making UI improvements so its easier to understand?" It replaces the side list beside the map
+(§3) and the floating key (§5.17): one overlay instead of two.
+
+**Anatomy:** `section.map-panel` (`#map-panel`), after the canvas in the map frame.
+- *Header:* one button (`#map-panel-toggle`, `aria-expanded`) holding "N projects in view · X GW" and a
+  chevron, as a disclosure's (up while open, down while collapsed); a thin bar by status family in the families' own colours (`--family-*-text`, the markers'
+  rings), 6px tall, 1px of panel between parts; under it the same counts in words with each family's
+  glyph ("561 announced or unknown · 2,974 in process · 603 contracted"), so the bar is never colour alone
+  (D-5). "Key" (`#map-panel-keybtn`) shows beside the count while the panel is collapsed. Each button
+  opens what it names: the count opens "In view" and "Key" the Key tab (a phone's bar reopened on the Key
+  tab after the rail's "Key" had closed it). Each tab keeps its scroll across a collapse.
+- *Tabs:* "In view" and "Key" (`role="tablist"`, one tab stop, Left and Right switch). The body scrolls
+  inside the panel, each tab keeping its own scroll.
+- *In view* follows the zoom. At national and multi-state views it is an overview; zoomed in, the list
+  (below). *Key* is the key, below.
+
+**Size and place.** From 720px it floats over the map's top right, inset 12px (`--map-panel-inset`):
+340px wide from 1080px, 300px from 720 to 1079px; it is as tall as the map less the insets, never taller,
+and scrolls inside. Collapsed, it is its header only. Open by default from 1080px, collapsed from 720 to
+1079px; the reader's choice is kept in this browser (`localStorage` "inframation.mapPanel", read and written
+in `try`/`catch`, so a blocked store falls back to the width). Until the reader chooses, the default
+follows the width. The map's controls and the search field wrap short of it. A fitted view (the national
+view, Reset, a region or a place) keeps clear of it: the open panel's width on the right, the collapsed
+panel's header at the top (map.js `homePadding`, `fitPadding`; the M-7 rule of §3, which kept the key's
+width on the left before).
+
+**Surface.** `color-mix(in srgb, var(--surface) 88%, transparent)` over a 6px backdrop blur, `--border`,
+`--radius-3`, `--shadow-1`; the plain `--surface` where `prefers-reduced-transparency: reduce`. The blur is
+an owner-directed exception to D-7's "frosted panels" (§9). Every word on it keeps 4.5:1 whatever the map
+draws behind it: the ground under a word lies between the surface mixed at 88% with black and with white, and
+each text colour is measured against both (`web/test_map_a11y.py` from the tokens, `web/test_e2e.py` on the
+page, both themes). To hold that, the panel's muted words take `--family-neutral-text` (6.6:1 on white;
+worst case 5.04:1 light, 6.72:1 dark) instead of `--text-muted` (4.14:1 at worst), and the key's words are
+`--text` beside a glyph or swatch in the mark's hue (the plant hues fall to 3.9:1 at worst, so they colour
+the swatch only: an `aria-hidden` square, a non-text mark held to SC 1.4.11's 3:1, with the fuel's name in
+words beside it). Lowest measured worst cases: light 4.54:1 (`--family-success-text`), dark 4.70:1
+(`--family-danger-text`).
+
+**In view: the overview.** Shown below zoom 5 or with more than 300 projects in view, and whenever the
+answer is clustered (more than 500 placed at a site in view, `services/api/geo.py` `SPLIT_THRESHOLD`); a
+view of 25 projects or fewer is listed at any zoom, being shorter as a list. Tuned on the dev store: at the
+national view 4,138 projects are in view; a state view (Texas at zoom 6.5: 1,129; New York fitted: 478)
+stays an overview; a metropolitan view (Austin at zoom 8: 160; zoom 9: 31) lists. It holds:
+- *First,* "Zoom in or search to list projects.", so the reason there is no list, and the way to one, read
+  without a scroll (at the foot it was under the panel's fold at 1440x900).
+- *By status:* the Status filter's own groups, named as its boxes are ("Announced", "In process",
+  "Contracted", "Built or operating", "Withdrawn or cancelled", "Status unknown"), each with its count and a
+  meter of its share.
+- *Technology (top four, by projects):* counts.
+- *Busiest areas:* the five states (or countries) holding the most projects in view, busiest first, each
+  a button that fits the map to it, with its count and stated capacity, from `GET /api/map/areas`
+  (`web/map_search.py` `busiest_areas`): a cluster carries no state, so the route asks the API once more for
+  the same view at its finest grid (about 10 km cells) and puts each cell in the state or country whose
+  outline holds it; region-placed projects carry their own. Answers are kept two minutes per query. Five rows
+  are reserved, so the answer landing moves nothing. Measured on the dev store: 2.2s for the first answer
+  after the process starts (it reads the county, state and country files), 0.13 to 0.19s for a new view
+  after that, 3ms from the cache.
+- How many of them are placed only by county or state, and what else is in view (existing assets, retired
+  plants).
+GW per status and per technology are not shown, only the total and each area's: a cluster or region
+feature of the API's geo answer carries one capacity sum and counts by state and by technology, so the
+capacity cannot be split exactly (at the finest grid 612 of the dev store's 2,229 sited projects still share
+a cell with another technology; hybrid sites list a record per technology at one point). Splitting it needs
+`capacity_mw_by_lifecycle_state` and `capacity_mw_by_technology` on those features (`services/api/geo.py`,
+a backend change); the overview can then show both with no request of its own.
+**In view: the list.** The side list's own code, kept: projects first (one row per project, not per
+generator unit), then regions, existing assets and retired plants as labelled groups, 25 rows per group then
+"Show N more"; each row's status chip (or kind) and Details on its first line, the name under them, the
+muted line last. The switch between overview and list costs no request (both are built from the answers in
+hand on each move) and moves nothing: the panel keeps its box.
+
+**Key.** In words for a first visitor: "Each dot is one project. Its colour and mark show its status:",
+then one row per status family named as the Status filter names its states ("Announced, or Status unknown",
+"In process (filed, studied, permitted or under construction)", "Contracted", "Built or operating",
+"Withdrawn or cancelled"); a ring with a number ("a group of nearby projects ... Click it to zoom in", "Tap"
+on a touch screen); the second, thinner ring of a licence-limited site; the shaded county and dashed outline
+of region-placed projects ("Click it for a summary"); then, while their layers are on, existing
+infrastructure (power plants by fuel, gas pipelines solid and dashed, the point types, transmission lines
+"only the lines FERC Form 1 filers own (LBNL), not the whole grid") and retired and retiring plants. A status
+row with nothing drawn is hidden, as before (designer D-2).
+
+**Hover.** Hovering a key row lights the marks it names and dims every other map layer to 15% of its drawn
+opacity (map.js `setHighlight`, `highlightMatch`; clusters and regions carry flat `fam_<family>` counts so a
+status row lights every cluster holding that status). Hovering a row of the list rings its mark on the map
+(a point's ring, a line's or a region's outline). Mouse only; a touch never hovers, and the words say the
+same.
+
+**The drawer.** From 720px the record drawer (§5.8) opens in the panel's place, in the same box, with
+"Back to what's in view" beside Close; the covered panel is `visibility: hidden`, so closing the drawer (by
+that link, Close or Escape) brings it back as it was: the same tab, scrolled to the same place, open or
+collapsed. Focus returns to what opened the drawer without scrolling the panel.
+
+**Below 720px.** The panel does not float: it is a bar directly under the map frame, "N projects in view ·
+X GW" with "Key", 62px tall at 390px, that opens in the page (no inner scroll), as the key did (docs/17 M-1).
+The rail's "Key" opens it on the Key tab; opening it brings its foot into view, and for 10s after a press
+keeps it there as it grows, until the reader scrolls, touches or types (map.js `keepPanelInView`, the key's
+old rule). A panel taller than the screen (the Key tab with the layers on is about 1,200px at 400px wide,
+where the old key closed its layer sections) brings in only the projects' key, or on "In view" its first
+rows, with the panel's top on screen and the rest of the screen left to the map (at 400x800 the map's
+bottom 320px stay in view). It starts closed and is not remembered. Nothing but the right-edge column lies on the canvas: at
+390x844, 5.1% of the visible map covered on arrival and 4.6% with the map at the top of the screen, panel
+open or closed (docs/17 asked for under 6%).
+
+**Measured** on a copy of the dev store, no dev-preview label: at 1440x900 the map is 1400x630 with its top
+at 336px, and the open panel 340x606 at its top right, 27% of the map (the side list it replaces took 22rem
+beside a narrower map); at 1024x768 the collapsed panel is 300x118 (12% of the map with the map at the top
+of the screen); at 390x844 the map starts at 404px (360px before: the search bar above it is 44px and 8px
+of gap); at 360x800 nothing scrolls sideways.
+**Rule satisfied:** D-5 (glyph and words with every hue), D-10 (the breakdown in the header on touch),
+D-14 deferred (owner, 2026-10-22: keyboard-only and screen-reader optimisation; the list stays reachable
+by the skip link, which opens the panel's "In view" tab), SC 1.4.3 (measured as above), SC 2.5.8.
+
+**Polish, 2026-10-22 (review of lane home-map; supersedes the matching lines above).**
+- Hover on key rows and list rows is mouse-only (pointer events with `pointerType === "mouse"`), so a tap on a
+  phone never leaves the map dimmed or a dot ringed.
+- While the floating panel is open (720px and up), "in view" counts only what lies left of it: the header, the
+  overview, the list and the busiest areas use the uncovered rectangle. Marks under the panel are still drawn.
+  Region links, area buttons, search and cluster zooms fit clear of the panel.
+- The count line reads "N projects match these filters." with "M of them can't be placed on the map (the Projects
+  list has them)." under it from 720px; on phones that sentence opens the In view tab instead, so the count row
+  stays one line. Every count has thousands separators.
+- The header's status words are the Status filter's own names ("Announced", "In process", "Contracted").
+- The busiest-areas list reserves five 32px rows, so nothing moves when it arrives.
+- The panel's title is an `h2`, so headings keep their order (axe heading-order clean at 1440 and 390).
+- GW per status and per technology needs `capacity_mw_by_lifecycle_state` and `capacity_mw_by_technology` on the
+  geo features; until then the overview gives counts for those and GW only for the whole view and each area.
+
 ## 6. Empty, loading and error states — cross-component rule
 
 Per D-29, specified once here and referenced, not restated per component: **empty** states name the filter
@@ -755,7 +930,9 @@ Extends §1.5's tokens with the rules from `docs/30` §8 (all D-15-derived):
 The full list and rationale is `docs/30` §9; this system does not restate it. Every component in §5 above was
 checked against it at design time: no rounded-card grid stands in for a table (§5.5 is a table, not cards); no
 gradient scale is used for lifecycle/status (§1.2 is five discrete families, not a continuum); no emoji anywhere
-in a chip, icon or label; no glassmorphism/blur on the drawer (§5.8 uses a flat `--shadow-1` only); no analyst
+in a chip, icon or label; no glassmorphism/blur on the drawer (§5.8 uses a flat `--shadow-1` only; one owner-directed
+exception since 2026-10-22: the map's panel, §5.19, is translucent over a 6px blur because the owner asked for "a
+floating transparent box"; its words are held at 4.5:1 against the worst ground a map could put behind it); no analyst
 configuration panel appears on public/Pro map or list surfaces (`docs/30` §2.5 rejection carried forward — filter
 bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation picker).
 
@@ -835,3 +1012,8 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   a layer on). No new tokens.
 - 2026-10-11 — as built (frontend-developer, lane U): §5.9 the Status disclosure's "Include proposals no register
   lists any more" box and its note, and the hidden-records line under the lifecycle notice. No new tokens.
+- 2026-10-22 — as built (frontend-developer, lane home-map): §3 the full-width home map, the search bar on phones and
+  untick-all; §5.7 the breakdown in the panel's header; §5.8 the drawer in the panel's place from 720px; §5.17
+  superseded by §5.19; §5.18 the map's search field and §5.19 the panel (what is in view and the key) added; §9 the
+  panel's blur as the one exception. No new tokens: the panel's custom properties (`--map-panel-inset`,
+  `--map-panel-width`, `--map-height`) sit on `.map-frame` and are built from §1's.

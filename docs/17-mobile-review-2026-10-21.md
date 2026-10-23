@@ -307,6 +307,20 @@ then lands on top of U-12, so the key is changed once. M-6, M-7 and M-11 go toge
 joins U-17. M-4 and M-5 follow. M-8 (U-10) is the largest win for list pages and should be scheduled next in the
 frontend lane. M-14 rides with the record-header work.
 
+**Changed since, 2026-10-22 (lane home-map; owner decisions of 2026-10-22, `docs/00-PLAN.md`; docs/31 §5.18,
+§5.19).** The key and the in-view list are one panel: from 720px it floats over the map's top right, and below
+720px it is a bar under the map that opens in the page.
+- M-1 (c) stands for the panel: the rail's "Key" opens its Key tab under the map frame. (d) is gone: the key's
+  layer sections no longer close, so the Key tab is about 1,200px at 400px wide with the layers on, and "Key"
+  brings in the projects' key with the panel's top on screen rather than the whole panel. Coverage holds: 5.1% of
+  the visible map at 390x844 on arrival and 4.6% with the map at the top, panel open or closed; 7.1% at 360x800
+  on arrival.
+- M-5: the breakdown lives in the panel's header ("N projects in view · X GW", a bar by status family and its
+  words), not `#in-view-summary`.
+- M-6: the view switch left the home map, so the save link shares its line with "Open these in the list"; the
+  map's search field is a 44px bar above the canvas, so the map now starts at 404px at 390x844 (360px before).
+- M-15: the phone fold budget in `web/test_e2e.py` (`PHONE_MAP_TOP_BUDGET`) moves from 368 to 412px with it.
+
 **Not duplicated here:**
 - U-6: menu contents.
 - U-12: the key's default state.
@@ -372,3 +386,5 @@ Raw measurements: `results-390-light.json`, `results-390-dark.json`, `results-36
 ## 9. Change history
 
 - 2026-10-21 · v1 · product-designer · mobile review of the live site at 390×844 and 360×800, light and dark.
+- 2026-10-22 · v1.1 · frontend-developer, lane home-map · §5 "Changed since": M-1 (c) and (d), M-5, M-6 and
+  M-15 after the map's panel and search field.

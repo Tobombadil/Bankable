@@ -299,6 +299,18 @@ STATUS_SHORT_NAMES: dict[str, str] = {
 }
 
 
+#: `lifecycle_state=none`: the reader unticked every Status box on the map (owner report
+#: 2026-10-22: "anytime I do all three each repopulates as clicked"). It names no state, so the API
+#: matches nothing, and the URL keeps the choice across a reload or a shared link. The map's own
+#: routes answer it without asking the API (`web/app.py::proposals_geo_proxy`).
+NO_LIFECYCLE_STATE = "none"
+
+
+def no_status_chosen(qp: Mapping[str, str]) -> bool:
+    """Whether the request asks for no lifecycle state at all (`lifecycle_state=none`)."""
+    return requested_lifecycle_states(qp) == [NO_LIFECYCLE_STATE]
+
+
 def requested_lifecycle_states(qp: Mapping[str, str]) -> list[str]:
     """Every state named by `lifecycle_state`, in order, once each. A list form's status boxes send
     one `lifecycle_state` per checked group, so a request may repeat it; a link sends one csv."""
@@ -388,8 +400,9 @@ def proposal_status_choices(qp: Mapping[str, str]) -> dict[str, Any]:
         words = ["active"] + [STATUS_SHORT_NAMES[k] for k in on if k not in defaults]
     else:
         words = [STATUS_SHORT_NAMES[k] for k in on]
-    summary = ", ".join(words) or "active"
-    unknown = [s for s in chosen if s and s not in ALL_PROPOSAL_LIFECYCLE_STATES]
+    # A choice that ticks no box (`lifecycle_state=none`) shows nothing, and says so.
+    summary = ", ".join(words) or ("none" if explicit else "active")
+    unknown = [s for s in chosen if s and s not in ALL_PROPOSAL_LIFECYCLE_STATES and s != NO_LIFECYCLE_STATE]
     return {
         "boxes": boxes,
         "summary": summary,

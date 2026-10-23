@@ -11,7 +11,9 @@ Two layers, like infra/test_compose.py:
   2.8.4, the line `compose.prod.yml` pins). The real Caddyfile is run with only its two upstream
   addresses pointed at stub servers and a local CA in place of Let's Encrypt, and real HTTPS
   requests prove every route, the redirects, which address reaches the upstream in
-  `X-Forwarded-For`, and that internal headers are stripped. Skipped, not faked, without it.
+  `X-Forwarded-For`, that internal headers are stripped, and that no log line carries an
+  invitation token while every other field is what the unfiltered log wrote (docs/19 §5.3).
+  Skipped, not faked, without it.
 
 Checks use `expect` instead of bare `assert` (ruff S101, see infra/scheduler/test_jobs.py).
 """
@@ -31,7 +33,8 @@ import socket
 import subprocess
 import threading
 import time
-from collections.abc import Iterator
+import uuid
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -125,6 +128,20 @@ def find(tree: list[Block], *head: str) -> Block:
     raise AssertionError(f"no block starting {head}")
 
 
+def global_options(tree: list[Block]) -> Block:
+    """The global options block, the one block with no head tokens. A snippet may come before it
+    (the invitation-token filter does, so the global options can import it)."""
+    blocks = [block for block in tree if block[0] == []]
+    expect(len(blocks) == 1, f"one global options block expected, found {len(blocks)}")
+    return blocks[0]
+
+
+def walk(tree: list[Block]) -> Iterator[Block]:
+    for block in tree:
+        yield block
+        yield from walk(block[1])
+
+
 @pytest.fixture(scope="module")
 def tree() -> list[Block]:
     return parse(CADDYFILE.read_text())
@@ -196,7 +213,7 @@ def test_hosts_match_the_cloudflare_records_in_dns_tf(tree: list[Block]) -> None
 
 
 def test_trusted_proxies_are_exactly_cloudflares_published_ranges(tree: list[Block]) -> None:
-    servers = find(find(tree)[1], "servers")  # the global options block has no head tokens
+    servers = find(global_options(tree)[1], "servers")
     trusted = find(servers[1], "trusted_proxies")[0]
     expect(trusted[1] == "static" and trusted[2:] == CLOUDFLARE_RANGES, trusted)
     for cidr in trusted[2:]:
@@ -393,6 +410,109 @@ def test_the_report_path_reaches_the_site_on_every_host_and_skips_the_gate(tree:
     expect(["handle", "/csp-report"] in handles, f"the api host sends reports to web: {handles}")
 
 
+# ------------------------------------------------------------------------------ the invitation token
+TOKEN_FILTER = "invitation_token_redacted"  # noqa: S105 -- a snippet name, not a credential
+#: Where the token can appear in a Caddy line (docs/19 §5.3; §6.2 for the URL shape).
+TOKEN_FIELDS = (
+    "request>uri",
+    "request>headers>Referer",
+    "request>headers>Hx-Current-Url",  # htmx's page URL; Go writes header names in this case
+    "resp_headers>Location",
+)
+TOKEN_REPLACEMENT = "${1}${2}REDACTED"  # noqa: S105 -- a regexp replacement, not a credential
+#: `secrets.token_urlsafe(32)`'s shape (docs/19 §2.6 rule 2), recognisable in a log.
+TOKEN = "SENTINELtok_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P"  # noqa: S105 -- a test sentinel, asserted absent from the logs  # gitleaks:allow
+
+
+def _token_filter(tree: list[Block]) -> list[list[str]]:
+    """The snippet's field lines, after checking it wraps the stock JSON encoder and nothing else."""
+    snippet = find(tree, f"({TOKEN_FILTER})")[1]
+    expect([tokens for tokens, _ in snippet] == [["format", "filter"]], snippet)
+    encoder = snippet[0][1]
+    expect([tokens for tokens, _ in encoder] == [["wrap", "json"], ["fields"]], encoder)
+    return [tokens for tokens, _ in find(encoder, "fields")[1]]
+
+
+def test_every_log_filters_the_invitation_token_through_one_snippet(tree: list[Block]) -> None:
+    """The access log (`common`, every site, admin and api host) and Caddy's default logger (its
+    error lines carry the request too) both import the one filter; no log writes its own format."""
+    from infra.logging_config import INVITATION_TOKEN_PATTERN
+
+    lines = _token_filter(tree)
+    expect([line[0] for line in lines] == list(TOKEN_FIELDS), lines)
+    for line in lines:
+        expect(line[1:] == ["regexp", INVITATION_TOKEN_PATTERN, TOKEN_REPLACEMENT], line)
+    logs = {tuple(head): [tokens for tokens, _ in body] for head, body in walk(tree) if head[:1] == ["log"]}
+    expect(
+        logs
+        == {
+            ("log", "default"): [["output", "stderr"], ["import", TOKEN_FILTER]],
+            ("log",): [["output", "stdout"], ["import", TOKEN_FILTER]],
+        },
+        logs,
+    )
+    expect(find(global_options(tree)[1], "log", "default") is not None, "the default logger is configured")
+    expect(["log"] in [head for head, _ in find(tree, "(common)")[1]], "the access log lives in common")
+    formats = [head for head, _ in walk(tree) if head[:1] == ["format"]]
+    expect(formats == [["format", "filter"]], f"only the filter snippet names a format: {formats}")
+
+
+def _caddy_replace(text: str) -> str:
+    """What Caddy's regexp filter writes: Go's `${n}` expansion, done with Python's `re` (the two
+    engines agree on this pattern: no backreferences, no lookaround)."""
+    tree = parse(CADDYFILE.read_text())
+    _, _, pattern, replacement = _token_filter(tree)[0]
+    return re.sub(pattern, re.sub(r"\$\{(\d+)\}", r"\\g<\1>", replacement), text)
+
+
+TOKEN_SHAPES = [
+    (f"/my/invitations/accept?t={TOKEN}", "/my/invitations/accept?t=REDACTED"),
+    (f"/my/invitations/accept?x=1&t={TOKEN}&y=2", "/my/invitations/accept?x=1&t=REDACTED&y=2"),
+    (
+        f"https://{DOMAIN}/my/invitations/accept?t={TOKEN}#accept",
+        f"https://{DOMAIN}/my/invitations/accept?t=REDACTED#accept",
+    ),
+    (
+        f"/login?next=%2Fmy%2Finvitations%2Faccept%3Ft%3D{TOKEN}&e=1",
+        "/login?next=%2Fmy%2Finvitations%2Faccept%3Ft%3DREDACTED&e=1",
+    ),
+    (
+        f"/login?next=%2Fmy%2Finvitations%2Faccept%3Fx%3D1%26t%3D{TOKEN}%26y%3D2",
+        "/login?next=%2Fmy%2Finvitations%2Faccept%3Fx%3D1%26t%3DREDACTED%26y%3D2",
+    ),
+    (
+        f"/register?next=%252Fmy%252Finvitations%252Faccept%253Ft%253D{TOKEN}",
+        "/register?next=%252Fmy%252Finvitations%252Faccept%253Ft%253DREDACTED",
+    ),
+    (f"/my/invitations/{TOKEN}", "/my/invitations/REDACTED"),
+    (f"/login?next=%2Fmy%2Finvitations%2F{TOKEN}", "/login?next=%2Fmy%2Finvitations%2FREDACTED"),
+    (f"/MY/Invitations/accept?T={TOKEN}", "/MY/Invitations/accept?T=REDACTED"),
+    # `%74` is `t`: the app decodes the name, so this is the token too; raw and inside `next`.
+    (f"/my/invitations/accept?%74={TOKEN}", "/my/invitations/accept?%74=REDACTED"),
+    (f"/my/invitations/accept?x=1&%54%3D{TOKEN}", "/my/invitations/accept?x=1&%54%3DREDACTED"),
+    (
+        f"/login?next=%2Fmy%2Finvitations%2Faccept%3F%2574%3D{TOKEN}",
+        "/login?next=%2Fmy%2Finvitations%2Faccept%3F%2574%3DREDACTED",
+    ),
+    (f"/my/invitations/accept?x=1;t={TOKEN};y=2", "/my/invitations/accept?x=1;t=REDACTED;y=2"),
+    # Left alone: other parameters and paths, including opaque ids under /my/ and /v1/my/.
+    ("/v1/proposals?state=US-TX&at=5&t2=x&st=1", "/v1/proposals?state=US-TX&at=5&t2=x&st=1"),
+    ("/v1/proposals?%74x=1&%2574y=2&q=%74", "/v1/proposals?%74x=1&%2574y=2&q=%74"),
+    ("/my/invitations/accept", "/my/invitations/accept"),
+    ("/my/projects/prj_01HABCDEFGHJKMNPQRSTVW", "/my/projects/prj_01HABCDEFGHJKMNPQRSTVW"),
+    (
+        "/v1/my/projects/prj_01HABCDEFGHJKMNPQRSTVW/invitations/inv_01HABCDEFGHJKMNPQRSTVWXYZ0",
+        "/v1/my/projects/prj_01HABCDEFGHJKMNPQRSTVW/invitations/inv_01HABCDEFGHJKMNPQRSTVWXYZ0",
+    ),
+    ("/feeds/saved/abc123", "/feeds/saved/abc123"),
+]
+
+
+@pytest.mark.parametrize(("logged", "written"), TOKEN_SHAPES)
+def test_the_token_pattern_redacts_every_invitation_url_shape(logged: str, written: str) -> None:
+    expect(_caddy_replace(logged) == written, f"{logged} -> {_caddy_replace(logged)}")
+
+
 # ------------------------------------------------------------------------------ with Caddy
 needs_caddy = pytest.mark.skipif(CADDY is None, reason="no caddy binary (set CADDY_BIN or put caddy on PATH)")
 
@@ -409,6 +529,9 @@ class _Echo(BaseHTTPRequestHandler):
     name = "?"
 
     def _answer(self) -> None:
+        if self.headers.get("X-Test-Upstream-Drop"):  # an upstream that dies mid-request: a 502
+            self.close_connection = True
+            return
         body = json.dumps(
             {
                 "upstream": self.name,
@@ -416,9 +539,15 @@ class _Echo(BaseHTTPRequestHandler):
                 "headers": {k.lower(): v for k, v in self.headers.items()},
             }
         ).encode()
-        self.send_response(200)
+        # An upstream redirect. The target travels base64-encoded, so the test's own request header
+        # (Caddy logs every request header) never carries the token it checks for.
+        encoded = self.headers.get("X-Test-Upstream-Location")
+        location = base64.urlsafe_b64decode(encoded).decode() if encoded else None
+        self.send_response(302 if location else 200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if location:
+            self.send_header("Location", location)
         if self.headers.get("X-Test-Upstream-Referrer-Policy"):  # an upstream with its own value
             self.send_header("Referrer-Policy", self.headers["X-Test-Upstream-Referrer-Policy"])
         self.end_headers()
@@ -479,8 +608,9 @@ def test_caddy_serves_exactly_the_dns_host_names(tmp_path: pathlib.Path, environ
 
 
 class LiveCaddy:
-    def __init__(self, port: int) -> None:
+    def __init__(self, port: int, log: pathlib.Path) -> None:
         self.port = port
+        self.log = log  # Caddy's stdout (the access log) and stderr (its default logger)
 
     def request(
         self, host: str, path: str, method: str = "GET", headers: dict[str, str] | None = None
@@ -502,15 +632,20 @@ class LiveCaddy:
 
 @contextlib.contextmanager
 def _running_caddy(
-    tmp: pathlib.Path, *, trust_loopback: bool, extra_env: dict[str, str] | None = None
+    tmp: pathlib.Path,
+    *,
+    trust_loopback: bool,
+    extra_env: dict[str, str] | None = None,
+    edit: Callable[[str], str] | None = None,
 ) -> Iterator[LiveCaddy]:
     """The real Caddyfile with its upstreams pointed at stubs and a local CA, run by real Caddy.
     `trust_loopback` adds loopback to the trusted proxies (standing in for Cloudflare); `extra_env`
-    reaches the Caddyfile's `{$...}` placeholders (the access gate's three keys)."""
+    reaches the Caddyfile's `{$...}` placeholders (the access gate's three keys); `edit` rewrites
+    the file's text first (a reference configuration to compare against)."""
     api, api_port = _stub("api")
     web, web_port = _stub("web")
     http_port, https_port = _free_port(), _free_port()
-    text = CADDYFILE.read_text()
+    text = CADDYFILE.read_text() if edit is None else edit(CADDYFILE.read_text())
     api_line, web_line = "reverse_proxy api:8000 ", "reverse_proxy web:8001 "
     expect(text.count(api_line) == 1 and text.count(web_line) == 1, "upstream addresses moved")
     text = text.replace(api_line, f"reverse_proxy 127.0.0.1:{api_port} ")
@@ -550,7 +685,7 @@ def _running_caddy(
                     raise AssertionError(f"caddy exited: {log.read_text()[-2000:]}") from None
                 expect(time.monotonic() < deadline, "caddy did not listen within 20 s")
                 time.sleep(0.1)
-        caddy = LiveCaddy(https_port)
+        caddy = LiveCaddy(https_port, log)
         # Listening is not ready: Caddy issues each host's local certificate after it binds, and a
         # handshake before that fails with an internal-error alert (seen 2026-10-10 as a flaky first
         # request). Wait until every host completes a TLS handshake; any HTTP status will do.
@@ -889,3 +1024,163 @@ def test_caddy_refuses_a_site_access_it_does_not_know(tmp_path: pathlib.Path, ac
         check=False,
     )
     expect(result.returncode != 0, f"SITE_ACCESS={access!r} adapted")
+
+
+# ------------------------------------------------------------------------------ the token, in Caddy's logs
+DROP = "X-Test-Upstream-Drop"
+LOCATION = "X-Test-Upstream-Location"
+SIGN_IN_NEXT = f"/login?next=%2Fmy%2Finvitations%2Faccept%3Ft%3D{TOKEN}"
+INVITATION_URL = f"https://{DOMAIN}/my/invitations/accept?t={TOKEN}"
+#: Request headers that carry a page's URL, as sent and as Caddy's log names them.
+URL_HEADERS = {"Referer": "Referer", "HX-Current-URL": "Hx-Current-Url"}
+
+
+def _redirect_to(target: str) -> dict[str, str]:
+    """Ask the stub upstream to answer 302 to `target` (see `_Echo`)."""
+    return {LOCATION: base64.urlsafe_b64encode(target.encode()).decode()}
+
+
+def _with_probe(path: str, probe: str) -> str:
+    return f"{path}{'&' if '?' in path else '?'}probe={probe}"
+
+
+def _entries(log: pathlib.Path, probe: str, *, errors: int) -> list[dict[str, Any]]:
+    """The access line, then any error lines, for the one request carrying `probe`, once Caddy has
+    written them (it writes after the response has gone)."""
+    deadline = time.monotonic() + 5
+    while True:
+        access: list[dict[str, Any]] = []
+        error: list[dict[str, Any]] = []
+        for line in log.read_text().splitlines():
+            entry = json.loads(line) if line.startswith("{") else {}
+            if f"probe={probe}" not in str(entry.get("request", {}).get("uri", "")):
+                continue
+            logger = str(entry.get("logger", ""))
+            (access if logger.startswith("http.log.access.") else error).append(entry)
+        if (len(access), len(error)) == (1, errors) or time.monotonic() > deadline:
+            expect((len(access), len(error)) == (1, errors), f"lines for {probe}: {access + error}")
+            return access + error
+        time.sleep(0.05)
+
+
+LOGGED_TOKEN_CASES = [
+    pytest.param(DOMAIN, f"/my/invitations/accept?t={TOKEN}", {}, id="invitation-link"),
+    pytest.param(DOMAIN, f"/my/invitations/accept?x=1&t={TOKEN}", {}, id="second-parameter"),
+    pytest.param(DOMAIN, SIGN_IN_NEXT, {}, id="sign-in-next"),
+    pytest.param(DOMAIN, f"/my/invitations/{TOKEN}", {}, id="path-segment"),
+    pytest.param(DOMAIN, f"/my/invitations/accept?%74={TOKEN}", {}, id="percent-encoded-name"),
+    pytest.param(DOMAIN, "/static/css/my.css", {"Referer": INVITATION_URL}, id="referer-of-the-next-request"),
+    pytest.param(DOMAIN, "/proposals", {"HX-Current-URL": INVITATION_URL}, id="htmx-current-url"),
+    pytest.param(DOMAIN, "/my/invitations/accept", _redirect_to(SIGN_IN_NEXT), id="redirect-location"),
+    pytest.param(f"admin.{DOMAIN}", f"/my/invitations/accept?t={TOKEN}", {}, id="admin-host"),
+    pytest.param(f"api.{DOMAIN}", f"/v1/my/invitations/accept?t={TOKEN}", {}, id="api-host"),
+    pytest.param(DOMAIN, f"/my/invitations/accept?t={TOKEN}", {DROP: "1"}, id="upstream-error-line"),
+]
+
+
+@needs_caddy
+@pytest.mark.parametrize("live", [False], indirect=True)
+@pytest.mark.parametrize(("host", "path", "headers"), LOGGED_TOKEN_CASES)
+def test_invitation_token_filtered_from_access_log(
+    live: LiveCaddy, host: str, path: str, headers: dict[str, str]
+) -> None:
+    """docs/19 §5.3 and §5.6: a sentinel token sent each way it can reach a Caddy line (the URI,
+    the Referer of the page's next request, a redirect's Location, Caddy's own error line for a
+    502) is in no line of either log, while the upstream still receives it untouched."""
+    probe = uuid.uuid4().hex[:12]
+    sent = _with_probe(path, probe)
+    response = live.request(host, sent, headers=headers)
+    if DROP in headers:
+        expect(response.status_code == 502, response.status_code)
+    else:
+        expect(response.status_code == (302 if LOCATION in headers else 200), response.status_code)
+        expect(response.json()["path"] == sent, "the upstream must still receive the token")
+    entries = _entries(live.log, probe, errors=1 if DROP in headers else 0)
+    expect(TOKEN not in live.log.read_text(), "the token reached Caddy's log")
+    for entry in entries:
+        request = entry["request"]
+        expect(request["uri"] == sent.replace(TOKEN, "REDACTED"), request["uri"])
+        for sent_as, logged_as in URL_HEADERS.items():
+            if sent_as in headers:
+                wanted = [headers[sent_as].replace(TOKEN, "REDACTED")]
+                expect(request["headers"][logged_as] == wanted, request["headers"])
+    if LOCATION in headers:
+        location = entries[0]["resp_headers"]["Location"]
+        expect(location == [SIGN_IN_NEXT.replace(TOKEN, "REDACTED")], location)
+
+
+#: The access log as it was before the token filter: `format json` (until 2026-10-22).
+STOCK_SITE_LOG = "\t\toutput stdout\n\t\tformat json\n"
+
+
+def _stock(text: str) -> str:
+    """The Caddyfile with its logs as they were before the filter: the access log `format json`,
+    and Caddy's default logger left to Caddy's own default (JSON when not on a terminal)."""
+    site = f"\t\toutput stdout\n\t\timport {TOKEN_FILTER}\n"
+    default = f"\tlog default {{\n\t\toutput stderr\n\t\timport {TOKEN_FILTER}\n\t}}\n"
+    expect(text.count(site) == 1 and text.count(default) == 1, "the log blocks moved; update _stock")
+    return text.replace(site, STOCK_SITE_LOG).replace(default, "")
+
+
+@pytest.fixture(scope="module")
+def stock(tmp_path_factory: pytest.TempPathFactory) -> Iterator[LiveCaddy]:
+    with _running_caddy(tmp_path_factory.mktemp("caddy-stock"), trust_loopback=False, edit=_stock) as caddy:
+        yield caddy
+
+
+#: Values that differ between any two requests or Caddy processes, whatever the log format.
+VOLATILE = (
+    ("ts",),
+    ("duration",),
+    ("err_id",),
+    ("request", "remote_port"),
+    ("resp_headers", "Date"),  # the stub's clock
+    ("resp_headers", "Alt-Svc"),  # names each process's own port
+)
+
+
+def _stable(entry: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = json.loads(json.dumps(entry))
+    for *parents, key in VOLATILE:
+        node = out
+        for parent in parents:
+            node = node.get(parent) or {}
+        node.pop(key, None)
+    return out
+
+
+COMPARED = [
+    pytest.param(DOMAIN, "/proposals?state=US-TX", {}, id="public-page"),
+    pytest.param(f"api.{DOMAIN}", "/v1/proposals", {"Authorization": "Bearer ik_test"}, id="api-call"),
+    pytest.param(f"admin.{DOMAIN}", "/admin", {"Cookie": "session=abc"}, id="admin-page"),
+    pytest.param(
+        DOMAIN,
+        f"/my/invitations/accept?t={TOKEN}",
+        {"Referer": INVITATION_URL, "HX-Current-URL": INVITATION_URL},
+        id="invitation-link",
+    ),
+    pytest.param(DOMAIN, "/my/invitations/accept", _redirect_to(SIGN_IN_NEXT), id="redirect"),
+    pytest.param(DOMAIN, f"/my/invitations/accept?t={TOKEN}", {DROP: "1"}, id="upstream-error"),
+]
+
+
+@needs_caddy
+@pytest.mark.parametrize("live", [False], indirect=True)
+@pytest.mark.parametrize(("host", "path", "headers"), COMPARED)
+def test_the_logs_are_otherwise_unchanged(
+    live: LiveCaddy, stock: LiveCaddy, host: str, path: str, headers: dict[str, str]
+) -> None:
+    """The same request through the Caddyfile and through its pre-filter twin (`_stock`) gives the
+    same access line, and the same error line on the default logger, field for field and in the
+    same order, except that the token reads REDACTED."""
+    probe = uuid.uuid4().hex[:12]
+    sent = _with_probe(path, probe)
+    errors = 1 if DROP in headers else 0
+    for caddy in (live, stock):
+        caddy.request(host, sent, headers=headers)
+    ours, before = _entries(live.log, probe, errors=errors), _entries(stock.log, probe, errors=errors)
+    for mine, theirs in zip(ours, before, strict=True):
+        expect(list(mine) == list(theirs), f"field order changed:\n{list(mine)}\n{list(theirs)}")
+        expect(list(mine["request"]) == list(theirs["request"]), "request field order changed")
+        wanted = json.loads(json.dumps(_stable(theirs)).replace(TOKEN, "REDACTED"))
+        expect(_stable(mine) == wanted, f"\nfiltered:   {_stable(mine)}\nunfiltered: {wanted}")
