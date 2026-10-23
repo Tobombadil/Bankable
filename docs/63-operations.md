@@ -252,7 +252,9 @@ ECB reference rate of the publication date, which `GET /v1/opportunities?sort=-v
 rows, so rows stored before a deploy that changes the value rules have none, and `sort=-value` would rank
 only notices loaded afterwards. The daily `value_tick` (16:19 UTC, `infra/scheduler/app.py`) fetches the
 ECB history (one conditional GET) and restates every opportunity; `seed_single_host.sh` runs it after the
-loads (`docs/64` §3). After the deploy that ships it, or any deploy that changes `stated_value` in a
+loads (`docs/64` §3). Since 2026-10-23 `infra/scripts/deploy.sh` runs it on every deploy, in step 4
+while the workers and the scheduler are stopped (skipped on a rollback; a failure is logged as a
+WARNING and the deploy goes on), so the steps below are for a run by hand. After the deploy that ships it, or any deploy that changes `stated_value` in a
 connector or `services/ingest/opportunity_value.py`, run it once rather than waiting for the tick,
 and run it **before the opportunity sources' next runs** (straight after the deploy, before the
 next hourly tick). Such a deploy changes every opportunity connector's parser digest, so each

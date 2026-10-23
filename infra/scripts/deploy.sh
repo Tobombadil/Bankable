@@ -355,6 +355,16 @@ log "4/7 installing or upgrading the job-queue schema (Procrastinate, from the $
 # the rollback: the schema a newer image installed stays, which is what that image needs anyway.
 queue_schema_py='import importlib.util as u, runpy, sys; m = "infra.scheduler.queue_schema"; sys.exit(print("queue schema step skipped: this image predates " + m) if u.find_spec(m) is None else runpy.run_module(m, run_name="__main__"))'
 remote_compose "$APP_HOST" run --rm --no-deps -T scheduler python -c "'${queue_schema_py}'" ensure
+if [[ -z "${INFRAQUE_ROLLBACK:-}" ]]; then
+  # docs/63 §4.1: restate opportunity values and USD equivalents while the workers and the scheduler
+  # are stopped, so no source reloads a row before it carries its value block (a row reloaded first
+  # moves `last_changed` once). Idempotent, moves no `last_changed`, about 2 s. An image built before
+  # the module existed skips it; a failure is logged, not fatal: the daily value_tick restates later.
+  log "4/7 restating opportunity values once, before any source runs (docs/63 §4.1)"
+  value_py='import importlib.util as u, runpy, sys; m = "services.ingest.opportunity_value"; sys.exit(print("value restatement skipped: this image predates " + m) if u.find_spec(m) is None else runpy.run_module(m, run_name="__main__"))'
+  remote_compose "$APP_HOST" run --rm --no-deps -T scheduler python -c "'${value_py}'" --refresh-rates \
+    || log "WARNING: the value restatement failed; the daily value_tick (16:19 UTC) restates instead (docs/63 §4.1)"
+fi
 
 log "5/7 starting caddy/api/web on $APP_HOST (behind the Cloudflare edge cache) and waiting for health"
 remote_compose "$APP_HOST" up -d --no-build caddy api web
