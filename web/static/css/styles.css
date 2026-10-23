@@ -2329,15 +2329,17 @@ html { scroll-padding-top: var(--top-bar-h); }
 .top-bar__link:hover, .top-bar__link:focus-visible { color: var(--link); border-bottom-color: currentColor; }
 .top-bar__sections a[aria-current], .top-bar__link[aria-current] { font-weight: 600; border-bottom-color: currentColor; }
 
-/* Search: a 336px field from 1080px, the width its whole placeholder needs. Its text is 265px in IBM Plex
-   Sans 16px, and the field gives text all but its 12px left padding and the 40px magnifier: 240px (planned
-   in docs/30 §11.2 for 1080-1279px) showed about 70% of it and 320px lost "ID..." (review of lane
-   nav-shell). Measured at 1080px, signed in, with all three sections, Alerts and the account, the row
-   needs 935px of its 1080 (side padding included), leaving 171px between the sections and the field. Below 1080px an icon button opens it over the bar, and Escape, Close, or focus
-   or a click going elsewhere puts the bar back (site.js). */
+/* Search: a 360px field from 1080px, the width its whole placeholder needs in either face. Its text is
+   265px in IBM Plex Sans 16px and 289px in "IBM Plex Sans Fallback" (Liberation Sans or Arial, size-adjusted),
+   which a slow first visit keeps for the whole view because the regular Latin face is `optional`; the field
+   gives text all but its 12px left padding and the 40px magnifier. 240px (planned in docs/30 §11.2 for
+   1080-1279px) showed about 70% of it, 320px lost "ID...", and 336px fitted Plex but cut the fallback by 7px
+   (CI, PR #98). Measured at 1080px, signed in, with all three sections, Alerts and the account, the row
+   needs 959px of its 1080 (side padding included). Below 1080px an icon button opens it over the bar, and
+   Escape, Close, or focus or a click going elsewhere puts the bar back (site.js). */
 .site-search { position: relative; display: flex; align-items: center; gap: var(--space-2); }
 .site-search input {
-  font: inherit; font-size: var(--text-2); width: 21rem; min-height: 2.25rem;
+  font: inherit; font-size: var(--text-2); width: 22.5rem; min-height: 2.25rem;
   padding: 0 2.5rem 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-2);
   background: var(--surface); color: var(--text);
 }

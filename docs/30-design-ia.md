@@ -1391,8 +1391,8 @@ header rules and `site.js` behaviours (search over the bar, account menu, sectio
 Invitations, State averages and Sources & licences are not listed until their pages exist (`NOT_YET_LIVE`; V4 adds
 Funding with the count rule of §11.2), so a signed-out visitor sees Market alone in the top bar; `rfps` still reads
 "RFPs & funding", and becomes "RFPs" in V4's change that moves grants and loans to `/funding`; the search field is
-336px from 1080px, the width its whole placeholder needs (240px, planned for 1080-1279px, showed about 70%
-of it; 320px lost "ID…"); at 1080px, signed in, with all three sections, the row needs 935 of its 1080px; About &
+360px from 1080px, the width its whole placeholder needs in Plex or its metric fallback (240px, planned for 1080-1279px, showed about 70%
+of it; 320px lost "ID…"; 336px cut the fallback face by 7px, PR #98 CI); at 1080px, signed in, with all three sections, the row needs 959 of its 1080px; About &
 sources joins the section bar's right end from 1080px, the freshness line from 1280px; signed out under the
 `commercial` posture, "Sign in" opens a small account menu (Sign in, Create an account, Pricing), so Pricing is only
 ever in the account menu (two clicks to sign in there; one under today's `noncommercial` posture, where it stays a
@@ -2337,4 +2337,4 @@ U-4 (path segments).
 | IA-12 | The four panel tab labels fit 300px at `--text-1` with 8px gaps | Estimated about 290px from Plex Sans widths; V2 measures | §11.6 |
 | IA-13 | A full-screen landing with one-finger pan does not strand phone readers, because the landing has no content below the map | §11.6: no footer, everything in the bars and the sheet | §11.8 |
 | IA-14 | Tab segments never collide with record slugs or ids | Slugs and public ids contain no `/` (`docs/21` §3.1) | §11.10 |
-| IA-15 | The search field fits the top bar at 240px from 1080px with the three sections, Alerts and the account on one row | Estimated about 820px of content at 1080. Measured by V1 (2026-10-23): the row fits, but 240px left room for about 70% of the placeholder, so the field is 336px, its placeholder's full width; signed in with all three sections the row then needs 935 of 1080px | §11.2 |
+| IA-15 | The search field fits the top bar at 240px from 1080px with the three sections, Alerts and the account on one row | Estimated about 820px of content at 1080. Measured by V1 (2026-10-23): the row fits, but 240px left room for about 70% of the placeholder, so the field is 360px, its placeholder's full width in Plex or its metric fallback (336px cut the fallback by 7px on CI, PR #98); signed in with all three sections the row then needs 959 of 1080px | §11.2 |
