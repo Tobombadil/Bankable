@@ -72,6 +72,7 @@ from services.api.serialize import (
     build_meta,
     build_page,
     event_licence_row,
+    organization_profile,
     serialize_event,
     serialize_licence,
     serialize_opportunity,
@@ -465,8 +466,11 @@ def get_organization(public_id: str, request: Request, db: Session = Depends(get
     data["group_proposal_count"] = group_p
     data["group_opportunity_count"] = group_o
     data["group_scope"] = group.as_meta()
+    # Public company facts (website, headquarters, description, ticker, LEI, Wikipedia link), each
+    # with its own provenance, from `services/ingest/org_enrich.py`; attributed in the envelope too.
+    data["profile"], profile_licences = organization_profile(db, org)
     meta = build_meta(lag_days=0)
-    return build_envelope(data, meta=meta, licence_summary=build_licence_summary([]))
+    return build_envelope(data, meta=meta, licence_summary=build_licence_summary(profile_licences))
 
 
 @app.get("/v1/organizations/{public_id}/proposals")

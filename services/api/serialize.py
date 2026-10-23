@@ -13,6 +13,8 @@ import datetime as dt
 from collections.abc import Callable
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from services.api.common import TERMS_URL, WEB_HOST, current_request_id, iso, utcnow
 from services.api.lines import (
     DETAIL_ZOOM,
@@ -516,6 +518,95 @@ def serialize_opportunity(
     }
 
 
+#: The `organization.ids` key under which `services/ingest/org_enrich.py` keeps a company's
+#: enriched facts with their provenance (its `PROFILE_KEY`; `services/api/test_org_profile.py`
+#: holds the two equal). Never served inside `ids`: the detail route serves it as `profile`, gated
+#: per fact by its source's visibility.
+ORG_PROFILE_KEY = "profile"
+#: The facts `profile` carries, in serving order (`org_enrich.PROFILE_FIELDS`).
+ORG_PROFILE_FIELDS: tuple[str, ...] = ("website", "headquarters", "description", "ticker", "lei", "wikipedia")
+
+
+def organization_ids(org: Organization) -> dict[str, Any]:
+    """`organization.ids` as served: the identifiers, without the enrichment profile."""
+    return {key: value for key, value in (org.ids or {}).items() if key != ORG_PROFILE_KEY}
+
+
+def organization_website(org: Organization) -> str | None:
+    """`organization.website` as a public surface serves it. A website the enrichment wrote (the
+    profile's `website_written` is the column's value) is served only while its source and licence
+    are visible, as its `profile.website` fact is: unpublishing Wikidata takes it off every
+    organisation surface, the JSON-LD `sameAs` included. A curated website is served as stored."""
+    from sqlalchemy.orm import object_session
+
+    from services.api.visibility import provenance_visible
+
+    stored = (org.ids or {}).get(ORG_PROFILE_KEY)
+    if not org.website or not isinstance(stored, dict) or stored.get("website_written") != org.website:
+        return org.website
+    fact = (stored.get("fields") or {}).get("website")
+    db = object_session(org)
+    if not isinstance(fact, dict) or db is None:
+        return None
+    source = db.get(Source, str(fact.get("source_id") or ""))
+    licence = db.get(Licence, str(fact.get("licence_id") or ""))
+    return org.website if source and licence and provenance_visible(source, licence) else None
+
+
+def organization_profile(
+    db: Session, org: Organization
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """`GET /v1/organizations/{id}` `profile`, and one `licence_summary_row` per fact it shows (for
+    the envelope's attribution). Each fact is `{value, provenance}`, or null where the source stated
+    nothing, its source or licence is not public, or (for `website`) the row's own website is a
+    different, curated value. The whole profile is null for a natural person or when no fact
+    survives, so a page never renders an empty "About" block."""
+    from services.api.visibility import provenance_visible
+
+    stored = (org.ids or {}).get(ORG_PROFILE_KEY)
+    if not isinstance(stored, dict) or org.personal_data:
+        return None, []
+    facts = stored.get("fields") or {}
+    out: dict[str, Any] = {}
+    licence_rows: list[dict[str, Any]] = []
+    for name in ORG_PROFILE_FIELDS:
+        out[name] = None
+        fact = facts.get(name)
+        if not isinstance(fact, dict) or fact.get("value") in (None, "", {}):
+            continue
+        if name == "website" and org.website != fact["value"]:
+            continue
+        source = db.get(Source, str(fact.get("source_id") or ""))
+        licence = db.get(Licence, str(fact.get("licence_id") or ""))
+        if source is None or licence is None or not provenance_visible(source, licence):
+            continue
+        try:
+            retrieved_at = dt.datetime.fromisoformat(str(fact.get("retrieved_at")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        out[name] = {
+            "value": fact["value"],
+            "provenance": provenance_quartet(
+                source,
+                licence,
+                source_url=str(fact.get("source_url") or source.url),
+                retrieved_at=retrieved_at,
+            ),
+        }
+        licence_rows.append(licence_summary_row(source, licence, retrieved_at))
+    if not licence_rows:
+        return None, []
+    match = stored.get("match") or {}
+    out["match"] = {
+        "rule": match.get("rule"),
+        "confidence": match.get("confidence"),
+        "wikidata_id": match.get("wikidata_id"),
+        "cik": match.get("cik"),
+        "matched_at": match.get("matched_at"),
+    }
+    return out, licence_rows
+
+
 def serialize_organization(
     org: Organization, *, proposal_count: int | None = None, opportunity_count: int | None = None
 ) -> dict[str, Any]:
@@ -527,8 +618,8 @@ def serialize_organization(
         "type": org.type,
         "country": org.country,
         "jurisdiction": org.jurisdiction,
-        "ids": org.ids or {},
-        "website": org.website,
+        "ids": organization_ids(org),
+        "website": organization_website(org),
         "is_curated_issuer": org.is_curated_issuer,
         "personal_data": bool(org.personal_data),
         "first_seen": iso(org.first_seen),

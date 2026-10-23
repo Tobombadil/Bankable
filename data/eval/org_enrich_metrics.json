@@ -1,0 +1,33 @@
+{
+  "what": "services/ingest/org_enrich.py measured on the 2026-10-20 build of the full store (a copy of the assets-study study.db), lane org-enrich, review round of 2026-10-22",
+  "how": {
+    "full_store": "fetch_profiles replayed from the 2026-10-22 live run's own recording (RecordedTransport, no network; search_budget 80, search_rotation 0, the order the recording was made); 252 Query Service queries, 80 wbsearchentities searches, 1 SEC file",
+    "lei_targets": "the 247 targets that hold a GLEIF LEI (data/eval/gleif_matches.csv, label same, put on a store copy), fetched live on 2026-10-22 at 23:46 UTC with no name searches: 22 Query Service queries in 30.5 s",
+    "verdicts": "by hand, from the item's label and description, the organisation's assets and proposals (state and type) and the company's own history; identity: correct | related (a parent or subsidiary of the organisation) | uncertain | wrong"
+  },
+  "full_store": {
+    "targets": 8437,
+    "by_status": {"matched": 484, "ambiguous": 60, "below_threshold": 54, "conflict": 4, "no_match": 686, "lookup_failed": 7149},
+    "matched_by_rule": {"lei": 0, "sec_cik": 145, "name_country": 339},
+    "matched_by_rule_and_item": {"name_country/name_country": 339, "sec_cik/sec_cik": 104, "sec_cik/name_country": 16, "sec_cik/no_item": 25},
+    "fields_filled": {"website": 415, "headquarters": 323, "description": 435, "ticker": 114, "lei": 212, "wikipedia": 380},
+    "ticker_withheld": 77,
+    "search": {"searched": 80, "with_candidate": 7, "failed": 0, "not_run": 7167, "stopped": "budget"},
+    "note": "lookup_failed is the 7,149 targets with no exact-name candidate that the 80 replayed searches did not reach; production's 3,000-search budget reaches about 1,500 of the largest every month and moves the other 1,500 on through the rest (search_order), so the search path is still effectively unmeasured (7 candidates from 80 searches)"
+  },
+  "lei_targets": {
+    "targets": 247,
+    "by_status": {"matched": 29, "ambiguous": 1, "below_threshold": 4, "conflict": 1, "no_match": 22, "lookup_failed": 190},
+    "matched_by_rule": {"lei": 12, "sec_cik": 4, "name_country": 13},
+    "fields_filled": {"website": 22, "headquarters": 19, "description": 28, "ticker": 0, "lei": 12, "wikipedia": 18},
+    "note": "identical decisions to the reviewed code's run on the same targets (0 changed)"
+  },
+  "precision": {
+    "every_match_below_0_95": {"file": "data/eval/org_enrich_below95.csv", "matches": 103, "correct": 96, "related": 6, "uncertain": 1, "wrong": 0, "related_are": ["Avangrid Renewables", "Graphic Packaging International", "Montana-Dakota Utilities Co", "PEOPLES GAS LIGHT AND COKE COMPANY", "Regions Bank", "WESTAR ENERGY INC"], "uncertain_is": ["Yahoo!"]},
+    "seeded_sample_of_40_matches": {"file": "data/eval/org_enrich_sample40.csv", "seed": 20261022, "by_rule": {"sec_cik": 16, "name_country": 24}, "identity_correct": 40, "fields_wrong": 1, "fields_wrong_is": "Air Products: Wikidata's headquarters is Detroit, its founding city"},
+    "this_round_changes": {"file": "data/eval/org_enrich_audit.csv (round review-2026-10-22)", "refused_wrong": ["MONTGOMERY COUNTY GOVERNMENT", "St. Elizabeth Medical Center", "Sheridan School Corporation"], "refused_related": ["Phillips 66 Company"], "lost_correct": ["ORLANDO UTILITIES COMMISSION", "HOLLAND BOARD OF PUBLIC WORKS"], "gained_correct": ["THE MOUNT SINAI MEDICAL CENTER"]},
+    "versus_reviewed_code": "the reviewed code's replay of the same recording matched 489 (sec_cik 146, name_country 343) and filled website 422, headquarters 325, description 440, ticker 116, LEI 222, Wikipedia 384; the 3 wrong and 1 related it attached are gone, and its GPJA ticker on Georgia Power"
+  },
+  "top50_by_assets": {"file": "data/eval/org_enrich_top50.csv", "with_profile": 21, "matched_no_fields": 3, "no_match": 23, "below_threshold": 2, "ambiguous": 1, "fields": {"website": 21, "headquarters": 20, "description": 18, "ticker": 18, "lei": 17, "wikipedia": 21}},
+  "timings_seconds": {"collect_targets": 1.8, "decide_from_recording": 2.3, "apply": 2.8, "second_apply": 2.9, "second_apply_changed": 0, "detail_route_ms": [40, 178]}
+}

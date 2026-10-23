@@ -961,7 +961,12 @@ paths:
       operationId: getOrganization
       tags: [Organizations]
       summary: Organization detail
-      description: Canonical name, type, identifiers, aliases (each with its provenance quartet) and counts of visible proposals and opportunities (US-203 AC1).
+      description: >-
+        Canonical name, type, identifiers, aliases (each with its provenance quartet) and counts of visible
+        proposals and opportunities (US-203 AC1). `profile` adds the public company facts a company page shows
+        (official website, headquarters, one-line description, stock ticker and exchange, LEI, English Wikipedia
+        link), each with its own provenance, from Wikidata and SEC EDGAR (2026-10-22); the envelope's
+        `licence_summary` attributes the facts shown.
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -11960,9 +11965,16 @@ components:
             duns:
               type: [string, 'null']
           additionalProperties: true
+          description: >-
+            Identifiers the registers and operators recorded. The monthly company-facts pass never writes here: the
+            Wikidata item and SEC CIK it matched, with their confidence, are `profile.match` (2026-10-22).
         website:
           type: [string, 'null']
           format: uri
+          description: >-
+            The organisation's website. Where it was empty, the monthly company-facts pass writes Wikidata's official
+            website (P856, `profile.website`); that value is served only while Wikidata's source is public, and an
+            operator who clears it is not overridden (2026-10-22).
         is_curated_issuer:
           type: boolean
           description: On the curated RFP issuer list (US-303).
@@ -12053,6 +12065,14 @@ components:
             serve (listed since the last refresh, or withheld; `meta.organization_stats.state`).
           oneOf:
             - $ref: '#/components/schemas/OrganizationListStats'
+            - type: 'null'
+        profile:
+          description: >-
+            Public company facts, each with its own provenance (`services/ingest/org_enrich.py`, monthly).
+            Detail responses only (2026-10-22). Null for a natural person, for an organisation nobody matched
+            with confidence, and when none of its facts' sources is visible. Never inside `ids`.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfile'
             - type: 'null'
         provenance:
           type: array
@@ -12213,6 +12233,139 @@ components:
           type: [string, 'null']
           format: date-time
       additionalProperties: false
+    OrganizationProfile:
+      type: object
+      description: >-
+        A company's public facts (lane org-enrich, 2026-10-22). Each fact is null where the source states nothing,
+        where its source or licence is not public, or (`website`) where the organisation's own `website` is a
+        different, curated value. Matched by LEI (Wikidata P1278), then SEC CIK, then exact normalised name plus
+        country with a confidence score; nothing is shown below the threshold (0.85).
+      required: [website, headquarters, description, ticker, lei, wikipedia, match]
+      properties:
+        website:
+          description: >-
+            Official website (Wikidata P856). Equals the organisation's `website` whenever present. Null for a
+            company Wikidata records as dissolved (P576): its site is the defunct company's.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileUri'
+            - type: 'null'
+        headquarters:
+          description: >-
+            Headquarters city and country (Wikidata P159; a building, a square or a neighbourhood reads as the city
+            it is located in). The city is null when Wikidata names only a country, a street, or several places that
+            disagree.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileHeadquarters'
+            - type: 'null'
+        description:
+          description: Wikidata's one-line English description.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileText'
+            - type: 'null'
+        ticker:
+          description: >-
+            Stock ticker and exchange, shown only when two sources say the company is listed: an SEC main-board
+            common-share symbol for the company's CIK that the matched Wikidata item lists on an exchange under the
+            same symbol (P414 with its P249), or, when the item's listing names no symbol, SEC's primary main-board
+            symbol (provenance SEC). When the two name different symbols nothing is shown (Georgia Power: SEC's only
+            main-board row is a note, `GPJA`; Wikidata says `GAR`). For a US company with no verified CIK,
+            Wikidata's listing (P414 with its P249 symbol) is shown only when SEC lists that symbol under a
+            registrant of the company's name (provenance SEC); outside the US, where SEC is silent, Wikidata's
+            listing stands alone (provenance Wikidata).
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileTicker'
+            - type: 'null'
+        lei:
+          description: Legal Entity Identifier as Wikidata states it (P1278). A GLEIF LEI the row holds is `ids.lei`.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileLei'
+            - type: 'null'
+        wikipedia:
+          description: English Wikipedia article (a link only; the article text is never copied).
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileUri'
+            - type: 'null'
+        match:
+          $ref: '#/components/schemas/OrganizationProfileMatch'
+    OrganizationProfileUri:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: string
+          format: uri
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileText:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: string
+          maxLength: 250
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileLei:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: string
+          pattern: '^[A-Z0-9]{18}[0-9]{2}$'
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileHeadquarters:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: object
+          required: [city, country]
+          properties:
+            city:
+              type: [string, 'null']
+              description: The headquarters place's English label; null when Wikidata names only the country.
+            country:
+              type: [string, 'null']
+              pattern: '^[A-Z]{2}$'
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileTicker:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: object
+          required: [symbol, exchange]
+          properties:
+            symbol:
+              type: string
+            exchange:
+              type: [string, 'null']
+              description: SEC's exchange value (`NYSE`, `Nasdaq`, `CBOE`, `TXSE`) or the Wikidata exchange's short name or label.
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileMatch:
+      type: object
+      description: Which company the facts are about, and how sure the match is.
+      required: [rule, confidence, wikidata_id, cik, matched_at]
+      properties:
+        rule:
+          type: string
+          enum: [lei, sec_cik, name_country]
+        confidence:
+          type: number
+          minimum: 0.85
+          maximum: 1
+        wikidata_id:
+          type: [string, 'null']
+          pattern: '^Q[1-9][0-9]*$'
+        cik:
+          type: [string, 'null']
+          pattern: '^[0-9]{10}$'
+        matched_at:
+          type: string
+          format: date-time
     DocumentSummary:
       type: object
       required: [document_id, title, doc_type, url, provenance]

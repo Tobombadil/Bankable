@@ -29,6 +29,8 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                               -> context_load         plants, retirements, asset layers, owners,
                                                      then the companies index's figures
     tick_org_stats (5 min) -> org_stats_tick          those figures again, only if their gate key moved
+    tick_org_enrich (monthly) -> org_enrich_fetch     company facts from Wikidata and SEC (network only)
+                              -> org_enrich_apply     write profiles and websites (store-wide lock)
     tick_deadline (hourly) -> deadline_tick           open opportunities past due_at -> closed
     tick_value (daily)    -> value_tick               ECB rates refreshed; every opportunity's value
                                                       and USD equivalent restated (no last_changed)
@@ -166,6 +168,13 @@ RESOLVE_TIMEOUT_S = 3600
 ENRICH_TIMEOUT_S = 1800
 MATCH_TIMEOUT_S = 1800  # ~1,200 scored pairs of 7.4 million on the full store (services/match/run.py)
 CONTEXT_LOAD_TIMEOUT_S = 3600
+#: The org-enrich network phase: about 250 Query Service queries (each followed by a pause as long as
+#: it ran) and up to `SEARCH_BUDGET` (3,000) searches at one per second, which stop after
+#: `SEARCH_MINUTES` (90) whatever the host's `Retry-After`s. It runs on the `fetch` queue, holding
+#: one worker slot, once a month (the 4th, 06:17, when the daily fetch bucket is done); two and a half
+#: hours bounds that slot. It holds no lock and no transaction, so an abandoned thread costs requests only.
+ORG_ENRICH_FETCH_TIMEOUT_S = 9000
+ORG_ENRICH_APPLY_TIMEOUT_S = 1800
 
 
 # Named, like every task here: unnamed, Procrastinate names a task after its module, and
@@ -731,6 +740,51 @@ def _tick_org_stats(timestamp: int) -> None:
         org_stats_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous org_stats_tick still queued or running")
+
+
+@app.task(
+    name="org_enrich_fetch", queue="fetch", retry=0, queueing_lock="org_enrich_fetch", lock="org_enrich_fetch"
+)
+def org_enrich_fetch() -> dict[str, Any]:
+    """Company facts for every organisation with assets, proposals or opportunities
+    (`services/ingest/org_enrich.py`): reads the targets once, then only the network, and leaves its
+    decisions under the connector data root. Holds no store-wide lock; chains to `org_enrich_apply`.
+    `retry=0`: next month's tick is the retry, and a failed fetch leaves the previous profiles in place."""
+    report = _run_with_timeout(jobs.org_enrich_fetch_job, timeout_s=ORG_ENRICH_FETCH_TIMEOUT_S)
+    try:
+        org_enrich_apply.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: org_enrich_apply already queued")
+    return report
+
+
+@app.task(
+    name="org_enrich_apply",
+    queue="resolve",
+    retry=LOAD_RETRY,
+    queueing_lock="org_enrich_apply",
+    lock="resolve",
+)
+def org_enrich_apply() -> dict[str, Any]:
+    """Write the fetch's decisions (`organization.ids["profile"]`, `organization.website`).
+    Under the store-wide lock, because it writes organisations a resolve pass may be merging; retried
+    on the same conflicts as `load_source` (`LOAD_RETRY`): the apply is idempotent."""
+    return _store_pass("org_enrich_apply", jobs.org_enrich_apply_job, timeout_s=ORG_ENRICH_APPLY_TIMEOUT_S)
+
+
+#: The 4th of the month, 06:17 UTC: the day after `tick_context` (the 3rd, 02:43), whose
+#: `context_load` creates the owner and operator organisations the enrichment looks up; clear of the
+#: daily fetch bucket (03:07) and `tick_resolve` (04:37).
+ORG_ENRICH_CRON = "17 6 4 * *"
+
+
+@app.periodic(cron=ORG_ENRICH_CRON, periodic_id="tick:org_enrich")
+@app.task(name="tick_org_enrich", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_org_enrich(timestamp: int) -> None:
+    try:
+        org_enrich_fetch.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous org_enrich_fetch still queued or running")
 
 
 @app.periodic(cron="37 4 * * *", periodic_id="tick:resolve")  # after the daily fetch bucket (03:07)

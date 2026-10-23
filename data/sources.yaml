@@ -3748,6 +3748,131 @@ sources:
     subsidiaries; many project LLCs do not). Match on legal name plus jurisdiction; store the LEI on
     organization.identifiers. Coverage of small RNG and ethanol owners will be thin; that is expected.
 
+- id: global.wikidata
+  name: Wikidata — company items (official website, headquarters, description, LEI, stock listing, English Wikipedia link)
+  jurisdiction: global
+  category: registry
+  operator: Wikimedia Foundation (Wikidata community)
+  url: https://query.wikidata.org/sparql
+  access: api
+  auth: none (unauthenticated Query Service and Action API; descriptive User-Agent with a URL and an email required)
+  format: 'json (SPARQL 1.1 query results from the Query Service; Action API wbsearchentities as a bounded fallback)'
+  cadence: monthly
+  rate_limit_rps: 1
+  license: >-
+    Wikidata:Copyright (https://www.wikidata.org/wiki/Wikidata:Copyright, read 2026-10-22): "All structured data
+    from the main, Property, Lexeme, and EntitySchema namespaces is available under the Creative Commons CC0
+    License; text in the other namespaces is available under the Creative Commons Attribution-ShareAlike License;
+    additional terms may apply." Wikidata:Licensing (read 2026-10-22): "All structured data (i.e. the main,
+    Property, Lexeme, and EntitySchema namespaces) is released into the public domain under Creative Commons
+    Zero." Access terms that bind us: Wikimedia Foundation User-Agent Policy (read 2026-10-22) "Scripts should use
+    an informative User-Agent string with contact information, or they may be blocked without notice." and "Do
+    not copy a browser's user agent for your bot, as bot-like behavior with a browser's user agent will be assumed
+    malicious."; Wikimedia Foundation API Usage Guidelines v1.0 (2024-08-26) "When using Wikimedia APIs, an
+    operator must: Follow the User-Agent policy ...; Follow rate limiting requests ...; Follow the requirements of
+    the content licenses when republishing downloaded or cached data" and must not "Spread Wikimedia API requests
+    over multiple user agents to hide excessive use by a single operator"; Robot policy (wikitech, read
+    2026-10-22) "Honor every directive in our robots.txt file.", "When we reply with a 429 Too Many Requests
+    status code respect the delay specified by the Retry-After header", and, Action API rules, "If
+    unauthenticated, keep the concurrency of your requests to 1 at a time, and below 5 requests per second
+    overall." and "if your request takes more than 1 second to serve, please wait 5 seconds before making another
+    request."; Wikidata Query Service User Manual (mediawiki.org, read 2026-10-22) "SPARQL queries can be
+    submitted directly to the SPARQL endpoint with a GET or POST request to https://query.wikidata.org/sparql",
+    "One client (user agent + IP) is allowed 60 seconds of processing time each 60 seconds", "Clients exceeding
+    the limits above are throttled with HTTP code 429. Use Retry-After header to see when the request can be
+    repeated." and "access to the service is limited to 5 parallel queries per IP."
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: Wikidata (CC0)"
+  licence_url: https://creativecommons.org/publicdomain/zero/1.0/
+  tier: 2
+  effort: M
+  probe: {method: GET, url: "https://query.wikidata.org/sparql?format=json&query=SELECT%20%3Fitem%20WHERE%20%7B%20%3Fitem%20wdt%3AP5531%20%220000753308%22%20%7D"}
+  verified:
+    date: 2026-10-22
+    result: ok
+    note: >-
+      Licensing, Copyright, User-Agent policy, API Usage Guidelines, Robot policy, Wikimedia APIs/Rate limits and
+      the Query Service User Manual read raw (action=raw) and quoted above. Query Service: the P5531 probe answered
+      200 (Q967868, NextEra Energy); batched queries of 400 name literals, 100 items' statements and terms, and 100
+      classes' P279* reach answered in 0.2-1.6 s each. Action API: from this sandbox's shared egress
+      wbsearchentities answered 429 ("You are making too many requests to the API", Retry-After 23-48 s) on the
+      first request of every minute for six minutes running, then 200 at 03:14 UTC; the per-client limit (200
+      requests a minute for a compliant User-Agent) is shared by every client behind that address. That is why
+      the Query Service does the bulk work and the Action API is a bounded fallback that stops for the run after
+      3 consecutive failures. robots.txt: query.wikidata.org has "User-agent: * Disallow: /sparql" and
+      www.wikidata.org "User-agent: * ... Disallow: /w/" (which covers /w/api.php) under the comment "Friendly,
+      low-speed bots are welcome viewing article pages, but not dynamically-generated pages please";
+      Special:EntityData/*. is allowed. Both endpoints are APIs that the Robot policy (its Action API rules), the
+      Query Service manual (its program access and limits) and the User-Agent Policy (its SPARQLWrapper example
+      for the Query Service) address to programs, and the platform treats API endpoints as not robots-relevant
+      (pipeline/connectors/http.py); the Robot policy's "Honor every directive in our robots.txt file" read
+      literally would exclude both, which is recorded as an open question for legal-compliance (lane org-enrich
+      caveat), not resolved here.
+  notes: >-
+    Used by services/ingest/org_enrich.py (lane org-enrich, 2026-10-22), monthly, for organisations that hold
+    assets, sponsor proposals or issue opportunities, never for natural persons. One User-Agent for both
+    Wikimedia hosts. Each fact is stored with the item URL as source_url and the fetch time as retrieved_at in
+    organization.ids["profile"], and served on GET /v1/organizations/{id} as `profile`. Descriptions, labels and
+    sitelinks are main-namespace structured data (CC0); Wikipedia article text (CC BY-SA) is never fetched, only
+    the link. Places are read too (P131 located-in up to three levels, P300 ISO 3166-2 code), to put a
+    headquarters in its city and a city or county government in its state. Measured 2026-10-22 on the
+    2026-10-20 store (8,437 organisations): 252 Query Service queries in 17 min 47 s with the pause after each
+    (80 name searches replayed from an earlier recording, not sent).
+    No connector module: the scheduler's run_connector refuses the id as unimplemented, as it does for
+    global.gleif.lei; the infra/scheduler org_enrich_fetch job reads it.
+
+- id: us.sec.company_tickers
+  name: SEC EDGAR company tickers with exchange (company_tickers_exchange.json — CIK, EDGAR conformed name, ticker, exchange)
+  jurisdiction: US
+  category: registry
+  operator: US Securities and Exchange Commission
+  url: https://www.sec.gov/files/company_tickers_exchange.json
+  access: bulk_file
+  auth: none (declared User-Agent naming the company and an email address; 10 requests/second maximum)
+  format: 'json, {"fields": ["cik","name","ticker","exchange"], "data": [...]}, one row per ticker'
+  cadence: monthly
+  rate_limit_rps: 5
+  license: >-
+    SEC website, "Privacy and Information Security" (https://www.sec.gov/about/privacy-information, read
+    2026-10-22), Website Dissemination: "Information presented on sec.gov is considered public information and may
+    be copied or further distributed by users of the web site without the SEC’s permission. Please consider
+    appropriate citation to the SEC as the source." SEC "Accessing EDGAR Data"
+    (https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data, read 2026-10-22): "Current
+    max request rate: 10 requests/second."; "Please declare your user agent in request headers: Sample Declared Bot
+    Request Headers: User-Agent: Sample Company Name AdminContact@<sample company domain>.com"; on this file: "We
+    periodically update these files to provide functionality for EDGAR searches, but do not guarantee accuracy or
+    scope." A compilation by a federal agency (17 U.S.C. §105).
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Securities and Exchange Commission, EDGAR"
+  licence_url: https://www.sec.gov/about/privacy-information
+  tier: 2
+  effort: S
+  probe: {method: GET, url: "https://www.sec.gov/files/company_tickers_exchange.json"}
+  verified:
+    date: 2026-10-22
+    result: ok
+    rows: 10443
+    note: >-
+      200, 523,851 bytes uncompressed, sha256 6c29e2e3db973d4479875164603c2434f81ad22e14c9f1694999aca9cca246cb,
+      Last-Modified Fri, 16 Oct 2026 11:53:51 GMT; 10,443 ticker rows for 8,029 CIKs; exchanges NYSE, Nasdaq,
+      CBOE, TXSE, OTC and null; 6 org keys (pipeline.normalize.org_key) name more than one CIK. www.sec.gov
+      robots.txt has no rule on /files/. Fetched with User-Agent "Inframation hello@<domain>". The privacy page's
+      dissemination clause and the access page are quoted above.
+  notes: >-
+    One request per monthly run of services/ingest/org_enrich.py (lane org-enrich, 2026-10-22). Used to find an
+    organisation's CIK by exact org_key of the conformed name without its EDGAR tags (/DE/, /NEW/, /ADR; US
+    evidence required), to check a CIK a Wikidata item carries (kept only when SEC names that registrant with the
+    organisation's key: Southwest Gas Corp's item carries Southwest Gas Holdings' CIK), and to show a ticker and
+    exchange. A ticker needs two sources: an SEC main-board symbol plus the matched Wikidata item's listing (P414)
+    under that same symbol (P249), or under no symbol at all; when the two name different symbols nothing is shown,
+    because the file associates preferreds and notes with a utility subsidiary's or a federal corporation's CIK
+    (Entergy Louisiana ELC, Georgia Power GPJA, TVA TVE); and for a US organisation a Wikidata listing is shown only
+    when SEC lists that symbol under a registrant of the organisation's name (Wikidata gives Georgia Power GAR,
+    PG&E's utility its parent's PCG, and Southern Company Gas the GAS that AGL Resources delisted in 2016). Not
+    us.sec.edgar_fts: no filing text is read.
+
 - id: us.census.cartographic_boundaries
   name: US Census Bureau Cartographic Boundary Files — counties and states, 1:20,000,000 (region polygons for the map's region-grade proposals)
   jurisdiction: US

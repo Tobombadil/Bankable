@@ -1,0 +1,51 @@
+rank,organisation,public_id,assets,proposals,status,rule,confidence,wikidata_id,cik,website,headquarters,description,ticker,lei,wikipedia,why_not_or_withheld
+1,WASTE MANAGEMENT INC,org_1M5CV0JTKEHEAPBFEXAMR5HW9,121,0,matched,sec_cik,0.99,Q2552219,0000823768,https://www.wm.com/,"Houston, US",American waste management company,WM (NYSE),549300YX8JIID70NFS41,"https://en.wikipedia.org/wiki/Waste_Management,_Inc.",
+2,"WM Renewable Energy, LLC",org_1M5CTWMGZE00R4F0YRE8BDSJB,102,2,no_match,,,,,,,,,,,no Wikidata item with the key
+3,Fortistar Methane Group,org_1M5CTXZWHFY48WX1CM55HTPQC,88,0,no_match,,,,,,,,,,,no Wikidata item with the key
+4,"Republic Services, Inc.",org_1M5CTY0KSF7JV4M0HPC60QJ1C,78,0,matched,sec_cik,0.99,Q7314415,0001060391,https://www.republicservices.com/,"Phoenix, US",solid waste management company in the U.S.,RSG (NYSE),NKNQHM6BLECKVOQP7O46,https://en.wikipedia.org/wiki/Republic_Services,
+5,"Archaea Energy, LLC",org_1M5CTY0HFFT1TZP085JYHXJ7P,51,0,no_match,,,,,,,,,,,no Wikidata item with the key
+6,"NRG Energy, Inc.",org_1M5CTWMGJEY79CY36ZA6668C3,51,6,matched,sec_cik,0.99,Q6955139,0001013871,https://www.nrg.com/,US,American energy company,NRG (NYSE),5E2UPK5SW04M13XY7I38,https://en.wikipedia.org/wiki/NRG_Energy,headquarters: Wikidata states 2 places; city withheld
+7,Energy Transfer,org_1M5CTXHH7EKESQV8DB6HBCJ59,47,0,matched,sec_cik,0.99,Q5376999,0001276187,http://www.energytransfer.com/,"Dallas, US",,ET (TXSE),,https://en.wikipedia.org/wiki/Energy_Transfer_Equity,
+8,DUKE ENERGY CORP,org_1M5CV0KEXF3C9Y089A6NYPA2F,46,0,matched,sec_cik,0.99,Q1264404,0001326160,https://www.duke-energy.com/,"Charlotte, US",American electric power and natural gas holding company,DUK (NYSE),I1BZKREC126H0VB1BL91,https://en.wikipedia.org/wiki/Duke_Energy,
+9,Vistra Corp,org_1M5CTYSA6EQTAEGDX57TWXC4H,46,0,matched,sec_cik,0.99,Q104158381,0001692819,https://www.vistracorp.com/,"Irving, US",US electricity company,VST (NYSE),549300KP43CPCUJOOG15,https://en.wikipedia.org/wiki/Vistra_Corp.,
+10,"Ameresco, Inc.",org_1M5CTXZQ5F7J9HXGZSYJ9RP5G,45,0,matched,sec_cik,0.9215,,0001488139,,,,,,,ticker withheld: SEC lists AMRC but no source says the company is listed
+11,BERKSHIRE HATHAWAY INC,org_1M5CV0KSQEMVRXK6XMS968VVV,45,0,matched,sec_cik,0.99,Q217583,0001067983,https://www.berkshirehathaway.com/,"Omaha, US",American multinational conglomerate holding company,BRK-B (NYSE),5493000C01ZX7D35SD85,https://en.wikipedia.org/wiki/Berkshire_Hathaway,
+12,"Biogas Energy Solutions, LLC",org_1M5CTXZP3FXWRZ48NXSN33C8K,43,0,no_match,,,,,,,,,,,no Wikidata item with the key
+13,CPN MANAGEMENT LP,org_1M5CV0KB7E34RAX0YY816N3YP,43,0,no_match,,,,,,,,,,,no Wikidata item with the key
+14,"DCP Operating Company, LP",org_1M5CTXM74FP68TDZZ57BC66GA,43,0,no_match,,,,,,,,,,,no Wikidata item with the key
+15,Energy Power Partners,org_1M5CTY0W9EBA8YFBZSJZF71XE,43,0,no_match,,,,,,,,,,,no Wikidata item with the key
+16,Entergy Corp,org_1M5CTZ325FDW9AWEM8VDJVC9A,43,0,matched,sec_cik,0.99,Q1344587,0000065984,https://www.entergy.com/,"New Orleans, US",American energy company,ETR (NYSE),4XM3TW50JULSLG8BNC79,https://en.wikipedia.org/wiki/Entergy,
+17,SOUTHERN CO,org_1M5CV0M5FE0H991ESER3SPN6Y,42,0,matched,sec_cik,0.99,Q2304693,0000092122,http://www.southerncompany.com/,"Atlanta, US",US electricity corporation,SO (NYSE),549300FC3G3YU2FBZD92,https://en.wikipedia.org/wiki/Southern_Company,
+18,Dominion Energy Inc.,org_1M5CTWPVHEEVTPXVYHR2XS6CD,38,6,matched,sec_cik,0.99,Q677464,0000715957,https://www.dominionenergy.com/,"Richmond, US",,D (NYSE),ILUL7B6Z54MRYCF6H308,https://en.wikipedia.org/wiki/Dominion_Energy,
+19,EDL Energy,org_1M5CTXZHGED9A3JPZ7XHDV9FP,37,0,below_threshold,,0.69,Q73746281,,,,,,,,Q73746281:; name=alias; country=unknown
+20,GSRP Project Holdings I LLC,org_1M5CTZ774EERTGGY0MCAXSQ99,37,0,no_match,,,,,,,,,,,no Wikidata item with the key
+21,Xcel Energy,org_1M5CTXQX7F80BBXN63HA2BJ68,37,0,matched,sec_cik,0.99,Q1486956,0000072903,https://www.xcelenergy.com/,"Minneapolis, US",American utilities company,XEL (Nasdaq),LGJNMI9GH8XIDG5RCM61,https://en.wikipedia.org/wiki/Xcel_Energy,
+22,American Electric Power,org_1M5CTWMR5FRVVY60N1NNJ3K02,36,1,matched,sec_cik,0.99,Q464092,0000004904,https://www.aep.com,US,electric utility company in the United States,AEP (Nasdaq),1B4S6S7G0TW5EE83BO58,https://en.wikipedia.org/wiki/American_Electric_Power,headquarters: Wikidata states 2 places; city withheld
+23,COLUMBIA GAS TRANSMISSION LLC,org_1M5CTXVD0FY28831HCRR866CG,36,0,no_match,,,,,,,,,,,Q5149694: not an organisation (P31/P279* does not reach Q43229)
+24,ENBRIDGE (US) INC,org_1M5CV0Z1PE33RG65WA92GMZ8J,34,0,no_match,,,,,,,,,,,no Wikidata item with the key
+25,Granger Energy,org_1M5CTXZJBEMM84S6014Y31HCB,32,0,no_match,,,,,,,,,,,no Wikidata item with the key
+26,Phillips 66 Company,org_1M5CTYYFYE6GBST8JP4K4AYV2,32,0,below_threshold,sec_cik,0.792,,0001534701,,,,,,,sec_name='Phillips 66'; key='PHILLIPS 66'; legal form corporation != none (SEC's name has no legal form)
+27,John Hancock Funding Company,org_1M5CTZZ7HFEFTMJAXNG4TK3J5,31,0,no_match,,,,,,,,,,,no Wikidata item with the key
+28,National Fuel Gas Supply Co,org_1M5CTXG5AF78S1GEB10HZSKQJ,31,0,no_match,,,,,,,,,,,no Wikidata item with the key
+29,"Manulife Infrastructure II Holdings A, L.P.",org_1M5CTZZ81ERDA71RCXCPMZRKE,30,0,no_match,,,,,,,,,,,no Wikidata item with the key
+30,ETC Field Services LLC,org_1M5CTXM4TE0FS4BZHAGESNYM9,28,0,no_match,,,,,,,,,,,no Wikidata item with the key
+31,Montauk Renewables,org_1M5CTY4H5ET6A8GKMCF5GMBZ4,28,0,matched,sec_cik,0.97,,0001826600,,,,,,,ticker withheld: SEC lists MNTK but no source says the company is listed
+32,"Hunt Energy Network, LLC",org_1M5CTWF9NF4PRC6JKR26SQ6C2,27,3,no_match,,,,,,,,,,,no Wikidata item with the key
+33,Alliant Energy,org_1M5CTY6V5E3F92T92J02PTCNG,26,0,matched,sec_cik,0.99,Q4732492,0000352541,https://www.alliantenergy.com/,"Madison, US","public utility holding company based in Madison,WI, US",LNT (Nasdaq),JZGA4Z7N0BQVZ44QVC53,https://en.wikipedia.org/wiki/Alliant_Energy,
+34,Kinder Morgan,org_1M5CTXM3XF7ZA0XDV4JHK2J2Z,26,0,matched,sec_cik,0.99,Q931032,0001506307,http://www.kindermorgan.com/,"Houston, US",,KMI (NYSE),549300WR7IX8XE0TBO16,https://en.wikipedia.org/wiki/Kinder_Morgan,
+35,Targa Resources,org_1M5CTXMDWEB5RVMA6ET1YC6FT,26,0,matched,sec_cik,0.97,,0001389170,,,,,,,ticker withheld: SEC lists TRGP but no source says the company is listed
+36,DTE ENERGY CO,org_1M5CV0MA8F5YBF81KXV49ZWP4,25,0,matched,sec_cik,0.99,Q5206232,0000936340,http://www.dteenergy.com,"Detroit, US",energy company based in Detroit,DTE (NYSE),549300IX8SD6XXD71I78,https://en.wikipedia.org/wiki/DTE_Energy,
+37,NEXTERA ENERGY INC,org_1M5CV0SW7FP1V9QR625WBS95G,25,0,matched,sec_cik,0.99,Q967868,0000753308,http://www.nexteraenergy.com/,"Juno Beach, US",American energy company,NEE (NYSE),,https://en.wikipedia.org/wiki/NextEra_Energy,
+38,US GOVERNMENT,org_1M5CV0KCTFXJRGCEW76B96JQD,25,0,matched,name_country,0.874,Q48525,,https://www.usa.gov/,"Washington, D.C., US",national government of the United States,,,https://en.wikipedia.org/wiki/Federal_government_of_the_United_States,
+39,POET LLC,org_1M5CV0S8NFWFAVYSYP24J609S,24,0,matched,name_country,0.95,Q7119918,,http://www.poet.com/,"Sioux Falls, US",American biofuel company,,,https://en.wikipedia.org/wiki/POET,
+40,WM,org_1M5CTXZBVFT6A9EVEN2RCSE3P,24,0,ambiguous,,0.736,,,,,,,,,"3 Wikidata organisations share the key: ['Q2552219', 'Q180', 'Q504423']"
+41,Chevron,org_1M5CTWYVKFTABGHP4JY3TT13Q,23,1,matched,sec_cik,0.99,Q319642,0000093410,https://www.chevron.com,,American multinational energy corporation,CVX (NYSE),VA8TZDWPEZYU430RZ444,https://en.wikipedia.org/wiki/Chevron_Corporation,
+42,KOCH INDUSTRIES INC,org_1M5CV0N7EF03TKMXM4KPM9BDG,23,0,matched,name_country,0.92,Q1496384,,https://www.kochinc.com,"Wichita, US",second largest privately held company in the United States,,5493005158BXZWGOX572,"https://en.wikipedia.org/wiki/Koch,_Inc.",
+43,NJR Clean Energy Ventures III Corporation,org_1M5CTWNHSF3DT72DC9DSXCXCB,23,1,no_match,,,,,,,,,,,no Wikidata item with the key
+44,WEC Energy Group,org_1M5CTZKBGEK298VX4046EZTNH,23,0,matched,sec_cik,0.99,Q8027166,0000783325,http://www.wisconsinenergy.com,"Milwaukee, US",American energy company providing electricity and natural gas to 4.4 million customers,WEC (NYSE),549300IGLYTZUK3PVP70,https://en.wikipedia.org/wiki/WEC_Energy_Group,
+45,"LS Power Development, LLC",org_1M5CTWMVBEWV9Y7QK8CV3JWG0,22,2,no_match,,,,,,,,,,,no Wikidata item with the key
+46,"Generate C&I Warehouse, LLC",org_1M5CV02R2E4FAKBT3F134DXK1,21,0,no_match,,,,,,,,,,,no Wikidata item with the key
+47,COVANTA HOLDING CORP,org_1M5CV0N9ME6QVHRRWE7F7GQ8R,20,0,no_match,,,,,,,,,,,no Wikidata item with the key
+48,Equitrans Inc,org_1M5CTXFGQFY0SP3YYFETAE2S8,20,0,no_match,,,,,,,,,,,no Wikidata item with the key
+49,Generate NY Community Solar Lessor III,org_1M5CTZPXCEKC9V40F47C51J78,20,0,no_match,,,,,,,,,,,no Wikidata item with the key
+50,Standard Solar,org_1M5CTWPWKF438ZV9057QCKJXD,20,14,no_match,,,,,,,,,,,no Wikidata item with the key
