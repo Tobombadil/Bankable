@@ -43,4 +43,5 @@ integration target (owner, 2026-10-22; `docs/19`).
   `CHROME_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`) and report before and after. Precedence: the
   guardrails above and WCAG 2.2 AA (`docs/04`) first, then the skill's house rules, then `docs/31` where it has not
   yet been brought into line. Fonts stay self-hosted (D-21): replace any font CDN link the skill's scripts emit.
-  Found pictures carry their credit and licence like any other source.
+  Found pictures carry their credit and licence like any other source. Design lanes also follow
+  `docs/31-design-practices.md` (data-product practices, references, how a design lane works).
