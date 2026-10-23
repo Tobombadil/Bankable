@@ -1211,10 +1211,13 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             assert top < 450, f"map starts at {top}px at 1440x900"
             assert wide.locator(".nav-toggle").is_hidden() and wide.locator("#map-filters").is_visible()
             # Open from 1080px, 340px wide, inset 12px from the map's top right, never taller than it.
-            panel_top, panel_w, panel_h = wide.evaluate(panel_box)
-            map_top, map_h = wide.evaluate(
-                "(() => { const b = document.getElementById('map').getBoundingClientRect();"
-                " return [b.top, b.height]; })()"
+            # Read after the data lands (the count line above the map can wrap when it does) and in one
+            # frame: two reads either side of a layout change failed on a loaded machine (14px apart).
+            wide.wait_for_function(_COUNT_READY, timeout=30000)
+            (panel_top, panel_w, panel_h), (map_top, map_h) = wide.evaluate(
+                "(() => { const p = document.getElementById('map-panel').getBoundingClientRect();"
+                " const m = document.getElementById('map').getBoundingClientRect();"
+                " return [[p.top, p.width, p.height], [m.top, m.height]]; })()"
             )
             assert wide.get_attribute("#map-panel-toggle", "aria-expanded") == "true"
             assert panel_w == 340 and abs(panel_top - (map_top + 12)) <= 2, (panel_top, map_top, panel_w)
