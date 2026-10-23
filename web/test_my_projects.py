@@ -655,7 +655,7 @@ def test_the_badge_and_deadline_words() -> None:
 
 
 # ------------------------------------------------------------------------------------ data room
-ROOM_KEY = "d2ViLWRhdGEtcm9vbS10ZXN0LWtleS0zMi1ieXRlcyE="  # base64 of 32 test bytes, not a real key
+ROOM_KEY = "d2ViLWRhdGEtcm9vbS10ZXN0LWtleS0zMi1ieXRlcyE="  # base64 of 32 test bytes  # gitleaks:allow
 ROOM_PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 _FOLDER_HREF = re.compile(r"/documents/folders/([0-9a-f-]{36})")
 

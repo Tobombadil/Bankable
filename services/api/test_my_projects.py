@@ -2006,7 +2006,7 @@ def test_track_from_a_site_makes_a_project_at_the_site(
 # ================================================================================= data rooms
 # docs/19 §3 and "Data rooms, as built" (lane data-rooms, 2026-10-23): the HTTP boundary. The store
 # is a directory under the test's temporary path; the seals use a fixed test key.
-ROOM_KEY = "ZGF0YS1yb29tLWFwaS10ZXN0LWtleS0zMi1ieXRlcyE="  # base64 of 32 test bytes, not a real key
+ROOM_KEY = "ZGF0YS1yb29tLWFwaS10ZXN0LWtleS0zMi1ieXRlcyE="  # base64 of 32 test bytes  # gitleaks:allow
 ROOM_PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 ROOM_SENTINEL = "SENTINELdr9Kq"
 

@@ -33,7 +33,7 @@ DB_PATH = REPO_ROOT / "web" / ".data" / "e2e-data-room.db"
 STORE = REPO_ROOT / "web" / ".data" / "e2e-data-room-store"
 SHOTS = Path(os.environ["E2E_DATA_ROOM_SHOTS"]) if os.environ.get("E2E_DATA_ROOM_SHOTS") else None
 #: base64 of 32 test bytes: obviously not a deployment's key.
-TEST_KEY = "ZTJlLWRhdGEtcm9vbS10ZXN0LWtleS0zMi1ieXRlcyE="
+TEST_KEY = "ZTJlLWRhdGEtcm9vbS10ZXN0LWtleS0zMi1ieXRlcyE="  # base64 of 32 test bytes  # gitleaks:allow
 PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 
 
