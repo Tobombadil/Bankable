@@ -1,0 +1,58 @@
+# The generic bankability checklist (docs/19 §2.3; schema data/checklist/pack.schema.json).
+#
+# Structure and generic item names only: six folders of standard project-finance documents, each
+# item tagged with one of four pillars (completeness, the fifth, counts every item). The names are
+# the industry's own terms (docs/19 assumption B6). docs/18 §1.3 names 18 of the 32 and gives the
+# count per folder for the rest; those 14 are standard project-finance document names chosen here,
+# not copied from any other product.
+#
+# No guidance text lives here. Detailed content (guidance per item, per-sector variants, examples)
+# is a private content pack in this same schema, loaded at deploy by
+# `python -m services.projects.load_checklist --pack-url "$CHECKLIST_PACK_URL"` (decision row
+# 2026-10-22). Until one is loaded, these names are what users see.
+#
+# Pillar by folder (docs/19 §2.3): Contracts -> counterparties; Finance, Security, Feasibility ->
+# fundamentals; Permits -> regulatory and site; Legal & Corporate -> sponsor. A private pack may
+# override the pillar per item. Keys are stable: projects store them, and a private pack must use them.
+schema: inframation.checklist-pack/1
+pack_version: generic-v1
+description: Generic bankability checklist. Six folders, 32 standard project-finance documents, no guidance.
+items:
+  # ------------------------------------------------------------------------- Contracts (5)
+  - {key: ppa, folder: contracts, pillar: counterparties, name: Power Purchase Agreement, sort_order: 10}
+  - {key: offtake_agreement, folder: contracts, pillar: counterparties, name: Purchase/Offtake Agreement, sort_order: 20}
+  - {key: supply_agreement, folder: contracts, pillar: counterparties, name: Supply/Feedstock Agreement, sort_order: 30}
+  - {key: epc_contract, folder: contracts, pillar: counterparties, name: EPC Contract, sort_order: 40}
+  - {key: om_agreement, folder: contracts, pillar: counterparties, name: O&M Agreement, sort_order: 50}
+  # --------------------------------------------------------------------------- Finance (4)
+  - {key: loan_agreement, folder: finance, pillar: fundamentals, name: Loan Agreement, sort_order: 110}
+  - {key: intercreditor_agreement, folder: finance, pillar: fundamentals, name: Intercreditor Agreement, sort_order: 120}
+  - {key: equity_contribution_agreement, folder: finance, pillar: fundamentals, name: Equity Contribution Agreement, sort_order: 130}
+  - {key: hedging_agreement, folder: finance, pillar: fundamentals, name: Hedging Agreement, sort_order: 140}
+  # -------------------------------------------------------------------------- Security (3)
+  - {key: security_agreement, folder: security, pillar: fundamentals, name: Security Agreement, sort_order: 210}
+  - {key: pledge_agreement, folder: security, pillar: fundamentals, name: Pledge Agreement, sort_order: 220}
+  - {key: direct_agreements, folder: security, pillar: fundamentals, name: Direct Agreements, sort_order: 230}
+  # --------------------------------------------------------------------------- Permits (8)
+  - {key: environmental_approvals, folder: permits, pillar: regulatory_site, name: Environmental Approvals/Licenses, sort_order: 310}
+  - {key: land_rights, folder: permits, pillar: regulatory_site, name: Land-Use Rights/Land Lease Agreement, sort_order: 320}
+  - {key: land_use_permit, folder: permits, pillar: regulatory_site, name: Land Use Permit, sort_order: 330}
+  - {key: air_quality_permit, folder: permits, pillar: regulatory_site, name: Air Quality Permit, sort_order: 340}
+  - {key: interconnection_agreement, folder: permits, pillar: regulatory_site, name: Interconnection Agreement, sort_order: 350}
+  - {key: construction_permits, folder: permits, pillar: regulatory_site, name: Construction/Building Permits, sort_order: 360}
+  - {key: grid_connection_agreement, folder: permits, pillar: regulatory_site, name: Grid Connection Agreement, sort_order: 370}
+  - {key: loi_purchase_asset, folder: permits, pillar: regulatory_site, name: LOI to Purchase Asset, sort_order: 380}
+  # ----------------------------------------------------------------------- Feasibility (9)
+  - {key: financial_model, folder: feasibility, pillar: fundamentals, name: Financial Model, sort_order: 410}
+  - {key: feed, folder: feasibility, pillar: fundamentals, name: FEED, sort_order: 420}
+  - {key: independent_technical_report, folder: feasibility, pillar: fundamentals, name: Independent Technical Report, sort_order: 430}
+  - {key: market_studies, folder: feasibility, pillar: fundamentals, name: Market Studies, sort_order: 440}
+  - {key: feasibility_study, folder: feasibility, pillar: fundamentals, name: Feasibility Study, sort_order: 450}
+  - {key: resource_assessment, folder: feasibility, pillar: fundamentals, name: Resource Assessment, sort_order: 460}
+  - {key: esia, folder: feasibility, pillar: fundamentals, name: Environmental and Social Impact Assessment, sort_order: 470}
+  - {key: site_survey, folder: feasibility, pillar: fundamentals, name: Geotechnical and Site Survey, sort_order: 480}
+  - {key: insurance_report, folder: feasibility, pillar: fundamentals, name: Insurance Report, sort_order: 490}
+  # ----------------------------------------------------------------- Legal & Corporate (3)
+  - {key: formation_documents, folder: legal_corporate, pillar: sponsor, name: Formation Documents, sort_order: 510}
+  - {key: shareholders_agreement, folder: legal_corporate, pillar: sponsor, name: Shareholders/Operating Agreement, sort_order: 520}
+  - {key: corporate_authorizations, folder: legal_corporate, pillar: sponsor, name: Corporate Authorizations, sort_order: 530}

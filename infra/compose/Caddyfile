@@ -31,7 +31,42 @@
 # uvicorn (which believes X-Forwarded-For from Caddy's address only, infra/entrypoint.py) sees
 # the visitor and nothing a visitor can forge. X-Internal-Token and X-Visitor-IP are internal to
 # the Compose network (web -> api) and are stripped from every inbound request.
+
+# No log line carries an invitation token (docs/19 §5.3). An invitation link is
+# /my/invitations/accept?t=<token>, and the token appears in four places in Caddy's JSON lines:
+# the request URI, the Referer header of the next request a page makes, htmx's HX-Current-URL
+# header (the page's own URL, sent once a page loads htmx; the templates already carry hx-*
+# attributes), and a redirect's Location (a signed-out visitor goes to /login?next=..., where the
+# token is percent-encoded). The same
+# request fields also appear in Caddy's own error lines (a 502 while an upstream restarts), so the
+# filter goes on both the access log (`common`) and the default logger (the global options below).
+# The regexp replaces the value of a `t` parameter (at the start of a value, as the app's own logs
+# can hold a bare query string, or after `?`, `&` or `;`, with the separator, the
+# name or `=` raw or percent-encoded at any depth: `?%74=` is `?t=` to the app) and a token-length
+# path segment under /my/invitations/; it keeps the parameter name, so a line still shows that a
+# token was sent. Nothing else changes: the filter wraps the same JSON encoder, and
+# Caddy already writes Cookie and Authorization as REDACTED. No public route uses a `t` parameter.
+# The upstream still receives the token; only the log line is rewritten. infra/test_caddyfile.py
+# sends a sentinel token through each place with a real Caddy and checks every other field is
+# unchanged. This snippet comes first because the global options block cannot import a later one.
+(invitation_token_redacted) {
+	format filter {
+		wrap json
+		fields {
+			request>uri regexp "(?i)((?:^|[?&;]|%(?:25)*(?:3f|26))(?:t|%(?:25)*(?:74|54))(?:=|%(?:25)*3d))[^&#%;\s\x22\x27<>]*|((?:/|%(?:25)*2f)my(?:/|%(?:25)*2f)invitations(?:/|%(?:25)*2f))[a-z0-9_-]{20,}" "${1}${2}REDACTED"
+			request>headers>Referer regexp "(?i)((?:^|[?&;]|%(?:25)*(?:3f|26))(?:t|%(?:25)*(?:74|54))(?:=|%(?:25)*3d))[^&#%;\s\x22\x27<>]*|((?:/|%(?:25)*2f)my(?:/|%(?:25)*2f)invitations(?:/|%(?:25)*2f))[a-z0-9_-]{20,}" "${1}${2}REDACTED"
+			request>headers>Hx-Current-Url regexp "(?i)((?:^|[?&;]|%(?:25)*(?:3f|26))(?:t|%(?:25)*(?:74|54))(?:=|%(?:25)*3d))[^&#%;\s\x22\x27<>]*|((?:/|%(?:25)*2f)my(?:/|%(?:25)*2f)invitations(?:/|%(?:25)*2f))[a-z0-9_-]{20,}" "${1}${2}REDACTED"
+			resp_headers>Location regexp "(?i)((?:^|[?&;]|%(?:25)*(?:3f|26))(?:t|%(?:25)*(?:74|54))(?:=|%(?:25)*3d))[^&#%;\s\x22\x27<>]*|((?:/|%(?:25)*2f)my(?:/|%(?:25)*2f)invitations(?:/|%(?:25)*2f))[a-z0-9_-]{20,}" "${1}${2}REDACTED"
+		}
+	}
+}
+
 {
+	# Caddy's own log (stderr): the stock JSON encoder, plus the invitation-token filter above.
+	log default {
+		output stderr
+		import invitation_token_redacted
+	}
 	servers {
 		# Cloudflare's published edge ranges, vendored from https://www.cloudflare.com/ips-v4 and
 		# https://www.cloudflare.com/ips-v6 (the same lists as https://api.cloudflare.com/client/v4/ips,
@@ -136,7 +171,7 @@
 	encode gzip
 	log {
 		output stdout
-		format json
+		import invitation_token_redacted
 	}
 }
 

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://inframation.io/schemas/checklist-pack-1.json",
+  "title": "Bankability checklist content pack",
+  "description": "docs/19 §2.3. The public generic pack (data/checklist/generic-v1.yaml) and any private content pack share this schema. A private pack may add guidance and technology filters, and may override an item's pillar; its keys must all exist in the generic pack (services/projects/load_checklist.py refuses an unmatched key).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "pack_version", "items"],
+  "properties": {
+    "schema": {
+      "const": "inframation.checklist-pack/1"
+    },
+    "pack_version": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2000
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/item"
+      }
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "folder", "pillar", "name"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        },
+        "folder": {
+          "enum": ["contracts", "finance", "security", "permits", "feasibility", "legal_corporate"]
+        },
+        "pillar": {
+          "enum": ["fundamentals", "counterparties", "regulatory_site", "sponsor"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "guidance": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "sort_order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "technologies": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 40,
+          "items": {
+            "enum": [
+              "biomass",
+              "coal",
+              "fuel_cell",
+              "gas_cc",
+              "gas_ct",
+              "gas_ice",
+              "gas_other",
+              "gas_steam",
+              "geothermal",
+              "hydro",
+              "hydrogen",
+              "load",
+              "marine",
+              "nuclear",
+              "oil",
+              "pumped_storage",
+              "solar",
+              "solar_storage",
+              "solar_thermal",
+              "storage",
+              "transmission",
+              "waste",
+              "wind",
+              "wind_offshore",
+              "wind_storage",
+              "other"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
