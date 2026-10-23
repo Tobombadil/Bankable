@@ -113,6 +113,32 @@ def test_post_token_like_value_is_400(client, db):
     assert resp.status_code == 400
 
 
+@pytest.mark.parametrize(
+    ("name", "props"),
+    [
+        ("map.region_jumped", {"region": "prj_0123456789"}),
+        ("auth.registered", {"layers": "plants nte_0123456789ABCD"}),
+        ("map.layer_toggled", {"layer": "on:inv_ABCDEFGHJK", "on": True}),
+        ("auth.registered", {"layers": "plants,prj_abcdefghjk"}),
+    ],
+)
+def test_rejects_private_id_values(client, db, name, props):
+    """docs/19 §5.2 item 4: no analytics row carries a private project, note or invitation id,
+    wherever it sits in the value. Each of these passed every earlier check (none is an email, an
+    address, a UUID or a 20-character token)."""
+    resp = client.post("/v1/ui-events", json={"name": name, "props": props})
+    assert resp.status_code == 400
+    assert resp.json()["errors"] == [{"field": "props", "message": "invalid property value"}]
+    assert list(db.scalars(select(UiEvent)).all()) == []
+
+
+def test_a_word_that_only_starts_like_a_private_prefix_is_still_accepted(client, db):
+    resp = client.post(
+        "/v1/ui-events", json={"name": "map.layer_toggled", "props": {"layer": "inv_ok", "on": True}}
+    )
+    assert resp.status_code == 202
+
+
 def test_post_never_stores_extra_fields(client, db):
     resp = client.post("/v1/ui-events", json={"name": "map.region_jumped", "props": {"region": "us"}})
     assert resp.status_code == 202

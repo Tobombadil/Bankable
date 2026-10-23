@@ -77,13 +77,20 @@ def is_site_request(request: Request) -> bool:
     return bool(token) and hmac.compare_digest(request.headers.get("x-internal-token", ""), token or "")
 
 
+#: A private project, note or invitation id anywhere in a value (docs/19 §5.2 item 4: no analytics
+#: row may carry one). A copy of `services.projects.models.PRIVATE_ID_PATTERN`, because this public
+#: module may not import the private package (`infra/importlinter.ini`, `private-projects-isolated`);
+#: `test_ui_events.py` pins the two equal. Matched case-insensitively, stricter than the ids are.
+PRIVATE_ID_PATTERN = re.compile(r"\b(?:prj|nte|inv)_[0-9A-HJKMNP-TV-Z]{10,26}\b", re.IGNORECASE)
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 _TOKEN_LIKE_RE = re.compile(r"^[A-Za-z0-9_-]{20,}$")
 
 
 def _looks_identifying(value: str) -> bool:
-    """Email, IPv4/IPv6, UUID, or a >=20-char run of URL-safe token characters — the brief's
+    """Email, IPv4/IPv6, UUID, a private project, note or invitation id anywhere in the value
+    (docs/19 §5.2 item 4), or a >=20-char run of URL-safe token characters — the brief's
     exact identifier shapes. `ipaddress.ip_address` is used for IPs rather than a hand-rolled
     regex so both address families are covered by one, correct check."""
     if _EMAIL_RE.match(value):
@@ -94,6 +101,8 @@ def _looks_identifying(value: str) -> bool:
     except ValueError:
         pass
     if _UUID_RE.match(value):
+        return True
+    if PRIVATE_ID_PATTERN.search(value):
         return True
     return bool(_TOKEN_LIKE_RE.match(value))
 

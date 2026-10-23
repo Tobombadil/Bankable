@@ -15,6 +15,9 @@ ERROR_CODES = {
     "invalid_cursor": 400,
     "unauthenticated": 401,
     "forbidden_tier": 403,
+    #: A member of a private project whose role does not allow the action (docs/19 §5.1); an
+    #: outsider gets `not_found` instead, so the code says nothing a non-member could learn.
+    "forbidden_role": 403,
     "licence_gated": 403,
     "seat_limit": 403,
     "not_found": 404,

@@ -121,6 +121,16 @@ tags:
     description: Outbound subscriptions — a saved search with a URL as its channel (scope `write:webhooks`).
   - name: Feeds
     description: RSS 2.0, JSON Feed 1.1 and sitemaps on the public tier.
+  - name: Private projects
+    description: >-
+      "My pipeline" (docs/19 §6.1; ADR 0009): a signed-in user's private deals on Inframation's graph, under
+      `/v1/my/`. Session only (never an API key), a verified email required, every read and write through one
+      authorisation function: an outsider gets the same `404` as an unknown id, a member without the role
+      `403 forbidden_role`. Linked public records are read live at the caller's tier; nothing private reaches a
+      public surface, the change feed, analytics, logs or error reports. Writes need an `Origin` naming the site
+      and a JSON body. An `Idempotency-Key` is accepted and never replayed: no private response is stored outside
+      the private tables. No PRD story names this workspace (docs/10 predates it); `x-prd-stories` lists the
+      stories each operation builds on and `x-spec` the docs/19 section it implements.
   - name: Admin — sources
     description: Source health, runs, snapshots, publish state and licence gates (US-904, US-905).
   - name: Admin — records
@@ -247,6 +257,25 @@ x-standard-headers: &std_headers
   Sunset:
     $ref: '#/components/headers/Sunset'
 
+# Headers on every private (`/v1/my/`) response (docs/19 §5.2 item 6): never cached, never indexed, no referrer.
+x-private-headers: &private_headers
+  X-Request-Id:
+    $ref: '#/components/headers/X-Request-Id'
+  RateLimit-Limit:
+    $ref: '#/components/headers/RateLimit-Limit'
+  RateLimit-Remaining:
+    $ref: '#/components/headers/RateLimit-Remaining'
+  RateLimit-Reset:
+    $ref: '#/components/headers/RateLimit-Reset'
+  RateLimit-Policy:
+    $ref: '#/components/headers/RateLimit-Policy'
+  Cache-Control:
+    $ref: '#/components/headers/Cache-Control'
+  X-Robots-Tag:
+    $ref: '#/components/headers/X-Robots-Tag'
+  Referrer-Policy:
+    $ref: '#/components/headers/Referrer-Policy'
+
 # Security requirement sets. In OpenAPI 3.1 the string list on a non-OAuth scheme is a list of role names —
 # here the key scopes of docs/23 §5 for ApiKey, and entitlement / role names for the session schemes.
 x-security-sets:
@@ -271,6 +300,8 @@ x-security-sets:
     - AdminSession: [owner]
   legal: &sec_legal
     - AdminSession: [legal]
+  private: &sec_private
+    - Session: []
 
 # Error responses common to every operation (docs/23 §8). Listed once here and referenced per operation.
 x-common-errors: &common_errors
@@ -3939,6 +3970,976 @@ paths:
           $ref: '#/components/responses/NotFound'
         <<: *common_errors
 
+  # ───────────────────────────── Private projects: "My pipeline" (docs/19 §6.1; ADR 0009) ─────────────────────────────
+  # Session only (`Session: []`, a verified email), never an API key; `Cache-Control: private, no-store`,
+  # `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: no-referrer` on every response; the same `404` for an
+  # unknown project and one the caller is not a member of. Writes need `Origin` naming the site and a JSON body.
+  /v1/my/projects:
+    get:
+      operationId: listMyProjects
+      tags: [Private projects]
+      summary: Your projects, owned and shared
+      description: >-
+        Every project the signed-in user owns or is a member of, newest change first; archived ones only with
+        `include_archived=true`. Each row carries the caller's `role`, the member count and checklist progress
+        ("N of M done, your status": counts the members set, never a score). Empty for a user with none.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      parameters:
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['true', 'false']
+            default: 'false'
+      responses:
+        '200':
+          description: The caller's projects.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        <<: *common_errors
+    post:
+      operationId: createMyProject
+      tags: [Private projects]
+      summary: Start a project, blank or from a public record
+      description: >-
+        Blank, or `from` a proposal (any status but withdrawn and cancelled; relation `this_project` or `nearby`),
+        a retiring or retired power plant (`grid_connection`), an announced, open or reinstated opportunity
+        (`offtake_or_rfp`, or `funding` for a funding notice) or an interconnection point (`grid_connection`),
+        which the caller must be able to see now (`400` otherwise). The record is linked to the new project, and
+        each field the body leaves out is prefilled from it, but only from values whose sources are all `open` or
+        `attribution` (docs/19 §7): `prefill.fields` names what was filled and `prefill.left_blank` what the
+        licence rule left blank (the live value stays on the linked record). A field the body gives, `null`
+        included, is the user's own. A merged record's old id starts from its survivor. At most 25 active owned
+        projects (`409 conflict`). The owner is the caller; no body key can name another.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §1, §6.1, §7
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyProjectCreate'
+      responses:
+        '201':
+          description: The new project, as `GET /v1/my/projects/{project_id}` returns it, plus `prefill`.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/prefill:
+    post:
+      operationId: previewMyPrefill
+      tags: [Private projects]
+      summary: What starting a deal from a record would prefill
+      description: >-
+        The "Start a deal" form's values (docs/19 §6.2) for a record, under the same rules as
+        `createMyProject`'s `from`, without creating anything: the prefilled `values`, the fields left blank by the
+        licence rule, the relations offered and the record as the caller sees it now. A `POST` so the record id
+        travels in the body, never in a URL an access log records.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.2, §7
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyStartFrom'
+      responses:
+        '200':
+          description: The prefill.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyPrefillResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: getMyProject
+      tags: [Private projects]
+      summary: A project, its linked records read live, and readiness by pillar
+      description: >-
+        Viewer. Each linked record is re-read on this request through its own public read path and visibility
+        predicate at the caller's tier (docs/19 §4.2): `available` with its key facts and Sources, `merged` with
+        its visible survivor's, or `unavailable` with "This record is no longer available" and nothing else.
+        `readiness` is "N of M items done (your status) · K with suggested public-record evidence" per pillar,
+        completeness first; there is no single score and no item is ever "verified".
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201, US-203]
+      x-spec: docs/19 §2.2, §2.3, §6.1
+      security: *sec_private
+      responses:
+        '200':
+          description: The project.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    patch:
+      operationId: updateMyProject
+      tags: [Private projects]
+      summary: Edit a project's fields; archive or unarchive it
+      description: >-
+        Editor for the fields (title, technology, capacity, stage, map point; a moved point becomes the user's
+        own, `point_precision: user`), owner for `archived`. An archived project takes only `archived: false`
+        (and delete); anything else is `404`. Unarchiving runs before the edit and archiving after it.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyProjectUpdate'
+      responses:
+        '200':
+          description: The project after the change.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    delete:
+      operationId: deleteMyProject
+      tags: [Private projects]
+      summary: Delete a project permanently
+      description: Owner. Every member, link, checklist item, evidence reference, note, invitation and activity row goes with it.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201, US-910]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      responses:
+        '204':
+          description: Deleted.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/links:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyProjectLinks
+      tags: [Private projects]
+      summary: Linked records, read live
+      description: Viewer. As `links` on `getMyProject`.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-203]
+      x-spec: docs/19 §2.2, §4.2
+      security: *sec_private
+      responses:
+        '200':
+          description: The links, oldest first.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLinkListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: addMyProjectLink
+      tags: [Private projects]
+      summary: Link a public record
+      description: >-
+        Editor. A reference (type, public id, relation) to a record the caller can see now (`400` otherwise); a
+        merged id is stored as its survivor's. The same link again answers `200` with the one already there. At
+        most 50 links per project (`409 conflict`). `corridor` links arrive with the site finder (docs/19 §4.2,
+        lane P6) and are refused until then.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-203]
+      x-spec: docs/19 §2.2, §6.1
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyLinkCreate'
+      responses:
+        '200':
+          description: The link was already there.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLinkResponse'
+        '201':
+          description: The new link, read live.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLinkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/links/{link_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyLinkId'
+    delete:
+      operationId: removeMyProjectLink
+      tags: [Private projects]
+      summary: Remove a link
+      description: Editor. When no other link names the record, its evidence references go too.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-203]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      responses:
+        '204':
+          description: Removed.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: getMyChecklist
+      tags: [Private projects]
+      summary: The bankability checklist, with live suggestions
+      description: >-
+        Viewer. Six folders of items, each with the status the members set (not started, in progress, done, not
+        applicable: there is no "verified"), the private pack's guidance once one is loaded, and suggested
+        evidence rebuilt now from the linked records (docs/19 §2.4), each labelled "Suggested from public records
+        · not verified" with what the record states, its source and its retrieval date. Dismissed suggestions are
+        not listed. Only the reference behind a suggestion is stored.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.3, §2.4
+      security: *sec_private
+      responses:
+        '200':
+          description: The checklist.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyChecklistResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: addMyChecklistItem
+      tags: [Private projects]
+      summary: Add a custom checklist item
+      description: Editor. Its pillar follows its folder unless given.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyChecklistItemCreate'
+      responses:
+        '201':
+          description: The item.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyChecklistItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist/{item_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyItemId'
+    patch:
+      operationId: setMyChecklistStatus
+      tags: [Private projects]
+      summary: Set an item's status (your statement, never a verification)
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.3
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyChecklistStatusUpdate'
+      responses:
+        '200':
+          description: The item.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyChecklistItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist/{item_id}/evidence/{evidence_id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyItemId'
+      - $ref: '#/components/parameters/MyEvidenceId'
+    post:
+      operationId: acceptMyEvidence
+      tags: [Private projects]
+      summary: Keep a suggestion on its item
+      description: Editor. The item's status does not change; the suggestion stays "not verified".
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.4
+      security: *sec_private
+      responses:
+        '200':
+          description: The decision.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEvidenceDecisionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist/{item_id}/evidence/{evidence_id}/dismiss:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyItemId'
+      - $ref: '#/components/parameters/MyEvidenceId'
+    post:
+      operationId: dismissMyEvidence
+      tags: [Private projects]
+      summary: Hide a suggestion
+      description: Editor. The item's status does not change.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.4
+      security: *sec_private
+      responses:
+        '200':
+          description: The decision.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEvidenceDecisionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/notes:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyNotes
+      tags: [Private projects]
+      summary: Notes, newest first
+      description: >-
+        Viewer. Plain text, returned as typed (pages render it escaped). An author who is no longer a member, an
+        erased account included, is shown as "Former member" with no name or id.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      responses:
+        '200':
+          description: The notes.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyNoteListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: addMyNote
+      tags: [Private projects]
+      summary: Add a note
+      description: Editor. At most 20,000 characters; control characters other than line breaks are refused.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyNoteWrite'
+      responses:
+        '201':
+          description: The note.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyNoteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/notes/{note_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyNoteId'
+    patch:
+      operationId: editMyNote
+      tags: [Private projects]
+      summary: Edit your note
+      description: Its author, while an editor.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyNoteWrite'
+      responses:
+        '200':
+          description: The note.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyNoteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    delete:
+      operationId: deleteMyNote
+      tags: [Private projects]
+      summary: Delete a note
+      description: Its author or the project owner.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      responses:
+        '204':
+          description: Deleted.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/members:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyMembers
+      tags: [Private projects]
+      summary: Members and roles
+      description: Viewer. Owner first; names and roles, never another member's email address.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      responses:
+        '200':
+          description: The members.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyMemberListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/members/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyMemberUserId'
+    patch:
+      operationId: changeMyMember
+      tags: [Private projects]
+      summary: Change a member's role, or transfer ownership
+      description: >-
+        Owner. `editor` or `viewer`; `owner` transfers ownership to that member (the caller becomes an editor and
+        their open invitations are revoked). Returns the members.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyMemberUpdate'
+      responses:
+        '200':
+          description: The members after the change.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyMemberListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    delete:
+      operationId: removeMyMember
+      tags: [Private projects]
+      summary: Remove a member, or leave
+      description: >-
+        Owner removes another member; any other member removes themselves (leaving). The owner cannot leave
+        (`403 forbidden_role`: transfer ownership first). Access ends on the removed user's next request.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      responses:
+        '204':
+          description: Removed.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/invitations:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyInvitations
+      tags: [Private projects]
+      summary: Pending invitations
+      description: Owner only (an editor or viewer gets `403 forbidden_role`). Never a token or its hash.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6 rule 5
+      security: *sec_private
+      responses:
+        '200':
+          description: Pending invitations, newest first.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: createMyInvitation
+      tags: [Private projects]
+      summary: Invite one address as editor or viewer, and get the link to send
+      description: >-
+        Owner. Returns the private link (`/my/invitations/accept?t=…`) once: the token is stored only as its
+        SHA-256, never logged, and this response is never stored for replay. Nothing is emailed (owner,
+        2026-10-22): the owner copies the link. Inviting an address with an open invitation replaces it. At most 10
+        pending per project and 20 new a day per user (`409`, `429 quota_exceeded`), and 10 an hour per user
+        (`429 rate_limited`).
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyInvitationCreate'
+      responses:
+        '201':
+          description: The invitation and its link, shown once.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationCreatedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/invitations/{invitation_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyInvitationId'
+    delete:
+      operationId: revokeMyInvitation
+      tags: [Private projects]
+      summary: Revoke a pending invitation
+      description: Owner. Its link stops working and its address is cleared.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6 rule 4
+      security: *sec_private
+      responses:
+        '204':
+          description: Revoked.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/invitations/preview:
+    post:
+      operationId: previewMyInvitation
+      tags: [Private projects]
+      summary: Check an invitation before accepting it
+      description: >-
+        Who invited you, the project's title and the role, once the token and your verified address both check out
+        (docs/19 §6.2). Consumes nothing. Every failure (wrong, expired, used or revoked token; wrong or unverified
+        address) is the same `404`, "This invitation is not valid for this account". The token is in the body,
+        never the path.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6, §6.2
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyInvitationToken'
+      responses:
+        '200':
+          description: The invitation.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationPreviewResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/invitations/accept:
+    post:
+      operationId: acceptMyInvitation
+      tags: [Private projects]
+      summary: Accept an invitation
+      description: >-
+        Single use: the membership is added and the invitation consumed in one transaction; a replay fails. The
+        same `404` as `previewMyInvitation` for every failure. A member who accepts keeps their role.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6 rules 1-5
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyInvitationToken'
+      responses:
+        '200':
+          description: The project joined.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/activity:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyActivity
+      tags: [Private projects]
+      summary: The project's history
+      description: >-
+        Viewer. Newest first: the action, when, who (a departed member as "Former member") and the ids it touched,
+        never a value. Never written to the public change feed (`event`).
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §4.1
+      security: *sec_private
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        '200':
+          description: The history.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyActivityListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/pins:
+    get:
+      operationId: listMyPins
+      tags: [Private projects]
+      summary: The map's private dots
+      description: >-
+        One pin per active project the caller owns or is a member of that has a map point: `public_id`, `title`,
+        `stage`, `lat`, `lon`, `precision`, `progress` and `role`, nothing else; `meta.unplaced_count` counts the
+        projects without one (docs/19 §2.7). The site fetches this by script after the map loads (relayed as
+        `/api/my/pins`), so no page's HTML ever varies with it.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-104]
+      x-spec: docs/19 §2.7
+      security: *sec_private
+      responses:
+        '200':
+          description: The pins.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyPinsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        <<: *common_errors
+
+  /v1/my/export:
+    get:
+      operationId: exportMyData
+      tags: [Private projects]
+      summary: Download your own data
+      description: >-
+        One JSON document (`schema: inframation.my-export/1`) as a download, at most 5 a day (docs/19 §5.5): for
+        each project you own its fields, members, links (references and URLs, never a linked record's values),
+        checklist, evidence references, notes and activity; for each project you are a member of, your membership
+        and your own notes. Never another member's address. The document is built by lane P4; until it lands this
+        answers `503 unavailable`. A request the browser marks `Sec-Fetch-Site: cross-site` (another site's link
+        or navigation, which `SameSite=Lax` sends the cookie with) is refused with a `400` before it counts
+        against the daily limit.
+      x-tier: public
+      x-status: planned
+      x-prd-stories: [US-910]
+      x-spec: docs/19 §5.5
+      security: *sec_private
+      responses:
+        '200':
+          description: 'The export, as a download (`Content-Disposition: attachment`).'
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyExport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        <<: *common_errors
+
   # ───────────────────────────── §4 Admin — admin. hostname, role operator or owner ─────────────────────────────
   /admin/v1/sources:
     servers: *admin_servers
@@ -6771,9 +7772,74 @@ components:
       schema:
         type: string
         format: uri
+    X-Robots-Tag:
+      description: '`noindex, nofollow` on every private (`/v1/my/`) response (docs/19 §5.2 item 6).'
+      schema:
+        type: string
+        examples: ['noindex, nofollow']
+    Referrer-Policy:
+      description: '`no-referrer` on every private (`/v1/my/`) response, so no private path reaches another site.'
+      schema:
+        type: string
+        examples: [no-referrer]
 
   # ───────────────────────────── Parameters ─────────────────────────────
   parameters:
+    MyProjectId:
+      name: project_id
+      in: path
+      required: true
+      description: A private project the caller is a member of; any other value is the same `404`.
+      schema:
+        $ref: '#/components/schemas/MyProjectPublicId'
+    MyLinkId:
+      name: link_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
+    MyItemId:
+      name: item_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
+    MyEvidenceId:
+      name: evidence_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
+    MyNoteId:
+      name: note_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyNotePublicId'
+    MyMemberUserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UserPublicId'
+    MyInvitationId:
+      name: invitation_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyInvitationPublicId'
+    MyIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: >-
+        Accepted on a private write (8 to 128 printable characters) and never replayed: no private response is
+        stored outside the private tables (docs/19 §6.1). The writes a retry could repeat are safe to repeat:
+        the same link answers with the one already there, and a second invitation to one address replaces
+        the first.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
     # Pagination and expansion (docs/23 §7)
     Limit:
       name: limit
@@ -8180,6 +9246,24 @@ components:
 
   # ───────────────────────────── §8 Error responses (RFC 9457) ─────────────────────────────
   responses:
+    ForbiddenRole:
+      description: >-
+        A member of the private project whose role does not allow the action (docs/19 §5.1, §2.6): an editor
+        inviting, a viewer editing, an owner leaving without transferring. An outsider gets `404 not_found`.
+      headers: *private_headers
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.inframation.io/errors/forbidden_role
+            title: Your role in this project does not allow this
+            status: 403
+            code: forbidden_role
+            detail: This needs the owner role in this project.
+            instance: /v1/my/projects/prj_1M5K3CH64E3HS6N0YM6BNFP3F/invitations
+            request_id: req_4b1e3a
+            docs: https://inframation.io/docs/api/errors#forbidden_role
     Problem:
       description: Any other error, as RFC 9457 problem details with a stable `code`.
       headers: *std_headers
@@ -8477,6 +9561,713 @@ components:
 
   # ───────────────────────────── Schemas ─────────────────────────────
   schemas:
+    # ---------- Private projects: "My pipeline" (docs/19 §4, §6.1) ----------
+    MyProjectPublicId:
+      type: string
+      description: A private project's id, drawn at random (never from a title, a time or a row id).
+      pattern: '^prj_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [prj_1M5K3CH64E3HS6N0YM6BNFP3F]
+    MyNotePublicId:
+      type: string
+      pattern: '^nte_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [nte_2N6M4DJ75F4JT7P1ZN7CPGQ4G]
+    MyInvitationPublicId:
+      type: string
+      pattern: '^inv_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [inv_3P7N5EK86G5KV8Q2ZP8DQHR5H]
+    MyRowId:
+      type: string
+      format: uuid
+      description: A checklist item's, link's or evidence reference's id (a random uuid4).
+    MyStage:
+      type: string
+      description: User-set, never inferred, never shown publicly (docs/19 §2.1).
+      enum: [prospecting, site_control, development, ready_to_build, construction, operating]
+    MyTechnology:
+      type: [string, 'null']
+      description: Inframation's technology classes (`pipeline/normalize.py`) plus `other`.
+      enum: [biomass, coal, fuel_cell, gas_cc, gas_ct, gas_ice, gas_other, gas_steam, geothermal, hydro, hydrogen, load, marine, nuclear, oil, pumped_storage, solar, solar_storage, solar_thermal, storage, transmission, waste, wind, wind_offshore, wind_storage, other, null]
+    MyRole:
+      type: string
+      enum: [owner, editor, viewer]
+    MyPointPrecision:
+      type: [string, 'null']
+      description: '`user` for a pin the user placed; otherwise the grade of the record it was copied from.'
+      enum: [user, exact, county_centroid, state_centroid, corridor_centre, null]
+    MyLinkRecordType:
+      type: string
+      enum: [proposal, site, asset, opportunity, organization, interconnection_point, corridor]
+    MyLinkRelation:
+      type: string
+      enum: [this_project, nearby, candidate_site, grid_connection, offtake_or_rfp, funding, counterparty, comparable]
+    MyItemStatus:
+      type: string
+      description: The members' own statement. There is no `verified` status (docs/19 §2.3).
+      enum: [not_started, in_progress, done, not_applicable]
+    MyEvidenceRule:
+      type: string
+      enum: [queue_position, executed_interconnection_agreement, gb_tec_register, air_permit, federal_record]
+    MyProgress:
+      type: object
+      description: '"9 of 32 done, your status": done items over items not marked not applicable. Counts, never a score.'
+      required: [done, total, label]
+      properties:
+        done: {type: integer, minimum: 0}
+        total: {type: integer, minimum: 0}
+        label: {type: string}
+      additionalProperties: false
+    MyProjectCreate:
+      type: object
+      description: Every key is optional except `title` on a blank project; any other key is refused (`400`).
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null'], minimum: 0}
+        storage_mwh: {type: [number, 'null'], minimum: 0}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        lat: {type: [number, 'null'], minimum: -90, maximum: 90}
+        lon: {type: [number, 'null'], minimum: -180, maximum: 180}
+        from:
+          $ref: '#/components/schemas/MyStartFrom'
+      additionalProperties: false
+    MyProjectUpdate:
+      type: object
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null'], minimum: 0}
+        storage_mwh: {type: [number, 'null'], minimum: 0}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        lat: {type: [number, 'null'], minimum: -90, maximum: 90}
+        lon: {type: [number, 'null'], minimum: -180, maximum: 180}
+        archived: {type: boolean, description: Owner only.}
+      additionalProperties: false
+    MyStartFrom:
+      type: object
+      description: The public record a deal starts from (docs/19 §1).
+      required: [record_type, public_id]
+      properties:
+        record_type:
+          type: string
+          enum: [proposal, asset, opportunity, interconnection_point]
+        public_id:
+          type: string
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+      additionalProperties: false
+    MyProjectSummary:
+      type: object
+      required: [public_id, url, title, technology, capacity_mw, storage_mwh, stage, role, archived, updated_at, member_count, shared, progress]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        url: {type: string, format: uri, description: The project's private page.}
+        title: {type: string}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null']}
+        storage_mwh: {type: [number, 'null']}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        role:
+          $ref: '#/components/schemas/MyRole'
+        archived: {type: boolean}
+        updated_at: {type: string, format: date-time}
+        member_count: {type: integer, minimum: 1}
+        shared: {type: boolean}
+        progress:
+          $ref: '#/components/schemas/MyProgress'
+      additionalProperties: false
+    MyLinkedRecord:
+      type: object
+      description: >-
+        A public record as the caller sees it now, through its own public read path: its key facts and its Sources
+        (one provenance quartet per readable source), never copied into private storage.
+      required: [record_type, public_id, url, name, status, facts, sources]
+      properties:
+        record_type:
+          $ref: '#/components/schemas/MyLinkRecordType'
+        public_id: {type: string}
+        url: {type: string, format: uri}
+        name: {type: [string, 'null']}
+        status: {type: [string, 'null']}
+        facts:
+          type: object
+          description: The record type's key facts, served exactly as its public detail serves them.
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvenanceQuartet'
+    MyLink:
+      type: object
+      required: [link_id, record_type, public_id, relation, added_at, state, survivor_public_id, record, message]
+      properties:
+        link_id:
+          $ref: '#/components/schemas/MyRowId'
+        record_type:
+          $ref: '#/components/schemas/MyLinkRecordType'
+        public_id:
+          type: [string, 'null']
+          description: The reference as stored; `null` when `state` is `unavailable`, so a record the viewer cannot see is not named.
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+        added_at: {type: string, format: date-time}
+        state:
+          type: string
+          description: '`available`; `merged` (the record was merged, or the site retired: `record` is the visible survivor); `unavailable` (nothing else is said).'
+          enum: [available, merged, unavailable]
+        survivor_public_id: {type: [string, 'null']}
+        record:
+          oneOf:
+            - $ref: '#/components/schemas/MyLinkedRecord'
+            - type: 'null'
+        message:
+          type: [string, 'null']
+          description: '"This record is no longer available" when `state` is `unavailable`, else null.'
+      additionalProperties: false
+    MyLinkCreate:
+      type: object
+      required: [record_type, public_id, relation]
+      properties:
+        record_type:
+          $ref: '#/components/schemas/MyLinkRecordType'
+        public_id: {type: string}
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+      additionalProperties: false
+    MyReadiness:
+      type: object
+      description: One line of readiness, "N of M items done (your status) · K with suggested public-record evidence".
+      required: [pillar, label, done, total, not_applicable, with_suggested_evidence, text]
+      properties:
+        pillar:
+          type: string
+          enum: [completeness, fundamentals, counterparties, regulatory_site, sponsor]
+        label: {type: string}
+        done: {type: integer, minimum: 0}
+        total: {type: integer, minimum: 0}
+        not_applicable: {type: integer, minimum: 0}
+        with_suggested_evidence: {type: integer, minimum: 0}
+        text: {type: string}
+      additionalProperties: false
+    MyPrefillMarks:
+      type: object
+      required: [from, relation, relations, fields, left_blank]
+      properties:
+        from:
+          type: object
+          required: [record_type, public_id]
+          properties:
+            record_type: {type: string}
+            public_id: {type: string}
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+        relations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyLinkRelation'
+        fields:
+          type: array
+          description: The project fields filled from the record.
+          items: {type: string}
+        left_blank:
+          type: array
+          description: Fields the record states that the licence rule left blank (docs/19 §7).
+          items:
+            type: object
+            required: [field, reason]
+            properties:
+              field: {type: string}
+              reason: {type: string, enum: [licence]}
+    MyProject:
+      type: object
+      required: [public_id, url, title, technology, capacity_mw, storage_mwh, stage, role, archived, updated_at, lat, lon, point_precision, origin, created_at, archived_at, member_count, shared, links, readiness, progress, status_disclaimer]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        url: {type: string, format: uri}
+        title: {type: string}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null']}
+        storage_mwh: {type: [number, 'null']}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        role:
+          $ref: '#/components/schemas/MyRole'
+        archived: {type: boolean}
+        updated_at: {type: string, format: date-time}
+        lat: {type: [number, 'null']}
+        lon: {type: [number, 'null']}
+        point_precision:
+          $ref: '#/components/schemas/MyPointPrecision'
+        origin:
+          type: [object, 'null']
+          description: The record the project was started from.
+          properties:
+            record_type: {type: string}
+            public_id:
+              type: [string, 'null']
+              description: '`null` when the viewer cannot see that record now, as on a link.'
+        created_at: {type: string, format: date-time}
+        archived_at: {type: [string, 'null'], format: date-time}
+        member_count: {type: integer, minimum: 1}
+        shared: {type: boolean}
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyLink'
+        readiness:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyReadiness'
+        progress:
+          $ref: '#/components/schemas/MyProgress'
+        status_disclaimer: {type: string}
+        prefill:
+          description: On `createMyProject` only.
+          oneOf:
+            - $ref: '#/components/schemas/MyPrefillMarks'
+            - type: 'null'
+      additionalProperties: false
+    MyPrefill:
+      allOf:
+        - $ref: '#/components/schemas/MyPrefillMarks'
+        - type: object
+          required: [values, record]
+          properties:
+            values:
+              type: object
+              description: The prefilled project fields (`title`, `technology`, `capacity_mw`, `storage_mwh`, `stage`, `lat`, `lon`, `point_precision`).
+            record:
+              $ref: '#/components/schemas/MyLinkedRecord'
+    MySuggestion:
+      type: object
+      description: Suggested evidence, rebuilt from a linked record on this request. Never verified.
+      required: [evidence_id, state, rule, label, text, record, source, retrieved_at]
+      properties:
+        evidence_id:
+          description: The stored reference, for accept and dismiss; null on an archived project that had none.
+          oneOf:
+            - $ref: '#/components/schemas/MyRowId'
+            - type: 'null'
+        state:
+          type: string
+          enum: [suggested, accepted]
+        rule:
+          $ref: '#/components/schemas/MyEvidenceRule'
+        label:
+          type: string
+          const: Suggested from public records · not verified
+        text: {type: string, description: What the record states.}
+        record:
+          type: object
+          required: [record_type, public_id, url, name]
+          properties:
+            record_type: {type: string}
+            public_id: {type: string}
+            url: {type: string, format: uri}
+            name: {type: [string, 'null']}
+        source:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+        retrieved_at: {type: [string, 'null'], format: date-time}
+      additionalProperties: false
+    MyChecklistItem:
+      type: object
+      required: [item_id, template_key, name, folder, pillar, status, status_label, custom, guidance, updated_at, suggestions]
+      properties:
+        item_id:
+          $ref: '#/components/schemas/MyRowId'
+        template_key: {type: [string, 'null']}
+        name: {type: string}
+        folder:
+          type: string
+          enum: [contracts, finance, security, permits, feasibility, legal_corporate]
+        pillar:
+          type: string
+          enum: [fundamentals, counterparties, regulatory_site, sponsor]
+        status:
+          $ref: '#/components/schemas/MyItemStatus'
+        status_label: {type: string, description: '"Done (your status)" for done.'}
+        custom: {type: boolean}
+        guidance: {type: [string, 'null'], description: The private content pack's "What this is", once loaded.}
+        updated_at: {type: string, format: date-time}
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/MySuggestion'
+      additionalProperties: false
+    MyChecklist:
+      type: object
+      required: [project_id, status_disclaimer, evidence_label, status_labels, folders, readiness]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        status_disclaimer: {type: string}
+        evidence_label: {type: string}
+        status_labels:
+          type: object
+          additionalProperties: {type: string}
+        folders:
+          type: array
+          items:
+            type: object
+            required: [folder, label, done, total, items]
+            properties:
+              folder: {type: string}
+              label: {type: string}
+              done: {type: integer, minimum: 0}
+              total: {type: integer, minimum: 0}
+              items:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyChecklistItem'
+        readiness:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyReadiness'
+      additionalProperties: false
+    MyChecklistItemCreate:
+      type: object
+      required: [name, folder]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        folder:
+          type: string
+          enum: [contracts, finance, security, permits, feasibility, legal_corporate]
+        pillar:
+          type: string
+          enum: [fundamentals, counterparties, regulatory_site, sponsor]
+      additionalProperties: false
+    MyChecklistStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/MyItemStatus'
+      additionalProperties: false
+    MyEvidenceDecision:
+      type: object
+      required: [evidence_id, item_id, state, rule, label, record, decided_at]
+      properties:
+        evidence_id:
+          $ref: '#/components/schemas/MyRowId'
+        item_id:
+          $ref: '#/components/schemas/MyRowId'
+        state:
+          type: string
+          enum: [accepted, dismissed]
+        rule:
+          $ref: '#/components/schemas/MyEvidenceRule'
+        label: {type: string}
+        record:
+          type: object
+          required: [record_type, public_id]
+          properties:
+            record_type: {type: string}
+            public_id: {type: string}
+        decided_at: {type: [string, 'null'], format: date-time}
+      additionalProperties: false
+    MyPerson:
+      type: object
+      description: A member by name; anyone no longer a member as "Former member", with no id.
+      required: [user_public_id, name, former_member]
+      properties:
+        user_public_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        name: {type: [string, 'null']}
+        former_member: {type: boolean}
+      additionalProperties: false
+    MyNote:
+      type: object
+      required: [note_id, body, author, mine, created_at, updated_at, edited]
+      properties:
+        note_id:
+          $ref: '#/components/schemas/MyNotePublicId'
+        body: {type: string, description: Plain text as typed.}
+        author:
+          $ref: '#/components/schemas/MyPerson'
+        mine: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        edited: {type: boolean}
+      additionalProperties: false
+    MyNoteWrite:
+      type: object
+      required: [body]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 20000}
+      additionalProperties: false
+    MyMember:
+      type: object
+      required: [user_public_id, name, role, added_at, is_you]
+      properties:
+        user_public_id:
+          $ref: '#/components/schemas/UserPublicId'
+        name: {type: [string, 'null']}
+        role:
+          $ref: '#/components/schemas/MyRole'
+        added_at: {type: string, format: date-time}
+        is_you: {type: boolean}
+      additionalProperties: false
+    MyMemberUpdate:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/MyRole'
+      additionalProperties: false
+    MyInvitation:
+      type: object
+      required: [invitation_id, email, role, created_at, expires_at]
+      properties:
+        invitation_id:
+          $ref: '#/components/schemas/MyInvitationPublicId'
+        email: {type: [string, 'null'], description: The invited address; cleared on accept, revoke or expiry.}
+        role:
+          type: string
+          enum: [editor, viewer]
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+    MyInvitationCreated:
+      allOf:
+        - $ref: '#/components/schemas/MyInvitation'
+        - type: object
+          required: [link]
+          properties:
+            link:
+              type: string
+              format: uri
+              description: The private link, shown in this response only.
+    MyInvitationCreate:
+      type: object
+      required: [email, role]
+      properties:
+        email: {type: string, maxLength: 254}
+        role:
+          type: string
+          enum: [editor, viewer]
+      additionalProperties: false
+    MyInvitationToken:
+      type: object
+      required: [token]
+      properties:
+        token: {type: string, maxLength: 128}
+      additionalProperties: false
+    MyInvitationPreview:
+      type: object
+      required: [project, role, inviter_name, expires_at]
+      properties:
+        project:
+          type: object
+          required: [title]
+          properties:
+            title: {type: string}
+          additionalProperties: false
+        role:
+          type: string
+          enum: [editor, viewer]
+        inviter_name: {type: [string, 'null']}
+        expires_at: {type: string, format: date-time}
+      additionalProperties: false
+    MyInvitationAccepted:
+      type: object
+      required: [project, role]
+      properties:
+        project:
+          type: object
+          required: [public_id, url, title]
+          properties:
+            public_id:
+              $ref: '#/components/schemas/MyProjectPublicId'
+            url: {type: string, format: uri}
+            title: {type: string}
+        role:
+          $ref: '#/components/schemas/MyRole'
+      additionalProperties: false
+    MyActivity:
+      type: object
+      required: [action, occurred_at, actor, detail]
+      properties:
+        action:
+          type: string
+          enum: [created, field_changed, link_added, link_removed, item_status_changed, evidence_accepted, evidence_dismissed, note_added, note_edited, note_deleted, member_invited, member_joined, member_removed, role_changed, ownership_transferred, invitation_revoked, archived, unarchived, exported]
+        occurred_at: {type: string, format: date-time}
+        actor:
+          $ref: '#/components/schemas/MyPerson'
+        detail:
+          type: object
+          description: >-
+            Field names, ids and vocabulary tokens only; never a value. A user id (`user_id`, `from_user_id`,
+            `to_user_id`) of someone no longer a member is `null`, as their name is "Former member"; a record id
+            (`record_public_id`, `origin_public_id`) of a record the viewer cannot see now is `null` beside its type.
+      additionalProperties: false
+    MyPin:
+      type: object
+      description: Exactly these fields (docs/19 §2.7, §6.1); no notes, members or score.
+      required: [public_id, title, stage, lat, lon, precision, progress, role]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        title: {type: string}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        lat: {type: number, minimum: -90, maximum: 90}
+        lon: {type: number, minimum: -180, maximum: 180}
+        precision:
+          $ref: '#/components/schemas/MyPointPrecision'
+        progress:
+          $ref: '#/components/schemas/MyProgress'
+        role:
+          $ref: '#/components/schemas/MyRole'
+      additionalProperties: false
+    MyExport:
+      type: object
+      description: '`schema: inframation.my-export/1` (docs/19 §5.5); its fields are lane P4''s.'
+      required: [schema]
+      properties:
+        schema:
+          type: string
+          const: inframation.my-export/1
+    MyProjectListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyProjectSummary'
+    MyProjectResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyProject'
+    MyPrefillResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyPrefill'
+    MyLinkListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyLink'
+    MyLinkResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyLink'
+    MyChecklistResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyChecklist'
+    MyChecklistItemResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyChecklistItem'
+    MyEvidenceDecisionResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyEvidenceDecision'
+    MyNoteListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyNote'
+    MyNoteResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyNote'
+    MyMemberListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyMember'
+    MyInvitationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyInvitation'
+    MyInvitationCreatedResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyInvitationCreated'
+    MyInvitationPreviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyInvitationPreview'
+    MyInvitationAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyInvitationAccepted'
+    MyActivityListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyActivity'
+    MyPinsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyPin'
     PrivacyRequestCreate:
       type: object
       required: [kind, record_public_id, contact_email]
@@ -9192,6 +10983,7 @@ components:
         - invalid_cursor
         - unauthenticated
         - forbidden_tier
+        - forbidden_role
         - licence_gated
         - seat_limit
         - not_found
@@ -9213,7 +11005,7 @@ components:
         type:
           type: string
           format: uri
-          pattern: '^https://api\.inframation\.io/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable|internal_error|method_not_allowed)$'
+          pattern: '^https://api\.inframation\.io/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|forbidden_role|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable|internal_error|method_not_allowed)$'
         title:
           type: string
         status:

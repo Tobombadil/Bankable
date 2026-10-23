@@ -147,7 +147,11 @@ def _broken(tmp_path: pathlib.Path, extra: dict[str, tuple[str, ...]]) -> set[st
 CASES: dict[str, tuple[dict[str, tuple[str, ...]], set[str]]] = {
     "the wiring as it stands is allowed": ({}, set()),
     # The reviewer's reproductions: a public path reaching private code through a named reader.
-    "a feed imports my_projects": ({"services.api.feeds": ("services.api.my_projects",)}, {ISOLATED}),
+    # Since lane P2 protects `services.api.my_projects`, the third contract catches these too.
+    "a feed imports my_projects": (
+        {"services.api.feeds": ("services.api.my_projects",)},
+        {ISOLATED, IMPORTERS_NAMED},
+    ),
     "alerts import account_erasure": (
         {"services.alerts": ("services.api.account_erasure",)},
         {ISOLATED, IMPORTERS_NAMED},
@@ -156,7 +160,7 @@ CASES: dict[str, tuple[dict[str, tuple[str, ...]], set[str]]] = {
         {"services.api.records": ("services.retention.run",)},
         {ISOLATED, IMPORTERS_NAMED},
     ),
-    "a page imports my_projects": ({"web.pages": ("services.api.my_projects",)}, {ISOLATED}),
+    "a page imports my_projects": ({"web.pages": ("services.api.my_projects",)}, {ISOLATED, IMPORTERS_NAMED}),
     # Direct and helper routes into the private package itself.
     "the record routes import the private package": (
         {"services.api.records": ("services.projects",)},
@@ -168,6 +172,13 @@ CASES: dict[str, tuple[dict[str, tuple[str, ...]], set[str]]] = {
             "services.api.some_helper": ("services.projects",),
         },
         {NAMED_IMPORTERS},
+    ),
+    "a helper the map imports re-exports the private routes": (
+        {
+            "services.api.geo": ("services.api.some_helper",),
+            "services.api.some_helper": ("services.api.my_projects",),
+        },
+        {IMPORTERS_NAMED},
     ),
     "a helper the map imports re-exports erasure": (
         {

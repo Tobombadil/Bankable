@@ -185,6 +185,10 @@ def _network_marker(request: pytest.FixtureRequest) -> Iterator[None]:
 #: `perf` job (`make test-perf`); the parallel, coverage-instrumented `test-core` job deselects
 #: them (`-m "not latency"`), because their timings mean nothing on a loaded, traced process.
 #: Marked here rather than in each module so the list of timing tests is one reviewable place.
+#: My pipeline's launch switch (services/api/my_projects.py): on for the test suite, which exercises the
+#: private routes; `services/api/test_my_projects.py` pins that it is off when unset.
+os.environ.setdefault("MY_PIPELINE", "on")
+
 LATENCY_TESTS = (
     "tests/test_api_geo_performance.py",
     "tests/test_api_geo_performance_full_store.py",

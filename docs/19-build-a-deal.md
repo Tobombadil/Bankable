@@ -42,7 +42,8 @@ list.
 | Started from | Default link relation | Prefilled |
 |---|---|---|
 | Project (proposal page), any status except withdrawn and cancelled | "This is my project" (`this_project`), or "I'm working on something near it" (`nearby`) | name, technology, capacity, map point, a suggested stage |
-| Site-finder corridor (once the finder is public) | `candidate_site` | "Site near {substation} ({kV} kV)", map point (the corridor centre) |
+| Site-finder corridor (once the finder is public) | `candidate_site` | "Site near {substation} ({kV} kV)", map point (the corridor centre). Lane P6; until then the API refuses corridor links (§4.2) |
+| Interconnection point (grid-point page) | `grid_connection` | "Project at {point} ({kV} kV)"; no map point (a point has no coordinates of its own) |
 | Power plant (asset page), retiring or retired | `grid_connection` | "New project at {plant}", map point |
 | RFP or funding notice (opportunity page), announced, open or reinstated | `offtake_or_rfp` (RFPs) or `funding` (funding notices) | "Bid: {title}", technology, capacity sought |
 | Nothing (blank) | — | nothing |
@@ -254,6 +255,12 @@ contract (§5.2) say who may touch them.
 **Time and storage.** Every time column is `timestamptz`. Coordinates are `numeric(9,6)`, not PostGIS, because v1
 needs no spatial query and the tests run on SQLite.
 
+**Ids.** Every private table's `id` is a random uuid4, not the uuid7 `docs/21` §1 uses for public records: item,
+link and evidence ids appear in private URLs (`…/checklist/{item_id}`, `…/links/{link_id}`) and in activity
+detail, and a time-ordered id would date the row. The `prj_`, `nte_` and `inv_` public ids are drawn from a fresh
+uuid4 too, never from the row's key. Only `checklist_template_item`, which is public content, keeps uuid7
+(`services/projects/models.py`).
+
 | Table | Columns (types, constraints) | Notes |
 |---|---|---|
 | `private_project` | `id` uuid PK; `public_id` text unique (`prj_…`); `title` text NOT NULL (1–200); `technology` text NULL (Inframation classes plus `other`); `capacity_mw` numeric(12,3) NULL ≥0; `storage_mwh` numeric(12,3) NULL ≥0; `stage` text NOT NULL default `prospecting` (CHECK vocabulary §2.1); `lat`, `lon` numeric(9,6) NULL (both or neither; ranges checked); `point_precision` text NULL (CHECK `user`, `exact`, `county_centroid`, `state_centroid`, `corridor_centre`); `origin_type`, `origin_public_id` text NULL (what it was started from); `archived_at` timestamptz NULL; `created_at`, `updated_at` | There is no owner column: ownership is a member row, so one table answers every access question |
@@ -263,7 +270,7 @@ needs no spatial query and the tests run on SQLite.
 | `private_project_item` | `id`; `project_id` (cascade); `template_key` text NULL (NULL for a custom item); `pack_version` text NULL; `name` text NOT NULL; `folder`, `pillar` text; `status` text CHECK (`not_started`, `in_progress`, `done`, `not_applicable`) default `not_started`; `sort_order`; `updated_by_user_id` NULL; `updated_at` | Created from the template when the project is created. **No `verified` value exists** |
 | `private_project_evidence` | `id`; `project_id` (cascade); `item_id` → `private_project_item` (cascade); `record_type`, `record_public_id` text; `rule` text (which §2.4 rule fired); `state` text CHECK (`suggested`, `accepted`, `dismissed`); `decided_by_user_id` NULL; `decided_at` NULL; `created_at` | Reference only. The statement is rebuilt live |
 | `private_project_note` | `id`; `public_id` (`nte_…`); `project_id` (cascade); `author_user_id` → `user` NULL (NULL after the author's erasure); `body` text NOT NULL (≤20,000); `created_at`, `updated_at` | Shown as "Former member" when the author is NULL |
-| `private_project_invitation` | `id`; `public_id` (`inv_…`); `project_id` (cascade); `email` text NULL (cleared on accept, revoke or expiry); `email_hash` text NOT NULL (peppered, `services/api/audit.hash_identifier`); `token_hash` char(64) unique; `role` text CHECK (`editor`, `viewer`); `invited_by_user_id`; `created_at`; `expires_at` (`created_at` + 7 days); `accepted_at`, `accepted_by_user_id`, `revoked_at` NULL | Partial unique index: one open invitation per (`project_id`, `email_hash`) |
+| `private_project_invitation` | `id`; `public_id` (`inv_…`); `project_id` (cascade); `email` text NULL (cleared on accept, revoke or expiry); `email_hash` text NOT NULL (peppered: `services.projects.invitations.address_hash`, the pepper and construction of `services/api/audit.hash_identifier` over the trimmed, lower-cased address, never case-folded, because the account system identifies an address that way); `token_hash` char(64) unique; `role` text CHECK (`editor`, `viewer`); `invited_by_user_id`; `created_at`; `expires_at` (`created_at` + 7 days); `accepted_at`, `accepted_by_user_id`, `revoked_at` NULL | Partial unique index: one open invitation per (`project_id`, `email_hash`) |
 | `private_project_activity` | `id`; `project_id` (cascade); `actor_user_id` NULL; `action` text CHECK (vocabulary below); `detail` jsonb (field names and ids only, **never values**); `occurred_at` | The project's own history, shown to its members. **Never written to `event`** |
 
 The `private_project_activity` action vocabulary is: `created`, `field_changed`, `link_added`, `link_removed`,
@@ -291,9 +298,18 @@ to the read path each record's public detail route already uses:
 It returns one of three outcomes: a summary (name, status, the record's key facts, its Sources line and its public
 URL), a redirect to a merged survivor, or `unavailable`.
 
+As built (lane P2): the API answers the redirect case as `state: merged` with the survivor's summary and
+`survivor_public_id`, leaving the stored reference as it is (an unmerge then restores the original); a retired
+site is followed to its visible successor the same way. A site is read through `served_site`; assets and
+organisations through the public tier their own detail routes read for every caller.
+
 **Corridors.** If the site finder lane makes corridors addressable with a stable id, links store that id. If it
 does not, the link stores the finder's permalink parameters (`params`), and the summary re-runs the finder for
 them. Either way nothing about the corridor is copied.
+
+**TODO (lane P6):** the finder lane has not settled corridor ids, so until it does `POST …/links` refuses
+`record_type: corridor` with a `400`, `from` does not take a corridor, and a stored corridor link resolves as
+`unavailable`. P6 adds the corridor read path to `resolve_link` and the corridor row to "Start a deal".
 
 **Facts are never written into private tables,** with one exception: the starting record's values that prefill
 the project's own fields at creation, under the §7 licence rule. Those then become the user's values, editable
@@ -388,9 +404,24 @@ Each item below is pinned by a test in §5.6.
 
   The current setting, `send_default_pii=False`, excludes cookies and addresses. It does not stop frame locals
   from being sent, and it may not stop request bodies. This change also benefits every other route.
-- **The proxy access log** (`infra/compose/Caddyfile`, JSON access log): a log filter deletes the `t` query
-  parameter on `/my/invitations/*`, so an invitation token never reaches a log. The access log otherwise records
-  paths that, under §5.2 item 5, carry no private content.
+
+  As built (lane P2): an event is private when its request path is under `/my/`, `/v1/my/` or `/api/my/`, its
+  transaction names such a path, a private module logged it, or any frame of its exception is in a private module.
+  A private event keeps the request's method and its path with every id replaced by `{id}`, and loses its query
+  string, headers, cookies, body and environment, its exception messages (types and frames stay), its log message
+  and extras, and its breadcrumbs' text. Its trace context keeps only `trace_id` and `span_id`, and its spans
+  only their ids, op, status and timing. Every other event has invitation tokens, addresses and SQL parameters
+  redacted from its text, and any header naming a private page withheld. A `before_breadcrumb` hook drops a private
+  module's breadcrumbs as they are recorded. An event that cannot be scrubbed is dropped. The same hook is
+  installed as `before_send_transaction`. Tracing is off (`traces_sample_rate=0.0`), but with the real SDK and
+  tracing on, a transaction skips `before_send`, and it carried a private request's full URL, query string and
+  headers.
+- **The proxy access log** (`infra/compose/Caddyfile`, JSON access log): a log filter redacts the value of a `t`
+  query parameter on every path (not only `/my/invitations/*`), and a token-length path segment under
+  `/my/invitations/`, keeping the parameter's name. It is the pattern `infra/logging_config.py` applies to the
+  application's own logs (`INVITATION_TOKEN_PATTERN`), on the URI, `Referer`, `Hx-Current-Url` and `Location`,
+  so an invitation token never reaches a log. The access log otherwise records paths that, under §5.2 item 5,
+  carry no private content.
 
 ### 5.4 Account deletion cascades
 
@@ -465,6 +496,49 @@ them or the account is erased: they are the user's own data, not ours to expire.
 - RFC 9457 problems, as everywhere (`docs/23` §8);
 - the same `404` for unknown and forbidden, as in §5.1.
 
+As built (lane P2), with what it adds to the list above:
+
+- **Headers.** Every `/v1/my/` response, errors included, carries `Cache-Control: private, no-store`,
+  `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer` and `Vary: Cookie`, and no `ETag`
+  (`PrivateHeadersMiddleware`, outermost in `services/api/app.py`). A `500` is sent by Starlette's error
+  middleware from outside every user middleware, so `private_unhandled_exception_handler` sets the same headers
+  on it. Before 2026-10-23 a private `500` carried none of them, and the proxy added its own `Referrer-Policy`.
+- **Cross-site writes.** A `POST`, `PATCH` or `DELETE` needs an `Origin` naming the site (`WEB_HOST`, or the scheme
+  and host this request was addressed to), unless it is the site's own server-side call (its `X-Internal-Token`;
+  the page did its own same-origin check). It also needs a body that is `application/json`, and takes no query
+  string. Each failure is a `400 validation_error`. Behind the proxy the request's scheme is the visitor's
+  (uvicorn believes Caddy's `X-Forwarded-Proto`), so `Origin: http://<this host>` does not pass over TLS.
+- **Concurrent requests.** Concurrent adds of the same link answer with the one stored. On Postgres,
+  `lock_project` serialises them and the second looks again once it holds the lock. SQLite takes no row lock, so
+  the insert also runs in a savepoint and a conflict returns the stored link. Members opening a checklist at
+  once share one stored suggestion. A view with a new suggestion to store first holds the project
+  (`lock_project`; on SQLite, the database's write lock). It then inserts under a savepoint and reads back any row
+  another writer stored first. Before 2026-10-23 both races were `500`s: 8 parallel requests failed about half
+  the time on SQLite and on Postgres.
+- **What a viewer who cannot see a linked record is told.** A link to it shows its type, the message and no id
+  (§2.2, "nothing else"). The project's `origin` and the history's `record_public_id` and `origin_public_id`
+  are `null` for that viewer, so a free member is not told the id of a paid-only record in its delay, and
+  uuid7 ids do not reveal when records were created. The stored references are unchanged. The history's user ids
+  of someone no longer a member are `null`, as their name is "Former member".
+- **`Idempotency-Key` is accepted and never replayed.** `services/api/idempotency.py` stores a replayed response
+  in `idempotency_record`, which is not a private table, is not erased with the account, and would hold an
+  invitation link in clear for a day (§2.6 rule 2). So no private response is stored. A retry is safe where it
+  matters: the same link answers with the one already there, an evidence decision is idempotent, and a second
+  invitation to one address replaces the first. A retried create or note can repeat; storing private responses
+  safely (encrypted, erased with the account) is a change to `idempotency.py`, outside this lane.
+- **Invitations** are also limited to 10 new an hour per user (`ratelimit.default_limiter`), and preview and
+  accept to 30 attempts an hour per user, on top of rule 6.
+- **Bodies** take only the keys their operation documents; any other key (`owner_user_id`, `project_id`,
+  `point_precision`, …) is a `400`.
+
+Two operations the pages need and the table above did not name, both `POST` so a record id or a token travels
+in the body, never in a URL:
+
+| Method and path | Purpose | Role |
+|---|---|---|
+| `POST /v1/my/prefill` | Body `{record_type, public_id, relation?}`: what "Start a deal" would prefill (the form of §6.2), under the §7 rule, creating nothing | signed in, verified |
+| `POST /v1/my/invitations/preview` | Body `{token}`: who invited you, the project's title and the role (§6.2's accept page), consuming nothing | signed in, verified, matching email |
+
 | Method and path | Purpose | Role |
 |---|---|---|
 | `GET /v1/my/projects` | The user's projects: owned and shared, archived on request | signed in |
@@ -483,6 +557,12 @@ them or the account is erased: they are the user's own data, not ours to expire.
 | `GET …/activity` | The project's history | viewer |
 | `GET /v1/my/pins` | Map dots: `{public_id, title, stage, lat, lon, precision, progress, role}` only | signed in |
 | `GET /v1/my/export` | Own-data export (§5.5) | signed in |
+
+The export's route is in place; its document is `services.api.my_projects.export_user_data`, which lane P4
+writes. Until then the route answers `503 unavailable`. It is a `GET` with a cost: `SameSite=Lax` sends the
+session cookie with another site's top-level navigation, so a request the browser marks
+`Sec-Fetch-Site: cross-site` is refused with a `400` before it counts against the daily limit. **For lane P4:**
+once the export writes an `exported` activity row, consider making it a `POST`, so no navigation can trigger it.
 
 ### 6.2 Pages (`web/my_projects.py`; templates in `web/templates/my/`; `web/static/css/my.css`)
 

@@ -137,6 +137,7 @@ app.add_exception_handler(StarletteHTTPException, framework_http_exception_handl
 app.add_exception_handler(RequestValidationError, request_validation_handler)
 app.add_exception_handler(IdempotentReplay, replay_handler)
 # Any other exception is a 500 problem+json carrying the request id (backend audit 2026-09-30 F13).
+# The private routes' block below wraps it so a `/v1/my/` 500 carries the private headers too.
 app.add_exception_handler(Exception, unhandled_exception_handler)
 # Innermost on purpose (added first): commits the request's sessions when the route emits its status
 # line, before anything reaches the client (backend audit 2026-09-30 F3; services/api/request_context.py).
@@ -298,6 +299,21 @@ app.include_router(exports_router)
 app.include_router(bulk_router)
 app.include_router(documents_router)
 
+# "My pipeline" (docs/19 §6.1; ADR 0009): the private projects under `/v1/my/`, session only, every
+# read and write through `services.projects.authz`. The only router that may import the private
+# package (`infra/importlinter.ini`, `private-projects-*`).
+from services.api.my_projects import (  # noqa: E402
+    PrivateHeadersMiddleware,
+    private_unhandled_exception_handler,
+)
+from services.api.my_projects import router as my_projects_router  # noqa: E402
+
+app.include_router(my_projects_router)
+# Replaces the `Exception` handler registered above, and calls it: Starlette's error middleware
+# sends a 500 from outside every user middleware, `PrivateHeadersMiddleware` included, so a
+# `/v1/my/` 500 gets the private headers here (docs/19 §5.2 item 6).
+app.add_exception_handler(Exception, private_unhandled_exception_handler)
+
 
 @app.middleware("http")
 async def standard_headers(request: Request, call_next: Any) -> Response:
@@ -395,6 +411,9 @@ def _merged_vary(existing: str | None, *names: str) -> str:
 
 # Outermost (added last): one id per request, in `X-Request-Id`, `meta.request_id` and problem bodies.
 app.add_middleware(RequestContextMiddleware)
+# Outside even that, so it has the last word on a private response's headers (`no-store`, `noindex`,
+# `no-referrer`; docs/19 §5.2 item 6), whatever an inner middleware set.
+app.add_middleware(PrivateHeadersMiddleware)
 
 
 # ------------------------------------------------------------------------------------ organizations
