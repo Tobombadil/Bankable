@@ -63,10 +63,16 @@ def package_rels(target: str) -> str:
 def package(types: str, parts: dict[str, str | bytes]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", types)
+        archive.writestr(_entry("[Content_Types].xml"), types, zipfile.ZIP_DEFLATED)
         for name, data in parts.items():
-            archive.writestr(name, data)
+            archive.writestr(_entry(name), data, zipfile.ZIP_DEFLATED)
     return buffer.getvalue()
+
+
+def _entry(name: str) -> zipfile.ZipInfo:
+    """A member with a fixed timestamp, so a package's bytes (and the test ids parametrised on them)
+    are the same on every pytest-xdist worker; the clock's second used to differ between workers."""
+    return zipfile.ZipInfo(name, date_time=(2026, 10, 23, 0, 0, 0))
 
 
 def ooxml(
@@ -155,7 +161,7 @@ def macros_by_character_reference() -> bytes:
 def plain_zip() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
-        archive.writestr("readme.txt", "hello")
+        archive.writestr(_entry("readme.txt"), "hello")
     return buffer.getvalue()
 
 
