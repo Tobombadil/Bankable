@@ -346,7 +346,12 @@ def test_the_default_map_hides_them_in_its_reads_and_its_notice(transport: FakeT
     assert transport.params_for("/v1/proposals/geo")[-1]["listed"] == "true"
     # The map has no rows call of its own: its active bucket asks for listed records, and one more
     # call counts the hidden ones (the four buckets and that one).
-    page_calls = [p for p in transport.params_for("/v1/proposals") if p.get("limit") == 1][:5]
+    # (The opening figures' own counts, web/headline.py, are not the notice's: left out here.)
+    page_calls = [
+        p
+        for p in transport.params_for("/v1/proposals")
+        if p.get("limit") == 1 and "first_seen[from]" not in p and p.get("kind") != "load"
+    ][:5]
     assert [p.get("listed") for p in page_calls] == ["true", None, None, None, "false"]
     fragment = _get(
         "/api/proposals/notice", {"placement": "exact,region", "center": "-97,31", "zoom": "5"}

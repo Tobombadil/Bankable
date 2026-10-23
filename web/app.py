@@ -35,6 +35,7 @@ from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
 from web.head_requests import HeadAsGetMiddleware
+from web.headline import LANDINGS, Landing, figures_sentence, landing_for, opening_figures, shows_figures
 from web.labels import PLANT_FAMILY_LABELS, SECTION_LABELS
 from web.list_sort import (
     OPPORTUNITY_COLUMNS,
@@ -545,18 +546,28 @@ def home_map(request: Request) -> HTMLResponse:
     # server-side to `publish_state=public` so a gated-but-listed source never counts.
     sources_env = api.get("/v1/sources", params={"limit": 100, "publish_state": "public"})
     regions = [_region_context(r) for r in regions_with_data(sources_env["data"])]
+    # The opening figures and the preview card's words (web/headline.py): on the plain map and on a
+    # landing such as `/texas`, never on a view someone filtered.
+    landing = landing_for(qp)
+    figures = opening_figures(api, landing, breakdown["active"]) if shows_figures(qp) else []
+    lead = figures_sentence(figures, landing)
     return templates.TemplateResponse(
         request,
         "home_map.html",
         {
             "delayed": delayed_notice(request, "proposal"),
+            "landing": landing,
+            "headline_figures": figures,
+            "page_title": f"{landing.name} energy projects, large loads and RFPs | Inframation"
+            if landing
+            else "Inframation: planned energy projects, large loads and RFPs",
             "technology_options": _technology_options(vocab),
             "kind_options": _proposal_kind_options(vocab),
             "plant_families": list(PLANT_FAMILY_LABELS.items()),
             "sources_phrase": proposal_sources_phrase(),
             # The heading and the meta description (so og:/twitter: description) from one table.
-            "map_heading": map_heading(),
-            "map_description": map_description(),
+            "map_heading": f"{map_heading()} in {landing.name}" if landing else map_heading(),
+            "map_description": f"{lead} {map_description()}" if lead else map_description(),
             # Which field rows each proposal kind cannot carry, so the drawer leaves out the rows
             # the record page leaves out (`#proposal-fields`).
             "proposal_fields_json": proposal_fields_json(),
@@ -599,6 +610,22 @@ def home_map(request: Request) -> HTMLResponse:
             "regions": regions,
             "asset_types": HOME_MAP_ASSET_TYPES,
         },
+    )
+
+
+def _landing_redirect(landing: Landing) -> Any:
+    def redirect(request: Request) -> RedirectResponse:
+        """A short link for an email: the map filtered to and framed on one place. Tracking tags on
+        the short link (`utm_*`) travel with it; nothing else does."""
+        tags = [(k, v) for k, v in request.query_params.multi_items() if k.startswith("utm_") and v]
+        return RedirectResponse(landing.href + ("&" + urlencode(tags) if tags else ""), status_code=302)
+
+    return redirect
+
+
+for _landing in LANDINGS:
+    app.add_api_route(
+        f"/{_landing.slug}", _landing_redirect(_landing), methods=["GET"], include_in_schema=False
     )
 
 
