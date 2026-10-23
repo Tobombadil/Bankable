@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import math
 import re
@@ -212,3 +213,169 @@ def known_budget(amount: float | int | None) -> float | None:
 
 def empty_opportunity(n: int) -> dict[str, list[Any]]:
     return {c: [None] * n for c in ("summary", "capacity_sought_mw", "budget_amount", "budget_currency")}
+
+
+# ------------------------------------------------------------------------------- stated values
+#: What a notice's stated amount is, in the words the page prints beside it (lane rfp-value,
+#: 2026-10-22). A bare "budget" misleads both ways: a TED result notice's total is what was
+#: awarded, not what is on offer, and a Grants.gov award ceiling is the most one award can be, not
+#: the programme's size. Each connector's `stated_value(row)` names one of these per figure; the
+#: amount is always the source's own number, never derived from another figure.
+VALUE_KINDS: dict[str, str] = {
+    "estimated_value": "Estimated value",
+    "estimated_value_incl_vat": "Estimated value including VAT",
+    "awarded_value": "Total awarded value",
+    "contract_value": "Contract value",
+    "total_programme_funding": "Estimated total programme funding",
+    "award_ceiling": "Award ceiling",
+    "award_floor": "Award floor",
+}
+_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+#: The largest signed and unsigned 32-bit integers: what a form's numeric field holds when someone
+#: typed past its maximum. Grants.gov 363912 states `estimatedFunding` 2147483647 (2026-10-22).
+_FIELD_MAXIMA = frozenset({2_147_483_647.0, 4_294_967_295.0})
+#: Below this a "value" is a unit price or a placeholder, not what a contract or programme is worth:
+#: on 2026-10-22 the store's 14 amounts under 100 were electricity and fuel unit prices (EUR 0.01,
+#: 0.26, 1.86, 3.28, 9.10), five notices stating 1, and two stating 2.
+PLACEHOLDER_FLOOR = 100.0
+#: The shortest run of nines read as a placeholder: 999,999,999 (Grants.gov 361080's award ceiling,
+#: 2026-10-22, the only run of nines among the store's and the live Grants.gov figures). A shorter
+#: run is an ordinary figure set just under a threshold ($999,999, $9,999,999) and is ranked.
+NINES_MIN_DIGITS = 9
+
+
+def placeholder_reason(amount: float | None) -> str | None:
+    """Why a stated amount is not ranked as a value, or None when it is (lane rfp-value). The
+    amount stays the notice's own and is shown as stated; only the USD equivalent that orders the
+    list is withheld (`services/ingest/opportunity_value.py`). Rules: a 32-bit field maximum, a run
+    of `NINES_MIN_DIGITS` or more nines, or less than `PLACEHOLDER_FLOOR` in any currency. Nothing
+    else is judged: an implausible but ordinary-looking figure is ranked as stated."""
+    if amount is None:
+        return None
+    if amount in _FIELD_MAXIMA:
+        return "the largest number the source's field holds, not a figure"
+    digits = str(int(amount)) if amount == int(amount) else ""
+    if len(digits) >= NINES_MIN_DIGITS and set(digits) == {"9"}:
+        return "a run of nines, a placeholder rather than a figure"
+    if amount < PLACEHOLDER_FLOOR:
+        return f"under {PLACEHOLDER_FLOOR:,.0f}, a unit price or placeholder rather than a total"
+    return None
+
+
+def parse_amount(value: Any) -> float | None:
+    """A stated amount from a JSON number, a numeric string (`"35400000"`, `"3,290,325.87"`) or a
+    one-element list of either (TED's `estimated-value-glo` is `["3290325.87"]`), through
+    `known_budget`: 0 and negatives are the sources' placeholders for "not stated"."""
+    if isinstance(value, list):
+        value = value[0] if len(value) == 1 else None
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except ValueError:
+            return None
+    if not isinstance(value, int | float):
+        return None
+    return known_budget(value)
+
+
+def currency_code(value: Any) -> str | None:
+    """An ISO 4217 code as the store keeps it (three upper-case letters), else None. A list takes
+    its first element (TED's `total-value-cur` is `["RON"]`)."""
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if not isinstance(value, str):
+        return None
+    code = value.strip().upper()
+    return code if _CURRENCY_RE.fullmatch(code) else None
+
+
+@dataclasses.dataclass(frozen=True)
+class StatedFigure:
+    """One amount a notice states: what it is (`VALUE_KINDS`), the number, its currency and the
+    source field it was read from. `may_lead` is False for a figure that is listed but never the
+    notice's value: an award floor (the least one award can be), or one of several awards (a lot's
+    value is not the procurement's)."""
+
+    kind: str
+    amount: float
+    currency: str | None
+    source_field: str
+    may_lead: bool = True
+
+    def as_json(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "amount": self.amount,
+            "currency": self.currency,
+            "source_field": self.source_field,
+        }
+
+
+@dataclasses.dataclass(frozen=True)
+class StatedValue:
+    """A notice's value: the `primary` figure (it becomes `budget_amount`/`budget_currency`, and its
+    USD equivalent is what the list sorts on), the other figures the same notice states, and, for
+    figures read from a different response than the record's own row (Grants.gov's opportunity
+    detail), when and from where they were read."""
+
+    primary: StatedFigure
+    also_stated: tuple[StatedFigure, ...] = ()
+    expected_awards: int | None = None
+    retrieved_at: str | None = None
+    endpoint: str | None = None
+
+    @property
+    def amount(self) -> float:
+        return self.primary.amount
+
+    @property
+    def currency(self) -> str | None:
+        return self.primary.currency
+
+    def identifiers(self) -> dict[str, Any]:
+        """`identifiers["value"]` as a connector writes it; the loader adds the USD equivalent
+        (`services/ingest/opportunity_value.py`)."""
+        out: dict[str, Any] = {"kind": self.primary.kind, "source_field": self.primary.source_field}
+        if self.also_stated:
+            out["also_stated"] = [f.as_json() for f in self.also_stated]
+        if self.expected_awards is not None:
+            out["expected_awards"] = self.expected_awards
+        if self.retrieved_at:
+            out["retrieved_at"] = self.retrieved_at
+        if self.endpoint:
+            out["endpoint"] = self.endpoint
+        return out
+
+
+def _repeat_key(figure: StatedFigure) -> tuple[Any, ...]:
+    """Two fields stating the same figure are one figure (a TED estimate repeated as its total);
+    two items of a list (Find a Tender's `awards[0]` and `awards[1]`) are two figures, even at the
+    same amount."""
+    item = figure.source_field if "[" in figure.source_field else None
+    return (figure.kind, figure.amount, figure.currency, item)
+
+
+def stated_value_of(figures: list[StatedFigure], **extra: Any) -> StatedValue | None:
+    """The notice's value from its figures, in the connector's order of precedence, without exact
+    repeats; None for no figures. The primary is the first figure that may lead and is not a
+    placeholder (`placeholder_reason`), so a notice stating a real ceiling beside a placeholder
+    total (Grants.gov 363912: 2,147,483,647 and 250,000,000) is ranked on the ceiling, labelled as
+    one. When every figure that may lead is a placeholder, the first of them stays primary, shown
+    as stated with its note. The others, in order, are `also_stated`."""
+    unique: list[StatedFigure] = []
+    seen: set[tuple[Any, ...]] = set()
+    for f in figures:
+        key = _repeat_key(f)
+        if key not in seen:
+            seen.add(key)
+            unique.append(f)
+    if not unique:
+        return None
+    leads = [f for f in unique if f.may_lead] or unique
+    primary = next((f for f in leads if placeholder_reason(f.amount) is None), leads[0])
+    return StatedValue(primary=primary, also_stated=tuple(f for f in unique if f is not primary), **extra)

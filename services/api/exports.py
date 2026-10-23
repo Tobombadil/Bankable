@@ -70,11 +70,12 @@ from services.api.common import API_HOST, TERMS_URL, WEB_HOST, iso, utcnow
 from services.api.deps import get_db
 from services.api.errors import ProblemError, not_found, validation_error
 from services.api.geo import effective_placement
+from services.api.opportunity_value import fx_licence_rows, serialize_value
 from services.api.pagination import paginate
 from services.api.params import check_allowed, page_limit, sort_spec
 from services.api.pro import _rate_limit_headers
 from services.api.ratelimit import PlanQuota, plan_quota
-from services.api.records import check_budget_sort
+from services.api.records import check_budget_sort, opportunity_sort_key
 from services.api.resource_queries import (
     DEFAULT_SORTS,
     SORT_ALLOWLISTS,
@@ -181,7 +182,16 @@ def _proposal_row(p: Proposal) -> dict[str, Any]:
     }
 
 
-def _opportunity_row(o: Opportunity) -> dict[str, Any]:
+def _opportunity_value(o: Opportunity) -> dict[str, Any] | None:
+    """The record's served `value` block (`services/api/opportunity_value.py`) from its gated view."""
+    return serialize_value(o, list(getattr(o, "sources", None) or []))
+
+
+def _opportunity_row(o: Opportunity, value: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """One opportunity's derived columns. `value_kind`, `usd_equivalent` and `fx_date` are the
+    served `value` block's (lane rfp-value), so a file ordered by `sort=value` shows the figure it
+    is ordered by and what it is; `value` is computed when not passed."""
+    value = value if value is not None else _opportunity_value(o)
     return {
         "public_id": o.public_id,
         "slug": o.slug,
@@ -195,6 +205,9 @@ def _opportunity_row(o: Opportunity) -> dict[str, Any]:
         "capacity_sought_mw": _num(o.capacity_sought_mw),
         "budget_amount": _num(o.budget_amount),
         "budget_currency": o.budget_currency,
+        "value_kind": value.get("kind") if value else None,
+        "usd_equivalent": value.get("usd_equivalent") if value else None,
+        "fx_date": value.get("fx_date") if value else None,
         "open_at": iso(o.open_at),
         "due_at": iso(o.due_at),
         "status": o.status,
@@ -272,6 +285,9 @@ DERIVED_COLUMNS: dict[Resource, tuple[str, ...]] = {
         "capacity_sought_mw",
         "budget_amount",
         "budget_currency",
+        "value_kind",
+        "usd_equivalent",
+        "fx_date",
         "open_at",
         "due_at",
         "status",
@@ -385,7 +401,8 @@ def _ordered_capped_statement(export: Export, db: Session) -> Any:
     instance = f"/v1/exports/{export.public_id}"
     stmt, field, ascending = _checked_statement(resource, params, db=db, tier=export.tier, instance=instance)
     model = resource_model(resource)
-    sort_column = getattr(model, field)
+    # `sort=value` is an expression, not a column (records.opportunity_sort_key, lane rfp-value).
+    sort_column = opportunity_sort_key(field)[0] if resource == "opportunity" else getattr(model, field)
     order = (sort_column.asc() if ascending else sort_column.desc()).nulls_last()
     return (
         stmt.options(*lean_load_options(resource, identifiers=False))
@@ -446,7 +463,14 @@ def _write_csv(export: Export, db: Session, rows_iter: Any, columns: list[str]) 
             # derived column comes from such a source, and only those sources are credited. A
             # source the tier may not read is neither printed nor credited (docs/21 §8 items 3-5).
             view = gated_record(row, export.tier, _bulk_exportable)
-            derived = _proposal_row(view) if resource == "proposal" else _opportunity_row(view)
+            if resource == "proposal":
+                derived = _proposal_row(view)
+            else:
+                value = _opportunity_value(view)
+                derived = _opportunity_row(view, value)
+                # A USD equivalent is the ECB's rate, so the file credits the ECB beside the source.
+                if "usd_equivalent" in columns:
+                    licence_rows.extend(fx_licence_rows([{"value": value}]))
             prov, _lic = _provenance_columns_for_link(
                 redistributable_link(list(view.sources), "allows_bulk_export")
             )

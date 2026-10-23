@@ -30,10 +30,14 @@ from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
 from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import (
+    StatedFigure,
+    StatedValue,
     classify_technologies,
+    currency_code,
     deadline_passed,
     iso2,
-    known_budget,
+    parse_amount,
+    stated_value_of,
     technologies_str,
     to_utc,
 )
@@ -93,6 +97,19 @@ KIND_BY_TYPE = {"General Procurement Notice": "procurement_notice", "Contract Aw
 PAGE = 100
 MAX_PAGES = 10
 WINDOW_DAYS = 14
+
+
+def stated_value(row: dict[str, Any]) -> StatedValue | None:
+    """`bid_estimate_amount` in `bid_currency_code` (lane rfp-value). The field is the package's
+    estimate on every notice type, a contract award included, so it is labelled an estimate there
+    too: the award amount is not a field this connector reads."""
+    amount = parse_amount(row.get("bid_estimate_amount"))
+    if amount is None:
+        return None
+    figure = StatedFigure(
+        "estimated_value", amount, currency_code(row.get("bid_currency_code")), "bid_estimate_amount"
+    )
+    return stated_value_of([figure])
 
 
 class Connector(BaseConnector):
@@ -218,11 +235,15 @@ class Connector(BaseConnector):
                 tok = SECTOR_TECH.get(str(code))
                 if tok and tok not in techs:
                     techs.append(tok)
-            amount = r.get("bid_estimate_amount")
-            try:
-                budget = known_budget(float(amount)) if amount not in (None, "") else None
-            except (TypeError, ValueError):
-                budget = None
+            value = stated_value(r)
+            identifiers: dict[str, Any] = {
+                "wb_notice_id": r.get("id"),
+                "wb_project_id": r.get("project_id"),
+                "bid_reference_no": r.get("bid_reference_no"),
+                "sector_codes": sectors,
+            }
+            if value is not None:
+                identifiers["value"] = value.identifiers()
             recs.append(
                 {
                     "source_record_id": str(r.get("id")),
@@ -234,21 +255,16 @@ class Connector(BaseConnector):
                     "jurisdiction": iso2(r.get("project_ctry_code")) or "global",
                     "technologies": technologies_str(techs),
                     "capacity_sought_mw": None,
-                    "budget_amount": budget,
-                    "budget_currency": r.get("bid_currency_code"),
+                    "budget_amount": value.amount if value else None,
+                    # The notice's own code as before when it states no amount (a currency alone
+                    # is not a value, but the column always carried it).
+                    "budget_currency": value.currency if value else r.get("bid_currency_code"),
                     "open_at": to_utc(r.get("noticedate"), "%d-%b-%Y"),
                     "due_at": due,
                     "status": state,
                     "status_raw": ntype,
                     "status_rule": rule,
-                    "identifiers": json.dumps(
-                        {
-                            "wb_notice_id": r.get("id"),
-                            "wb_project_id": r.get("project_id"),
-                            "bid_reference_no": r.get("bid_reference_no"),
-                            "sector_codes": sectors,
-                        }
-                    ),
+                    "identifiers": json.dumps(identifiers),
                 }
             )
         df = pd.DataFrame(recs, columns=list(recs[0]) if recs else ["source_record_id"])

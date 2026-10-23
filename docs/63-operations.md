@@ -245,6 +245,32 @@ Measured on the shared data root 2026-10-07: 17 sources restated, 0 events emitt
 `status_change`, NESO 136 `capacity_change`, Class VI 1 `status_change`, NYISO 4 `new` + 4 `removed` (suffix
 keys); second pass: 17 `up_to_date`, 1 `no_snapshot` (GHGRP, context-loaded), 0 files written.
 
+**Restating opportunity values and USD equivalents (built 2026-10-22, lane rfp-value).** A load gives
+the notices it writes their `value` block (what the figure is) and an approximate USD equivalent at the
+ECB reference rate of the publication date, which `GET /v1/opportunities?sort=-value` and
+`min_value`/`max_value` read. Incremental sources (TED, Find a Tender, the World Bank) never reload old
+rows, so rows stored before a deploy that changes the value rules have none, and `sort=-value` would rank
+only notices loaded afterwards. The daily `value_tick` (16:19 UTC, `infra/scheduler/app.py`) fetches the
+ECB history (one conditional GET) and restates every opportunity; `seed_single_host.sh` runs it after the
+loads (`docs/64` §3). After the deploy that ships it, or any deploy that changes `stated_value` in a
+connector or `services/ingest/opportunity_value.py`, run it once rather than waiting for the tick,
+and run it **before the opportunity sources' next runs** (straight after the deploy, before the
+next hourly tick). Such a deploy changes every opportunity connector's parser digest, so each
+source's next run re-derives its stored rows and reloads them with their value blocks: a row the
+restatement has already reached reloads unchanged, while a row it has not moves `last_changed`
+once (about 800 rows on the 2026-10-20 store; `services/ingest/test_opportunity_value.py` pins
+both orders). The restatement itself never moves `last_changed`. Steps:
+1. On the host: `docker compose ... run --rm --no-deps -T worker python -m services.ingest.opportunity_value
+   --refresh-rates` (the compose files and env file as `seed_single_host.sh` uses them; locally,
+   `python -m services.ingest.opportunity_value --refresh-rates --db sqlite:///<store>`; `--dry-run`
+   reports without writing). A failed rate fetch is reported (`fx_refresh.status: failed`) and the
+   pass uses the table in force; each `fx_date` says how old its rate is.
+2. Read the report: `with_usd` is the rows the value sort ranks, `placeholders` the stated amounts
+   withheld as placeholders, `no_rate` the currencies the ECB does not quote (MKD). The pass moves no
+   `last_changed` and writes no event (`docs/22` §8.1): on a copy of the 2026-10-20 store it filled 803
+   rows (790 with a USD equivalent, 12 placeholders, 1 MKD) in 2.4 s and moved `last_changed` on 0.
+3. A second run changes nothing (`changed: 0`) unless the ECB published a new fixing.
+
 **Catch-up clamp dates (measured 2026-10-07, audit DATA-1).** An incremental source fetches from its last
 promoted run minus its overlap, clamped to 60 days (`base.py` `max_catchup_days`). With the last promoted
 fetches on 2026-09-13, the clamp starts dropping notices for FERC eLibrary after about **2026-11-05** (7-day
@@ -528,6 +554,7 @@ Stated so that nothing above is read as running.
 | 2026-09-26 | v1: SLAs labelled configured/measured/target; support model for a solo owner with proposed hours; DQ operations from `dq.py`, the scheduler's health writer and the admin screen; overdue owner actions and the dated calendar; social cadence and an empty channel register; daily/weekly/monthly/quarterly checklists; the not-yet-operable table |
 | 2026-10-07 | §5.2 and §7.2: the gridstatus decision is done (three parsers vendored, dependency dropped, no `pip-audit` or image-scan ignores left); the weekly gridstatus release check is retired |
 | 2026-10-07 | §4.1: a hold stays held across identical refetches until released; `make reparse` runbook with the measured restatement; catch-up clamp dates; hourly opportunity deadline sweep. §4.2: `partial` covers held refetches (audit DATA-1, DATA-2, DATA-14; RES-1) |
+| 2026-10-22 | §4.1: opportunity values and USD equivalents are restated by the daily `value_tick` and after the seed's loads; the one-off command for the deploy that ships them (review of lane rfp-value, 2026-10-22); run it before the sources' next runs |
 | 2026-10-10 | §2.4, §5.2, §7.3 item 8, §8, §9: the DA-10 retention job is built (`retention_tick`, `services/retention`, `docs/60` §6.3); OP-5 resolved; OP-7 to OP-9 added |
 | 2026-10-10 | §2.3, §2.4, §8: `/v1/health` is 503 with the database down; Docker does not restart an unhealthy container (the liveness row said it did); stalled-job recovery and worker statement limits; a dump before every migration; the alerting and uptime rows say what exists and what the owner must create (`docs/60` §6.4, §7; `docs/64` §2) |
 | 2026-10-10 | §2.5 and §8: members delete their own account in-app (`DELETE /v1/me`, the operator's erasure); the open item narrows to cancelling a personal account's subscription by hand. Admin "revoke sessions" exists (`docs/26` §7) |

@@ -57,6 +57,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+from conftest import fixture_path
+from pipeline import fx
 from services.api import assets as assets_module
 from services.api.app import app
 from services.api.deps import get_db
@@ -81,6 +83,7 @@ from services.db.models import (
 )
 from services.db.session import get_engine, get_sessionmaker, init_db
 from services.ids import public_id
+from services.ingest.opportunity_value import with_value
 
 POSTGIS_URL = os.environ.get("POSTGIS_TEST_URL")
 pytestmark = pytest.mark.skipif(not POSTGIS_URL, reason="POSTGIS_TEST_URL not set")
@@ -371,8 +374,28 @@ def _proposal(
     )
 
 
+#: The seed opportunities' stated values (lane rfp-value): a euro and a dollar amount, each with
+#: its value block as the loader writes it, and (n = 820) a notice stating none.
+SEED_VALUES: dict[int, tuple[float, str, dt.date]] = {
+    800: (1_000_000.0, "EUR", dt.date(2026, 10, 6)),
+    810: (5_000_000.0, "USD", dt.date(2026, 9, 17)),
+}
+
+
+def _rates() -> fx.RateTable:
+    """The recorded ECB slice, so the equivalents are the fixture's arithmetic on both backends."""
+    text = fixture_path("ecb_eurofxref_hist.csv").read_text(encoding="utf-8")
+    return fx.RateTable(fx.parse_hist_csv(text), retrieved_at="2026-10-22T01:01:38Z", origin="fetched")
+
+
 def _opportunity(s: Session, src: Source, n: int) -> None:
     oid = _uid(n)
+    amount, currency, opened = SEED_VALUES.get(n, (None, None, None))
+    stated = {"value": {"kind": "estimated_value", "source_field": "total-value"}} if amount else {}
+    valued = with_value(
+        {"budget_amount": amount, "budget_currency": currency, "open_at": opened, "identifiers": stated},
+        _rates(),
+    )
     s.add(
         Opportunity(
             id=oid,
@@ -382,6 +405,10 @@ def _opportunity(s: Session, src: Source, n: int) -> None:
             title=f"Parity RFP {n}",
             jurisdiction="US-AZ",
             technologies=["solar_pv"],
+            budget_amount=amount,
+            budget_currency=currency,
+            open_at=opened,
+            identifiers=valued["identifiers"],
             status="open",
             due_at=dt.datetime(2027, 6, 1, tzinfo=UTC),
             publish_state="public",
@@ -695,6 +722,40 @@ def test_list_endpoints_match_sqlite_and_carry_offsets(
         assert _timestamps_without_offset(p) == [], u
         assert _timestamps_without_offset(q) == [], u
     _assert_same(bodies)
+
+
+def test_opportunities_sort_and_bound_by_usd_equivalent_on_both(
+    pg: sessionmaker[Session], sqlite: sessionmaker[Session]
+) -> None:
+    """Review of lane rfp-value (2026-10-22): `sort=value` and `min_value`/`max_value` read a JSON
+    path (`CAST((identifiers #>> '{value,usd_equivalent}') AS FLOAT)` on Postgres, `JSON_EXTRACT`
+    on SQLite) and were tested on SQLite only. Same order, nulls last both ways, same bounds, same
+    second page through the cursor, and the same bodies."""
+    seed(pg)
+    seed(sqlite)
+    urls = [
+        "/v1/opportunities?sort=-value",
+        "/v1/opportunities?sort=value",
+        "/v1/opportunities?sort=-value&min_value=1200000",
+        "/v1/opportunities?sort=-value&max_value=1200000",
+    ]
+    bodies = _both(pg, sqlite, urls)
+    slugs = {u: [o["slug"] for o in p["data"]] for u, (p, _q) in bodies.items()}
+    assert slugs[urls[0]] == ["pg-parity-rfp-810", "pg-parity-rfp-800", "pg-parity-rfp-820"]
+    assert slugs[urls[1]] == ["pg-parity-rfp-800", "pg-parity-rfp-810", "pg-parity-rfp-820"]
+    assert slugs[urls[2]] == ["pg-parity-rfp-810"] and slugs[urls[3]] == ["pg-parity-rfp-800"]
+    usd = [o["value"]["usd_equivalent"] if o["value"] else None for o in bodies[urls[0]][0]["data"]]
+    assert usd == [5_000_000.0, 1_126_900.0, None]  # EUR 1,000,000 x 1.1269 on 2026-10-06
+    _assert_same(bodies)
+    seconds: list[Any] = []
+    for maker in (pg, sqlite):
+        with _client(maker) as c:
+            first = _get(c, "/v1/opportunities?sort=-value&limit=1")
+            cursor = first["page"]["next_cursor"]
+            assert cursor
+            seconds.append(_norm(_get(c, f"/v1/opportunities?sort=-value&limit=1&cursor={cursor}")))
+    assert [o["slug"] for o in seconds[0]["data"]] == ["pg-parity-rfp-800"]
+    assert _diff(seconds[0], seconds[1]) == []
 
 
 def test_list_cursors_follow_to_the_same_second_page(

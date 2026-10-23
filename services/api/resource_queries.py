@@ -46,6 +46,7 @@ from sqlalchemy.orm.interfaces import LoaderOption
 
 from services.api.common import WEB_HOST
 from services.api.errors import validation_error
+from services.api.opportunity_value import VALUE_FILTERS
 from services.api.params import check_allowed, csv_param, since_seq
 from services.api.records import (
     OPPORTUNITY_FILTERS,
@@ -117,9 +118,11 @@ _CHANGED_KEY_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,100}$")
 #: What an export's `query` may name, per resource: the list endpoint's filters plus `q` and
 #: `sort` (both of which shape "the list I am looking at"); never `limit`/`cursor`/`include`,
 #: which describe a page, not a result set.
+#: The opportunity list's USD-equivalent bounds (`VALUE_FILTERS`) are export keys too, so its
+#: `Accept: text/csv` twin and an export of the same view select the same rows (lane rfp-value).
 EXPORT_QUERY_KEYS: dict[Resource, set[str]] = {
     "proposal": PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | {"q", "sort"},
-    "opportunity": OPPORTUNITY_FILTERS | SYNC_FILTERS | {"q", "sort"},
+    "opportunity": OPPORTUNITY_FILTERS | SYNC_FILTERS | VALUE_FILTERS | {"q", "sort"},
     "event": EVENT_FILTERS | {"sort"},
 }
 SORT_ALLOWLISTS: dict[Resource, set[str]] = {

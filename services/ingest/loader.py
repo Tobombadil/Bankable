@@ -179,6 +179,7 @@ from services.ingest.geocode import (
 from services.ingest.interconnection import LinkResult, link_source_points
 from services.ingest.lag import record_public_at
 from services.ingest.opportunity_status import close_past_deadline
+from services.ingest.opportunity_value import served_identifiers, with_pinned_value, with_value
 from services.ingest.org_redirects import OrgRedirects
 from services.ingest.vintage import NOT_STATED_VINTAGE, Vintage, from_source_urls
 from services.resolve.survivorship import ROW_FIELDS, SURVIVING_FIELDS, RestatementReport
@@ -1295,7 +1296,7 @@ def _opportunity_fields_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
         technologies = list(technologies_raw)
     else:
         technologies = []
-    return {
+    fields = {
         "kind": _row_get(row, "kind") or "program",
         "title": str(_row_get(row, "title") or "Untitled"),
         "summary": _row_get(row, "summary"),
@@ -1312,6 +1313,9 @@ def _opportunity_fields_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "status_raw": _row_get(row, "status_raw"),
         "identifiers": identifiers,
     }
+    # `identifiers["value"]`: the connector's account of the stated amount plus its approximate USD
+    # equivalent at the rate of `open_at` (services/ingest/opportunity_value.py, lane rfp-value).
+    return with_value(fields)
 
 
 def re_split(value: str) -> list[str]:
@@ -1521,8 +1525,18 @@ def _served_norm(value: Any) -> Any:
     return value
 
 
+def _served_value(entity: Any, key: str) -> Any:
+    """One served value as `_stamp_last_changed` compares it. An opportunity's `identifiers` is
+    read without the parts of its `value` block that change while the notice does not (when a
+    figure or rate was read, the USD conversion): `opportunity_value.served_identifiers`."""
+    value = getattr(entity, key, None)
+    if key == "identifiers" and isinstance(entity, Opportunity):
+        value = served_identifiers(value)
+    return _served_norm(value)
+
+
 def _served_values(entity: Any, keys: Iterable[str]) -> dict[str, Any]:
-    return {k: _served_norm(getattr(entity, k, None)) for k in keys}
+    return {k: _served_value(entity, k) for k in keys}
 
 
 def _stamp_last_changed(ctx: _LoadContext) -> None:
@@ -1716,7 +1730,10 @@ def _update_existing_entity(
         ctx.served_before[entity.id] = (entity.last_changed, _served_values(entity, keys))
     provenance = dict(entity.field_provenance or {})
     pinned = set(entity.overrides or {})
-    for k, v in fields.items():
+    # An operator's pinned amount is the one the record serves, so its USD equivalent is what the
+    # list sorts on; the link below keeps the source's own (services/ingest/opportunity_value.py).
+    entity_fields = with_pinned_value(fields, entity) if ctx.kind == "opportunity" else fields
+    for k, v in entity_fields.items():
         if k in pinned:
             continue
         if v is not None and (k not in provenance or getattr(entity, k, None) != v):

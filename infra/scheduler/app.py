@@ -30,6 +30,8 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                                                      then the companies index's figures
     tick_org_stats (5 min) -> org_stats_tick          those figures again, only if their gate key moved
     tick_deadline (hourly) -> deadline_tick           open opportunities past due_at -> closed
+    tick_value (daily)    -> value_tick               ECB rates refreshed; every opportunity's value
+                                                      and USD equivalent restated (no last_changed)
     tick_retention (daily) -> retention_tick          DA-10: old sessions, alert addresses, raw snapshots
     tick_stalled_jobs (10 min) -> retry_stalled_jobs  jobs a dead worker left `doing` (queue_maintenance.py)
     tick_prune_jobs (daily) -> remove_old_jobs        finished jobs past their keep period
@@ -88,6 +90,7 @@ from infra.scheduler.jobs import (
     freshness_tick_job,
     post_draft_tick_job,
     retention_tick_job,
+    value_tick_job,
     visibility_audit_tick_job,
 )
 
@@ -495,6 +498,32 @@ def _tick_deadline(timestamp: int) -> None:
         deadline_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous deadline_tick still queued or running")
+
+
+#: One ECB request and a pass over every opportunity (2.4 s on the 2026-10-20 store's 1,349).
+VALUE_TICK_TIMEOUT_S = 900
+#: Daily at 16:19 UTC: after the ECB publishes the day's fixing (about 16:00 CET, 14:00 or 15:00
+#: UTC), so each notice converts at its own day's rate within the day. Minute 19 is used by no
+#: other tick (cadence.py's `CRON_BY_BUCKET` and every `@app.periodic` in this module).
+VALUE_CRON = "19 16 * * *"
+
+
+@app.task(name="value_tick", queue="normalise", retry=0, queueing_lock="value_tick")
+def value_tick() -> dict[str, Any]:
+    """Every opportunity's value and approximate USD equivalent, restated at the latest ECB
+    reference rates (lane rfp-value; `services/ingest/opportunity_value.py`). Body in `jobs.py`;
+    `retry=0` because tomorrow's tick is the retry and the pass is idempotent. Row locks, not the
+    store-wide lock: it writes only the value fields, and skips a row a load holds."""
+    return _run_with_timeout(value_tick_job, timeout_s=VALUE_TICK_TIMEOUT_S)
+
+
+@app.periodic(cron=VALUE_CRON, periodic_id="tick:value")
+@app.task(name="tick_value", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_value(timestamp: int) -> None:
+    try:
+        value_tick.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous value_tick still queued or running")
 
 
 # DA-10 retention (docs/04; `services/retention`). The first run on a store of 24 months' daily

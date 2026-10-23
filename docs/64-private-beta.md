@@ -277,16 +277,20 @@ It refuses before touching the host in five cases:
 
 **`seed_single_host.sh`** starts the server from the operator's local data root, the one
 `docs/61` §4 builds. Without the seed, the scheduler would fill the store only as each source's
-bucket next ticked: up to a month for EIA-860M. It runs five steps:
+bucket next ticked: up to a month for EIA-860M. It runs six steps:
 1. Ship `runs/`, `snapshots/`, `normalized/` (including `normalized/context/`) and `held/` into the
    volume.
 2. Queue one load per source (`python -m infra.scheduler.bootstrap load`).
 3. Wait until every load, resolve, enrich and match job has finished. Each load's chain ends in
    `match_tick`, so matches need no step of their own.
-4. Queue the context load (`bootstrap context`: the monthly tick's `context_load`, §5) and wait for
+4. Restate every opportunity's value and approximate USD equivalent at the latest ECB rates
+   (`python -m services.ingest.opportunity_value --refresh-rates`, the daily `value_tick` run now;
+   `docs/63` §4.1). A load converts only the rows it writes, and incremental sources never reload
+   the shipped rows, so without this `sort=-value` would rank only notices loaded later.
+5. Queue the context load (`bootstrap context`: the monthly tick's `context_load`, §5) and wait for
    it. It loads the shipped asset layers, the EIA-860M retirements onto the plants, owner shares
    and features. It runs after the loads rather than beside them, because both write organisations.
-5. Queue one fetch per source (`bootstrap fetch`). This gives every source its `source_run` row
+6. Queue one fetch per source (`bootstrap fetch`). This gives every source its `source_run` row
    now rather than at its next tick.
 
 Every step runs in the worker image. A server seeded with no local data can run `bootstrap fetch`

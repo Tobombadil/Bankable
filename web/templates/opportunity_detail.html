@@ -28,7 +28,10 @@
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
   <div><dt>Technologies</dt><dd>{{ (record.technologies | technologies_label) if record.technologies else 'all-source' }}</dd></div>
   <div><dt>Capacity sought (MW)</dt><dd class="tnum">{{ record.capacity_sought_mw | mw if record.capacity_sought_mw is not none else '—' }}</dd></div>
-  <div><dt>Budget</dt><dd class="tnum">{% if record.budget_amount %}{{ '{:,.0f}'.format(record.budget_amount) }} {{ record.budget_currency or '' }}{% else %}&mdash;{% endif %}</dd></div>
+  {#- What the figure is (an estimate, an award ceiling, what was awarded), never a bare "Budget"; a
+      placeholder amount (a field maximum, a run of nines, a unit price) is a dash with the stated
+      number and the reason beside it (viewmodels.opportunity_value_fields, lane rfp-value). -#}
+  <div><dt>{{ record.value_label }}</dt><dd class="tnum">{% if record.value_note %}&mdash; <small>stated as {{ record.value_stated }}: {{ record.value_note }}</small>{% elif record.budget_amount %}{{ '{:,.0f}'.format(record.budget_amount) }} {{ record.budget_currency or '' }}{% else %}&mdash;{% endif %}</dd></div>
   <div><dt>Opens</dt><dd class="tnum">{{ record.open_at | display_date if record.open_at else '—' }}</dd></div>
   <div><dt>Due</dt><dd class="tnum">{{ record.due_at | display_date if record.due_at else '—' }}</dd></div>
 </dl>

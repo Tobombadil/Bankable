@@ -359,3 +359,35 @@ def test_deadline_tick_is_registered_hourly_on_the_normalise_queue(
     task = scheduler_app.app.tasks["deadline_tick"]
     if task.queue != "normalise" or task.queueing_lock != "deadline_tick":
         raise AssertionError((task.queue, task.queueing_lock))
+
+
+def test_value_tick_is_registered_daily_after_the_ecb_fixing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every opportunity's value and USD equivalent are restated daily (review of lane rfp-value,
+    2026-10-22: nothing ran the rate refresh or the restatement, so rows stored before the lane
+    never gained a USD equivalent and later notices converted at a stale fixing)."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
+    import infra.scheduler.app as scheduler_app
+
+    periodic = scheduler_app.app.periodic_registry.periodic_tasks.get(("tick_value", "tick:value"))
+    assert periodic is not None, "tick_value periodic registration missing"
+    assert (periodic.cron, periodic.task.queue) == ("19 16 * * *", scheduler_app.SCHEDULER_ONLY_QUEUE)
+    task = scheduler_app.app.tasks["value_tick"]
+    assert (task.queue, task.queueing_lock, task.retry_strategy) == ("normalise", "value_tick", None)
+
+
+def test_value_tick_job_restates_even_when_the_rate_fetch_fails() -> None:
+    from pipeline import fx
+    from services.db.session import get_engine, get_sessionmaker, init_db
+
+    engine = get_engine("sqlite+pysqlite:///:memory:")
+    init_db(engine)
+    calls: list[str] = []
+
+    def offline() -> fx.RefreshResult:
+        calls.append("refresh")
+        raise fx.FxError("not the ECB history archive")
+
+    report = jobs.value_tick_job(get_sessionmaker(engine), _refresh=offline)
+    assert calls == ["refresh"]
+    assert report["fx_refresh"]["status"] == "failed" and "FxError" in report["fx_refresh"]["error"]
+    assert report["examined"] == 0 and report["fx_table"]["last_fixing"] is not None

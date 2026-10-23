@@ -26,6 +26,7 @@ from services.api.lines import (
     simplify_parts,
     tolerance_for_zoom,
 )
+from services.api.opportunity_value import serialize_value, served_identifiers
 from services.api.slippage import proposal_slip
 from services.api.withheld_names import WithheldNames
 from services.db.models import (
@@ -495,12 +496,16 @@ def serialize_opportunity(
         else None,
         "budget_amount": float(opportunity.budget_amount) if opportunity.budget_amount is not None else None,
         "budget_currency": opportunity.budget_currency,
+        # What the amount is, its approximate USD equivalent and where both come from
+        # (services/api/opportunity_value.py, lane rfp-value).
+        "value": serialize_value(opportunity, sources or []),
         "open_at": iso(opportunity.open_at),
         "due_at": iso(opportunity.due_at),
         "status": opportunity.status,
         "status_raw": opportunity.status_raw,
         "location": serialize_location(opportunity.location) if opportunity.location else None,
-        "identifiers": opportunity.identifiers or {},
+        # Without the stored `value` block, which `value` above serves (served_identifiers).
+        "identifiers": served_identifiers(opportunity.identifiers),
         "first_seen": iso(opportunity.first_seen),
         "last_changed": iso(opportunity.last_changed),
         "min_reuse_class": opportunity.min_reuse_class,

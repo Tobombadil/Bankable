@@ -108,6 +108,72 @@ def test_a_zero_or_negative_value_is_an_unknown_budget(parsed):
     assert list(df.loc[:1, "budget_currency"]) == ["GBP", "GBP"]
 
 
+# ------------------------------------------------- what the value is (lane rfp-value, 2026-10-22)
+def test_the_net_estimate_leads_and_the_gross_one_is_listed_beside_it(parsed):
+    _, _, _, df = parsed
+    row = df.set_index("source_record_id").loc["ocds-h6vhtk-06a579"]
+    assert (row["budget_amount"], row["budget_currency"]) == (800_000_000.0, "GBP")
+    assert json.loads(row["identifiers"])["value"] == {
+        "kind": "estimated_value",
+        "source_field": "tender.value.amount",
+        "also_stated": [
+            {
+                "kind": "estimated_value_incl_vat",
+                "amount": 960_000_000.0,
+                "currency": "GBP",
+                "source_field": "tender.value.amountGross",
+            }
+        ],
+    }
+    # A planning notice's value is an estimate too; a release without a gross figure lists nothing.
+    planning = df.set_index("source_record_id").loc["ocds-h6vhtk-06f877"]
+    assert json.loads(planning["identifiers"])["value"] == {
+        "kind": "estimated_value",
+        "source_field": "tender.value.amount",
+    }
+
+
+def test_award_values_are_listed_never_summed():
+    from pipeline.connectors.gb_find_a_tender.connector import stated_value
+
+    one = {"tender": {}, "awards": [{"status": "active", "value": {"amount": 1_500_000, "currency": "GBP"}}]}
+    value = stated_value(one)
+    assert value is not None
+    assert (value.primary.kind, value.amount, value.primary.source_field) == (
+        "awarded_value",
+        1_500_000.0,
+        "awards[0].value.amount",
+    )
+    lots = {
+        "tender": {},
+        "awards": [
+            {"status": "active", "value": {"amount": 1_000, "currency": "GBP"}},
+            {"status": "active", "value": {"amount": 2_000, "currency": "GBP"}},
+        ],
+    }
+    assert stated_value(lots) is None  # two lots' values are not the procurement's
+    cancelled = {"tender": {}, "awards": [{"status": "cancelled", "value": {"amount": 9, "currency": "GBP"}}]}
+    assert stated_value(cancelled) is None
+    # The recorded award releases state no award value at all.
+    assert stated_value({"tender": {"value": None}, "awards": [{"status": "active", "value": None}]}) is None
+
+
+def test_equal_awards_are_two_figures_and_one_lot_never_leads():
+    """Review of lane rfp-value (2026-10-22): two awards of equal value collapsed into one entry.
+    Two lots are two figures. Beside a placeholder tender value, one of several lots never leads
+    (a lot's value is not the procurement's); a single award does, labelled as awarded."""
+    from pipeline.connectors.gb_find_a_tender.connector import stated_value
+
+    lot = {"status": "active", "value": {"amount": 250_000, "currency": "GBP"}}
+    row = {"tender": {"value": {"amount": 1, "currency": "GBP"}}, "awards": [lot, lot]}
+    value = stated_value(row)
+    assert value is not None and (value.primary.kind, value.amount) == ("estimated_value", 1.0)
+    assert [f.source_field for f in value.also_stated] == ["awards[0].value.amount", "awards[1].value.amount"]
+    single = stated_value({**row, "awards": [lot]})
+    assert single is not None and (single.primary.kind, single.amount) == ("awarded_value", 250_000.0)
+    assert [(f.kind, f.amount) for f in single.also_stated] == [("estimated_value", 1.0)]
+
+
 # ---------------------------------------------------------------- unchanged check (review §2.7 #6)
 def _with_request_echo(body: bytes, updated_to: str) -> bytes:
     """The fixture as the live API returns it: every page echoes the request, `updatedTo=<now>`

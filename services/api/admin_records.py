@@ -128,6 +128,7 @@ from services.db.models import (
 )
 from services.ids import _CROCKFORD
 from services.ids import public_id as make_public_id
+from services.ingest.opportunity_value import value_identifiers
 from services.resolve.merge import merge_proposal, unmerge_proposal
 from services.resolve.models import ResolutionDecision
 
@@ -655,6 +656,16 @@ def admin_update_opportunity(
             before["issuer_org_id"] = old_issuer
             after["issuer_org_id"] = new_issuer
         opportunity.issuer = issuer  # keeps the ORM relationship in sync, not just the FK column
+
+    if before.keys() & {"budget_amount", "budget_currency", "open_at", "identifiers"}:
+        # The stored value block follows the edited figure, so `sort=value` and `min_value` rank
+        # the amount the record now serves (services/ingest/opportunity_value.py, lane rfp-value).
+        opportunity.identifiers = value_identifiers(
+            opportunity.identifiers,
+            opportunity.budget_amount,
+            opportunity.budget_currency,
+            opportunity.open_at,
+        )
 
     if not before:
         raise validation_error("body", "no recognised field value actually changed", request.url.path)

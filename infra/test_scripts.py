@@ -835,9 +835,13 @@ def test_seed_ships_the_data_root_then_loads_waits_loads_context_and_fetches(
     )
     load = first_index(lines, "worker python -m infra.scheduler.bootstrap load")
     drain = first_index(lines, "exec -T postgres psql")
+    # Every stored opportunity gains its value and USD equivalent once the loads are in (lane
+    # rfp-value): incremental sources never reload the rows the seed shipped.
+    values = first_index(lines, "worker python -m services.ingest.opportunity_value --refresh-rates")
     context = first_index(lines, "worker python -m infra.scheduler.bootstrap context")
     fetch = first_index(lines, "worker python -m infra.scheduler.bootstrap fetch")
-    expect([ship, load, drain, context, fetch] == sorted([ship, load, drain, context, fetch]), lines)
+    order = [ship, load, drain, values, context, fetch]
+    expect(order == sorted(order), lines)
     # The context load is waited for too, before the fetches start.
     drains = [i for i, ln in enumerate(lines) if "exec -T postgres psql" in ln]
     expect(any(context < i < fetch for i in drains), lines)
@@ -854,6 +858,7 @@ def test_seed_stops_when_the_loads_do_not_drain(
     result = run("seed_single_host.sh", str(_data_root(tmp_path)), env=env)
     expect(result.returncode != 0 and "still pending" in result.stderr, result.stderr)
     expect(not any("bootstrap context" in ln for ln in calls(log)), "context must wait for the loads")
+    expect(not any("opportunity_value" in ln for ln in calls(log)), "values must wait for the loads")
 
 
 def test_seed_refuses_a_data_root_with_nothing_to_ship(

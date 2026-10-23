@@ -225,6 +225,7 @@ app.include_router(regions_router)
 # file into their own router. `records.py` never imports this module (it would cycle with the
 # `include_router` call below), so the handful of names this file's own routes still call
 # (the feeds and the organisation-scoped proposal/opportunity lists) are imported back from there.
+from services.api.opportunity_value import fx_licence_rows  # noqa: E402
 from services.api.records import (  # noqa: E402
     LIST_INCLUDES,
     OPPORTUNITY_FILTERS,
@@ -241,6 +242,7 @@ from services.api.records import (  # noqa: E402
     check_budget_sort,
     currency_values,
     exact_total,
+    opportunity_sort_key,
 )
 from services.api.records import router as records_router  # noqa: E402
 
@@ -571,22 +573,26 @@ def list_organization_opportunities(
         stmt = stmt.where(_opportunity_technologies_filter(db, csv_param(v)))
     if v := qp.get("budget_currency"):
         stmt = stmt.where(Opportunity.budget_currency.in_(currency_values(v, request.url.path)))
+    sort_column, sort_value = opportunity_sort_key(field)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
-        sort_column=getattr(Opportunity, field),
+        sort_column=sort_column,
         id_column=Opportunity.id,
         ascending=ascending,
         cursor=request.query_params.get("cursor"),
         limit=limit,
         instance=request.url.path,
+        sort_value=sort_value,
     )
     data = [serialize_opportunity(o, entitlement=ctx.entitlement) for o in rows]
     meta = build_meta("opportunity", tier=ctx.entitlement)
     return build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_opportunity_licence_rows(rows, ctx.entitlement)),
+        licence_summary=build_licence_summary(
+            _opportunity_licence_rows(rows, ctx.entitlement) + fx_licence_rows(data)
+        ),
         page=build_page(next_cursor, None, has_more),
     )
 

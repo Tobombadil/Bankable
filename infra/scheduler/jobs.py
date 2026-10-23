@@ -341,6 +341,32 @@ def deadline_tick_job(_session_factory: Any = None, *, now: dt.datetime | None =
     return data
 
 
+def value_tick_job(
+    _session_factory: Any = None, *, _refresh: Callable[[], Any] | None = None
+) -> dict[str, Any]:
+    """Body of the `value_tick` task (lane rfp-value, review 2026-10-22): fetch the ECB reference
+    rates (one conditional GET; a failure is reported and the table in force is used), then restate
+    every opportunity's value and USD equivalent (`services/ingest/opportunity_value.py`
+    `value_pass`). Incremental sources never reload old rows, so without this the rows stored before
+    the value lane never gain a USD equivalent and `sort=-value` ranks only newer notices; it also
+    brings each day's new fixing to notices converted at an earlier one. Moves no `last_changed` and
+    writes no event (a restatement is not news, docs/22 §8)."""
+    from services.db.session import session_scope
+    from services.ingest.opportunity_value import value_pass
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    with session_scope(factory) as session:
+        data = value_pass(session, refresh=True, _refresh=_refresh)
+    _log_report(
+        "value_tick",
+        {
+            "fx_refresh": (data.get("fx_refresh") or {}).get("status"),
+            **{k: data[k] for k in ("examined", "changed", "amounts_restated", "with_value", "with_usd")},
+        },
+    )
+    return data
+
+
 class RetentionIncomplete(RuntimeError):
     """`retention_tick` could not read or delete some raw snapshots (`services/retention`). Raised
     after the run log is committed, so the job shows as failed in the queue and the record of what

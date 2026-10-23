@@ -972,8 +972,43 @@ def deadline_passed(status: Any, due_at: Any, today: dt.date | None = None) -> b
     return due < (today or dt.datetime.now(dt.UTC).date())
 
 
+def _amount_text(amount: Any) -> str | None:
+    """A stated amount as the page prints it: whole units, or two decimals for a small figure that
+    has them (a unit price such as EUR 0.26 is not "0")."""
+    if not isinstance(amount, int | float) or isinstance(amount, bool):
+        return None
+    value = float(amount)
+    return f"{value:,.0f}" if value.is_integer() or value >= 100 else f"{value:,.2f}"
+
+
+def opportunity_value_fields(entity: Mapping[str, Any]) -> dict[str, Any]:
+    """What the page prints for the notice's value (lane rfp-value): the API's `value` block says
+    what the figure is (`kind_label`: "Award ceiling", "Total awarded value", ...) and, for an amount
+    that looks like a placeholder (`amount_note`: a field maximum such as Grants.gov's 2,147,483,647,
+    a run of nines, a unit price), why it is not a figure. A placeholder is shown as a dash with the
+    stated number and the note beside it, never as the notice's value; `budget_amount` is then None
+    so no other part of the page prints it either. An API without `value` keeps the old "Budget"."""
+    if "value" not in entity:
+        return {
+            "value_label": "Budget",
+            "value_note": None,
+            "value_stated": None,
+            "budget_amount": _known_budget(entity.get("budget_amount")),
+        }
+    value = _mapping_or_empty(entity.get("value"))
+    note = value.get("amount_note") if value else None
+    stated = _amount_text(value.get("amount")) if note else None
+    return {
+        "value_label": value.get("kind_label") or "Value",
+        "value_note": note,
+        "value_stated": f"{stated} {value.get('currency') or ''}".strip() if stated else None,
+        "budget_amount": None if note or not value else _known_budget(entity.get("budget_amount")),
+    }
+
+
 def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
     primary_source = _primary_provenance(entity.get("provenance") or [])
+    value_fields = opportunity_value_fields(entity)
     return {
         "deadline_passed": deadline_passed(entity.get("status"), entity.get("due_at")),
         "public_id": entity["public_id"],
@@ -991,8 +1026,8 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
         "jurisdiction": entity.get("jurisdiction"),
         "technologies": entity.get("technologies") or [],
         "capacity_sought_mw": entity.get("capacity_sought_mw"),
-        "budget_amount": _known_budget(entity.get("budget_amount")),
         "budget_currency": entity.get("budget_currency"),
+        **value_fields,
         "open_at": entity.get("open_at"),
         "due_at": entity.get("due_at"),
         "status": entity.get("status"),

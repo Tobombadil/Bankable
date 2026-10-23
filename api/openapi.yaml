@@ -201,7 +201,7 @@ x-filter-grammar:
   operators: [gte, lte, gt, lt, from, to]
   sort_allowlist:
     proposals: [last_changed, first_seen, capacity_mw, name_canonical]
-    opportunities: [due_at, open_at, last_changed, budget_amount]
+    opportunities: [due_at, open_at, last_changed, budget_amount, value]
     events: [seq, observed_at]
     matches: [score, first_matched_at]
   defaults:
@@ -668,6 +668,8 @@ paths:
         - $ref: '#/components/parameters/CapacitySoughtMwGte'
         - $ref: '#/components/parameters/BudgetCurrency'
         - $ref: '#/components/parameters/BudgetAmountGte'
+        - $ref: '#/components/parameters/MinValue'
+        - $ref: '#/components/parameters/MaxValue'
         - $ref: '#/components/parameters/FirstSeenFrom'
         - $ref: '#/components/parameters/FirstSeenTo'
         - $ref: '#/components/parameters/LastChangedFrom'
@@ -7922,15 +7924,40 @@ components:
       name: sort
       in: query
       description: >-
-        Allowlist: `due_at`, `open_at`, `last_changed`, `budget_amount`. Default `due_at`. Budgets are stored in the
-        notice's own currency and never converted, so `budget_amount` (either direction, in any position) orders only
-        within exactly one `budget_currency` (`?budget_currency=EUR&sort=-budget_amount`); without `budget_currency`,
-        or with more than one, it is a `400 validation_error` naming `sort` rather than an ordering across currencies.
-        The same rule applies to an export's stored `query` and to `Accept: text/csv`.
+        Allowlist: `due_at`, `open_at`, `last_changed`, `budget_amount`, `value`. Default `due_at`. Budgets are stored
+        in the notice's own currency and never converted, so `budget_amount` (either direction, in any position) orders
+        only within exactly one `budget_currency` (`?budget_currency=EUR&sort=-budget_amount`); without
+        `budget_currency`, or with more than one, it is a `400 validation_error` naming `sort` rather than an ordering
+        across currencies. The same rule applies to an export's stored `query` and to `Accept: text/csv`. `value`
+        orders across currencies by `value.usd_equivalent`, the stated amount converted at the ECB reference rate of the
+        notice's publication date (`-value`: largest first); records without a USD equivalent (no stated amount, a
+        currency the ECB does not quote, or an amount that looks like a placeholder, `value.amount_note`) come last in
+        both directions. The equivalent is approximate and the stated
+        amount and currency stay the record's value (`Opportunity.value`).
       schema:
         type: string
-        pattern: '^-?(due_at|open_at|last_changed|budget_amount)(,-?(due_at|open_at|last_changed|budget_amount))*$'
+        pattern: '^-?(due_at|open_at|last_changed|budget_amount|value)(,-?(due_at|open_at|last_changed|budget_amount|value))*$'
         default: due_at
+    MinValue:
+      name: min_value
+      in: query
+      description: >-
+        Inclusive lower bound on `value.usd_equivalent`, in US dollars (`?min_value=1000000`). An opportunity with no
+        USD equivalent matches no bound. A list filter only: saved searches and alerts do not take it (`400
+        unknown_parameter`).
+      schema:
+        type: number
+        minimum: 0
+    MaxValue:
+      name: max_value
+      in: query
+      description: >-
+        Inclusive upper bound on `value.usd_equivalent`, in US dollars. Below `min_value` it is a `400
+        validation_error` naming `max_value`. An opportunity with no USD equivalent matches no bound. A list filter
+        only, as `min_value`.
+      schema:
+        type: number
+        minimum: 0
     SortOrganizations:
       name: sort
       in: query
@@ -11541,6 +11568,8 @@ components:
       description: Identical shape for an opportunity (docs/21 §3.4).
     OpportunityIdentifiers:
       type: object
+      description: >-
+        The source's own identifiers. The stored value block is not among them: its served form is `Opportunity.value`.
       properties:
         grants_gov_number:
           type: [string, 'null']
@@ -11551,6 +11580,192 @@ components:
         solicitation_number:
           type: [string, 'null']
       additionalProperties: true
+    OpportunityValueKind:
+      type: [string, 'null']
+      description: >-
+        What the stated figure is (`pipeline/connectors/opportunity.py` `VALUE_KINDS`): `estimated_value` (TED BT-27 on
+        a competition or planning form, World Bank `bid_estimate_amount`, Find a Tender `tender.value.amount` excluding
+        VAT), `estimated_value_incl_vat` (Find a Tender `amountGross`), `awarded_value` (TED BT-161 on a result form, a
+        single Find a Tender award), `contract_value` (TED direct-award and modification forms),
+        `total_programme_funding` (Grants.gov `estimatedFunding`), `award_ceiling`, `award_floor` (Grants.gov). Null
+        when the source says nothing more than an amount.
+      enum:
+        - estimated_value
+        - estimated_value_incl_vat
+        - awarded_value
+        - contract_value
+        - total_programme_funding
+        - award_ceiling
+        - award_floor
+        - null
+    OpportunityValueFigure:
+      type: object
+      description: Another figure the same notice states, beside the one `value.amount` carries.
+      required: [kind, kind_label, amount, currency, source_field, amount_note]
+      properties:
+        kind:
+          $ref: '#/components/schemas/OpportunityValueKind'
+        kind_label:
+          type: string
+          examples: [Award ceiling]
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        currency:
+          type: [string, 'null']
+          pattern: '^[A-Z]{3}$'
+        source_field:
+          type: [string, 'null']
+          examples: [synopsis.awardCeiling]
+        amount_note:
+          type: [string, 'null']
+          description: >-
+            Set when this figure looks like a placeholder, by the same rules as `value.amount_note` (Grants.gov 363912
+            states a total of 2,147,483,647 beside its 250,000,000 award ceiling, which leads).
+    FxSource:
+      type: object
+      description: >-
+        The reference rate behind a USD equivalent and the credit its terms require (ECB "Disclaimer & Copyright": cite
+        the ECB, state that the cross rate is ours; `data/sources.yaml` `eu.ecb.eurofxref`).
+      required: [source_id, source_name, source_url, retrieved_at, licence_id, reuse_class, attribution_text, rate_date]
+      properties:
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        source_name:
+          type: string
+        source_url:
+          type: string
+          format: uri
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When the file that supplied this fixing (`rate_date`) was read from the ECB; the last fetched history, or
+            the vendored seed for a fixing only the seed holds.
+        licence_id:
+          type: [string, 'null']
+        licence_url:
+          type: [string, 'null']
+          format: uri
+        reuse_class:
+          $ref: '#/components/schemas/ReuseClass'
+        attribution_text:
+          type: [string, 'null']
+          description: Credit and statement of changes, verbatim, to print beside the equivalent.
+        rate_date:
+          type: [string, 'null']
+          format: date
+    OpportunityValueProvenance:
+      type: object
+      description: >-
+        Where the stated figure comes from: the source and licence of the link that supplied it, the record's page at
+        the source, when the figure was read (a Grants.gov figure is read from the opportunity detail, separately from
+        the search, so it carries that time) and the source field.
+      required: [source_id, source_url, retrieved_at, licence_id, reuse_class, attribution_text, source_field]
+      properties:
+        source_id:
+          type: [string, 'null']
+        source_name:
+          type: [string, 'null']
+        source_url:
+          type: [string, 'null']
+          format: uri
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+        licence_id:
+          type: [string, 'null']
+        reuse_class:
+          oneOf:
+            - $ref: '#/components/schemas/ReuseClass'
+            - type: 'null'
+        attribution_text:
+          type: [string, 'null']
+        source_field:
+          type: [string, 'null']
+          examples: [total-value, synopsis.estimatedFunding]
+        endpoint:
+          type: [string, 'null']
+          format: uri
+          description: The API the figure was read from when it is not the record's own row (Grants.gov `fetchOpportunity`).
+    OpportunityValue:
+      type: object
+      description: >-
+        The notice's stated value (lane rfp-value, 2026-10-22; `services/api/opportunity_value.py`). `amount` and
+        `currency` are the notice's own figure, the same as `budget_amount`/`budget_currency`. `usd_equivalent` is that
+        amount at the ECB euro reference rate of the notice's publication date (`fx_date`; the most recent earlier
+        fixing on a day without one, or the earliest fixing when the table holds none on or before it), for sorting
+        across currencies; it is approximate (`usd_is_approximate` is true exactly when an equivalent was converted from
+        another currency) and null for a currency the ECB does not quote or a placeholder amount (`fx_note` says why).
+        Nothing is inferred: no figure is derived from another.
+      required:
+        - amount
+        - currency
+        - kind
+        - kind_label
+        - usd_equivalent
+        - usd_is_approximate
+        - fx_rate
+        - fx_date
+        - fx_source
+        - also_stated
+        - expected_awards
+        - provenance
+      properties:
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        currency:
+          type: [string, 'null']
+          pattern: '^[A-Z]{3}$'
+        kind:
+          $ref: '#/components/schemas/OpportunityValueKind'
+        kind_label:
+          type: string
+          description: The words to print beside the amount; `Stated value` when `kind` is null.
+          examples: [Estimated total programme funding, Total awarded value]
+        usd_equivalent:
+          type: [number, 'null']
+          minimum: 0
+        usd_is_approximate:
+          type: boolean
+          description: >-
+            True when `usd_equivalent` was converted from another currency at an ECB reference rate; false for an amount
+            stated in USD and whenever `usd_equivalent` is null.
+        fx_rate:
+          type: [number, 'null']
+          description: >-
+            US dollars per one unit of `currency` on `fx_date` (the ECB's USD per euro over the currency's units per euro,
+            unrounded); 1 for USD. `usd_equivalent` is exactly `amount` times `fx_rate`, rounded to the cent.
+        fx_date:
+          type: [string, 'null']
+          format: date
+        fx_source:
+          oneOf:
+            - $ref: '#/components/schemas/FxSource'
+            - type: 'null'
+        fx_note:
+          type: [string, 'null']
+          description: Why `usd_equivalent` is null, when it is.
+          examples: [no ECB reference rate for MKD]
+        amount_note:
+          type: [string, 'null']
+          description: >-
+            Set when the stated amount looks like a placeholder (the largest number a 32-bit field holds, a run of nine
+            or more nines, or under 100 in any currency, which on the store were unit prices); the amount is shown as
+            stated but has no USD equivalent, so it neither leads nor trails `sort=value`. A notice that states a real
+            figure beside a placeholder leads with the real one, labelled by its own `kind`.
+          examples: [the largest number the source's field holds, not a figure]
+        also_stated:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpportunityValueFigure'
+        expected_awards:
+          type: [integer, 'null']
+          minimum: 1
+          description: Expected number of awards, where the notice states it (Grants.gov `numberOfAwards`).
+        provenance:
+          $ref: '#/components/schemas/OpportunityValueProvenance'
     Opportunity:
       type: object
       description: Demand-side object (docs/21 §3.3).
@@ -11590,6 +11805,13 @@ components:
         budget_currency:
           type: [string, 'null']
           pattern: '^[A-Z]{3}$'
+        value:
+          description: >-
+            What the notice states it is worth, what that figure is, and an approximate USD equivalent; null when it
+            states no amount. Always present on list rows and the detail (lane rfp-value, 2026-10-22).
+          oneOf:
+            - $ref: '#/components/schemas/OpportunityValue'
+            - type: 'null'
         open_at:
           type: [string, 'null']
           format: date

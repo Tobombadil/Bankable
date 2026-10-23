@@ -1897,6 +1897,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `gb.pins.nsip` | open-attribution (OGL v3) | raw-ok + OGL credit | §2.4 quoted | high |
 | `gb.find_a_tender` | open-attribution (OGL v3) | raw-ok + OGL credit | §2.4 quoted | high |
 | `eu.ted.api` | open-attribution (metadata CC0) | raw-ok; strip personal data | §2.3 quoted | high |
+| `eu.ecb.eurofxref` | open-attribution (ECB Disclaimer & Copyright: free use, cite the ECB) | raw-ok + credit "Source: European Central Bank" + statement of changes (our USD cross rate); a sold product must say the rates are free from the ECB | ECB terms quoted in `data/sources.yaml` (read 2026-10-22; reference rates for USD equivalents, lane rfp-value) | high |
 | `eu.entsoe.tyndp` | **unknown** | derived-only; EU database right applies (§4.1) | not retrieved | low |
 | `eu.pci_pmi_list` | open-attribution (EU reuse) | raw-ok | §2.3 by analogy | mod |
 | `de.bnetza.mastr` | open-attribution (dl-de/by-2-0) | raw-ok + credit | not re-verified | mod |

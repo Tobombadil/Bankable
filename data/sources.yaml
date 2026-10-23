@@ -2311,11 +2311,44 @@ sources:
   license: public domain
   reuse: open
   publication: raw_ok
+  # The API's Terms of Service (https://www.grants.gov/api/terms-conditions, read 2026-10-22), quoted
+  # in `notes`, ask every service that uses the API to show this notice; it is the credit line the
+  # loader renders (a request of the API's terms, not a licence condition on the public-domain data).
+  attribution: "This product uses the Grants.gov API but is not endorsed or certified by the U.S. Department of Health and Human Services."
+  licence_url: "https://www.grants.gov/api/terms-conditions"
+  # The terms publish no numeric limit ("Right to Limit", quoted in `notes`); 1 request a second is
+  # shared by the search and the per-notice detail reads (same host).
+  rate_limit_rps: 1
   tier: 1
   effort: S
   probe: {method: POST, body: '{"keyword":"energy","oppStatuses":"forecasted|posted","rows":5}'}
-  verified: {date: 2026-09-12, result: ok, rows: 151, note: 'connector run: keyword energy, oppStatuses forecasted|posted, 151 hits over 2 pages, DQ pass'}
-  notes: Filter by agency (DOE-*, USDA-RD, EPA, DOT) and CFDA/ALN. Also fetchOpportunity endpoint for details.
+  verified: {date: 2026-09-12, result: ok, rows: 151, note: 'connector run: keyword energy, oppStatuses forecasted|posted, 151 hits over 2 pages, DQ pass. 2026-10-22: POST https://api.grants.gov/v1/api/fetchOpportunity read by hand for 6 notices in the store (279638, 322667, 356623, 361315, 361526, 363396), 6 of 6 errorcode 0, 2 s apart; 5 of them (all but 361315) recorded as tests/fixtures/grants_gov_fetch_opportunity.json with the contact fields and the publisher user id replaced'}
+  notes: >-
+    Filter by agency (DOE-*, USDA-RD, EPA, DOT) and CFDA/ALN. Detail endpoint (lane rfp-value,
+    2026-10-22): POST https://api.grants.gov/v1/api/fetchOpportunity {"opportunityId": <id>}, no
+    authentication ("Authentication and authorization is not required for fetchOpportunity",
+    https://www.grants.gov/api/common/fetchopportunity). It carries the funding figures the search
+    lacks (synopsis/forecast `estimatedFunding`, `awardCeiling`, `awardFloor`, `numberOfAwards`)
+    and also the programme officer's name, email and phone, which the connector never stores. The
+    connector reads it only for the notices its own search returned, reuses a reading for 7 days
+    while the hit's status and dates are unchanged, and reads at most 150 a run, one attempt each
+    with a 20 s timeout. Because of the "Right to Limit" clause below, the first failure, 429, 5xx,
+    challenge or other refusal stops the detail reads for the run (no retry, no backoff wait), as
+    do ten error bodies in a row, and no read starts more than 300 s into the run; what was not
+    read keeps its earlier reading and waits for the next run, and a notice whose own read failed
+    is not asked again for a day. A re-read with the same figures keeps the earlier reading, so it
+    changes no stored record. API Terms of
+    Service, read 2026-10-22, verbatim: "You may use the Grants.gov API to search, display,
+    analyze, retrieve, view and otherwise "get" information from grants data." "All services,
+    which utilize or access the API, should display the following notice prominently within the
+    application: "This product uses the Grants.gov API but is not endorsed or certified by the
+    U.S. Department of Health and Human Services."" "You may not modify or falsely represent
+    content accessed through the API and still claim the source is the U.S. Department of Health
+    and Human Services Office of Grants for Grants.gov System." "Your use of the API may be
+    subject to certain limitations on access, calls, or use as set forth within this Agreement or
+    otherwise provided by HHS. If Grants.gov reasonably believes that you have attempted to exceed
+    or circumvent these limits, your ability to use the API may be temporarily or permanently
+    blocked." No numeric limit is published.
 
 - id: us.sam_gov.opportunities
   name: SAM.gov Get Opportunities Public API (contracts, not grants)
@@ -2640,6 +2673,38 @@ sources:
   notes: >-
     Raw-ok. Credit the source; do not distort; the TED logo is not licensed; strip contracting-authority
     personal contact data at ingest (docs/13-legal-data-rights.md section 5).
+
+# Reference data, not records (lane rfp-value, 2026-10-22): read by pipeline/fx.py, never loaded as
+# proposals or opportunities, and so no connector directory. It converts a notice's stated value to
+# an approximate USD equivalent for sorting (GET /v1/opportunities?sort=-value).
+- id: eu.ecb.eurofxref
+  name: ECB euro foreign exchange reference rates
+  jurisdiction: EU
+  category: registry
+  operator: European Central Bank
+  url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+  access: bulk_file
+  auth: none
+  format: csv in zip (one row per TARGET business day since 1999-01-04, units per euro, N/A where not quoted)
+  cadence: daily
+  license: 'ECB "Disclaimer & Copyright" (https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html), read 2026-10-22 — "Subject to the exception below, users of this website may make free use of the information obtained directly from it subject to the following conditions: When such information is distributed or reproduced, it must appear accurately and the ECB must be cited as the source. Where the information is incorporated in documents that are sold (regardless of the medium), the natural or legal person publishing the information must inform buyers, both before they pay any subscription or fee and each time they access the information taken from this website, that the information may be obtained free of charge through this website. If the information is modified by the user (e.g. by seasonal adjustment of statistical data or calculation of growth rates) this must be stated explicitly." The rates page (https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html), same day: "The reference rates are published for information purposes only. Using the rates for transaction purposes is strongly discouraged."'
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Source: European Central Bank, euro foreign exchange reference rates"
+  changes_statement: "USD equivalents are calculated by Inframation from the ECB's euro reference rates (US dollars per euro divided by the currency's units per euro, on one fixing date); they are approximate and are not published by the ECB"
+  licence_url: "https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html"
+  tier: 1
+  effort: S
+  probe: {method: GET, url: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"}
+  verified: {date: 2026-10-22, result: ok, rows: 7119, note: 'GET eurofxref-hist.zip, HTTP 200, 641,589 bytes (sha256 93bac351...3eda), Last-Modified Wed, 21 Oct 2026 13:56:26 GMT; 7,119 fixings from 1999-01-04 to 2026-10-21; vendored from 2025-01-01 as data/vendored/fx/eurofxref-hist-from-2025.csv'}
+  notes: >-
+    Rates are units per euro; the USD rate of a currency is our cross rate, stated as a change
+    (changes_statement). Of the store's notice currencies, every one but MKD is quoted (2026-10-22):
+    an MKD notice has no USD equivalent and nothing is substituted. A sold product must also tell
+    buyers the rates are free from the ECB's website (license quote); no tier is sold today
+    (docs/26). robots.txt (read 2026-10-22) allows /stats/eurofxref/ and sets Crawl-delay 5, that is
+    1 request per 5 s; the daily refresh is one conditional GET, run by the scheduler's value_tick
+    at 16:19 UTC (infra/scheduler/app.py; by hand, python -m pipeline.fx refresh).
 
 - id: eu.entsoe.tyndp
   name: ENTSO-E TYNDP 2026 project portfolio (199 transmission + 69 storage)

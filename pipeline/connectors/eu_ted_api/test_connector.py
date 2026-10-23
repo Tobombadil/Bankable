@@ -100,3 +100,50 @@ def test_a_zero_or_negative_value_is_an_unknown_budget(parsed):
     assert df["budget_amount"].isna()[1]
     assert df.loc[2, "budget_amount"] == 1250.5
     assert list(df.loc[:1, "budget_currency"]) == ["PLN", "EUR"]  # the stated currency is kept
+
+
+# ------------------------------------------------- what the value is (lane rfp-value, 2026-10-22)
+@pytest.mark.parametrize(
+    ("pubnum", "kind", "amount", "currency"),
+    [
+        ("619292-2026", "awarded_value", 4_673_237.67, "PLN"),  # result form: BT-161 notice value
+        ("619362-2026", "awarded_value", 21_100_000.0, "DKK"),
+        ("619343-2026", "estimated_value", 1_678_875.0, "CZK"),  # competition form: an estimate
+        ("622360-2026", "contract_value", 500_000.0, "EUR"),  # direct award (VEAT)
+        ("619495-2026", "contract_value", 10_132_381.64, "RON"),  # contract modification
+    ],
+)
+def test_the_value_kind_follows_the_notice_form(parsed, pubnum, kind, amount, currency):
+    _, _, _, df = parsed
+    row = df.set_index("source_record_id").loc[pubnum]
+    assert (row["budget_amount"], row["budget_currency"]) == (amount, currency)
+    value = json.loads(row["identifiers"])["value"]
+    assert value == {"kind": kind, "source_field": "total-value"}
+
+
+def test_the_estimate_list_is_read_and_listed_beside_an_awarded_total():
+    """The two notices of the 2026-10-20 store that stated `estimated-value-glo` carried it as a
+    one-element list of strings, which the connector did not read, so they had no budget; these are
+    one of them's own values (a result notice)."""
+    from pipeline.connectors.eu_ted_api.connector import stated_value
+
+    row = {
+        "form-type": "result",
+        "estimated-value-glo": ["3290325.87"],
+        "estimated-value-cur-glo": ["EUR"],
+        "total-value": 2427893.62,
+        "total-value-cur": ["EUR"],
+    }
+    value = stated_value(row)
+    assert value is not None
+    assert (value.primary.kind, value.amount, value.currency) == ("awarded_value", 2_427_893.62, "EUR")
+    assert [(f.kind, f.amount, f.source_field) for f in value.also_stated] == [
+        ("estimated_value", 3_290_325.87, "estimated-value-glo")
+    ]
+    # On a competition form the estimate leads, and an equal total is not listed twice.
+    competition = {**row, "form-type": "competition", "total-value": 3290325.87}
+    value = stated_value(competition)
+    assert value is not None and value.primary.source_field == "estimated-value-glo"
+    assert value.also_stated == ()
+    # A notice stating neither figure has no value (619389-2026 in the fixture), and no kind.
+    assert stated_value({"form-type": "competition", "total-value": None}) is None

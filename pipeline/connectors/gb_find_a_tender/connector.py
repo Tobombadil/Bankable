@@ -35,9 +35,13 @@ from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
 from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import (
+    StatedFigure,
+    StatedValue,
     classify_technologies,
+    currency_code,
     deadline_passed,
-    known_budget,
+    parse_amount,
+    stated_value_of,
     technologies_str,
     to_utc,
 )
@@ -72,6 +76,51 @@ def release_cpvs(rel: dict[str, Any]) -> list[str]:
 
 def is_energy(codes: list[str]) -> bool:
     return any(c.startswith(CPV_PREFIXES) for c in codes)
+
+
+#: Award statuses whose value is not money awarded (OCDS award.status codelist).
+_NOT_AWARDED = frozenset({"pending", "cancelled", "unsuccessful"})
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def stated_value(row: dict[str, Any]) -> StatedValue | None:
+    """The release's value as it states it (lane rfp-value). `tender.value` is, in OCDS, "the
+    total upper estimated value of the procurement": `amount` excludes VAT and the UK's
+    `amountGross` includes it, so the net figure leads and the gross one is also stated. A release
+    with no tender value and exactly one active award states that award's value; several awards
+    are listed, never summed (a lot's value is not the procurement's)."""
+    tender = row.get("tender") or {}
+    value = _mapping(tender.get("value"))
+    currency = currency_code(value.get("currency"))
+    figures: list[StatedFigure] = []
+    net = parse_amount(value.get("amount"))
+    if net is not None:
+        figures.append(StatedFigure("estimated_value", net, currency, "tender.value.amount"))
+    gross = parse_amount(value.get("amountGross"))
+    if gross is not None:
+        figures.append(StatedFigure("estimated_value_incl_vat", gross, currency, "tender.value.amountGross"))
+    stated_awards: list[tuple[int, float, str | None]] = []
+    for i, award in enumerate(row.get("awards") or []):
+        if not isinstance(award, dict) or award.get("status") in _NOT_AWARDED:
+            continue
+        av = _mapping(award.get("value"))
+        amount = parse_amount(av.get("amount"))
+        if amount is not None:
+            stated_awards.append((i, amount, currency_code(av.get("currency"))))
+    # One award may stand for the procurement; one of several never does (a lot is not the whole).
+    awards = [
+        StatedFigure(
+            "awarded_value", amount, code, f"awards[{i}].value.amount", may_lead=len(stated_awards) == 1
+        )
+        for i, amount, code in stated_awards
+    ]
+    if figures:
+        # The net figure leads; a release stating only the gross one leads with that, so labelled.
+        return stated_value_of([*figures, *awards])
+    return stated_value_of(awards) if len(awards) == 1 else None
 
 
 def strip_contacts(package: dict[str, Any]) -> dict[str, Any]:
@@ -224,7 +273,16 @@ class Connector(BaseConnector):
             due = to_utc(period.get("endDate"))
             ctx = {"status_raw": t.get("status"), "tag": tag, "deadline_passed": deadline_passed(due, now)}
             state, rule = harmonise_status(self.status_key, ctx, self.status_map)
-            value = t.get("value") or {}
+            value = stated_value(r)
+            tender_value = _mapping(t.get("value"))
+            identifiers: dict[str, Any] = {
+                "ocid": r["ocid"],
+                "fts_notice_id": r.get("id"),
+                "cpv": r.get("cpv"),
+                "tender_id": t.get("id"),
+            }
+            if value is not None:
+                identifiers["value"] = value.identifiers()
             title = t.get("title")
             recs.append(
                 {
@@ -237,23 +295,15 @@ class Connector(BaseConnector):
                     "jurisdiction": "GB",
                     "technologies": technologies_str(classify_technologies(title, t.get("description"))),
                     "capacity_sought_mw": None,
-                    "budget_amount": known_budget(value["amount"])
-                    if isinstance(value.get("amount"), int | float)
-                    else None,
-                    "budget_currency": value.get("currency"),
+                    "budget_amount": value.amount if value else None,
+                    # The release's own code, as before, when it states no amount.
+                    "budget_currency": value.currency if value else tender_value.get("currency"),
                     "open_at": to_utc(period.get("startDate") or r.get("date")),
                     "due_at": due,
                     "status": state,
                     "status_raw": t.get("status"),
                     "status_rule": rule,
-                    "identifiers": json.dumps(
-                        {
-                            "ocid": r["ocid"],
-                            "fts_notice_id": r.get("id"),
-                            "cpv": r.get("cpv"),
-                            "tender_id": t.get("id"),
-                        }
-                    ),
+                    "identifiers": json.dumps(identifiers),
                 }
             )
         df = pd.DataFrame(recs, columns=list(recs[0]) if recs else ["source_record_id"])
