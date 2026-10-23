@@ -94,6 +94,9 @@ jobs:
           SITE_ACCESS: ${{ vars.SITE_ACCESS }}
           # Optional: `on` opens My pipeline, the private Tracker (docs/19 §11); unset or `off` keeps it 404.
           MY_PIPELINE: ${{ vars.MY_PIPELINE }}
+          # Optional, a variable (not a secret): the states whose grid, flood and prospect files the
+          # server pulls (docs/25 §2.7 limit 3), ISO codes such as US-TX or `all`; unset renders US-TX.
+          GRID_LAYERS_REGIONS: ${{ vars.GRID_LAYERS_REGIONS }}
           # Optional: the ERCOT Public API account (docs/29 §2.1), all three or none.
           ERCOT_API_SUBSCRIPTION_KEY: ${{ secrets.ERCOT_API_SUBSCRIPTION_KEY }}
           ERCOT_API_USERNAME: ${{ secrets.ERCOT_API_USERNAME }}
@@ -222,6 +225,7 @@ jobs:
           PRODUCT_NAME: ${{ needs.inputs.outputs.product_name }}
           SITE_ACCESS: ${{ vars.SITE_ACCESS }}
           MY_PIPELINE: ${{ vars.MY_PIPELINE }}
+          GRID_LAYERS_REGIONS: ${{ vars.GRID_LAYERS_REGIONS }}
           ERCOT_API_SUBSCRIPTION_KEY: ${{ secrets.ERCOT_API_SUBSCRIPTION_KEY }}
           ERCOT_API_USERNAME: ${{ secrets.ERCOT_API_USERNAME }}
           ERCOT_API_PASSWORD: ${{ secrets.ERCOT_API_PASSWORD }}

@@ -446,6 +446,92 @@ def test_my_pipeline_accepts_only_off_or_on() -> None:
     expect("not one of off, on" in str(problems[0].problem), problems)
 
 
+def test_grid_layers_regions_reaches_the_env_file_texas_by_default() -> None:
+    """Lane sf-golive (2026-10-23): the server's grid, flood and prospect pulls refuse to run without
+    GRID_LAYERS_REGIONS (docs/25 §2.7 limit 3), so every deploy renders it: the Environment variable,
+    normalised, or the beta's US-TX when it is unset or blank."""
+    env = GOOD_ENV | {"PRODUCT_NAME": "Example Product"}
+    keys = [k for k, _ in beta.render_env(env, outputs(), site_hash="aGFzaA==")]
+    expect(
+        keys.index("MY_PIPELINE") + 1 == keys.index("GRID_LAYERS_REGIONS"),
+        f"the example file's order: {keys}",
+    )
+    for value, rendered in (
+        (None, "US-TX"),
+        ("", "US-TX"),
+        ("   ", "US-TX"),
+        ("US-TX", "US-TX"),
+        (" us-tx , US-OK ,", "US-TX,US-OK"),
+        ("US-OK,US-TX,us-ok", "US-OK,US-TX"),
+        ("ALL", "all"),
+        (" all ", "all"),
+    ):
+        source = env if value is None else env | {"GRID_LAYERS_REGIONS": value}
+        pairs = dict(beta.render_env(source, outputs(), site_hash="aGFzaA=="))
+        expect(
+            pairs["GRID_LAYERS_REGIONS"] == rendered, f"{value!r} rendered {pairs['GRID_LAYERS_REGIONS']!r}"
+        )
+    with pytest.raises(beta.InputError, match="GRID_LAYERS_REGIONS"):
+        beta.render_env(env | {"GRID_LAYERS_REGIONS": "Texas"}, outputs(), site_hash="aGFzaA==")
+
+
+@pytest.mark.parametrize(
+    ("value", "fragment"),
+    [
+        ("TX", "did you mean US-TX"),
+        ("Texas", "ISO 3166-2"),
+        ("US-TX,US-ZZ", "US-ZZ"),
+        ("all,US-TX", "ALL"),
+        (",", "names no state"),
+        ("US-TX;US-OK", "ISO 3166-2"),
+    ],
+)
+def test_grid_layers_regions_accepts_iso_codes_or_all_only(value: str, fragment: str) -> None:
+    problems = check(GOOD_ENV | {"GRID_LAYERS_REGIONS": value})
+    expect([r.name for r in problems] == ["GRID_LAYERS_REGIONS"], problems)
+    expect(fragment in str(problems[0].problem), problems[0].problem)
+
+
+def test_grid_layers_regions_check_reports_the_default_and_takes_what_the_pull_takes() -> None:
+    rows, _ = beta.check_inputs(
+        GOOD_ENV, tag="sha-abc1234", commit="abc1234def", code_domain=DOMAIN, code_product_name="Example"
+    )
+    row = next(r for r in rows if r.name == "GRID_LAYERS_REGIONS")
+    expect(row.kind == "variable, optional" and row.problem is None and "US-TX" in row.status, row)
+    for value in ("US-TX", "us-tx,US-OK", "all", "US-PR,US-DC"):
+        expect(not check(GOOD_ENV | {"GRID_LAYERS_REGIONS": value}), value)
+    # The codes the check knows are the extracts the grid build reads, so the pull never refuses a
+    # value the deploy let through (pipeline/context/osm_power.py `check_regions`).
+    from pipeline.context.osm_power import US_STATE_EXTRACTS
+
+    expect(beta.GRID_LAYERS_STATES == {code for code, _ in US_STATE_EXTRACTS}, "one list of states")
+
+
+def test_grid_layers_regions_all_is_accepted_with_a_warning() -> None:
+    """Review 2026-10-23: `all` passed the check silently, though national does not fit the
+    one-server beta (docs/25 §2.7 limit 3: about 1.3 GB more per API process; a site-finder run of
+    about ten times Texas's). It stays accepted, with a warning in the summary; a state list, or
+    the unset default, carries none."""
+
+    def regions_row(value: str | None) -> beta.Row:
+        env = GOOD_ENV if value is None else GOOD_ENV | {"GRID_LAYERS_REGIONS": value}
+        rows, _ = beta.check_inputs(
+            env, tag="sha-abc1234", commit="abc1234def", code_domain=DOMAIN, code_product_name="Example"
+        )
+        return next(r for r in rows if r.name == "GRID_LAYERS_REGIONS")
+
+    for national in ("all", " ALL "):
+        row = regions_row(national)
+        expect(row.problem is None and row.status == "all", row)
+        expect(row.warning is not None and "does not fit the one-server beta" in row.warning, row)
+        expect(not check(GOOD_ENV | {"GRID_LAYERS_REGIONS": national}), "a warning, not a stop")
+    for value in (None, "", "US-TX", "US-TX,US-OK"):
+        expect(regions_row(value).warning is None, value)
+    expect(regions_row("garbage").warning is None, "an invalid value is a problem, not a warning")
+    markdown = beta.inputs_markdown([regions_row("all")])
+    expect("does not fit the one-server beta" in markdown and "All inputs present." in markdown, markdown)
+
+
 def test_no_domain_or_product_name_is_hard_coded() -> None:
     """The domain comes from the DOMAIN variable and the product name from the code (coordinator,
     2026-10-15): neither may be written into the workflow, its scripts or its backend."""
@@ -657,6 +743,10 @@ def test_check_inputs_reads_the_domain_from_the_tags_commit(sh: tuple[pathlib.Pa
     expect(f"tag=sha-{head[:7]}" in output and "product_name=" in output, output)
     wrong = beta_sh("check-inputs", env=good | {"DOMAIN": "not-the-code.example"})
     expect(wrong.returncode == 1 and "differs from services.api.common.DOMAIN" in wrong.stdout, wrong.stdout)
+    national = beta_sh("check-inputs", env=good | {"GRID_LAYERS_REGIONS": "all"})
+    expect(national.returncode == 0, national.stdout + national.stderr)
+    expect("::warning::GRID_LAYERS_REGIONS: national" in national.stdout, national.stdout)
+    expect("::warning::" not in result.stdout, "no warning for the default")
     expect(lines_of(log) == [], "no network call")
 
 

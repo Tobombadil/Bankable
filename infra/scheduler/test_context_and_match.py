@@ -5,6 +5,9 @@ factory, fake builder processes and fake task deferrers, as in `test_loop.py`.""
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import pathlib
 import subprocess
 from typing import Any
@@ -82,7 +85,7 @@ def test_the_new_tasks_run_on_queues_the_worker_consumes_under_the_store_wide_lo
     assert tasks["context_load"].retry_strategy is scheduler_app.LOAD_RETRY
     periodic = scheduler_app.app.periodic_registry.periodic_tasks
     assert ("tick_context", "tick:context") in periodic
-    assert periodic[("tick_context", "tick:context")].cron == scheduler_app.CONTEXT_CRON == "43 2 3 * *"
+    assert periodic[("tick_context", "tick:context")].cron == scheduler_app.CONTEXT_CRON == "43 2 4 * *"
 
 
 def test_match_tick_runs_the_matcher_and_reports_counts_only() -> None:
@@ -117,6 +120,239 @@ def test_context_build_runs_every_builder_and_survives_a_failure_and_a_timeout()
     assert report["builders"] == len(jobs.CONTEXT_BUILDERS)
     assert report["ok"] == len(jobs.CONTEXT_BUILDERS) - 2
     assert report["failed"] == ["eia_owners: exit 1", "phmsa: timeout"]
+    assert report["not_published"] == []
+
+
+# ------------------------------------------------------------- the site finder's pulls (lane sf-golive)
+PULLS = ("pipeline.context.osm_power", "pipeline.context.fema_nfhl", "pipeline.context.prospect.pull")
+GRID_URL = "https://tiles.example.test/grid/osm-power"
+GRID_TS = "2026-10-21T20:21:02Z"
+
+
+class _Resp:
+    def __init__(self, status: int, content: bytes = b"") -> None:
+        self.status_code, self.content = status, content
+
+    def iter_content(self, chunk_size: int = 1) -> Any:
+        yield from (self.content[i : i + chunk_size] for i in range(0, len(self.content), chunk_size))
+
+    def close(self) -> None:
+        pass
+
+
+class _Tiles:
+    """The public tiles host the grid build publishes to: a dict of URL -> bytes, else 404."""
+
+    def __init__(self, served: dict[str, bytes]) -> None:
+        self.served = served
+        self.requested: list[str] = []
+
+    def get(self, url: str, **_: Any) -> _Resp:
+        self.requested.append(url)
+        return _Resp(200, self.served[url]) if url in self.served else _Resp(404)
+
+
+class _EmptyBucket:
+    """The private bucket before flood-layer.yml and prospect-layers.yml have run: every key missing,
+    answered the way botocore does (a 404 `response`) and the way `S3Backend.get` does."""
+
+    class Missing(Exception):
+        def __init__(self, key: str) -> None:
+            super().__init__(key)
+            self.response = {"Error": {"Code": "404"}, "ResponseMetadata": {"HTTPStatusCode": 404}}
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    def get(self, key: str) -> bytes:
+        self.asked.append(key)
+        raise FileNotFoundError(key)
+
+    def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803 - boto3's names
+        self.asked.append(Key)
+        raise self.Missing(Key)
+
+
+def _published_grid(tmp_path: pathlib.Path) -> dict[str, bytes]:
+    """A national grid build with one line and one substation in Texas and one of each in Oklahoma,
+    as `infra/scripts/build_grid_layers.sh` publishes it under the tiles host."""
+    from pipeline.context import osm_power as op
+
+    def line(osm_id: int, region: str, coords: list[tuple[float, float]]) -> dict[str, Any]:
+        record = op.LineRecord("way", osm_id, {"power": "line", "voltage": "138000"}, coords)
+        return op.line_row(record, region, GRID_TS)
+
+    def substation(osm_id: int, region: str, point: tuple[float, float]) -> dict[str, Any]:
+        record = op.SubstationRecord("node", osm_id, {"power": "substation"}, point, None)
+        return op.substation_row(record, region, GRID_TS)
+
+    geo = tmp_path / "published"
+    files = {
+        op.GEO_LINES_NAME: op.write_geoparquet(
+            [
+                line(101, "US-TX", [(-97.0, 30.0), (-96.99, 30.0)]),
+                line(301, "US-OK", [(-97.5, 35.0), (-97.4, 35.1)]),
+            ],
+            geo / op.GEO_LINES_NAME,
+            kind="lines",
+        ),
+        op.GEO_SUBSTATIONS_NAME: op.write_geoparquet(
+            [substation(201, "US-TX", (-97.0, 30.0)), substation(302, "US-OK", (-97.5, 35.0))],
+            geo / op.GEO_SUBSTATIONS_NAME,
+            kind="substations",
+        ),
+    }
+    version = "v1/20261021T202102Z-20261022T061500Z"
+    manifest = {
+        "version": version,
+        "regions": [{"region": "US-OK", "timestamp": GRID_TS}, {"region": "US-TX", "timestamp": GRID_TS}],
+        "files": files,
+    }
+    served = {f"{GRID_URL}/latest.json": json.dumps(manifest).encode()}
+    for name in files:
+        served[f"{GRID_URL}/{version}/{name}"] = (geo / name).read_bytes()
+    return served
+
+
+def _server(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, tiles: _Tiles, bucket: _EmptyBucket
+) -> pathlib.Path:
+    """The worker's environment as the beta's env file sets it (GRID_LAYERS_REGIONS=US-TX, the R2
+    names), with the network replaced: the tiles host by `tiles`, the private bucket by `bucket`.
+    Returns the data root."""
+    import pipeline.connectors.http as http
+    import services.context_sample.sync as sync_mod
+    from pipeline.context import fema_nfhl, osm_power
+
+    data_root = tmp_path / "data"
+    monkeypatch.setenv("GRID_LAYERS_REGIONS", "US-TX")
+    monkeypatch.setenv("GRID_LAYERS_URL", GRID_URL)
+    monkeypatch.setenv("PROSPECT_DATA_DIR", str(data_root / "normalized" / "prospect"))
+    monkeypatch.setattr(osm_power, "DATA_DIR", data_root)
+    monkeypatch.setattr(osm_power, "NORMALIZED_DIR", data_root / "normalized" / "context")
+    monkeypatch.setattr(osm_power, "_licence_text", lambda: "ODbL 1.0 (test)")
+    monkeypatch.setattr(http, "PoliteSession", lambda *a, **k: tiles)
+    monkeypatch.setattr(fema_nfhl, "DATA_DIR", data_root)
+    monkeypatch.setattr(fema_nfhl, "store_from_env", lambda: bucket)
+    monkeypatch.setattr(sync_mod, "client_from_env", lambda: (bucket, "beta-object-storage-production"))
+    return data_root
+
+
+def _run_pulls_in_process() -> tuple[Any, list[list[str]]]:
+    """`subprocess.run` for `context_build_job`: the three pulls run their real CLI in this process
+    (the environment is the one `subprocess.run` would hand the child: it passes no `env`), every
+    other builder answers ok."""
+    from pipeline.context import fema_nfhl, osm_power
+    from pipeline.context.prospect import pull as prospect_pull
+
+    mains: dict[str, Any] = {
+        "pipeline.context.osm_power": osm_power.main,
+        "pipeline.context.fema_nfhl": fema_nfhl.main,
+        "pipeline.context.prospect.pull": prospect_pull.main,
+    }
+    calls: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str], *, cwd: Any, timeout: int, **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        assert "env" not in kwargs, "the builder inherits the worker's environment"
+        calls.append(cmd[2:])
+        main = mains.get(cmd[2])
+        if main is None:
+            return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = main(cmd[3:])
+        except SystemExit as exc:
+            return subprocess.CompletedProcess(
+                cmd, 1 if exc.code else 0, stdout=out.getvalue(), stderr=str(exc)
+            )
+        return subprocess.CompletedProcess(cmd, int(code or 0), stdout=out.getvalue(), stderr="")
+
+    return fake_run, calls
+
+
+def test_the_pulls_run_last_in_the_build_so_the_load_and_the_site_finder_follow_them() -> None:
+    """Order (docs/25 §2.7 limit 1): every builder, then the three pulls, inside `context_build`, which
+    chains to `context_load` and that to `site_finder_refresh` (tests above and below)."""
+    assert tuple(argv[0] for argv in jobs.CONTEXT_BUILDERS[-3:]) == PULLS
+    assert jobs.CONTEXT_BUILDERS[-3][1:] == ("pull",) and jobs.CONTEXT_BUILDERS[-2][1:] == ("pull",)
+    from pipeline.context import fema_nfhl, osm_power
+    from pipeline.context.prospect import pull as prospect_pull
+
+    assert {osm_power.NOT_PUBLISHED, fema_nfhl.NOT_PUBLISHED, prospect_pull.NOT_PUBLISHED} == {
+        jobs.NOT_PUBLISHED
+    }
+
+
+def test_context_build_pulls_the_grid_for_the_configured_regions_and_an_unpublished_layer_fails_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The OpenStreetMap build is published, the flood and prospect builds are not: the OSM pull
+    writes the frames for GRID_LAYERS_REGIONS (Texas only, though the build is national), the other
+    two report "not published", and nothing counts as failed."""
+    import pandas as pd
+
+    tiles = _Tiles(_published_grid(tmp_path))
+    bucket = _EmptyBucket()
+    data_root = _server(monkeypatch, tmp_path, tiles, bucket)
+    fake_run, calls = _run_pulls_in_process()
+    report = jobs.context_build_job(_run=fake_run, timeout_s=7)
+
+    assert [c[0] for c in calls[-3:]] == list(PULLS)
+    assert report["failed"] == []
+    assert report["not_published"] == ["fema_nfhl pull", "prospect.pull"]
+    assert report["ok"] == len(jobs.CONTEXT_BUILDERS) - 2
+    context = data_root / "normalized" / "context"
+    lines = pd.read_parquet(context / "us.osm.power.lines.parquet")
+    substations = pd.read_parquet(context / "us.osm.power.substations.parquet")
+    assert list(lines["source_asset_id"]) == ["way/101"] and list(substations["source_asset_id"]) == [
+        "node/201"
+    ]
+    held = json.loads((context / "us.osm.power.manifest.json").read_text())
+    assert held["regions_loaded"] == ["US-TX"] and [r["region"] for r in held["regions"]] == ["US-TX"]
+    assert bucket.asked == [
+        "data/normalized/context/us.fema.nfhl/latest.json",
+        "prospect/current/texas.json",  # a Texas server never falls back to the national build
+    ]
+    assert not (data_root / "normalized" / "prospect").exists()
+
+
+def test_before_any_build_is_published_every_pull_reports_it_and_the_build_still_succeeds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    tiles = _Tiles({})
+    data_root = _server(monkeypatch, tmp_path, tiles, _EmptyBucket())
+    fake_run, _calls = _run_pulls_in_process()
+    report = jobs.context_build_job(_run=fake_run, timeout_s=7)
+    assert report["failed"] == []
+    assert report["not_published"] == ["osm_power pull", "fema_nfhl pull", "prospect.pull"]
+    assert tiles.requested == [f"{GRID_URL}/latest.json"]
+    assert not (data_root / "normalized" / "context").exists()
+
+
+def test_a_pull_without_a_regions_setting_fails_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The pulls refuse an unset GRID_LAYERS_REGIONS (never read as national); the deploy always
+    renders it (infra/ci/beta.py), so this is a misconfigured server, reported as a failed builder."""
+    _server(monkeypatch, tmp_path, _Tiles({}), _EmptyBucket())
+    monkeypatch.delenv("GRID_LAYERS_REGIONS")
+    fake_run, _calls = _run_pulls_in_process()
+    report = jobs.context_build_job(_run=fake_run, timeout_s=7)
+    assert report["failed"] == ["osm_power pull: exit 1", "fema_nfhl pull: exit 1", "prospect.pull: exit 1"]
+    assert report["ok"] == len(jobs.CONTEXT_BUILDERS) - 3
+
+
+def test_builder_names_and_summaries() -> None:
+    assert jobs.builder_name(("pipeline.context.eia_atlas", "--layer", "all")) == "eia_atlas"
+    assert jobs.builder_name(("pipeline.context.osm_power", "pull")) == "osm_power pull"
+    assert jobs.builder_name(("pipeline.context.prospect.pull",)) == "prospect.pull"
+    assert jobs.builder_summary('progress\n{"status": "pulled"}\n{"status": "not_published"}\n') == {
+        "status": "not_published"
+    }
+    assert jobs.builder_summary("no json here\n{broken") is None and jobs.builder_summary(None) is None
 
 
 def test_the_builders_are_the_ones_whose_files_the_load_reads() -> None:
@@ -144,6 +380,9 @@ def test_the_builders_are_the_ones_whose_files_the_load_reads() -> None:
         "us.eia.860.owners.parquet": "eia_owners",
         "us.epa.ghgrp.parquet": "ghgrp",
         "global.gleif.lei.parents.parquet": None,
+        # docs/25 §2.7 limit 1: written by the OpenStreetMap pull, which reads the published build.
+        "us.osm.power.lines.parquet": "osm_power",
+        "us.osm.power.substations.parquet": "osm_power",
     }
     assert set(builder_for) == set(context_layers.expected_files())
     for name, builder in builder_for.items():
@@ -318,9 +557,91 @@ def test_the_site_finder_job_runs_a_refresh_over_the_connector_data_root(tmp_pat
         return {"fetched": False}
 
     assert jobs.site_finder_refresh_job(
-        run, _session_factory=factory, _data_root=tmp_path, _counties=fetch_counties
+        run,
+        _session_factory=factory,
+        _data_root=tmp_path,
+        _counties=fetch_counties,
+        _memory_limit=lambda: None,
     ) == {"status": "ok", "segments": 5, "counties_file": {"fetched": False}}
     assert seen == [(factory, tmp_path)] and counties == [tmp_path]
+
+
+def test_the_site_finder_does_not_start_in_a_container_too_small_for_it(
+    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review 2026-10-23: once the pulls land Texas's OpenStreetMap lines, the monthly chain runs the
+    full Texas computation inside the worker, which peaked at 1.2 GB (docs/25 §7), and the beta's
+    worker was limited to 1 GB: the kernel would kill the worker with every job in flight, and the
+    stalled-job sweep would start it again up to three times. Below the floor the job does nothing
+    but say so; at the 3 GB the beta's worker needs, or with no limit at all, it runs."""
+    gib = 1024**3
+    factory = _Factory()
+
+    def refresh(limit: int | None) -> tuple[dict[str, Any], list[str]]:
+        calls: list[str] = []
+
+        def run(factory: Any, data_root: pathlib.Path) -> dict[str, Any]:
+            calls.append("run")
+            return {"status": "ok"}
+
+        def fetch_counties(root: pathlib.Path) -> dict[str, Any]:
+            calls.append("counties")
+            return {"fetched": False}
+
+        report = jobs.site_finder_refresh_job(
+            run,
+            _session_factory=factory,
+            _data_root=tmp_path,
+            _counties=fetch_counties,
+            _memory_limit=lambda: limit,
+        )
+        return report, calls
+
+    with caplog.at_level("WARNING", logger=jobs.logger.name):
+        report, calls = refresh(gib)  # compose.prod.yml's `mem_limit: 1g`
+    assert calls == []
+    assert report["skipped"] == "memory"
+    assert (report["memory_limit_mb"], report["memory_needed_mb"]) == (1024, 2048)
+    assert "compose.single.yml" in report["fix"]
+    assert "1024 MB, below the 2048 MB" in caplog.text
+    for limit in (3 * gib, jobs.SITE_FINDER_MIN_MEMORY_BYTES, None):
+        report, calls = refresh(limit)
+        assert report["status"] == "ok" and calls == ["counties", "run"], limit
+
+
+def test_the_container_memory_limit_is_read_from_cgroup_v2_then_v1(tmp_path: pathlib.Path) -> None:
+    v2, v1 = tmp_path / "memory.max", tmp_path / "memory.limit_in_bytes"
+    assert jobs.container_memory_limit((v2, v1)) is None  # neither file: a development machine
+    v2.write_text("1073741824\n")
+    assert jobs.container_memory_limit((v2, v1)) == 1024**3  # Compose `mem_limit: 1g`
+    v2.write_text("max\n")
+    assert jobs.container_memory_limit((v2, v1)) is None
+    v2.unlink()
+    v1.write_text("9223372036854771712\n")  # cgroup v1's "no limit"
+    assert jobs.container_memory_limit((v2, v1)) is None
+    v1.write_text("3221225472\n")
+    assert jobs.container_memory_limit((v2, v1)) == 3 * 1024**3
+    v2.write_text("garbage\n")
+    assert jobs.container_memory_limit((v2, v1)) == 3 * 1024**3
+
+
+def test_the_context_tick_runs_after_the_builds_it_pulls_have_finished(scheduler_app: Any) -> None:
+    """Review 2026-10-23: the tick fired on the 3rd at 02:43, before the flood (the 3rd, 04:41) and
+    prospect (the 3rd, 06:41) builds, so each scheduled build reached the server a month late. Each
+    build's schedule plus the sum of its jobs' time limits (an upper bound) must end before the tick."""
+    import yaml
+
+    def minutes(cron: str) -> int:
+        minute, hour, day = (int(field) for field in cron.split()[:3])
+        return (day * 24 + hour) * 60 + minute
+
+    tick = minutes(scheduler_app.CONTEXT_CRON)
+    for name in ("grid-layers.yml", "flood-layer.yml", "prospect-layers.yml"):
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / name).read_text())
+        on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+        limit = sum(int(job.get("timeout-minutes", 360)) for job in workflow["jobs"].values())
+        for schedule in on["schedule"]:
+            assert minutes(schedule["cron"]) + limit < tick, (name, schedule["cron"], limit)
 
 
 def test_the_site_finder_brings_the_counties_file_up_to_date_and_runs_on_without_it(

@@ -68,6 +68,8 @@ OGC:CRS84. NAD83 and WGS84 differ by about 1-2 m in the contiguous US, inside th
 
 CLI (``python -m pipeline.context.fema_nfhl``): ``aoi``, ``product``, ``state``, ``manifest``; see
 ``main``. ``infra/scripts/build_flood_layer.sh`` runs them in GitHub Actions and uploads to R2.
+``pull`` is the server's side (its monthly ``context_build``): ``latest.json`` and the files of the
+states ``GRID_LAYERS_REGIONS`` names, from the private bucket to the data root (`pull`).
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ import io
 import itertools
 import json
 import math
+import os
 import pathlib
 import re
 import shutil
@@ -2025,6 +2028,175 @@ def local_path(key: str, data_root: pathlib.Path = DATA_DIR) -> pathlib.Path:
     return data_root / key.removeprefix("data/")
 
 
+# ---------------------------------------------------------------- the server's pull (context_build)
+#: The summary `status` when the build has nothing for the server yet (no `latest.json`, or none of
+#: the states it loads); `infra/scheduler/jobs.py` (`NOT_PUBLISHED`) reports it as "not published",
+#: never as a failed builder.
+NOT_PUBLISHED = "not_published"
+LATEST_KEY = f"{R2_PREFIX}/latest.json"
+#: A version directory of the local layout (`20261022T0441Z`): the only directories `pull` removes.
+VERSION_DIR = re.compile(r"^\d{8}T\d{4}Z$")
+
+
+class PullError(RuntimeError):
+    """The published manifest or one of its files failed a check; the local copy was not changed."""
+
+
+def _state_objects(entry: Mapping[str, Any]) -> list[tuple[str, str | None]]:
+    """(object key, sha256) of every file one state's manifest entry names: its three layers and its
+    area of interest. The `aoi.parquet` carries no digest in the manifest; its key is under a version
+    prefix that is never rewritten, so a complete local copy (written by rename) is the file."""
+    objects = [(str(f["key"]), f.get("sha256")) for f in (entry.get("files") or {}).values()]
+    objects.append((str(entry["aoi"]["key"]), None))
+    return objects
+
+
+def _versions_named(manifest: Mapping[str, Any] | None) -> set[str]:
+    out: set[str] = set()
+    for entry in ((manifest or {}).get("states") or {}).values():
+        for key, _ in _state_objects(entry):
+            head = key.removeprefix(R2_PREFIX + "/").split("/", 1)[0]
+            if VERSION_DIR.match(head):
+                out.add(head)
+    return out
+
+
+def _write_atomic(path: pathlib.Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.part")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
+def pull(store: Any, *, states: Sequence[str] | None, data_root: pathlib.Path = DATA_DIR) -> dict[str, Any]:
+    """The server's copy of the published flood build (docs/25 §5.5), for the states it loads:
+    `latest.json` from the object store, then each state's files at the keys the manifest names for
+    that state (a carried-forward state lives under an older version), each checked against its
+    sha256 and written to `local_path(key, data_root)` by rename. The local `latest.json` goes last,
+    narrowed to the states pulled, so the site finder (`services/site_finder/flood.py`) never lists a
+    state whose files are not all there. `states` are postal codes (`TX`); None is every state the
+    manifest lists. A wanted state the build lacks is named in `states_not_published`.
+
+    `store.get(key) -> bytes` raises FileNotFoundError for a missing key
+    (`pipeline.connectors.objectstore.S3Backend` with an empty prefix: the keys carry `data/`). No
+    `latest.json`, or none of the wanted states in it -> `status: not_published` and nothing written.
+    Version directories named by neither the new nor the previous local manifest are removed; the
+    previous one's stay, so a site finder run still reading them finishes."""
+    try:
+        raw = store.get(LATEST_KEY)
+    except FileNotFoundError:
+        return {"source_id": SOURCE_ID, "status": NOT_PUBLISHED, "key": LATEST_KEY}
+    manifest = json.loads(raw)
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("states"), dict):
+        raise PullError(f"{LATEST_KEY} is not a flood manifest (no `states`)")
+    available: dict[str, Any] = manifest["states"]
+    wanted = sorted(available) if states is None else sorted({s.strip().upper() for s in states if s.strip()})
+    kept = [s for s in wanted if s in available]
+    missing = [s for s in wanted if s not in available]
+    if not kept:
+        return {
+            "source_id": SOURCE_ID,
+            "status": NOT_PUBLISHED,
+            "version": manifest.get("version"),
+            "states_not_published": missing,
+        }
+    target = local_path(LATEST_KEY, data_root)
+    previous = json.loads(target.read_text(encoding="utf-8")) if target.exists() else None
+    fetched = reused = nbytes = 0
+    for state in kept:
+        for key, digest in _state_objects(available[state]):
+            path = local_path(key, data_root)
+            if path.exists() and (digest is None or _sha256(path) == digest):
+                reused += 1
+                continue
+            data = store.get(key)
+            if digest is not None and hashlib.sha256(data).hexdigest() != digest:
+                raise PullError(f"{key}: sha256 does not match the manifest's {digest}")
+            _write_atomic(path, data)
+            fetched += 1
+            nbytes += len(data)
+    unchanged = (
+        fetched == 0
+        and previous is not None
+        and previous.get("version") == manifest.get("version")
+        and sorted(previous.get("states") or {}) == kept
+    )
+    local = {
+        **manifest,
+        "states": {s: available[s] for s in kept},
+        "states_loaded": kept,
+        "states_not_published": missing,
+        "pulled_at": _now_iso(),
+    }
+    if not unchanged:
+        _write_atomic(target, (json.dumps(local, indent=1, sort_keys=True, default=str) + "\n").encode())
+    keep = _versions_named(local) | _versions_named(previous)
+    removed = sorted(
+        p.name
+        for p in target.parent.iterdir()
+        if p.is_dir() and VERSION_DIR.match(p.name) and p.name not in keep
+    )
+    for name in removed:
+        shutil.rmtree(target.parent / name, ignore_errors=True)
+    return {
+        "source_id": SOURCE_ID,
+        "status": "unchanged" if unchanged else "pulled",
+        "version": manifest.get("version"),
+        "states": kept,
+        "states_not_published": missing,
+        "files_fetched": fetched,
+        "files_reused": reused,
+        "bytes": nbytes,
+        "versions_removed": removed,
+    }
+
+
+def store_from_env(env: Mapping[str, str] | None = None) -> Any:
+    """The private bucket the flood build publishes to (`R2_BUCKET`), from the R2 settings the beta's
+    env file carries (`infra/ci/beta.py render_env`); keys are full (`data/...`), so no prefix."""
+    from pipeline.connectors.objectstore import S3Backend
+
+    env = os.environ if env is None else env
+    endpoint = (env.get("R2_ENDPOINT") or "").strip()
+    account = (env.get("R2_ACCOUNT_ID") or "").strip()
+    if not endpoint and account:
+        endpoint = f"https://{account}.r2.cloudflarestorage.com"
+    values = {
+        "R2_BUCKET": (env.get("R2_BUCKET") or "").strip(),
+        "R2_ACCESS_KEY_ID": (env.get("R2_ACCESS_KEY_ID") or "").strip(),
+        "R2_SECRET_ACCESS_KEY": (env.get("R2_SECRET_ACCESS_KEY") or "").strip(),
+        "R2_ENDPOINT or R2_ACCOUNT_ID": endpoint,
+    }
+    unset = [name for name, value in values.items() if not value]
+    if unset:
+        raise PullError(f"unset: {', '.join(unset)} (the server's env file carries them)")
+    return S3Backend(
+        values["R2_BUCKET"],
+        endpoint_url=endpoint,
+        access_key_id=values["R2_ACCESS_KEY_ID"],
+        secret_access_key=values["R2_SECRET_ACCESS_KEY"],
+        prefix="",
+    )
+
+
+def _pull_command(states_arg: str | None, data_root: pathlib.Path) -> dict[str, Any]:
+    """`pull`'s CLI body: the states from `--states` or `GRID_LAYERS_REGIONS` (the variable the
+    OpenStreetMap pull reads, `pipeline.context.osm_power.default_regions`: ISO codes or `all`, and
+    unset is refused), as postal codes."""
+    from pipeline.connectors.objectstore import StoreError
+    from pipeline.context.osm_power import BuildError, default_regions, parse_regions
+
+    try:
+        regions = parse_regions(states_arg) if states_arg else default_regions()
+    except BuildError as exc:
+        raise SystemExit(f"fema_nfhl pull: {exc}") from exc
+    states = None if regions is None else [r.removeprefix("US-") for r in regions]
+    try:
+        return pull(store_from_env(), states=states, data_root=data_root)
+    except (PullError, StoreError) as exc:
+        raise SystemExit(f"fema_nfhl pull: {exc}") from exc
+
+
 @dataclasses.dataclass(frozen=True)
 class FloodAnswer:
     """The finder's answer for one site (`docs/25` §5.3). ``answer`` is "sfha" (in the floodplain),
@@ -2200,9 +2372,20 @@ def main(argv: list[str] | None = None) -> None:
         help="states of --previous a full build may leave out (comma or space separated); default none",
     )
 
+    p_pull = sub.add_parser(
+        "pull", help="the server's copy of the published build: latest.json and its states' files"
+    )
+    p_pull.add_argument(
+        "--states",
+        help="ISO codes to pull (US-TX,US-OK) or 'all'. Default: $GRID_LAYERS_REGIONS, which must be set",
+    )
+    p_pull.add_argument("--data-root", type=pathlib.Path, default=DATA_DIR)
+
     args = parser.parse_args(argv)
     result: Any
-    if args.cmd == "aoi":
+    if args.cmd == "pull":
+        result = _pull_command(args.states, args.data_root)
+    elif args.cmd == "aoi":
         t0 = time.monotonic()
         states = [s.strip().upper() for s in args.states.split(",") if s.strip()] or None
         rows, geoms, summary = build_aoi(

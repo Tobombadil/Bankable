@@ -35,8 +35,9 @@ before; `https://{DOMAIN}/admin` no longer works. Every host also sends HSTS, `n
 policy and a content security policy, report-only by default (`CSP_MODE`, §5; `docs/60` §2). `/csp-report`, where
 browsers send violation reports, is outside the login like the health checks.
 
-**Sizing.** The Compose limits sum to 4.25 GB (Postgres 1, api 1, web 0.75, scheduler 0.25,
-worker 1, Caddy 0.25). The measured api peak is 606–638 MB (`docs/60` §2). That fits the `cx32`
+**Sizing.** The Compose limits sum to 6.25 GB (Postgres 1, api 1, web 0.75, scheduler 0.25,
+worker 3, Caddy 0.25; the worker was 1 GB until 2026-10-23, raised for the site finder's Texas run, which
+peaks at 1.2 GB inside one job, `docs/25` §7). The measured api peak is 606–638 MB (`docs/60` §2). That fits the `cx32`
 (4 vCPU, 8 GB) that `infra/terraform` already defaults to.
 
 **Cost** (inferred from `docs/60` §4's table, prices retrieved 2026-09-13, not re-verified): one `cx32`
@@ -98,6 +99,7 @@ GitHub's secret fields: never into chat, an email or the repository.
   | `SITE_ACCESS_USER` | variable | the shared user name: letters, digits, `.`, `_`, `@` or `-` |
   | `SITE_ACCESS` | variable, optional | `basic` (the default: the shared login) or `open` (public, no login; §6) |
   | `MY_PIPELINE` | variable, optional | `off` (the default: `/my` and `/v1/my` answer 404) or `on` (My pipeline, the signed-in user's private Tracker, `docs/19` §11). Takes effect at the next `deploy` |
+  | `GRID_LAYERS_REGIONS` | variable, optional | the states whose site-finder inputs the server pulls each month (the OpenStreetMap lines and substations, the FEMA flood files, the prospect build; `docs/25` §2.7 limit 3): ISO 3166-2 codes, comma separated, such as `US-TX` or `US-TX,US-OK`, or `all`. Unset: `US-TX`, the beta's value. `all` passes with a warning: the national line index needs about 1.3 GB more memory than this server has. A variable, not a secret. The inputs check refuses anything else (`TX` alone, a state name). Takes effect at the next `deploy`, then the next context build (§3 `seed`, or the 4th of the month) |
   | `SENDER_POSTAL_ADDRESS` | variable | the legal sender's real postal address, on one line (manual step 9 says why) |
   | `SENDER_LEGAL_NAME` | variable, optional | default: Compass International Trading Group LLC (decided 2026-09-18) |
   | `PRODUCT_CONTACT_EMAIL` | variable, optional | default: `hello@<your domain>` |

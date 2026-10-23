@@ -594,12 +594,10 @@ build), `services/api/assets.py` (map, page, nearby grid).
    stale nor keep counting as covered in the map's source rule. The two frames and the manifest copy are written
    as temporary files and renamed into place, the manifest last, all three stamped with one `frame_set` token; a
    crash part-way leaves a mix the loader refuses (step 4) rather than new frames paired with the previous load's
-   covered regions. **Wiring left to the
-   coordinator** (outside this lane's files), in one change: append `("pipeline.context.osm_power", "pull")` to
-   `infra/scheduler/jobs.py::CONTEXT_BUILDERS`, add `OSM_POWER_FILES` to
-   `services/ingest/context_layers.py::expected_files()`, and map both frames to `osm_power` in
-   `infra/scheduler/test_context_and_match.py`. `context_load` already loads the frames whenever they are
-   present; until the wiring lands, a deployed store gets them only from an operator run of the pull.
+   covered regions. **Wired 2026-10-23** (lane sf-golive, limit 1 below): the pull is a `context_build` builder,
+   so `context_load` and then `site_finder_refresh` follow it. Before the first national build is promoted,
+   `latest.json` answers 404 and the pull reports `status: not_published` (exit 0), writes nothing and leaves the
+   frames the server holds; any other answer is still an error.
 4. **Load** (`context_load`, `services/ingest/osm_power.py`): every row through `load_assets`, so each carries
    `source_id` `us.osm.power`, `source_url` the element's openstreetmap.org page (linked, never fetched: robots.txt
    disallows `/way/`, `/node/`, `/relation/` to crawlers), `retrieved_at` the extract's replication timestamp and
@@ -765,10 +763,28 @@ the Texas extract holds.
 
 #### Limits and open items
 
-1. **Wire the pull into `context_build`** (step 3 above): three small edits, two of them outside this lane's
-   files, with `GRID_LAYERS_REGIONS=US-TX` set on the worker in the same change (limit 3). Without it the pull
-   exits non-zero with a message naming the setting, so a missed variable fails the builder instead of loading
-   national.
+1. ~~**Wire the pull into `context_build`**~~ **Closed 2026-10-23 (lane sf-golive).** In one change:
+   `infra/scheduler/jobs.py::CONTEXT_BUILDERS` ends with three pulls, `("pipeline.context.osm_power", "pull")`,
+   `("pipeline.context.fema_nfhl", "pull")` and `("pipeline.context.prospect.pull",)`, after every builder, so
+   the chain is pulls, then `context_load`, then `site_finder_refresh`; `services/ingest/context_layers.py::
+   expected_files()` lists `OSM_POWER_FILES`; `infra/scheduler/test_context_and_match.py` maps both frames to
+   `osm_power` and runs the three pulls' real CLIs against a published grid build and an empty private bucket.
+   The flood pull (`fema_nfhl pull`, new) reads `data/normalized/context/us.fema.nfhl/latest.json` from the
+   private bucket (`R2_BUCKET`, with the R2 key the env file already carries), fetches only the states the
+   server loads at the keys the manifest names for each (sha256 checked, written by rename), and writes the local
+   `latest.json` last, narrowed to those states, which is what the site finder reads (§5.5). The prospect pull
+   (`pipeline/context/prospect/pull.py`, a thin wrapper over `services.context_sample.sync`) reads
+   `prospect/current/texas.json` for a Texas-only server and `conus.json` for any other setting; a Texas
+   server never falls back to `conus` (review 2026-10-23: the national build is unmeasured, prospect item 9,
+   and would land in a site-finder run that already peaks at 1.2 GB), so until a `texas` build is dispatched
+   it answers "not published" and names the dispatch. Both read `GRID_LAYERS_REGIONS`
+   (no second setting) and refuse to run without it. A layer whose workflow has not published yet answers
+   `status: not_published` and exits 0: `context_build` lists it under `not_published`, never under `failed`,
+   and the other builders and the load run as before. The variable reaches the worker through the deploy
+   (limit 3). The monthly tick moved from the 3rd to the 4th at 02:43 UTC (`infra/scheduler/app.py`
+   `CONTEXT_CRON`): on the 3rd it fired before the flood (quarterly, the 3rd at 04:41) and prospect (the 3rd at
+   06:41) builds, so each scheduled build reached the server a month late; a test holds every build's schedule
+   plus its jobs' time limits before the tick.
 2. **pyosmium is not in `requirements.txt`**: only the build reads OSM files, and it installs `osmium==4.3.2`
    itself. The OSM-file tests skip in `ci.yml`; `grid-layers.yml` runs them in a light `test-osm-files` job on
    every pull request that touches the build module, its fixtures, `geo.py`, the state polygons or the workflow
@@ -784,7 +800,14 @@ the Texas extract holds.
    LBNL keeps drawing every other state through the map's source rule. The published files stay national
    either way. The setting is required (unset is refused), and the pull's region filter runs in pyarrow before
    any row becomes a Python object, so a US-TX pull of the national file peaks at Texas's size plus one
-   65,536-row batch, not at the nation's.
+   65,536-row batch, not at the nation's. **On the beta since 2026-10-23 (lane sf-golive)**: the GitHub
+   Environment variable `GRID_LAYERS_REGIONS` (a variable, not a secret) is checked by deploy-beta's inputs
+   check (ISO codes or `all`) and rendered into the env file every container reads (`infra/ci/beta.py`),
+   `US-TX` when unset, so the worker's pulls always have it (`docs/64` §2 inputs table). `all` passes the check
+   with a warning on the run, since national does not fit this server. The pulls still refuse an empty value; a
+   store built by hand or another route must set it (staging and production through their SOPS file, where
+   the key is optional for `deploy.sh` but required wherever the site finder runs: without it the three pulls
+   fail every month).
 4. **Geofabrik's usage notes and robots.txt, read second-hand**: `download.geofabrik.de` is still closed at the
    sandbox's egress (connection reset after the TLS hello, 2026-10-22 evening), so on 2026-10-22 about 23:50 UTC
    they were read through a fetch service that returns a summary with quotes, not the raw bytes.
@@ -798,7 +821,10 @@ the Texas extract holds.
    run time) is therefore the platform's default, not a Geofabrik figure. **Blocking for the first national run**:
    a human opens the front page and `robots.txt` in a browser, confirms these quotes against the raw text, and
    records the result in `data/sources.yaml` `verified`. Whether GitHub's runners reach the download server is
-   not verified from here; the build fails rather than publishes if they do not.
+   not verified from here; the build fails rather than publishes if they do not. The owner's steps, in order
+   with the national run after them, are `docs/66` "Site finder go-live" (still open until that check is
+   recorded). The check comes before `grid-layers.yml` reaches `main`: from then its own monthly run (the 2nd,
+   06:41 UTC) makes the first national build without anyone dispatching it.
 5. **Untagged voltage**: in Texas, 1,546 lines (7.3% of lines, 1,829 miles, 3.4% of the miles) state no usable
    voltage (1,536 have no `voltage` tag, 9 say `0`, 1 says `medium`), and so do 689 substations (11%). They are
    kept with `voltage_unknown: true`; `voltage_kv[gte]` leaves them out unless `include_voltage_unknown=true`.
@@ -813,6 +839,20 @@ the Texas extract holds.
    which is what the clipped development build counted (every way with a vertex in the Texas polygon), plus the
    few ways wholly outside the polygon that Geofabrik's Texas extract also holds. Expect the national count to
    be at or slightly above the table's, never below it because of the border.
+8. **The server's pull downloads the national files, whatever `GRID_LAYERS_REGIONS` says** (a measurement to
+   take). A subset build is never promoted, so a US-TX server's `osm_power pull` fetches the national
+   `lines.parquet` and `substations.parquet` and keeps Texas in pyarrow (limit 3). It runs as its own process
+   inside the worker's container. Since 2026-10-23 (lane sf-golive) it streams each file to
+   `<data root>/tmp/osm-power-pull/` in 1 MB chunks, hashing on the way, instead of holding the body whole
+   (`requests` builds `.content` by joining its chunks, about twice the body), and deletes both files when the
+   frames are written. Record after the first national build:
+
+   | Measure (US-TX server, national build) | Estimate | Measured |
+   |---|---|---|
+   | `lines.parquet` | 90-100 MB (Texas's 7.8 MB at 8.6% of LBNL's route miles) | not yet |
+   | `substations.parquet` | about 8 MB (Texas's 0.72 MB scaled the same way) | not yet |
+   | pull, elapsed and peak RSS in the worker container (`/usr/bin/time -v python -m pipeline.context.osm_power pull`) | time not estimated; memory about Texas's rows plus one 65,536-row batch, plus pyarrow itself | not yet |
+   | disk in `<data root>/tmp/` while it runs | the two files, about 100 MB | not yet |
 
 ## 3. Data-centre demand signals
 
@@ -1996,6 +2036,14 @@ shortfall (§5.4), and the memory of the clip-and-write step (§5.8 item 6).
    these files. `pyogrio` (GDAL, for the state geodatabases) stays a build-time install; without it the
    county fixture is read with pyshp.
 2. Rebuild the areas of interest from the OpenStreetMap lines when that lane lands (`LINES_PARQUET`).
+   **Still open (2026-10-23, lane sf-golive):** the server now pulls this build (`fema_nfhl pull`, §2.7 limit 1),
+   but `flood-layer.yml` passes no `LINES_PARQUET`, so its plan job buffers the LBNL lines (about a fifth of US
+   transmission miles) and the site finder's bands along OpenStreetMap-only lines read "flood data unavailable
+   (not computed)" and are left out at its defaults. The development run that measured 15,188 Texas bands
+   (§7) had the OpenStreetMap areas of interest. The change, in the flood lane's files: when `LINES_PARQUET`
+   is unset, the plan step reads `https://tiles.$BANKABLE_DOMAIN/grid/osm-power/latest.json`, fetches the
+   `lines.parquet` it names (sha256 checked; its `voltage_kv` column is numeric kV, which `lines_from_parquet`
+   accepts), and buffers that, falling back to LBNL only while the grid build is unpublished.
 3. LOMAs are not applied; preliminary FIRMs are not read (§5.3).
 4. FEMA's website policies (www.fema.gov, 403 here): read in a browser and add to the register row.
 5. The MSC search form can change without notice; `STATE_PROBES` and `--product-file` are the fallbacks.
@@ -2385,8 +2433,15 @@ scale 0.01) and `compress=PACKBITS, BIGTIFF=YES`. `pipeline/context/prospect/tes
 4. Aqueduct's licence version is inferred from WRI's standard; NETL's names no CC version (docs/13 §6 rows).
 5. Field boundaries: not available from EIA (5.1).
 6. The NSRDB vintage is 1998-2016; a newer NSRDB summary with GIS files would replace it when NLR publishes one.
-7. **Serving needs the sync wired**: `python -m services.context_sample.sync` in `infra/scripts/deploy.sh` (after
-   the containers start) or as a scheduler job, and `PROSPECT_DATA_DIR` on a volume. Not in this lane's paths.
+7. ~~**Serving needs the sync wired**~~ **Closed for the site finder 2026-10-23 (lane sf-golive):** the worker's
+   monthly `context_build` runs `python -m pipeline.context.prospect.pull` (a thin wrapper over the sync that
+   picks the build from `GRID_LAYERS_REGIONS`: `texas` for a Texas-only server, `conus` for any other setting,
+   and answers "not published" while that pointer does not exist; §2.7 limit 1) into
+   `<data root>/normalized/prospect` on the worker's `connector_data` volume, before `site_finder_refresh`
+   samples it. A Texas server follows `prospect/current/texas.json` only, never `conus` (item 9: the national
+   build is unmeasured), and only a dispatch with region `texas` moves that pointer; the monthly scheduled run
+   builds `conus`, so a Texas server's layers are as fresh as its last `texas` dispatch. Still open: the API container mounts no data volume, so `GET /v1/context/sample` on the beta
+   answers without these files until the api service gets a read-only mount of the same directory (compose).
 8. No OpenStreetMap data is used by these layers; the "© OpenStreetMap contributors" rule applies to the map and
    site-finder lanes that draw lines and substations under them.
 9. The national builds are designed and tested end to end against a fake bucket, but have not yet run in Actions:
@@ -2461,6 +2516,23 @@ point kept public by one request 200 miles away showed the distance of a hidden 
 the far request's MW as if it were nearby. A band's retiring MW is the sum over the distinct visible plants near
 any of its segments, the figure shown and sorted on alike. Bands are drawn from the vertices the run stored, so a
 context load that moves a line cannot misplace a band the run measured.
+
+**On the one-server beta (lane sf-golive, 2026-10-23).** The run happens inside the worker process
+(`infra/scheduler/jobs.py` `site_finder_refresh_job`), after the monthly pulls and load (§2.7 limit 1). *Time
+fits:* `SITE_FINDER_TIMEOUT_S` is 3 hours (`infra/scheduler/app.py`) against the 1,966-2,051 s measured above, so
+a host about five times slower than the development machine still finishes; the run is single-threaded, and the
+worker has 1.5 CPUs (`compose.prod.yml`). *Memory does not fit yet:* the 1.2 GB peak above is more than the
+worker's container limit, `mem_limit: 1g` in `compose.prod.yml`, which `compose.single.yml` does not override.
+Before this lane the beta held no `us.osm.power` rows, so the run computed nothing; once the pulls land Texas's
+lines it computes everything, and at 1 GB the kernel would kill the worker with every job in flight, and
+`queue_maintenance.recover_stalled_jobs` would start the run again up to three times a month. The change needed,
+outside this lane's files: `compose.single.yml` worker `mem_limit: 3g` (the host's limits then total 6.25 of its
+8 GB). Until it is deployed, `site_finder_refresh` reads its container's limit from the cgroup
+(`jobs.container_memory_limit`) and, below `SITE_FINDER_MIN_MEMORY_BYTES` (2 GiB: the 1.2 GB peak plus the
+worker's own memory and one concurrent job), does not start: it logs a warning naming the limit and the fix and
+reports `skipped: memory`; the pulls and the load still run, and the API keeps the run it had (none on the beta
+today). Assumption: the development peak (one process, SQLite store) is close to the worker's; the first run on
+the beta should record its own peak beside the figures above.
 
 **Not what it is.** A screening list, not a site assessment: it cannot see spare substation capacity, zoning,
 ownership, easements or water rights, and the floodplain shares are not a flood determination (§5). Every value

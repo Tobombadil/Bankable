@@ -33,12 +33,15 @@ VARIABLES = {
     "SENDER_POSTAL_ADDRESS",
 }
 #: MY_PIPELINE (lane tracker, 2026-10-23): `on` opens the private Tracker; unset or `off` keeps it 404.
+#: GRID_LAYERS_REGIONS (lane sf-golive, 2026-10-23): the states the server's grid, flood and prospect
+#: pulls load; a variable, never a secret; unset renders US-TX (docs/25 §2.7 limit 3).
 OPTIONAL_VARIABLES = {
     "SENDER_LEGAL_NAME",
     "PRODUCT_CONTACT_EMAIL",
     "PRODUCT_NAME",
     "SITE_ACCESS",
     "MY_PIPELINE",
+    "GRID_LAYERS_REGIONS",
 }
 #: The ERCOT Public API account (lane price-hubs, 2026-10-22): optional, all three or none.
 OPTIONAL_SECRETS = {"ERCOT_API_SUBSCRIPTION_KEY", "ERCOT_API_USERNAME", "ERCOT_API_PASSWORD"}
@@ -240,3 +243,78 @@ def test_basemap_yml_reads_the_same_environment_values() -> None:
         f"'{prefix.group(1) if prefix else ''}-tiles-production'" in text,
         "the fallback is the bucket deploy-beta makes",
     )
+
+
+def test_grid_layers_regions_is_a_variable_that_reaches_the_check_and_the_env_file() -> None:
+    """The site finder's go-live (lane sf-golive): GRID_LAYERS_REGIONS travels as an Environment
+    variable (`vars.`, never `secrets.`) into the inputs check, which validates it, and into the
+    render-env step, which writes it into the env file every container reads (the worker's pulls)."""
+    expected = "${{ vars.GRID_LAYERS_REGIONS }}"
+    expect("secrets.GRID_LAYERS_REGIONS" not in WORKFLOW.read_text(), "a setting, not a credential")
+    jobs = workflow()["jobs"]
+    check_env = jobs["inputs"]["steps"][1]["env"]
+    expect(check_env.get("GRID_LAYERS_REGIONS") == expected, check_env)
+    render = [s for s in jobs["host"]["steps"] if s.get("run") == "infra/ci/beta.sh render-env"]
+    expect(len(render) == 1, "one render-env step")
+    expect(render[0]["env"].get("GRID_LAYERS_REGIONS") == expected, render[0]["env"])
+
+
+# ------------------------------------------------------- docs/66 "Site finder go-live" (lane sf-golive)
+DOCS_66 = ROOT / "docs" / "66-owner-actions.md"
+BUILDS = {
+    name: ROOT / ".github" / "workflows" / f"{name}.yml"
+    for name in ("grid-layers", "flood-layer", "prospect-layers")
+}
+BUILD_PROSPECT_SH = ROOT / "infra" / "scripts" / "build_prospect_layers.sh"
+
+
+def go_live_section() -> str:
+    """The section, whitespace folded so a quote wrapped across lines still matches."""
+    text = DOCS_66.read_text()
+    start = text.index("## Site finder go-live")
+    return " ".join(text[start : text.index("\n## ", start + 1)].split())
+
+
+def test_go_live_names_only_jobs_and_steps_the_build_workflows_have() -> None:
+    """Every job or step the owner is told to watch exists under that name."""
+    section = go_live_section()
+    names: set[str] = set()
+    for path in BUILDS.values():
+        doc: dict[Any, Any] = yaml.safe_load(path.read_text())
+        for job_id, job in doc["jobs"].items():
+            names.update({job_id, str(job.get("name", ""))})
+            names.update(str(step.get("name", "")) for step in job.get("steps", []))
+    cited = re.findall(r'the (?:job|step) "([^"]+)"', section)
+    expect(len(cited) >= 3, cited)
+    for name in cited:
+        expect(name in names, f"docs/66 names {name!r}, which no build workflow has")
+
+
+def test_go_live_prospect_done_signal_shows_on_the_red_run_it_describes() -> None:
+    """Review 2026-10-23: the Texas prospect build is red while PAD-US and Aqueduct have no inbox file,
+    and docs/66 said it was done when the step "verify the pointer and its manifest are readable"
+    printed a build_id. That step has no status function, so GitHub's implicit success() skips it on
+    that red run: the owner would never see the signal. The signal must come from a step that runs
+    on a red run, and the line it quotes must be the one build_prospect_layers.sh prints."""
+    section = go_live_section()
+    item = section[section.index("[prospect-layers](") : section.index("**(c) Optional")]
+    expect("Expect a red run" in item, "the item describes the red run")
+    doc: dict[Any, Any] = yaml.safe_load(BUILDS["prospect-layers"].read_text())
+    job_steps: list[dict[str, Any]] = doc["jobs"]["build-prospect-layers"]["steps"]
+    names = [str(step.get("name", "")) for step in job_steps]
+    build = next(
+        i for i, s in enumerate(job_steps) if s.get("run") == "infra/scripts/build_prospect_layers.sh"
+    )
+    cited = re.findall(r'Done when the step "([^"]+)"', item)
+    expect(len(cited) == 1, cited)
+    for name in cited:
+        expect(name in names, f"{name!r} is not a step of prospect-layers.yml")
+        condition = str(job_steps[names.index(name)].get("if", ""))
+        runs_on_red = names.index(name) <= build or "always()" in condition or "failure()" in condition
+        expect(runs_on_red, f"{name!r} is skipped once the build step fails (implicit success())")
+    template = re.search(r'^log "(published [^"]+ to it)"$', BUILD_PROSPECT_SH.read_text(), re.M)
+    expect(template is not None, "build_prospect_layers.sh's publish line")
+    line = (template.group(1) if template else "").replace("${PREFIX}", "prospect")
+    line = line.replace("${REGION}", "texas").replace("${build_id}", "<build_id>")
+    line = line.replace("${pointer_key}", "prospect/current/texas.json")
+    expect(f"[prospect-layers] {line}" in item, f"docs/66 quotes the line the script prints: {line}")

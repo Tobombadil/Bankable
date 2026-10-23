@@ -32,7 +32,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -58,6 +58,7 @@ OPTIONAL_VARIABLES = (
     "PRODUCT_NAME",
     "SITE_ACCESS",
     "MY_PIPELINE",
+    "GRID_LAYERS_REGIONS",
 )
 #: The ERCOT Public API account (docs/29 §2.1; owner, 2026-10-22: a person registers it). All three
 #: or none: without them the ERCOT price connector works from the public MIS downloads and display
@@ -68,6 +69,26 @@ SITE_ACCESS_VALUES = ("basic", "open")
 #: `MY_PIPELINE`: `off` (the default: /my and /v1/my answer 404) or `on` (My pipeline, the private
 #: Tracker, docs/19 §11). Read by api and web from the env file; anything but `on` keeps it off.
 MY_PIPELINE_VALUES = ("off", "on")
+#: `GRID_LAYERS_REGIONS`: the states whose grid, flood and prospect files the server's monthly
+#: `context_build` pulls (docs/25 §2.7 limit 3; `pipeline/context/osm_power.py` `default_regions`).
+#: A comma list of ISO 3166-2 codes or `all`; unset renders the beta's value, Texas. The codes are the
+#: Geofabrik extracts the grid build reads (`osm_power.US_STATE_EXTRACTS`; infra/ci/test_beta.py holds
+#: the two equal), written here because this module runs on the runner's bare `python3`.
+DEFAULT_GRID_LAYERS_REGIONS = "US-TX"
+GRID_LAYERS_STATES = frozenset(
+    f"US-{code}"
+    for code in (
+        "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY "
+        "NC ND OH OK OR PA PR RI SC SD TN TX UT VT VA WA WV WI WY"
+    ).split()
+)
+#: `all` is accepted (the spec allows it) but warned about: on the one-server beta the national line
+#: index needs about 1.3 GB more per API process than its 1 GB container (docs/25 §2.7 limit 3), and a
+#: national site-finder run is estimated at ten times Texas's, past `SITE_FINDER_TIMEOUT_S`.
+GRID_LAYERS_ALL_WARNING = (
+    "national: does not fit the one-server beta (about 1.3 GB more per API process, and a site-finder "
+    "run of about ten times Texas's; docs/25 section 2.7, limit 3). Leave it unset for US-TX"
+)
 #: docs/00-PLAN.md decisions log, 2026-09-18.
 DEFAULT_SENDER_LEGAL_NAME = "Compass International Trading Group LLC"
 #: Cost of the gate's bcrypt hash: `caddy hash-password`'s default, which docs/64 documents.
@@ -102,6 +123,11 @@ class InputError(Exception):
 def error(message: str) -> None:
     """A GitHub annotation: listed on the run, readable through the API."""
     sys.stdout.write(f"::error::{message}\n")
+
+
+def warning(message: str) -> None:
+    """A GitHub warning annotation: shown on the run, which still goes on."""
+    sys.stdout.write(f"::warning::{message}\n")
 
 
 def summary(markdown: str) -> None:
@@ -144,6 +170,8 @@ class Row:
     kind: str
     status: str
     problem: str | None = None
+    #: Accepted, but worth a look: shown in the summary and as a `::warning::`, never a stop.
+    warning: str | None = None
 
 
 def check_inputs(
@@ -229,6 +257,17 @@ def check_inputs(
             pipeline if pipeline else "default: off (My pipeline answers 404)",
         )
     )
+    regions_raw = env.get("GRID_LAYERS_REGIONS", "")
+    regions, regions_problem = grid_layers_regions(regions_raw)
+    regions_row = row(
+        "GRID_LAYERS_REGIONS",
+        "variable, optional",
+        regions_problem,
+        regions if regions_raw.strip() else f"default: {DEFAULT_GRID_LAYERS_REGIONS} (Texas)",
+    )
+    if regions == "all" and not regions_problem:
+        regions_row = replace(regions_row, warning=GRID_LAYERS_ALL_WARNING)
+    rows.append(regions_row)
     ercot_set = [name for name in OPTIONAL_SECRETS if env.get(name, "")]
     for name in OPTIONAL_SECRETS:
         value = env.get(name, "")
@@ -295,6 +334,34 @@ def _variable_problem(name: str, value: str, tag: str, commit: str, code_domain:
     return None
 
 
+def grid_layers_regions(value: str) -> tuple[str, str | None]:
+    """(the value the env file carries, a problem or None). Unset or blank is the beta's
+    `DEFAULT_GRID_LAYERS_REGIONS`; `all` (any case) stays `all`; otherwise each comma-separated
+    ISO 3166-2 code is upper-cased, duplicates dropped, order kept, and must name a state the grid
+    build has: `US-TX`, not `TX` or `Texas`, so the pull never refuses what this check let through."""
+    text = value.strip()
+    if not text:
+        return DEFAULT_GRID_LAYERS_REGIONS, None
+    if text.lower() == "all":
+        return "all", None
+    codes: list[str] = []
+    for part in text.split(","):
+        code = part.strip().upper()
+        if code and code not in codes:
+            codes.append(code)
+    if not codes:
+        return "", "names no state: use ISO codes such as US-TX (comma separated), or all"
+    unknown = [c for c in codes if c not in GRID_LAYERS_STATES]
+    if unknown:
+        hints = [f"US-{c}" for c in unknown if f"US-{c}" in GRID_LAYERS_STATES]
+        hint = f" (did you mean {', '.join(hints)}?)" if hints else ""
+        return "", (
+            f"{', '.join(unknown)} not a US state's ISO 3166-2 code{hint}: use codes such as US-TX "
+            "(comma separated), or all"
+        )
+    return ",".join(codes), None
+
+
 def _free_text_problem(value: str) -> str | None:
     if PLACEHOLDER.search(value):
         return "still the template's placeholder"
@@ -315,7 +382,9 @@ def inputs_markdown(rows: Sequence[Row]) -> str:
         "| Name | Kind | Status | What to do |",
         "|---|---|---|---|",
     ]
-    lines += [f"| `{r.name}` | {r.kind} | {cell(r.status)} | {cell(r.problem or '')} |" for r in rows]
+    lines += [
+        f"| `{r.name}` | {r.kind} | {cell(r.status)} | {cell(r.problem or r.warning or '')} |" for r in rows
+    ]
     lines += ["", f"**{len(problems)} to fix; nothing was deployed.**" if problems else "All inputs present."]
     return "\n".join(lines)
 
@@ -531,6 +600,17 @@ def my_pipeline(env: Mapping[str, str]) -> str:
     return "on" if env.get("MY_PIPELINE", "").strip().lower() == "on" else "off"
 
 
+def rendered_grid_layers_regions(env: Mapping[str, str]) -> str:
+    """`GRID_LAYERS_REGIONS` as the env file carries it: the Environment variable normalised
+    (`grid_layers_regions`), Texas when unset. Always rendered, because the server's grid, flood and
+    prospect pulls refuse to run without it (docs/25 §2.7 limit 3). check-inputs has already refused
+    a malformed value; this refuses one too rather than write it."""
+    value, problem = grid_layers_regions(env.get("GRID_LAYERS_REGIONS", ""))
+    if problem:
+        raise InputError(f"GRID_LAYERS_REGIONS: {problem}")
+    return value
+
+
 def render_env(
     env: Mapping[str, str], outputs: Mapping[str, Any], *, site_hash: str
 ) -> list[tuple[str, str]]:
@@ -563,6 +643,7 @@ def render_env(
         *site_access_pairs(env, site_hash),
         ("CSP_MODE", "report"),
         ("MY_PIPELINE", my_pipeline(env)),
+        ("GRID_LAYERS_REGIONS", rendered_grid_layers_regions(env)),
         ("SESSION_SECRET", generated["SESSION_SECRET"]),
         ("API_INTERNAL_TOKEN", generated["API_INTERNAL_TOKEN"]),
         ("AUDIT_HASH_PEPPER", generated["AUDIT_HASH_PEPPER"]),
@@ -701,6 +782,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 out.write(
                     f"{row.name:<24} {row.kind:<20} {row.status}{': ' + row.problem if row.problem else ''}\n"
                 )
+            for row in rows:
+                if row.warning and not row.problem:
+                    warning(f"{row.name}: {row.warning}")
             problems = [r for r in rows if r.problem]
             for row in problems:
                 error(f"{row.name}: {row.problem}")
