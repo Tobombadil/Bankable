@@ -30,6 +30,7 @@ VERSIONED_ASSETS: tuple[str, ...] = (
     "js/asset_map.js",
     "js/report.js",
     "js/site.js",
+    "js/site_finder.js",
 )
 
 

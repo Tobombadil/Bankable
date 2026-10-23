@@ -2,7 +2,8 @@
 2026-09-28): the recorded LBNL fixture, normalised by `pipeline/context/lbnl_transmission.py`,
 loads as one asset per HIFLD line with its line geometry and provenance; the HIFLD owner rides in
 `attributes` and mints no organisation (LBNL's owner strings do not key-match the registry --
-`pipeline/context/lbnl_transmission.py` docstring). `substation` stays unwired (docs/13 §2.19)."""
+`pipeline/context/lbnl_transmission.py` docstring). `substation` is wired to OpenStreetMap alone since
+lane grid-osm (2026-10-22): never to this LBNL source, never to DHS's restricted layer (docs/13 §2.19)."""
 
 from __future__ import annotations
 
@@ -66,6 +67,6 @@ def test_owner_is_shown_but_mints_no_organisation(session):
     assert row.attributes["owner"] == "Niagara Mohawk Power"
 
 
-def test_substation_is_not_wired():
+def test_substation_is_not_wired_to_this_source():
     with pytest.raises(UnsupportedAssetTypeError):
-        load_assets(Session(), _frame().iloc[:0], "substation")
+        load_assets(Session(), _frame(), "substation")  # the frame names the LBNL source

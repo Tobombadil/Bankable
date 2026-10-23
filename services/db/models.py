@@ -2089,6 +2089,146 @@ class OrganizationStats(Base):
     )
 
 
+# ================================================ site finder (owner decision 2026-10-22, migration 0039)
+#: `site_finder_run.status`. A run is written `running`, then `ok` (its candidates are what the API
+#: serves) or `failed` (they are deleted; the previous `ok` run keeps serving).
+SITE_FINDER_RUN_STATUSES = ("running", "ok", "failed")
+#: The band half-widths the flood shares are stored at (miles), and the column suffix of each.
+SITE_FINDER_DISTANCES: dict[str, float] = {"025": 0.25, "050": 0.5, "100": 1.0, "200": 2.0}
+
+
+class SiteFinderRun(Base):
+    """One computation of the powered-land site finder's candidates (`services/site_finder`). The
+    API serves the candidates of the newest `ok` run only, so a refresh never shows half a store.
+    `inputs` names what the run read (the OpenStreetMap load, the flood manifest version and its
+    states, the counties file, the prospect build, the fiber file), each with its provenance;
+    `layers` holds the prospecting layers' metadata (title, unit, the sentence of what the value is
+    not, provenance) once per run, so each candidate row stores only numbers. Derived data, like
+    `organization_stats`: the provenance of every value is on the candidate rows and in `inputs`."""
+
+    __tablename__ = "site_finder_run"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="running")
+    started_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    finished_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    segments: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    layers: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    stats: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    error: Mapped[str | None] = mapped_column(sa.Text)
+
+    __table_args__ = (
+        sa.CheckConstraint(f"status IN {SITE_FINDER_RUN_STATUSES!r}", name="status_vocab"),
+        sa.Index("ix_site_finder_run_status_finished", "status", "finished_at"),
+    )
+
+
+class SiteCandidate(Base):
+    """One segment of about half a mile of a 69 kV-and-up (or voltage-unknown) OpenStreetMap line,
+    with what the finder filters and ranks on, precomputed (owner decision 2026-10-22; `services/
+    site_finder/compute.py`). The API merges adjacent passing segments of one line into corridor
+    bands at request time (`services/api/site_finder.py`).
+
+    The provenance quartet is the line's (`us.osm.power`, the way's openstreetmap.org page, the
+    extract timestamp, the ODbL licence row). Every other value names its own source in `context`
+    or in the run's `inputs`: the nearest substation is an asset row, the flood shares come from the
+    run's FEMA NFHL manifest, the county from Census TIGER/Line, the prospecting values from the
+    run's prospect build. Nothing aggregated over proposals is stored (docs/21 §8 item 4), and no
+    value derived from a proposal is stored apart from that proposal's id: nearby data-centre requests
+    are kept as (proposal id, miles) and queue requests naming a grid connection point as (proposal
+    id, point id, miles), whatever their visibility, so the API drops each one the caller's tier may
+    not see (and each whose exact location it may not serve) before it takes a nearest distance or
+    sums a queued MW (`services/api/site_finder.py`).
+
+    Flood shares are per band half-width (`SITE_FINDER_DISTANCES`): `flood_share_<d>` is the share of
+    the band's area inside the Special Flood Hazard Area, over the part with flood data;
+    `flood_cover_<d>` is the share of the band that has flood data at all (inside the FEMA build's
+    area of interest and FEMA's effective digital map, and not Zone D or "area not included"). A
+    band with cover under 1 is "flood data unavailable", never "outside"."""
+
+    __tablename__ = "site_candidate"
+
+    id: Mapped[_uuid.UUID] = mapped_column(GUID(), primary_key=True, default=new_uuid)
+    run_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("site_finder_run.id", ondelete="CASCADE"), nullable=False
+    )
+    line_asset_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("asset.id", ondelete="CASCADE"), nullable=False
+    )
+    segment_index: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    #: Where the segment starts along the line, and its length (geodesic miles of the stored line).
+    start_mi: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    length_mi: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    min_lon: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    min_lat: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    max_lon: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    max_lat: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    mid_lon: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    mid_lat: Mapped[float] = mapped_column(sa.Float, nullable=False)
+    #: The line's highest stated voltage; NULL with `voltage_unknown` when OpenStreetMap states none.
+    voltage_kv: Mapped[float | None] = mapped_column(sa.Float)
+    voltage_unknown: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    underground: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    state_code: Mapped[str | None] = mapped_column(sa.Text)
+    county_fips: Mapped[str | None] = mapped_column(sa.String(5))
+    county_name: Mapped[str | None] = mapped_column(sa.Text)
+    substation_asset_id: Mapped[_uuid.UUID | None] = mapped_column(
+        GUID(), sa.ForeignKey("asset.id", ondelete="SET NULL")
+    )
+    #: Miles from the segment to the nearest substation; NULL when none lies within the search radius.
+    substation_mi: Mapped[float | None] = mapped_column(sa.Float)
+    flood_share_025: Mapped[float | None] = mapped_column(sa.Float)
+    flood_share_050: Mapped[float | None] = mapped_column(sa.Float)
+    flood_share_100: Mapped[float | None] = mapped_column(sa.Float)
+    flood_share_200: Mapped[float | None] = mapped_column(sa.Float)
+    flood_cover_025: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
+    flood_cover_050: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
+    flood_cover_100: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
+    flood_cover_200: Mapped[float] = mapped_column(sa.Float, nullable=False, default=0.0)
+    #: Why the 2-mile band lacks flood data, in `FloodLayer.assess`'s vocabulary; NULL when it has it.
+    flood_reason: Mapped[str | None] = mapped_column(sa.Text)
+    #: Nameplate MW and count of the retiring and retired power plants within the context radius that
+    #: `context.plants` lists (assets, not proposals, so a stored figure carries no hidden record). The
+    #: API's band figure and its sort are the distinct plants over the band, re-read at the caller's
+    #: tier; these two columns are the segment's own.
+    retiring_mw: Mapped[float | None] = mapped_column(sa.Float)
+    retiring_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: PAD-US shares of the 1-mile band: any protected land, and GAP status 1-2 (the hard constraint).
+    protected_share: Mapped[float | None] = mapped_column(sa.Float)
+    hard_protected_share: Mapped[float | None] = mapped_column(sa.Float)
+    #: The segment's vertices ([[lon, lat], ...]) as the run read the line: a band is drawn from these,
+    #: so a later context load that moves the line's vertices cannot misplace a served band.
+    coords: Mapped[list[list[float]]] = mapped_column(JSONVariant(), nullable=False, default=list)
+    #: Ids and distances of what lies near: `plants` ([asset id, miles, MW]), `loads` ([proposal id,
+    #: miles]), `requests` ([proposal id, connection point id, miles]), `fiber`, `firm_panels`,
+    #: `flood_reported`.
+    context: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+    #: The prospecting layers over the 1-mile band, numbers only (metadata in the run's `layers`).
+    prospect: Mapped[dict[str, Any]] = mapped_column(JSONVariant(), nullable=False, default=dict)
+
+    source_id: Mapped[str] = mapped_column(sa.ForeignKey("source.id"), nullable=False)
+    source_url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    retrieved_at: Mapped[dt.datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    licence_id: Mapped[str] = mapped_column(sa.ForeignKey("licence.id"), nullable=False)
+    computed_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("run_id", "line_asset_id", "segment_index", name="uq_site_candidate_segment"),
+        # The finder's filters: voltage floor and substation distance first, then state and county.
+        sa.Index("ix_site_candidate_filter", "run_id", "voltage_kv", "substation_mi"),
+        sa.Index("ix_site_candidate_place", "run_id", "state_code", "county_fips"),
+        sa.Index("ix_site_candidate_mid", "run_id", "mid_lon", "mid_lat"),
+        # The two foreign keys a withdrawn asset's delete follows.
+        sa.Index("ix_site_candidate_line_asset_id", "line_asset_id"),
+        sa.Index("ix_site_candidate_substation_asset_id", "substation_asset_id"),
+    )
+
+
 # ================================================================== ui_event (docs/21 §3.21, 2026-09-14)
 UI_EVENT_NAMES = (
     "map.layer_toggled",  # props: {"layer": "plants", "on": true}

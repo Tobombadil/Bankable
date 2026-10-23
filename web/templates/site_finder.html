@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{%- from "partials/_site_finder_places.html" import state_options, county_options %}
+{% block title %}Site finder{% endblock %}
+{% block meta_description %}Find land beside high-voltage lines, near a substation and out of the floodplain: corridor bands from OpenStreetMap's grid and FEMA's flood maps, each fact linked to its source.{% endblock %}
+{% block extra_head %}
+{{ m.cdn_style("maplibre_css") }}
+{% endblock %}
+{% block skip_links %}<a class="skip-link" href="#sf-results">Skip to the results</a>{% endblock %}
+{% block content %}
+{#- docs/25 "Site finder": average reader first. The page opens with what it finds, in one sentence,
+    then the criteria (a plain GET form, so it works without scripts; site_finder.js applies a change
+    at once and keeps the URL in step), the map and the list. Below 720px the criteria fold behind
+    "Filters" as on every list, and a band's details open as a bottom sheet over the map. -#}
+<div class="sf-intro">
+  <h1 class="sf-intro__title">Site finder</h1>
+  <p class="sf-intro__lede">Land beside high-voltage lines, close to a substation and out of the floodplain: a first list of places a large load or a generator might connect. <span class="sf-intro__how" data-touch-words="Tap a band on the map or a row in the list for its details.">Click a band on the map or a row in the list for its details.</span></p>
+</div>
+
+{{ m.filter_toggle("sf-criteria") }}
+<form id="sf-criteria" class="filter-bar sf-criteria" action="/site-finder" method="get" data-collapse aria-label="Site criteria">
+  <div class="filter-field">
+    <label for="sf-min-kv">Line voltage, at least</label>
+    <select id="sf-min-kv" name="min_kv" data-default="{{ defaults.min_kv }}">
+      {%- for k in kv_choices %}
+      <option value="{{ k }}"{% if k == c.min_kv %} selected{% endif %}>{{ k }} kV</option>
+      {%- endfor %}
+    </select>
+  </div>
+  <div class="filter-field sf-range">
+    <label for="sf-adjacent">Land within <output class="sf-range__value" id="sf-adjacent-value" for="sf-adjacent">{{ '%g' % c.adjacent_mi }} mi</output> of the line</label>
+    <input id="sf-adjacent" type="range" name="adjacent_mi" min="0.25" max="2" step="0.25" value="{{ '%g' % c.adjacent_mi }}" list="sf-adjacent-marks" data-default="{{ '%g' % defaults.adjacent_mi }}" data-choices="{{ adjacent_choices | join(',') }}" aria-valuetext="{{ '%g' % c.adjacent_mi }} miles">
+    <datalist id="sf-adjacent-marks">{% for d in adjacent_choices %}<option value="{{ '%g' % d }}"></option>{% endfor %}</datalist>
+    <span class="sf-range__ends" aria-hidden="true"><span>&frac14; mi</span><span>2 mi</span></span>
+  </div>
+  <div class="filter-field sf-range">
+    <label for="sf-substation">Substation within <output class="sf-range__value" id="sf-substation-value" for="sf-substation">{{ '%g' % c.max_substation_mi }} mi</output></label>
+    <input id="sf-substation" type="range" name="max_substation_mi" min="{{ '%g' % substation_range[0] }}" max="{{ '%g' % substation_range[1] }}" step="{{ '%g' % substation_range[2] }}" value="{{ '%g' % c.max_substation_mi }}" data-default="{{ '%g' % defaults.max_substation_mi }}" aria-valuetext="{{ '%g' % c.max_substation_mi }} miles">
+    <span class="sf-range__ends" aria-hidden="true"><span>1 mi</span><span>10 mi</span></span>
+  </div>
+  <fieldset class="filter-field sf-flags">
+    <legend class="visually-hidden">Leave out or include</legend>
+    {#- A box sends `true` after its hidden `false`; the server reads the last (`web/site_finder.py::_last`). -#}
+    <input type="hidden" name="exclude_flood" value="false">
+    <label for="sf-flood"><input id="sf-flood" type="checkbox" name="exclude_flood" value="true" data-default="checked"{% if c.exclude_flood %} checked{% endif %}> Leave out the floodplain</label>
+    <input type="hidden" name="include_unknown_voltage" value="false">
+    <label for="sf-unknown"><input id="sf-unknown" type="checkbox" name="include_unknown_voltage" value="true"{% if c.include_unknown_voltage %} checked{% endif %}> Include lines with no stated voltage</label>
+    <input type="hidden" name="exclude_protected" value="false">
+    <label for="sf-protected"><input id="sf-protected" type="checkbox" name="exclude_protected" value="true"{% if c.exclude_protected %} checked{% endif %}> Leave out bands mostly on protected land</label>
+  </fieldset>
+  <div class="filter-field">
+    <label for="sf-state">State</label>
+    <select id="sf-state" name="state">{{ state_options(summary, c) }}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="sf-county">County</label>
+    <select id="sf-county" name="county"{% if summary.counties_need_state and not c.county %} aria-describedby="sf-county-hint"{% endif %}>{{ county_options(summary, c) }}
+    </select>
+    {%- if summary.counties_need_state and not c.county %}<span class="sf-hint" id="sf-county-hint">Choose a state to list its counties.</span>{% endif %}
+  </div>
+  {%- if c.sort != defaults.sort %}<input type="hidden" name="sort" value="{{ c.sort }}" data-not-filter>{% endif %}
+  <button type="submit" class="filter-bar__submit sf-apply">Find sites</button>
+  <a class="filter-bar__clear sf-reset" href="/site-finder">Reset</a>
+  <button type="button" class="filter-bar__done" data-filter-done>Show the results</button>
+</form>
+
+{% include "partials/_site_finder_summary.html" %}
+<div class="map-frame sf-frame" id="sf-frame">
+  <div id="sf-map" class="sf-map" role="application" aria-label="Map of the corridor bands that match. The list under the map has every band and its details." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
+  {#- The key: what each mark means, in words beside its sample (D-5: never colour alone). Line width
+      grows with voltage as well as its shade. Below 720px it is a closed disclosure under the map. -#}
+  <details class="sf-key" id="sf-key" open>
+    <summary>Key</summary>
+    <ul class="sf-key__list">
+      <li><span class="sf-key__band" aria-hidden="true"></span> <span>Candidate band: land within <span class="sf-key__band-words">{{ '%g' % c.adjacent_mi }} mi</span> of the line</span></li>
+      <li class="sf-key__group">Lines, by voltage (wider is higher)</li>
+      <li><span class="sf-key__line sf-key__line--500" aria-hidden="true"></span> 400 kV and up <span class="sf-key__eg">(500 kV)</span></li>
+      <li><span class="sf-key__line sf-key__line--345" aria-hidden="true"></span> 288&ndash;399 kV <span class="sf-key__eg">(345 kV)</span></li>
+      <li><span class="sf-key__line sf-key__line--230" aria-hidden="true"></span> 162&ndash;287 kV <span class="sf-key__eg">(230 kV)</span></li>
+      <li><span class="sf-key__line sf-key__line--115" aria-hidden="true"></span> 100&ndash;161 kV <span class="sf-key__eg">(138 kV)</span></li>
+      <li><span class="sf-key__line sf-key__line--69" aria-hidden="true"></span> 69&ndash;99 kV <span class="sf-key__eg">(69 kV)</span></li>
+      <li><span class="sf-key__line sf-key__line--unknown" aria-hidden="true"></span> Voltage not stated</li>
+      <li><span class="sf-key__substation" aria-hidden="true"></span> Substation (from zoom 8)</li>
+    </ul>
+  </details>
+  <section class="map-drawer sf-drawer{% if band or band_missing %} is-open{% endif %}" id="sf-drawer" role="dialog" aria-label="Band details"{% if not (band or band_missing) %} hidden{% endif %}>
+    <div class="map-drawer__bar">
+      <a class="map-drawer__back sf-drawer__back" href="{{ criteria.href() }}" id="sf-drawer-back">&larr; Back to the list</a>
+      <button type="button" class="map-drawer__expand" id="sf-drawer-expand" aria-controls="sf-drawer" aria-expanded="false" hidden>Expand</button>
+      <a class="map-drawer__close" href="{{ criteria.href() }}" id="sf-drawer-close" aria-label="Close" role="button">&times; Close</a>
+    </div>
+    <div class="sf-drawer__body" id="sf-drawer-body">
+      {%- if band or band_missing %}{% include "partials/_site_finder_band.html" %}{% endif %}
+    </div>
+  </section>
+</div>
+<p class="map-attribution sf-attribution">Lines and substations: <a href="https://www.openstreetmap.org/copyright" rel="noopener">&copy; OpenStreetMap contributors</a>, available under the <a href="{{ odbl_url }}" rel="noopener">Open Database License</a>. Floodplain: FEMA National Flood Hazard Layer. Counties: U.S. Census Bureau TIGER/Line. Retiring plants: EIA-860M; queue requests as each source credits them. {{ basemap_attribution }} Full credits: <a href="/attribution">Attribution</a>.</p>
+
+<section class="sf-results" id="sf-results" aria-label="Results">
+  <div id="sf-rows">
+  {% include "partials/_site_finder_rows.html" %}
+  </div>
+  {%- if summary.flood_note or summary.screening %}
+  <details class="sf-about">
+    <summary>How the bands are found</summary>
+    <div class="sf-about__body">
+      <p>Every OpenStreetMap power line of 69&nbsp;kV and up is cut into half-mile segments. A segment passes when its line meets the voltage floor, a substation lies within the distance chosen, and, with the floodplain left out, FEMA&rsquo;s digital flood map covers its band and at most 90% of the band is in the 1% annual-chance floodplain. Neighbouring passing segments of one line join into one band; the floodplain is cut out of the band drawn on the map.</p>
+      {%- if summary.screening %}<p>{{ summary.screening }}</p>{% endif %}
+      {%- if summary.flood_note %}<p>{{ summary.flood_note }}</p>{% endif %}
+    </div>
+  </details>
+  {%- endif %}
+</section>
+<script type="application/json" id="sf-config">{{ config_json | safe }}</script>
+{% endblock %}
+{% block extra_scripts %}
+{{ m.cdn_script("maplibre_js") }}
+{% if tile_mode == "pmtiles" %}
+{{ m.cdn_script("pmtiles_js") }}
+{{ m.cdn_script("basemaps_js") }}
+{% endif %}
+<script src="/static/js/basemap.js?v={{ asset_version }}"></script>
+<script src="/static/js/site_finder.js?v={{ asset_version }}"></script>
+{% endblock %}

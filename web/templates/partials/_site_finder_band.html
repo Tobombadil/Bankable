@@ -1,0 +1,141 @@
+{#- One band's details (`web/site_finder.py::band_view`): the page renders it when the URL names a
+    band (`band=`), and site_finder.js fetches it from `/api/site-finder/band` when a row or a band
+    on the map is clicked. Each fact says where it came from on the line under it; the links open
+    the band's centre in FEMA's flood map viewer and in Google Maps, and the line, the substation and
+    the county at their sources. Screening wording is the API's. -#}
+{% import "_macros.html" as m %}
+{%- macro source(src) -%}
+{%- if src %}<span class="sf-fact__source">{% if src.url %}<a href="{{ src.url }}" rel="noopener nofollow">{{ src.name }}</a>{% else %}{{ src.name }}{% endif %}{% if src.vintage %}, {{ src.vintage }}{% endif %}{% if src.retrieved %}, retrieved {{ src.retrieved }}{% endif %}</span>{% endif %}
+{%- endmacro -%}
+{%- if band_missing or not band %}
+<div class="sf-band sf-band--missing">
+  <h2 class="sf-band__title">This band no longer matches</h2>
+  <p>The criteria have changed, or the finder has been run again since the link was made, so this stretch of line is not a band any more. Pick one from the list.</p>
+</div>
+{%- else %}
+{%- set b = band %}
+<article class="sf-band" data-band="{{ b.id }}">
+  <script type="application/json" class="sf-band-map">{{ b.map_json | safe }}</script>
+  <p class="sf-band__kicker"><span class="sf-swatch sf-swatch--{{ b.voltage_class }}" aria-hidden="true"></span>{{ b.voltage }} line{% if b.underground %}, underground{% endif %}</p>
+  <h2 class="sf-band__title">{{ b.name }}</h2>
+  <p class="sf-band__lede">{{ b.length }} of line with land within {{ b.adjacent }} of it{% if b.place.label %}, in {{ b.place.label }}{% endif %}.</p>
+  <p class="sf-band__screening">A first screen, not a site assessment: it cannot see spare capacity at the substation, zoning, ownership, easements or water. Ask the utility first.</p>
+
+  <dl class="sf-facts">
+    <div class="sf-fact">
+      <dt>Line</dt>
+      <dd>{% if b.line_href %}<a href="{{ b.line_href }}">{{ b.name }}</a>{% else %}{{ b.name }}{% endif %}: {{ b.voltage }}{% if b.voltages %} (circuits at {{ b.voltages | join(', ') }}){% endif %}{% if b.operator %}, operated by {{ b.operator }}{% else %}, operator not stated{% endif %}.{% if b.voltage_unknown %} <span class="sf-flag">Voltage not stated in OpenStreetMap: check it before relying on this band.</span>{% endif %}
+        {{ source(b.line_source) }}</dd>
+    </div>
+    <div class="sf-fact">
+      <dt>Band</dt>
+      <dd>{{ b.length }} along the line.{% if b.geometry_note %} {{ b.geometry_note }}.{% endif %}</dd>
+    </div>
+    <div class="sf-fact">
+      <dt>Nearest substation</dt>
+      {%- if b.substation %}
+      <dd>{% if b.substation.href %}<a href="{{ b.substation.href }}">{{ b.substation.name }}</a>{% else %}{{ b.substation.name }}{% endif %}{% if b.substation.voltage %} ({{ b.substation.voltage }}){% endif %}, {{ b.substation.distance }} from the line.
+        {{ source(b.substation.source) }}</dd>
+      {%- else %}
+      <dd>No substation within 10 miles in OpenStreetMap.</dd>
+      {%- endif %}
+    </div>
+    <div class="sf-fact">
+      <dt>Floodplain</dt>
+      <dd><span class="sf-flood sf-flood--{{ b.flood.status }}">{{ b.flood.label }}</span>{% if b.flood.detail %}: {{ b.flood.detail }}{% endif %}.
+        {%- if b.flood.panels %} FEMA map panel{{ 's' if b.flood.panels | length > 1 }} {{ b.flood.panels | join(', ') }}.{% endif %}
+        {%- if b.flood.reported %} Also mapped here: {{ b.flood.reported | join(', ') }}.{% endif %}
+        {%- if b.flood.not %} <span class="sf-fact__not">{{ b.flood.not }}</span>{% endif %}
+        {{ source(b.flood.source) }}</dd>
+    </div>
+    <div class="sf-fact">
+      <dt>County</dt>
+      {%- if b.place.label %}
+      <dd>{{ b.place.label }}{% if b.place.others %} (the band also crosses {{ b.place.others | join(', ') }}){% endif %}.{% if b.place.note %} <span class="sf-fact__not">{{ b.place.note }}</span>{% endif %}
+        {{ source(b.place.source) }}</dd>
+      {%- else %}
+      <dd>Not known here.</dd>
+      {%- endif %}
+    </div>
+    <div class="sf-fact">
+      <dt>Retiring and retired plants within {{ b.radius }}</dt>
+      {%- if b.plants %}
+      <dd>{% if b.plants_mw %}{{ b.plants_mw }} in all. {% endif %}A retired site may keep its grid connection.
+        <ul class="sf-list">
+          {%- for p in b.plants %}
+          <li>{% if p.href %}<a href="{{ p.href }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}{% if p.mw %}, {{ p.mw }}{% endif %}{% if p.when %}, {{ p.when }}{% endif %}{% if p.owners %}; {{ p.owners }}{% endif %}{% if p.distance %}; {{ p.distance }} away{% endif %}. {{ source(p.source) }}</li>
+          {%- endfor %}
+        </ul></dd>
+      {%- else %}
+      <dd>No retiring or retired plant in EIA-860M.</dd>
+      {%- endif %}
+    </div>
+    <div class="sf-fact">
+      <dt>Data-centre and large-load requests within {{ b.radius }}</dt>
+      {%- if b.loads %}
+      <dd><ul class="sf-list">
+          {%- for p in b.loads %}
+          <li>{% if p.href %}<a href="{{ p.href }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}{% if p.mw %}, {{ p.mw }}{% endif %}{% if p.state %}, {{ p.state }}{% endif %}{% if p.distance %}; {{ p.distance }} away{% endif %}. {{ source(p.source) }}</li>
+          {%- endfor %}
+        </ul></dd>
+      {%- else %}
+      <dd>No request on record.</dd>
+      {%- endif %}
+    </div>
+    <div class="sf-fact">
+      <dt>Nearest grid connection point</dt>
+      {%- if b.grid %}
+      <dd>{% if b.grid.href %}<a href="{{ b.grid.href }}">{{ b.grid.name }}</a>{% else %}{{ b.grid.name }}{% endif %}{% if b.grid.iso %} ({{ b.grid.iso }}{% if b.grid.voltage %}, {{ b.grid.voltage }}{% endif %}){% endif %}: {% if b.grid.queued %}{{ b.grid.queued }} queued within {{ b.radius }}{% if b.grid.count %} in {{ b.grid.count }} active request{{ 's' if b.grid.count != 1 }}{% endif %}{% else %}no active queued capacity within {{ b.radius }}{% endif %}; the nearest request naming it is {{ b.grid.distance }} from the line.{% if b.grid.note %} <span class="sf-fact__not">{{ b.grid.note }}</span>{% endif %}
+        {{ source(b.grid.source) }}</dd>
+      {%- else %}
+      <dd>No queue request within {{ b.radius }} names one.</dd>
+      {%- endif %}
+    </div>
+    <div class="sf-fact">
+      <dt>Fiber</dt>
+      {%- if b.fiber.ok %}
+      <dd>{{ b.fiber.share or '—' }} of homes and businesses in the county can get fiber{% if b.fiber.gigabit %} ({{ b.fiber.gigabit }} at a gigabit){% endif %}.{% if b.fiber.note %} <span class="sf-fact__not">{{ b.fiber.note }}</span>{% endif %}{% if b.fiber.href %} <a href="{{ b.fiber.href }}" rel="noopener nofollow">FCC map of the area</a>.{% endif %}
+        {{ source(b.fiber.source) }}</dd>
+      {%- else %}
+      <dd>Not known here{% if b.fiber.reason %}: {{ b.fiber.reason }}{% endif %}.</dd>
+      {%- endif %}
+    </div>
+  </dl>
+
+  {%- if b.layers %}
+  <h3 class="sf-band__heading">Prospecting layers <span class="sf-band__aside">(screening only, over 1 mile either side of the line)</span></h3>
+  <dl class="sf-facts sf-facts--layers">
+    {%- for layer in b.layers %}
+    <div class="sf-fact">
+      <dt>{{ layer.title }}</dt>
+      <dd>{{ layer.value }}.{% if layer.features %} <span class="sf-fact__features">{{ layer.features | join('; ') }}.</span>{% endif %}{% if layer.not %} <span class="sf-fact__not">{{ layer.not }}</span>{% endif %}
+        {{ source(layer.source) }}</dd>
+    </div>
+    {%- endfor %}
+    {%- if b.energy_community.share %}
+    <div class="sf-fact">
+      <dt>IRA energy community, either test</dt>
+      <dd>{{ b.energy_community.share }} of the band.{% if b.energy_community.not %} <span class="sf-fact__not">{{ b.energy_community.not }}</span>{% endif %}</dd>
+    </div>
+    {%- endif %}
+  </dl>
+  {%- endif %}
+
+  {%- if b.links %}
+  <h3 class="sf-band__heading">Look closer{% if b.centre %} <span class="sf-band__aside">(centre {{ b.centre }})</span>{% endif %}</h3>
+  <ul class="sf-links">
+    {%- for label, href in b.links %}
+    <li><a href="{{ href }}" rel="noopener nofollow" target="_blank">{{ label }}</a></li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+
+  {#- Every register behind this band's values with its credit verbatim (the API's licence summary
+      for this one band), so the credit travels with the drawer wherever it opens. -#}
+  {%- if b.credits %}
+  <div class="drawer-source sf-band__credits">{{ m.credits_line(b.credits) }}</div>
+  {%- elif b.sources %}
+  <p class="drawer-source"><span class="drawer-source__label">Sources</span>{% for s in b.sources if s %}{% if s.url %}<a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a>{% else %}{{ s.name }}{% endif %}{{ '; ' if not loop.last }}{% endfor %}. <a href="/attribution">Attribution</a>.</p>
+  {%- endif %}
+</article>
+{%- endif %}

@@ -3899,6 +3899,35 @@ sources:
     for its geometry shape while building pipeline/context/regions.py, and is a separate basemap fallback with
     no region_id property, not a region-polygon source. Served by GET /v1/geo/regions.
 
+- id: us.census.tiger_counties
+  name: US Census Bureau TIGER/Line® Shapefiles — counties and equivalent entities (full resolution), for the site finder's county and state
+  jurisdiction: US
+  category: registry
+  operator: US Census Bureau, Geography Division (Geographic Products Branch)
+  url: https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html
+  access: bulk_file
+  auth: none
+  format: one national shapefile zip (https://www2.census.gov/geo/tiger/TIGER2026/COUNTY/tl_2026_us_county.zip, 83,378,454 bytes, Last-Modified 2026-10-07); built by services/site_finder/counties.py to normalized/context/us.census.tiger_counties.parquet (state-filtered on request, outlines simplified 5 m)
+  cadence: annual (the 2026 TIGER/Line Shapefiles were released on October 14, 2026; boundaries as of January 1, 2026)
+  license: 'US federal work, public domain. TIGER/Line Shapefiles Technical Documentation 2026, chapter 1 (https://www2.census.gov/geo/pdfs/maps-data/data/tiger/tgrshp2026/TGRSHP2026_TechDoc_Ch1.pdf, retrieved 2026-10-23T02:47Z, HTTP 200, platform user-agent; www2.census.gov/robots.txt has no Disallow for other agents): "1.2 Citation Information Copyright protection is not available for any work of the United States Government (Title 17 U.S.C., Section 105). Thus, you are free to reproduce census materials as you see fit. We would ask, however, that you cite the Census Bureau as the source." "1.3 ... Members of the public can obtain the TIGER/Line Shapefiles free of charge through the Census Bureau''s website". "1.1 TIGER/Line Shapefile Legal Disclaimers No warranty, expressed or implied, is made with regard to the accuracy of the data in the TIGER/Line Shapefiles ... The boundary information in the TIGER/Line Shapefiles is for statistical data collection and tabulation purposes only. Their depiction and designation for statistical purposes does not constitute a determination of jurisdictional authority or rights of ownership or entitlement and are not legal land descriptions. TIGER/Line® is a registered trademark of the Census Bureau. TIGER/Line cannot be used as or within the proprietary product names of any commercial product including or otherwise relevant to Census Bureau data and may only be used to refer to the nature of such a product. The Census Bureau requests that any repackaging of the TIGER/Line Shapefile data, documentation, and other files accompanying it for distribution include a conspicuously placed statement to this effect on the product''s cover, the first page of the website, or elsewhere of comparable visibility. Further, Census Bureau trademarks, when used in reference to the nature of the product, should be accompanied by the ® (registered) symbol or ™ symbol, where convenient."'
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Census Bureau, TIGER/Line® Shapefiles"
+  changes_statement: "County outlines simplified by 5 m by Inframation to name the county of each site-finder band; statistical boundaries, not legal land descriptions."
+  tier: 1
+  effort: S
+  probe: {method: HEAD}
+  verified: {date: 2026-10-23, result: ok, note: 'Lane site-finder. www2.census.gov/robots.txt (HTTP 200) disallows nothing for other agents; www.census.gov/robots.txt disallows only /search-results.html, /cgi-bin/, /libs/, /tmp/, /etc/ and /about/adrm/data-linkage/ for W3C-checklink and named crawlers. The TIGER/Line page (www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html, HTTP 200) says "All legal boundaries and names are as of January 1, 2026. The 2026 TIGER/Line Shapefiles were released on October 14, 2026." Texas development build 2026-10-23T03:16Z: tl_2026_us_county.zip (83,378,454 bytes, Last-Modified Wed, 07 Oct 2026 01:45:57 GMT) streamed, 254 Texas counties kept, written as a 2.9 MB GeoParquet in 11.9 s (peak 537 MB), the zip deleted after extraction.'}
+  notes: >-
+    The site finder (owner decision 2026-10-22) names each candidate band's county and state from the county
+    its midpoint falls in. Full-resolution TIGER/Line counties rather than the vendored 1:20,000,000
+    cartographic boundaries (us.census.cartographic_boundaries), whose generalised lines can sit a kilometre
+    or more off the true county line; those stay the fallback, labelled with their own source, where no
+    TIGER county contains a point. The Census Bureau asks to be cited and for the TIGER/Line® mark to carry
+    its symbol: the credit above does both. The boundaries are statistical, "not legal land descriptions",
+    and every county the finder names says so beside it. The download is deleted once the counties are
+    read; only the derived parquet stays on the data root.
+
 - id: us.fcc.bdc.fixed_summary
   name: FCC Broadband Data Collection — fixed broadband Summary by Geography Type (national file; county fiber-to-the-premises availability)
   jurisdiction: US (states, DC, Puerto Rico and territories)
@@ -4096,6 +4125,93 @@ sources:
     Coastal subset of the 2017 HIFLD substations layer, re-attributed by NOAA. Even if the CC0 statement governs,
     republishing it would re-open a layer DHS has since restricted; recorded so it is not picked up by accident.
     See docs/13 section 2.19.
+
+- id: us.osm.power
+  name: OpenStreetMap power network, US — transmission lines and cables (69 kV and up, or voltage not tagged) and substations, from Geofabrik's US state extracts
+  jurisdiction: US
+  category: registry
+  operator: OpenStreetMap contributors (OpenStreetMap Foundation, ODbL 1.0); state extracts by Geofabrik GmbH
+  url: https://download.geofabrik.de/north-america/us.html
+  access: bulk_file
+  auth: none
+  format: osm.pbf per state (https://download.geofabrik.de/north-america/us/<state>-latest.osm.pbf), filtered with pyosmium to GeoParquet (lines.parquet, substations.parquet), published on the platform's R2 tiles bucket under grid/osm-power/<version>/
+  cadence: 'daily (Geofabrik, www.geofabrik.de/data/download.html: "Most of these files are updated every day")'
+  poll: monthly
+  license: 'Open Database License 1.0. OpenStreetMap copyright page https://www.openstreetmap.org/copyright (retrieved 2026-10-22T13:51Z, HTTP 200, platform user-agent; /copyright is not disallowed by robots.txt): "OpenStreetMap is open data, licensed under the Open Data Commons Open Database License (ODbL) by the OpenStreetMap Foundation (OSMF)." "You are free to copy, distribute, transmit and adapt our data, as long as you credit OpenStreetMap and its contributors. If you alter or build upon our data, you may distribute the result only under the same license." "Where you use OpenStreetMap data, you are required to do the following two things: Provide credit to OpenStreetMap by displaying our attribution notice. Make clear that the data is available under the Open Database License." "If you are distributing OSM in data form, please name and link directly to the license(s)." Geofabrik, https://www.geofabrik.de/data/download.html (retrieved 2026-10-22T13:38Z, HTTP 200), on its download server: "All OpenStreetMap derived data on the download server is licensed under the Open Database License 1.0 . You may use the data for any purpose, but you have to acknowledge OpenStreetMap as the data source. Derived databases have to retain the same license." and "The raw data files ( .osm.pbf , .osc.gz , .osm.bz2 ) on our public download server ( download.geofabrik.de ) do not contain these fields" (user name, user id, changeset id). ODbL 1.0 sections 4.4 (share alike) and 4.6 (access to derivative databases) are quoted in docs/13 section 2.10.'
+  reuse: attribution
+  publication: raw_ok
+  attribution: "© OpenStreetMap contributors"
+  licence_url: "https://opendatacommons.org/licenses/odbl/1-0/"
+  changes_statement: "Power lines, cables and substations filtered and reshaped by Inframation from Geofabrik's US extracts; this derived database is available under the Open Database License 1.0 as GeoParquet files at https://tiles.inframation.io/grid/osm-power/ (latest.json names the current version's files; licence: https://www.openstreetmap.org/copyright)"
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-23, result: ok_fallback, rows: 27438, note: 'Lane grid-osm, Texas development run. Primary route not reached: download.geofabrik.de (eleven attempts over the day, the last three at 17:49 UTC) and overpass-api.de were closed at the sandbox egress straight after the TLS hello, so the download server''s own notes and robots.txt are unread (a human reads them before the first national run). download.openstreetmap.fr robots.txt disallows /*.pbf$ to every agent and planet.openstreetmap.org disallows every agent but wget: neither fetched. Fallback for measurement only, never published: the same OpenStreetMap elements read from Overture Maps base/infrastructure release 2026-10-21.0 (ODbL, public bucket overturemaps-us-west-2; range requests over the row groups meeting the Texas bounding box, about 420 MB, 50,905 power_line/cable/substation rows with OSM ids, versions and tags), rewritten as OSM elements and run through pipeline/context/osm_power.py build --clip and normalise (pyosmium 4.3.2). Data current to at least 2026-10-03T15:21:49Z. Kept for US-TX: 21,233 lines (490 cables; 54,303 miles inside Texas, 1,829 of them with no stated voltage) and 6,205 substations; dropped 13,069 busbars/bays, 840 lines under 69 kV, 47 minor_distribution substations. LBNL in Texas, same method: 12,581 miles. Loaded into a SQLite study store: 27,438 assets, reload 0 inserted, 0 withdrawn, licence share_alike. www.geofabrik.de/data/download.html re-read 18:20 UTC (HTTP 200): licence and metadata sentences above confirmed. Fix round, same file, fixed rules: counts and miles unchanged (21,233 lines, 6,205 substations; 9 overground cables, 0.15 miles, no longer flagged underground); read as five clipped extracts in table order (AR, LA, NM, OK, TX) and loaded as US-TX, the first version lost 79 border lines (1,635 miles, 812 inside Texas) and the fixed build none. download.geofabrik.de still closed at this sandbox''s egress (connection reset after the TLS hello, 2026-10-22 evening). Fix round 2: read 2026-10-22 about 23:50 UTC through a fetch service that returns quotes, not raw bytes: https://download.geofabrik.de/robots.txt answered HTTP 404 (no robots file); the front page says "This open data download service is offered free of charge by Geofabrik GmbH." and "License: ODbL 1.0"; technical.html and north-america/us.html state no rate limit, no parallel or automated-download rule and no bulk policy, and the data is updated "Once a day, around 21:00 CET" (docs/25 section 2.7, limit 4). A human confirms these against the raw pages before the first national run (blocking for that run). Re-run 2026-10-23 with the current module on the same file: unchanged (US-TX load of the five clipped extracts 21,240 lines, 54,303 miles inside Texas; the first version lost 79 of them). 1,666 Texas ways state more than one voltage value, 1,217 of them a repeated one, now kept as stated. Counts and timings in docs/25 section 2.7.'}
+  notes: >-
+    The site finder's grid layer (owner, 2026-10-22): sites within 1 mile of a 69 kV-or-higher line, within 5 miles
+    of a substation, outside the FEMA floodplain. Lines are power=line and power=cable ways (cables flagged
+    underground) whose highest voltage is 69 kV or more, plus ways with no usable voltage (kept as voltage
+    unknown); line=busbar/bay ways are substation internals and dropped. Substations are power=substation nodes,
+    closed ways and multipolygon relations (area -> centroid plus outline), every subtype kept except
+    substation=traction and minor_distribution. Source ids are way/<id>, node/<id>, relation/<id>; source_url is
+    the element's www.openstreetmap.org page, which robots.txt disallows for crawling (/way/, /node/, /relation/):
+    the platform links to it and never fetches it. retrieved_at is the extract's replication timestamp (PBF
+    header), not the download time. Operators ride as text (attributes.operator), not linked to organisations.
+    Share-alike (ODbL 4.4): the derived database the API serves is offered under ODbL as the build's own public
+    files (docs/25 section 2.7); the final wording of that offer is the legal lane's (docs/13 section 6). This source
+    is OpenStreetMap's data, not a private aggregator: OpenInfraMap renders the same data and is never scraped, and
+    Geofabrik's paid "Power Networks" product is not used. Never mixed with DHS's restricted HIFLD substation layer or
+    anything derived from it (us.dhs.hifld.electric_substations). pipeline/context/osm_power.py builds;
+    infra/scripts/build_grid_layers.sh and .github/workflows/grid-layers.yml run the national build monthly, one state
+    at a time, each download checked against Geofabrik's .md5 file and its Content-Length and retried alone (three
+    attempts) when a transfer fails part-way;
+    services/ingest/osm_power.py loads and withdraws. The server loads the states GRID_LAYERS_REGIONS names
+    (US-TX for the beta; 'all' for national); the pull refuses to run when it is unset, because the national line
+    index does not fit the beta server's memory yet (docs/25 section 2.7, limit 3). Region rule (fix round
+    2026-10-22): each row is labelled by the vendored state polygon of its representative point, and a load of a
+    state holds every row whose scope (states its vertices touch, plus every extract that held it) names that
+    state, so ways across a state line are never dropped from either side; the same rule decides withdrawals and
+    the per-state counts the promotion gate compares (10% and at least 50 rows). Narrowing GRID_LAYERS_REGIONS later
+    removes the dropped states' rows at the next load. The credit's changes_statement
+    names where the derived database's files are (ODbL 4.6) until the legal lane writes the offer page.
+    See docs/25 section 2.7 and docs/13 section 6.
+
+- id: us.fema.nfhl
+  name: FEMA National Flood Hazard Layer (NFHL) — Special Flood Hazard Areas and effective FIRM panels, state downloads
+  jurisdiction: US (50 states, DC, Puerto Rico)
+  category: registry
+  operator: Federal Emergency Management Agency (DHS), Flood Map Service Center (MSC)
+  url: https://msc.fema.gov/portal/advanceSearch
+  access: bulk_file
+  auth: none
+  format: one zipped Esri file geodatabase per state, NFHL_<state FIPS>_<YYYYMMDD>.zip at https://hazards.fema.gov/nfhlv2/output/State/ (county products, <county FIPS>C_<YYYYMMDD>.zip under /County/, are shapefile zips); NAD83 geographic (EPSG:4269)
+  cadence: monthly (FEMA reissues a state file as studies and LOMRs go effective; on 2026-10-22, 29 of the 52 state files were dated within 30 days and 38 within 60; the oldest, Puerto Rico, 2021-12-16); rebuilt quarterly by .github/workflows/flood-layer.yml
+  license: 'US government work, public domain (17 U.S.C. §105; FEMA is a DHS component). DHS''s DCAT record on catalog.data.gov (https://catalog.data.gov/dataset/national-flood-hazard-layer-nfhl, identifier MGMT-GMO-HIFLD-493206, publisher HIFLD, modified 2022-10-24, retrieved 2026-10-22) states "license": "https://www.usa.gov/government-works", "accessLevel": "public". FEMA, "Flood Hazard Products Direct Download" (https://msc.fema.gov/msccontent/FEMA_Hazard_Products_Direct_Download.pdf, September 2017, retrieved 2026-10-22): "All flood mapping products, such as Flood Insurance Rate Maps (FIRMs), Flood Insurance Studies (FIS), and National Flood Hazard Layer (NFHL) geodatabases, are available for free download." MSC FAQ (https://msc.fema.gov/portal/resources/faq, retrieved 2026-10-22): "All products can be downloaded free-of-charge." Use statement on FEMA''s NFHL web map (ArcGIS item fa23d2702e244058ab47eb62a991d600, licenseInfo "See Description", retrieved 2026-10-22): "If a different base map is used with the NFHL, the accuracy specification may not be met and the resulting map should be used for general reference only, and not official NFIP purposes." No use constraint is embedded in the state geodatabase (GDB_Items documentation empty, NFHL_48_20261013); the county zip''s metadata file is an unfilled template ("NFHL metadata for <DFIRM_ID>"). FEMA''s website policies on www.fema.gov answered HTTP 403 (Akamai) to this egress, robots.txt included: not read, browser task'
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: FEMA National Flood Hazard Layer"
+  licence_url: "https://www.usa.gov/government-works"
+  changes_statement: "Clipped by Inframation to 2 miles around 69 kV-and-up lines, split along FIRM panels and simplified to 10 m; not an official flood determination."
+  rate_limit_rps: 0.5
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-23, result: ok, rows: 56158, note: '2026-10-23 (lane flood, review fixes): county route re-read on https://hazards.fema.gov/nfhlv2/output/County/48201C_20260517.zip (Harris County) by range, robots.txt first, HTTP 206, 56.3 MB of 103.1 MB in 37 s, ETag "18480fc41e6dc1:0", Last-Modified Sun, 17 May 2026 21:13:18 GMT; S_FLD_HAZ_AR 10,806 polygons, 16 invalid (7 SFHA), structure and linework repairs within 1 m2 of each other; deleted after reading. Texas was not re-run; the figures that follow are from 2026-10-22. Lane flood, Texas development run. MSC search POST (community 480298, Harris County) answered JSON naming NFHL_48_20261013.zip, 2031MB, latest study effective 2026-08-04, latest LOMR 2026-10-14; all 52 state files found the same way (37,120 MB in all). https://hazards.fema.gov/nfhlv2/output/State/NFHL_48_20261013.zip: HTTP 200, Accept-Ranges bytes, 2,031,274,568 bytes, ETag "641f24e8905edd1:0", Last-Modified Sat, 17 Oct 2026 23:40:35 GMT; 1,005,475,703 bytes fetched by range in 90 requests over 404 s (system tables plus a00000015 S_FLD_HAZ_AR, 235,967 polygons, and a00000025 S_FIRM_PAN, 5,445 panels; EPSG:4269), deleted after clipping. Clipped to 2 mi + 200 m around 1,398 LBNL lines (103,948 km2): 56,158 SFHA pieces (18,409 km2, 23.6 MB), 78,423 other-zone pieces (24.4 MB), 5,445 panels (0.28 MB); 317 s, 3.35 GB peak. County route checked on 48441C_20260611.zip (8.8 MB of 16.1 MB, 7 requests). msc.fema.gov and hazards.fema.gov TLS handshakes failed intermittently from this egress; retried. See docs/25 section 5.7.'}
+  notes: >-
+    Floodplain layer of the powered-land site finder (owner decision 2026-10-22). Route chosen around FEMA's
+    robots.txt (read 2026-10-22: msc.fema.gov and hazards.fema.gov both disallow /*?* and /arcgis; MSC also
+    /portal/downloadProduct?productID=): the NFHL ArcGIS services and the MSC direct-download links are never
+    used. One POST per state to the MSC "Search All Products" form (/portal/advanceSearch, an allowed path; the
+    community per state is pipeline/context/fema_nfhl.py STATE_PROBES) names the current state file, which is
+    read from its static path on hazards.fema.gov by HTTP range requests, fetching only the S_FLD_HAZ_AR and
+    S_FIRM_PAN tables. One request per 2 s per host; the raw tables are deleted after clipping. National NFHL is
+    37,120 MB of state zips (52 files, 2026-10-22). A record is a flood zone polygon piece or a FIRM panel, not a
+    proposal: no connector, not scheduled; outputs are GeoParquet on R2 under
+    data/normalized/context/us.fema.nfhl/<version>/ for the finder, each state named with its own keys in latest.json
+    (a partial rebuild carries the other states forward). "Outside the floodplain" means outside the SFHA on the
+    effective FIRM and inside the areas of interest the zone files were clipped to; outside those the finder says
+    "flood data unavailable (not computed)". It is not a flood determination (44 CFR 65) and the finder says so.
+    See docs/25 section 5 and docs/13 section 6.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # L. ENERGY PRICES — wholesale (ISO/RTO, GB, EU), retail and industrial, and contract (PPA) prices
@@ -4841,6 +4957,345 @@ sources:
     Never used: a private re-host of ISO data whose own terms are unread, and the ISOs' terms bind the data
     whoever serves it. The open-source gridstatus library (BSD 3-Clause), which fetches from the ISOs directly,
     is a different thing and is assessed in docs/29 §4.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M. PROSPECTING LAYERS (resource, subsurface, incentive, constraint and hazard context for the base map and
+#    the site finder; docs/00-PLAN.md decision row of 2026-10-22 "Prospecting layers ... screening grade only";
+#    docs/25 "Prospecting layers"). Built by pipeline/context/prospect/ into COG/GeoParquet files, sampled by
+#    services/context_sample and GET /v1/context/sample. Every value served carries a screening flag and the
+#    sentence of what it is not. services/context_sample/sampler.py serves a layer only while its row here
+#    allows publication (reuse not restricted/unknown, publication not none).
+# ─────────────────────────────────────────────────────────────────────────────
+- id: us.nrel.nsrdb.psm3_annual
+  name: NSRDB Physical Solar Model v3 multi-year (1998-2016) annual average GHI and DNI, 0.04 degree GIS rasters (National Laboratory of the Rockies, formerly NREL)
+  jurisdiction: US (the Americas grid; CONUS used)
+  category: registry
+  operator: National Laboratory of the Rockies (NLR; the National Renewable Energy Laboratory until December 2025), for the U.S. Department of Energy
+  url: https://www.nlr.gov/docs/libraries/gis/nsrdbv3_ghi.zip
+  access: bulk_file
+  auth: none
+  format: 'zip of GeoTIFF (Annual GHI/nsrdb3_ghi.tif and Annual DNI/nsrdb3_dni.tif in the DNI zip: float64, uncompressed strips, 3,940 x 2,025 cells of 0.04 degrees from 180 W, 59.99 N, nodata 0; plus 12 monthly rasters, never extracted)'
+  cadence: irregular (static multi-year average; files Last-Modified 2024-12-17)
+  license: 'NLR Disclaimer, https://www.nlr.gov/disclaimer (READ 2026-10-22, page "Last Updated Dec. 10, 2025"), "Data and Software": "Access to or use of any data or software made available on this server ("Data") shall impose the following obligations on the user, and use of the Data constitutes user''s agreement to these terms. The user is granted the right, without any fee or cost, to use or copy the Data, provided that this entire notice appears in all copies of the Data. Further, the user agrees to credit the U.S. Department of Energy (DOE)/NLR/ALLIANCE in any publication that results from the use of the Data. The names DOE/NLR/ALLIANCE, however, may not be used in any advertising or publicity to endorse or promote any products or commercial entities unless specific written permission is obtained from DOE/NLR/ ALLIANCE." The same page, "Copyright Status": "Use of documents available from or referenced by this server may be subject to U.S. and foreign Copyright Laws." The dataset''s own metadata (NSRDB_GHI_Annual_Metadata.txt in the zip): "This dataset was derived from the NSRDB and may be used with the following citation: Sengupta, M., Xie, Y., Lopez, A., Habte, A., Maclaurin, G., & Shelby, J. (2018). The national solar radiation data base (NSRDB). Renewable and Sustainable Energy Reviews, 89, 51-60." NLR is a DOE laboratory operated by a contractor (Alliance for Energy Innovation, LLC), so its data are not a 17 U.S.C. §105 government work: the notice governs. The whole notice travels with every copy (COG metadata; the provenance of every served value)'
+  reuse: attribution
+  publication: derived_only
+  attribution: "Source: U.S. Department of Energy (DOE)/NLR/ALLIANCE, National Solar Radiation Database (NSRDB) PSM v3, 1998-2016 annual averages (Sengupta et al. 2018, Renewable and Sustainable Energy Reviews 89, 51-60)"
+  licence_url: "https://www.nlr.gov/disclaimer"
+  changes_statement: "Clipped to the region served and stored as integers at 0.001 kWh/m²/day, the source's own precision."
+  tier: 2
+  effort: S
+  connector: pipeline/context/prospect/nrel_nsrdb.py
+  # The probe reads the terms page, not `url`: scripts/probe_sources.py downloads the whole body (140 MB here).
+  probe: {method: GET, url: "https://www.nlr.gov/disclaimer"}
+  verified: {date: 2026-10-22, result: ok, note: 'Resources lane, measured: www.nrel.gov answered "CONNECT tunnel failed, response 502" through this egress; the GIS data moved with the renaming to www.nlr.gov (robots.txt "User-agent: * Allow:"), where /gis/solar-resource-maps answers 404 and the files are at /docs/libraries/gis/nsrdbv3_ghi.zip (140,087,273 bytes) and nsrdbv3_dni.zip (143,634,924 bytes), both Last-Modified Tue, 17 Dec 2024 18:11:26 GMT. The metadata text says "kWh/m2/year" but describes an "annual average daily total", and the values agree with daily (Pecos, TX 5.808; a yearly total would be ~2,100): served as kWh/m²/day. Texas clip: 330 x 267 cells (rebuilt 2026-10-22 20:55 UTC; 51,460 and 71,598 bytes as COGs).'}
+  notes: >-
+    Solar layer of the prospecting tranche (docs/25 "Prospecting layers"). A 4 km satellite-modelled average,
+    screening grade: every served value says it is not a bankable resource assessment. publication derived_only
+    because the grant is to "use or copy" with the entire notice in every copy, not an open licence: the sampled
+    values and corridor summaries are served with the credit and the notice; the raster files stay in the private
+    bucket. The build re-reads the disclaimer and stops if the quoted clauses change
+    (pipeline/context/prospect/nrel_nsrdb.py TERMS_PHRASES). Global Solar Atlas (CC BY 4.0) for GB and Europe is
+    a later tranche.
+
+- id: global.dtu.global_wind_atlas
+  name: Global Wind Atlas — mean wind speed at 100 m, 250 m grid (DTU with the World Bank Group, ESMAP)
+  jurisdiction: Global (US clipped)
+  category: registry
+  operator: Technical University of Denmark (DTU Wind and Energy Systems), in partnership with the World Bank Group (ESMAP), data by Vortex
+  url: https://globalwindatlas.info
+  access: js_app
+  auth: none (downloads through the web application)
+  format: GeoTIFF per country or area (float32 m/s, EPSG:4326, 0.0025 degree), downloaded by a person in the application
+  cadence: irregular (version releases; the Terms of Use name version 4.0)
+  license: 'Global Wind Atlas Terms of Use, https://globalwindatlas.info/en/about/termsofuse (READ 2026-10-22; the page is client-rendered, the text read from the application bundle https://globalwindatlas.info/mapframe.bundle.js that serves it): "You are encouraged to use the GWA App and the Works to benefit yourself and others in creative ways. The Works are licensed under the Creative Commons Attribution 4.0 International license, CC BY 4.0, except where expressly stated that another license applies." Attribution: "By using the Works, you agree to provide attribution in accordance with the licensing conditions outlined above. You are also requested to use the main reference (peer-reviewed research article) for the Global Wind Atlas" (Davis et al. 2023, BAMS 104(8), E1507-E1525, https://doi.org/10.1175/BAMS-D-21-0075.1) and "[Data/information/map] obtained from the Global Wind Atlas version 4.0, a free, web-based application developed, owned and operated by the Technical University of Denmark (DTU). The Global Wind Atlas version 4.0 is released in partnership with the World Bank Group, utilizing data provided by Vortex, using funding provided by the Energy Sector Management Assistance Program (ESMAP). For additional information: https://globalwindatlas.info". The same Terms restrict how the App is accessed: "Additionally, you agree not to: ... Use any robot, spider or other automatic device, process or means to access the GWA App for any purpose, including monitoring or copying any of the material on the GWA App". Also: "It is strongly advised that the data be limited to use in informing policy discussions on the subject, and/or in creating services that better educate on the viability of wind development in areas of interest. As such, neither DTU nor any of its partners and sponsors on the GWA App will be liable for any damages related to the use of the maps for financial commitments or any similar cases." and "You may not publicly represent or imply that DTU is participating in, or has sponsored, approved or endorsed the manner or purpose of your use or reproduction of the Works."'
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Data obtained from the Global Wind Atlas version 4.0, a free, web-based application developed, owned and operated by the Technical University of Denmark (DTU). The Global Wind Atlas version 4.0 is released in partnership with the World Bank Group, utilizing data provided by Vortex, using funding provided by the Energy Sector Management Assistance Program (ESMAP). For additional information: https://globalwindatlas.info (Davis et al. 2023, https://doi.org/10.1175/BAMS-D-21-0075.1)"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Inframation: clipped to the region served and stored as integers at 0.01 m/s; not endorsed by DTU."
+  tier: 2
+  effort: M
+  connector: pipeline/context/prospect/gwa_wind.py
+  # No probe block, deliberately: scripts/probe_sources.py would send an automated request to the GWA App,
+  # and the Terms forbid "any robot, spider or other automatic device ... including monitoring" (2026-10-23).
+  verified: {date: 2026-10-22, result: manual_only, note: 'Resources lane: the licence is CC BY 4.0 as reported (Terms of Use quoted above). No connector fetches from globalwindatlas.info: its Terms forbid "any robot, spider or other automatic device, process or means to access the GWA App", and its GIS downloads are served by the App (its robots.txt path returns the application shell, so there is no robots file to read). Route: a person downloads the US 100 m mean wind speed GeoTIFF in a browser and uploads it to the private bucket at prospect/inbox/global_wind_atlas/; .github/workflows/prospect-layers.yml builds from that file. The World Bank catalogue entry for the atlas on energydata.info links back to globalwindatlas.info only (no mirror). No file was downloaded in this lane, so no wind value was measured.'}
+  notes: >-
+    Wind layer of the prospecting tranche (docs/25 "Prospecting layers"). CC BY 4.0: raw publication allowed with
+    the credit, the licence link and the statement of changes; the Terms add a request for the Davis et al. (2023)
+    citation (carried in `attribution`) and a no-endorsement clause. Modelled, screening grade: every served value
+    says it is not a bankable resource assessment. NREL/NLR WIND Toolkit is the US alternative named in the plan
+    row; not built in this tranche.
+
+- id: us.eia.atlas.sedimentary_basins
+  name: EIA — Lower 48 sedimentary basins associated with the EIA shale plays (US Energy Atlas feature service)
+  jurisdiction: US (Lower 48)
+  category: registry
+  operator: U.S. Energy Information Administration
+  url: https://services7.arcgis.com/FGr1D95XCGALKXqM/ArcGIS/rest/services/SedimentaryBasins_US_EIA/FeatureServer/109
+  access: api
+  auth: none
+  format: ArcGIS feature service, layer 109 "Lower 48 Sedimentary Basins" (polygons, Web Mercator; queried as GeoJSON in EPSG:4326)
+  cadence: irregular (EIA map layer; "as of February 2024")
+  license: 'EIA Copyrights and Reuse, https://www.eia.gov/about/copyrights_reuse.php (READ 2026-10-22): "U.S. government publications are in the public domain and are not subject to copyright protection. You may use and/or distribute any of our data, files, databases, reports, graphs, charts, and other information products that are on our website or that you receive through our email distribution service. However, if you use or reproduce any of our information products, you should use an acknowledgment, which includes the publication date, such as: "Source: U.S. Energy Information Administration (Oct 2008)."" The same page, "Protected materials": "You may see on our website documents, illustrations, photographs, or other information resources contributed or licensed by private individuals, companies, or organizations that may be protected by U.S. and foreign copyright laws." The item (ArcGIS item 6542690951ca45f2a3c23a4325153d7d, owner EIA.gov) states: "Sedimentary basins associated with the EIA shale plays as of February 2024. Sedimentary basin which do not have shale plays as of publication date are not included in this file. Sources for the basins include the US Geological Survey, DrillingInfo Inc., and state agencies such as the WY Geological Survey." and as licenseInfo a disclaimer only ("The U.S. Energy Information Administration shall not be held liable for improper or incorrect use of the data described and/or contained herein. These data and related graphics, if available, are not legal documents and are not intended to be used as such.")'
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Energy Information Administration, Lower 48 sedimentary basins (Feb 2024)"
+  tier: 2
+  effort: S
+  connector: pipeline/context/prospect/eia_oil_gas.py
+  probe: {method: GET, url: "https://services7.arcgis.com/FGr1D95XCGALKXqM/ArcGIS/rest/services/SedimentaryBasins_US_EIA/FeatureServer/109?f=json"}
+  verified: {date: 2026-10-22, result: ok, note: 'Resources lane: www.eia.gov/maps/maps.htm and /maps/maps-historical-oil-natural-gas.php answer 404 (EIA moved its maps to the US Energy Atlas); the Atlas org (services7.arcgis.com/FGr1D95XCGALKXqM, 79 services) serves the basins as layer 109, not 0. Anonymous query answered 200.'}
+  notes: >-
+    Subsurface layer of the prospecting tranche. Public domain (EIA, 17 U.S.C. §105 and EIA''s reuse page). The basin
+    outlines draw on USGS, state surveys and DrillingInfo (now Enverus) inputs that EIA compiled and published for
+    public use; nothing is fetched from Enverus or any private aggregator. A basin outline says nothing about
+    producible resources or mineral rights at a site (the served sentence).
+
+- id: us.eia.atlas.shale_plays
+  name: EIA — Tight oil and shale gas (low-permeability) plays, Lower 48 (US Energy Atlas feature service)
+  jurisdiction: US (Lower 48)
+  category: registry
+  operator: U.S. Energy Information Administration
+  url: https://services7.arcgis.com/FGr1D95XCGALKXqM/ArcGIS/rest/services/TightOil_ShaleGas_Plays_Lower48_EIA/FeatureServer/0
+  access: api
+  auth: none
+  format: ArcGIS feature service, layer 0 (50 play polygons; fields Shale_play, Lithology, Basin, Age_shale, Area_sq_mi, Area_sq_km)
+  cadence: irregular (EIA map layer; the 2021 update adds the Midland Basin Spraberry and Wolfcamp benches; service Last-Modified 2022-02-01)
+  license: 'EIA Copyrights and Reuse (quoted on us.eia.atlas.sedimentary_basins, READ 2026-10-22): "U.S. government publications are in the public domain and are not subject to copyright protection. You may use and/or distribute any of our data ...". The item (ArcGIS item 3f001fba00dc4add8dbd00542d61e4da, owner EIA.gov) licenseInfo: "None (public use). Users are advised to thoroughly review the metadata to understand the appropriate use and limitations of the data. These data and related graphics, if available, are not legal documents and are not intended to be used as such."; description: "General areas for shale plays in the U.S. This 2021 update includes additions of formation benches for Spraberry and Wolfcamp in Midland Basin. Source: EIA based on Enverus DrillingInfo Inc., the U.S. Geological Survey, publicly available peer-reviewed research papers, academic theses, and publications of State Geological Agencies."; accessInformation "U.S. Energy Information Administration, Enverus DrillingInfo Inc., the U.S. Geological Survey"'
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Energy Information Administration, Tight oil and shale gas plays, Lower 48 (2021 update; service of Feb 2022)"
+  tier: 2
+  effort: S
+  connector: pipeline/context/prospect/eia_oil_gas.py
+  probe: {method: GET, url: "https://services7.arcgis.com/FGr1D95XCGALKXqM/ArcGIS/rest/services/TightOil_ShaleGas_Plays_Lower48_EIA/FeatureServer/0?f=json"}
+  verified: {date: 2026-10-22, result: ok, rows: 50, note: 'Resources lane: returnCountOnly answered {"count":50}; anonymous query answered 200.'}
+  notes: >-
+    Subsurface layer of the prospecting tranche: the "low-permeability oil and gas plays" of the owner''s request.
+    EIA marks the layer "None (public use)"; its inputs include Enverus DrillingInfo, compiled and published by EIA,
+    not fetched from Enverus. Plays overlap (benches of one basin stack), so a point can sit in several.
+
+- id: us.eia.oil_gas_field_boundaries
+  name: EIA — oil and natural gas field outlines (year-end 2001 field maps)
+  jurisdiction: US
+  category: registry
+  operator: U.S. Energy Information Administration
+  url: https://www.eia.gov/maps/maps-historical-oil-natural-gas.php
+  access: bulk_file
+  auth: none
+  format: shapefiles per basin (historical), not located
+  cadence: none (year-end 2001 vintage)
+  license: 'NOT READ for this dataset. EIA''s general Copyrights and Reuse page (quoted on us.eia.atlas.sedimentary_basins, READ 2026-10-22) puts EIA''s own publications in the public domain, but its "Protected materials" paragraph keeps material "contributed or licensed by private individuals, companies, or organizations" under their owners'' copyright, and EIA said some historical field shapefiles were withheld for the data source''s copyright. No field-outline file was found, so its own terms could not be read: unknown until the data is found and its terms quoted.'
+  reuse: unknown
+  publication: none
+  attribution: "Source: U.S. Energy Information Administration, oil and gas field outlines"
+  tier: 3
+  effort: M
+  # No probe block: the listing page answers 404, so a probe would only report the known absence.
+  verified: {date: 2026-10-22, result: not_found, note: 'Resources lane: https://www.eia.gov/maps/maps-historical-oil-natural-gas.php and https://www.eia.gov/maps/maps.htm answer 404; the EIA Atlas ArcGIS org (79 services, listed 2026-10-22) has no field-boundary layer; the Atlas hub search for "oil gas field" returns only fire-hotspot services; ArcGIS Online''s catalogue lists 130 items owned by EIA.gov (searched 2026-10-22), of which the oil and gas ones are play extents, elevation and isopach surfaces, basins and storage regions, no field outlines. EIA''s historical field maps were year-end 2001 and EIA noted that some shapefiles may be unavailable because of the data source''s copyright. Not built.'}
+  notes: >-
+    Requested in the prospecting tranche (field boundaries) and not available from EIA today. Recorded so the
+    search is not repeated. reuse unknown and publication none (changed 2026-10-23 from open/raw_ok, which the
+    unread terms did not support): nothing is built or served. Candidate replacements are state agencies (Texas RRC field data is `noncommercial` per
+    us.tx.rrc.datasets) or USGS assessment units; each needs its own terms read before use.
+
+- id: us.eia.proved_reserves
+  name: EIA — U.S. Crude Oil and Natural Gas Proved Reserves, Year-end 2024 (Tables 6 and 8, by state and area)
+  jurisdiction: US
+  category: registry
+  operator: U.S. Energy Information Administration (Form EIA-23L)
+  url: https://www.eia.gov/naturalgas/crudeoilreserves/
+  access: bulk_file
+  auth: none
+  format: 'xlsx (https://www.eia.gov/naturalgas/crudeoilreserves/excel/ARR_2024_TABLES_ALL.xlsx: sheet "6" crude oil and lease condensate, million barrels; sheet "8" natural gas, wet after lease separation, billion cubic feet; one row per state or area, subdivisions indented)'
+  cadence: annual (year-end reserves, published the following year or later; year-end 2024 file Last-Modified 2026-03-25)
+  # release_month: https://www.eia.gov/naturalgas/crudeoilreserves/ — the year-end 2024 tables ARR_2024_TABLES_ALL.xlsx answered Last-Modified Wed, 25 Mar 2026 21:26:03 GMT, checked 2026-10-22
+  release_month: 3
+  license: 'EIA Copyrights and Reuse, https://www.eia.gov/about/copyrights_reuse.php (READ 2026-10-22): "U.S. government publications are in the public domain and are not subject to copyright protection. You may use and/or distribute any of our data, files, databases, reports, graphs, charts, and other information products that are on our website or that you receive through our email distribution service. However, if you use or reproduce any of our information products, you should use an acknowledgment, which includes the publication date, such as: "Source: U.S. Energy Information Administration (Oct 2008).""'
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Energy Information Administration, U.S. Crude Oil and Natural Gas Proved Reserves, Year-end 2024 (Mar 2026)"
+  tier: 2
+  effort: S
+  connector: pipeline/context/prospect/eia_reserves.py
+  probe: {method: GET, url: "https://www.eia.gov/naturalgas/crudeoilreserves/excel/ARR_2024_TABLES_ALL.xlsx"}
+  verified: {date: 2026-10-22, result: ok, note: 'Resources lane: ARR_2024_TABLES_ALL.xlsx answered 200, 123,881 bytes, Last-Modified Wed, 25 Mar 2026 21:26:03 GMT; www.eia.gov/robots.txt does not disallow /naturalgas/crudeoilreserves/. Texas year-end 2024: crude oil and lease condensate 19,644 million barrels; natural gas (wet after lease separation) 138,670 Bcf. The older dnav crude-only table (pet_crd_pres_dcu_NUS_a, release 12/30/2022) is superseded and not used.'}
+  notes: >-
+    Small table (one row per state and area) joined to the vendored Census state polygons
+    (us.census.cartographic_boundaries) so the sampler can answer "the state''s reserves" at a point. A statewide
+    total, not reserves under a site (the served sentence). Natural gas is "wet after lease separation" as EIA
+    tables it; "W" (withheld) and "-" (none reported) cells are kept as null with the reason.
+
+- id: us.doe.netl.energy_communities
+  name: DOE NETL / IWG / Treasury — IRA energy community data layers (coal closure tracts and adjoining tracts; MSAs and non-MSAs meeting the fossil-fuel employment threshold)
+  jurisdiction: US
+  category: registry
+  operator: U.S. Department of Energy, National Energy Technology Laboratory (NETL), with the Interagency Working Group on Coal & Power Plant Communities & Economic Revitalization and the U.S. Department of the Treasury
+  url: https://arcgis.netl.doe.gov/server/rest/services/Hosted/2024_Coal_Closure_Energy_Communities/FeatureServer/0
+  access: api
+  auth: none
+  format: 'ArcGIS feature services on arcgis.netl.doe.gov (Hosted/2024_Coal_Closure_Energy_Communities, Hosted/2024_MSAs_NonMSAs_that_are_Energy_Communities, Hosted/2024_MSAs_NonMSAs_that_only_meet_the_FFE_Threshold; polygons, NAD83, queried as GeoJSON in EPSG:4326)'
+  cadence: annual (Treasury/IRS publish the statistical-area and coal-closure updates each spring)
+  license: 'The licenseInfo of each item (READ 2026-10-22, https://arcgis.netl.doe.gov/server/rest/services/Hosted/2024_Coal_Closure_Energy_Communities/FeatureServer/info/iteminfo and the two MSA items): "These spatial data may not be relied upon by taxpayers to substantiate a tax return position or for determining whether certain penalties apply and will not be used by the IRS for examination purposes. The mapping tool does not reflect the application of the law to a specific taxpayer''s situation, and the applicable Internal Revenue Code provisions ultimately control. License: Creative Commons Attribution. This allows for the re-distribution and re-use of this work on the condition that this content is appropriately credited. Please use the citation below whenever re-distribution or re-using this work. Citation: U.S. Department of Energy (DOE), National Energy Technology Laboratory (NETL), Interagency Working Group on Coal & Power Plant Communities & Economic Revitalization (IWG), U.S. Department of the Treasury, IRA Energy Community Data Layers, 4/3/2023, https://edx.netl.doe.gov/dataset/ira-energy-community-data-layers." The dataset dates, from the same items: coal closure tracts "as of June 7, 2024" (mines from MSHA''s Mines dataset as of Feb. 7, 2023); MSAs/non-MSAs that are energy communities "as of May 31, 2024, and until the release of the 2025 Annual Statistical Area Category and Coal Closure Category Update"; the FFE-threshold layer "as of June 7, 2024".'
+  reuse: attribution
+  publication: raw_ok
+  attribution: "U.S. Department of Energy (DOE), National Energy Technology Laboratory (NETL), Interagency Working Group on Coal & Power Plant Communities & Economic Revitalization (IWG), U.S. Department of the Treasury, IRA Energy Community Data Layers, 4/3/2023, https://edx.netl.doe.gov/dataset/ira-energy-community-data-layers"
+  licence_url: "https://arcgis.netl.doe.gov/server/rest/services/Hosted/2024_Coal_Closure_Energy_Communities/FeatureServer/info/iteminfo"
+  changes_statement: "Modified by Inframation: clipped to the region served; fields renamed; not tax advice, and taxpayers may not rely on these data (DOE NETL)."
+  tier: 2
+  effort: S
+  connector: pipeline/context/prospect/netl_energy_communities.py
+  probe: {method: GET, url: "https://arcgis.netl.doe.gov/server/rest/services/Hosted/2024_Coal_Closure_Energy_Communities/FeatureServer/0?f=json"}
+  verified: {date: 2026-10-22, result: ok, note: 'Resources lane: the NETL ArcGIS server (robots.txt path answers "Default rule reached", no rules) serves the three 2024 layers anonymously. NETL''s EDX dataset page (edx.netl.doe.gov/dataset/ira-energy-community-data-layers) answered HTTP 403 to the project User-Agent (a filter on the "/bot" token: the same request without "+https://inframation.io/bot" answered 200, diagnosed once and not used), and EDX''s robots.txt disallows /api/ and /dataset/*/resource_download, so no connector downloads from EDX. Only 2024 layers are on the ArcGIS server; a 2025 update, if NETL published one on EDX, is not reachable automatically: a person checks EDX in a browser (docs/25 open item). Layer edit dates: coal closure 2025-07-28, MSA energy communities 2025-07-05, FFE threshold 2026-04-18 (lastEditDate).'}
+  notes: >-
+    Incentive layer of the prospecting tranche. Every served value says it is a screening map and not tax advice,
+    and carries NETL''s own line that taxpayers may not rely on it. The 2024 MSA/non-MSA status is the status for
+    2024 "until the release of the 2025 ... Update": the dataset''s own date is shown on every value. "Creative
+    Commons Attribution" names no version; credit and the licence-info link are carried, and the data are also
+    federal works (DOE/Treasury).
+
+- id: us.usgs.padus
+  name: USGS Gap Analysis Project — Protected Areas Database of the United States (PAD-US) 4.1, fee and designation feature classes
+  jurisdiction: US
+  category: registry
+  operator: U.S. Geological Survey, Gap Analysis Project (GAP)
+  url: https://www.sciencebase.gov/catalog/item/652d4fc5d34e44db0e2ee45e
+  access: bulk_file
+  auth: none
+  format: 'File geodatabase in a zip: national PADUS4_1Geodatabase.zip (1,523,434,496 bytes) or per state PADUS4_1_State_<ST>_GDB_KMZ.zip (Texas 261,247,528 bytes), via https://www.sciencebase.gov/catalog/file/get/<item>?name=<file>; USA Contiguous Albers Equal Area (USGS), reprojected to EPSG:4326 at build'
+  cadence: irregular (versions; 4.0 published 2024-04-25, 4.1 revision 2025-03-31)
+  license: 'ScienceBase item "Protected Areas Database of the United States (PAD-US) 4" (https://www.sciencebase.gov/catalog/item/65294599d34e44db0e2ed7cf, READ 2026-10-22), rights: "Public Domain. Unless otherwise stated, all data, metadata and related materials are considered to satisfy the quality standards relative to the purpose for which the data were collected. Although these data and associated metadata have been reviewed for accuracy and completeness and approved for release by the U.S. Geological Survey (USGS), no warranty expressed or implied is made regarding the display or utility of the data for other purposes, nor on all computer systems, nor shall the act of distribution constitute any such warranty." Citation: "U.S. Geological Survey (USGS) Gap Analysis Project (GAP), 2024, Protected Areas Database of the United States (PAD-US) 4: U.S. Geological Survey data release, https://doi.org/10.5066/P96WBCHS." A USGS work (17 U.S.C. §105)'
+  reuse: open
+  publication: raw_ok
+  attribution: "U.S. Geological Survey (USGS) Gap Analysis Project (GAP), 2024, Protected Areas Database of the United States (PAD-US) 4 (version 4.1): U.S. Geological Survey data release, https://doi.org/10.5066/P96WBCHS"
+  tier: 2
+  effort: M
+  connector: pipeline/context/prospect/usgs_padus.py
+  probe: {method: GET, url: "https://www.sciencebase.gov/catalog/item/652d4fc5d34e44db0e2ee45e?format=json"}
+  verified: {date: 2026-10-23, result: manual_only, note: 'Resources lane, re-measured 2026-10-23: the catalogue route www.sciencebase.gov/catalog/file/get/6759abcfd34edfeb8710a004?name=PADUS4_1_State_TX_GDB_KMZ.zip now answers HTTP 404 (it answered the zip, 261,247,528 bytes, on 2026-10-22), as does the national ?name=PADUS4_1Geodatabase.zip; the item JSON lists both zips with pathOnDisk __s3__, a url and a downloadUri on sciencebase.usgs.gov/manager, and both answer the file manager''s JavaScript application (text/html), not the file; the S3 keys the JSON names (prod-is-usgs-sb-prod-content and -publish) answer 403. www.sciencebase.gov/robots.txt allows / for User-agent * (with a Content-Signal search=yes, ai-train=no, use=reference line, which this build, a reference use, is within). Until an automated route returns, a person downloads the zip in a browser and uploads it to prospect/inbox/padus/ (infra/scripts/build_prospect_layers.sh step 2b). Earlier (2026-10-22): the file-manager links answered a JavaScript application shell, the catalogue route answered the zip. sciencebase.usgs.gov/robots.txt answers 404. The USGS map service edits.nationalmap.gov/arcgis/rest/services/PAD-US/PAD_US_4_1/MapServer carries the Fee layer only (no designations), so the geodatabase is the route.'}
+  notes: >-
+    Constraint layer of the prospecting tranche: fee (ownership) and designation features. GAP status 1 or 2
+    (managed for biodiversity) is the hard constraint the site finder treats as excluded; GAP 3 and 4 are shown as
+    facts. A national inventory, not a title or survey record (the served sentence). Proclamation boundaries,
+    easements and marine areas are not loaded in this tranche.
+
+- id: global.wri.aqueduct40
+  name: WRI Aqueduct 4.0 — baseline annual water risk indicators (baseline water stress), HydroBASINS level 6 sub-basins
+  jurisdiction: Global (US clipped)
+  category: registry
+  operator: World Resources Institute
+  url: https://www.wri.org/data/aqueduct-global-maps-40-data
+  access: bulk_file
+  auth: none
+  format: 'zip (https://files.wri.org/aqueduct/aqueduct-4-0-water-risk-data.zip, 261,527,511 bytes, Last-Modified 2023-08-07): file geodatabase of baseline annual indicators per sub-basin, plus CSVs'
+  cadence: irregular (Aqueduct versions; 4.0 released August 2023)
+  license: 'Dataset page https://www.wri.org/data/aqueduct-global-maps-40-data (READ 2026-10-22): "License: Creative Commons" (no version on the page). WRI Open Data Commitment, https://www.wri.org/data/open-data-commitment (READ 2026-10-22): "We have adopted the Creative Commons Attribution 4.0 International License as our standard license for publications and data, and the MIT License as our standard license for source code." Citation (technical note): Kuzma, S., M.F.P. Bierkens, S. Lakshman, T. Luo, L. Saccoccia, E.H. Sutanudjaja, and R. Van Beek. 2023. "Aqueduct 4.0: Updated Decision-Relevant Global Water Risk Indicators." Technical Note. Washington, DC: World Resources Institute. https://doi.org/10.46830/writn.23.00061'
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Kuzma, S., et al. 2023. Aqueduct 4.0: Updated Decision-Relevant Global Water Risk Indicators. World Resources Institute, https://doi.org/10.46830/writn.23.00061, CC BY 4.0"
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  changes_statement: "Modified by Inframation: baseline annual water stress fields only, clipped to the region served."
+  tier: 3
+  effort: M
+  connector: pipeline/context/prospect/wri_aqueduct.py
+  # The probe reads the dataset page: scripts/probe_sources.py downloads the whole body (the zip is 261 MB).
+  probe: {method: GET, url: "https://www.wri.org/data/aqueduct-global-maps-40-data"}
+  verified: {date: 2026-10-23, result: manual_only, note: 'Resources lane, re-measured 2026-10-23: the zip is on files.wri.org, whose robots.txt is "User-agent: Twitterbot / Allow: /" then "User-agent: * / Disallow: /", so PoliteSession refuses the automated download (HttpBlocked) and the build does not fetch it; a person downloads the zip in a browser and uploads it to prospect/inbox/wri_aqueduct/ (infra/scripts/build_prospect_layers.sh step 2b). The probe reads the data page on www.wri.org instead. Earlier (2026-10-22): www.wri.org/robots.txt disallows only Drupal admin and user paths; the data page and the zip answered 200 (zip 261,527,511 bytes). The page names "Creative Commons" without a version; the CC BY 4.0 reading rests on WRI''s open data commitment (quoted) and is recorded in docs/13 §6 at moderate confidence.'}
+  notes: >-
+    Priority 2 constraint layer for large loads (water for cooling). A sub-basin index (0-5 score, category, raw
+    ratio of withdrawals to available supply), not a water-rights or supply assessment at a site (the served
+    sentence).
+
+- id: us.usgs.nshm2023
+  name: USGS 2023 50-State National Seismic Hazard Model, revised (CONUS.2023.R2) — uniform-hazard PGA, 2% in 50 years, site class BC (Vs30 760 m/s), 0.05 degree grid
+  jurisdiction: US (conterminous)
+  category: registry
+  operator: U.S. Geological Survey, Geologic Hazards Science Center
+  url: https://www.sciencebase.gov/catalog/item/691dfb9ad4be02142cbce6d8
+  access: bulk_file
+  auth: none
+  format: 'zip per site class (conus_2023.R2-MPRS-scBC-vs760-0p05.zip, 1,899,946,789 bytes, on prod-is-usgs-sb-prod-publish.s3.amazonaws.com); the one member read is conus_2023.R2-MPRS-scBC-vs760-0p05/vs30-760/PGA/map.csv (lon, lat, 475-, 975- and 2475-year uniform-hazard PGA in g), fetched by HTTP range requests without downloading the zip'
+  cadence: irregular (model revisions; R2 published 2026-08-10)
+  license: 'ScienceBase item "Mean Seismic Hazard Curves and Uniform-Hazard Ground Motion Values from the Revised 2023 US 50-state National Seismic Hazard Model" (https://www.sciencebase.gov/catalog/item/67f8202ad4be024f83a3a018, parent of the CONUS R2 item; READ 2026-10-22), rights: "This work is marked with the Creative Commons Zero v1.0 Universal (CC0-1.0) public domain dedication; https://creativecommons.org/publicdomain/zero/1.0/." Citation: "Altekruse, J.M., Powers, P.M., and Milner, K.R., 2026, Mean Seismic Hazard Curves and Uniform-Hazard Ground Motion Values from the Revised 2023 US 50-state National Seismic Hazard Model: U.S. Geological Survey data release, https://doi.org/10.5066/P14VGAV4."'
+  reuse: open
+  publication: raw_ok
+  attribution: "Altekruse, J.M., Powers, P.M., and Milner, K.R., 2026, Mean Seismic Hazard Curves and Uniform-Hazard Ground Motion Values from the Revised 2023 US 50-state National Seismic Hazard Model: U.S. Geological Survey data release, https://doi.org/10.5066/P14VGAV4"
+  tier: 3
+  effort: S
+  connector: pipeline/context/prospect/usgs_nshm.py
+  probe: {method: GET, url: "https://www.sciencebase.gov/catalog/item/691dfb9ad4be02142cbce6d8?format=json"}
+  verified: {date: 2026-10-22, result: ok, note: 'Resources lane: the item JSON gives each zip a publishedS3Uri on prod-is-usgs-sb-prod-publish.s3.amazonaws.com; a range request for the last 64 KiB answered 206 (Content-Range bytes 1899881253-1899946788/1899946789, Last-Modified Fri, 13 Mar 2026), so the zip central directory and the one map.csv member are read by range without the 1.9 GB download.'}
+  notes: >-
+    Priority 2 hazard layer for large loads. PGA with a 2% probability of exceedance in 50 years (2,475-year
+    return period) at the BC reference site class; not a site-specific design value (the served sentence). CC0, so
+    the credit is given though not required.
+
+- id: us.usfws.nwi
+  name: USFWS National Wetlands Inventory — wetlands polygons (design only, priority 3)
+  jurisdiction: US
+  category: registry
+  operator: U.S. Fish and Wildlife Service
+  url: https://www.fws.gov/program/national-wetlands-inventory/data-download
+  access: bulk_file
+  auth: none
+  format: per-state file geodatabase / shapefile zips (not fetched)
+  cadence: irregular (continuous updates, released twice a year)
+  license: 'No licence statement found (READ 2026-10-22). The data download page (https://www.fws.gov/program/national-wetlands-inventory/data-download) says only: "Please read the Disclaimer, Data Limitations, Exclusions, and Precautions, and the Wetlands Geodatabase User Caution." The Wetlands Geodatabase Disclaimer (https://www.fws.gov/page/wetlands-geodatabase-disclaimer): "NWI data are developed using a biological definition of wetlands and may not be consistent with wetland boundaries established according to the federal regulatory definition of wetlands under the Clean Water Act." and "Base cartographic information used as part of the Wetlands Mapper has been provided through a license agreement with ESRI and the Department of the Interior." Data Limitations, Exclusions and Precautions (https://www.fws.gov/page/wetlands-data-limitations-exclusions-and-precautions): "Certain wetland habitats are excluded from the National mapping program because of the limitations of aerial imagery as the primary data source used to detect wetlands." A USFWS work would be public domain under 17 U.S.C. §105, but none of these pages says so and the NWI includes partner-contributed mapping, so reuse stays unknown until a licence statement (the data release metadata) is quoted.'
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: not_fetched, note: 'Resources lane: priority 3, design and Actions steps only (docs/25 "Prospecting layers"); no data downloaded and no value served. www.fws.gov/robots.txt disallows only /node/add/. The three FWS pages answered 200; the data.gov catalogue API (catalog.data.gov/api/3/action/package_search) answered 404, so the DCAT licence field was not read.'}
+  notes: >-
+    Planned constraint layer. Built only in GitHub Actions (the national file is several GB), and served only once
+    its terms are quoted here and its docs/13 §6 row is updated.
+
+- id: us.mrlc.nlcd
+  name: MRLC National Land Cover Database (Annual NLCD) — land cover, 30 m (design only, priority 3)
+  jurisdiction: US (conterminous)
+  category: registry
+  operator: Multi-Resolution Land Characteristics Consortium (USGS lead)
+  url: https://www.mrlc.gov/data
+  access: bulk_file
+  auth: none
+  format: GeoTIFF, 30 m, Albers (not fetched)
+  cadence: annual
+  license: 'ScienceBase data release "Annual National Land Cover Database (NLCD) Collection 1 Products (ver. 1.2, June 2026)" (https://www.sciencebase.gov/catalog/item/655ceb8ad34ee4b6e05cc51a, READ 2026-10-22), rights: "These data are marked with a Creative Commons CC0 1.0 Universal License. These data are in the public domain and do not have any use constraints (https://creativecommons.org/publicdomain/zero/1.0/)." and "Represented features may not be in an accurate geographic location." Citation: "U.S. Geological Survey, 2024, Annual NLCD Collection 1 Science Products (ver. 1.2, June 2026): U.S. Geological Survey data release, https://doi.org/10.5066/P94UXNTS." Publication 2024-10-24, revision 2026-06-30, years 1985-2025.'
+  reuse: open
+  # The terms allow it; nothing is served until the layer is built and listed in services/context_sample/catalog.py (design only today).
+  publication: raw_ok
+  attribution: "U.S. Geological Survey, 2024, Annual NLCD Collection 1 Science Products (ver. 1.2, June 2026): U.S. Geological Survey data release, https://doi.org/10.5066/P94UXNTS"
+  tier: 3
+  effort: M
+  probe: {method: GET, url: "https://www.sciencebase.gov/catalog/item/655ceb8ad34ee4b6e05cc51a?format=json"}
+  verified: {date: 2026-10-22, result: not_fetched, note: 'Resources lane: priority 3, design and Actions steps only; terms read on ScienceBase (www.mrlc.gov/data and /faqs answered HTTP 500 that day); no data downloaded and no value served.'}
+  notes: >-
+    Planned constraint layer (developed land, water, forest). Built only in GitHub Actions; served only once its
+    terms are quoted here.
+
+- id: us.usgs.3dep_slope
+  name: USGS 3D Elevation Program — slope derived from the 1 arc-second DEM (design only, priority 3)
+  jurisdiction: US
+  category: registry
+  operator: U.S. Geological Survey, National Geospatial Program
+  url: https://www.usgs.gov/3d-elevation-program
+  access: bulk_file
+  auth: none
+  format: 1 arc-second DEM tiles (GeoTIFF) from The National Map (not fetched); slope computed at build
+  cadence: irregular
+  license: 'About 3DEP Products & Services (https://www.usgs.gov/3d-elevation-program/about-3dep-products-services, READ 2026-10-22): "All 3DEP products are available, free of charge and without use restrictions." USGS Copyrights and Credits (https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits, READ 2026-10-22): "While the content of most USGS websites is in the U.S. Public Domain, not all information, illustrations, or photographs on our site are." and "When using information from USGS information products, publications, or websites, we ask that proper credit be given." A USGS work (17 U.S.C. §105).'
+  reuse: open
+  # The terms allow it; nothing is served until the layer is built and listed in services/context_sample/catalog.py (design only today).
+  publication: raw_ok
+  attribution: "U.S. Geological Survey, 3D Elevation Program, 1 arc-second digital elevation model"
+  tier: 3
+  effort: L
+  probe: {method: GET}
+  verified: {date: 2026-10-22, result: not_fetched, note: 'Resources lane: priority 3, design and Actions steps only; www.usgs.gov/robots.txt disallows only /node/add/; no data downloaded and no value served.'}
+  notes: >-
+    Planned constraint layer (slope in percent, summarised to 90 m). Built only in GitHub Actions; served only once
+    its terms are quoted here.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)

@@ -1,0 +1,1 @@
+{"downloaded_at": "2026-10-22T00:00:00Z", "note": "SYNTHETIC: a GDAL-written float32 LZW grid on the Global Wind Atlas 0.0025 degree lattice (value = 5 + col*0.01 + row*0.1 m/s). Not Global Wind Atlas data; no GWA file was downloaded in this lane."}

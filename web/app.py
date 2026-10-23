@@ -258,6 +258,11 @@ from web.prices import router as prices_router  # noqa: E402
 
 app.include_router(prices_router)
 
+# The site finder (docs/25): `/site-finder`, its two fragments and its two map proxies.
+from web.site_finder import router as site_finder_router  # noqa: E402
+
+app.include_router(site_finder_router)
+
 from web.coverage_statement import uncovered_iso_notes  # noqa: E402
 
 # Audit 2026-10-07 UX-6: `/docs/api` and the development relay for `/feeds/*` (web/feeds.py).

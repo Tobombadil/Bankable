@@ -1,0 +1,9 @@
+{#- `/api/site-finder/rows`: the summary, the list and the place choices together; site_finder.js puts each
+    in its place (the choices replace the state and county selects' options). -#}
+{%- from "partials/_site_finder_places.html" import state_options, county_options %}
+{% include "partials/_site_finder_summary.html" %}
+{% include "partials/_site_finder_rows.html" %}
+<template id="sf-place-options" data-counties-need-state="{{ 'true' if summary.counties_need_state else 'false' }}">
+  <select data-for="sf-state">{{ state_options(summary, criteria) }}</select>
+  <select data-for="sf-county">{{ county_options(summary, criteria) }}</select>
+</template>

@@ -1,0 +1,58 @@
+{
+ "source_id": "us.osm.power",
+ "layout": "v1",
+ "licence": "ODbL-1.0",
+ "attribution": "© OpenStreetMap contributors",
+ "licence_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+ "built_at": "2026-10-22T21:52:31Z",
+ "data_timestamp": "2026-10-03T15:21:49Z",
+ "regions": [
+  {
+   "region": "US-TX",
+   "timestamp": "2026-10-03T15:21:49Z",
+   "lines_kept": 5,
+   "substations_kept": 6,
+   "lines_read": 5,
+   "substations_read": 6,
+   "dropped": {
+    "line_below_69kv": 2,
+    "line_busbar_or_bay": 2,
+    "substation_minor_distribution": 1
+   },
+   "notes": {
+    "substation_way_not_an_area_kept_as_vertex_mean": 1
+   },
+   "duplicates_skipped": 0
+  }
+ ],
+ "files": {
+  "lines.parquet": {
+   "rows": 5,
+   "bytes": 7976,
+   "sha256": "e61238abc9cb2d3fc6d95833416b11461c5ee52640f0ff12bb9332abbc238eb1"
+  },
+  "substations.parquet": {
+   "rows": 6,
+   "bytes": 7416,
+   "sha256": "afc5a72adf625d0539ed54436beea21809c23147608ddb082418f62aeb0a202a"
+  }
+ },
+ "downloads": [],
+ "rules": {
+  "min_kv": 69.0,
+  "line_power_values": [
+   "line",
+   "cable"
+  ],
+  "dropped_line_values": [
+   "bay",
+   "busbar"
+  ],
+  "dropped_substation_types": [
+   "minor_distribution",
+   "traction"
+  ]
+ },
+ "elapsed_s": 0.3,
+ "version": "v1/20261003T152149Z-20261022T215231Z"
+}

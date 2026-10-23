@@ -3789,7 +3789,7 @@ def test_smoke_pricing_page_reached_from_the_nav_and_legible_at_400px(server: ob
 # Navigation (docs/16 §3.1-3.2, U-6, U-17, U-24): six sections named for supply and demand, the
 # Infrastructure tabs, list headers short enough to show data in the first screen, a favicon.
 
-SECTIONS = ["Map", "Projects", "Companies", "RFPs & funding", "Infrastructure", "Alerts"]
+SECTIONS = ["Map", "Site finder", "Projects", "Companies", "RFPs & funding", "Infrastructure", "Alerts"]
 LIST_PATHS = ("/proposals", "/opportunities", "/organizations", "/assets", "/interconnection-points")
 #: Measured as production lays the page out: this server runs with WEB_DEV_PREVIEW=1, whose notice
 #: (`.preview-banner`, about 53px) no production page shows, so it is taken out first.
@@ -3821,7 +3821,7 @@ def test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_f
             for path in LIST_PATHS:
                 wide.goto(BASE_URL + path)
                 links = wide.locator(".primary-nav a")
-                assert links.all_inner_texts()[:6] == SECTIONS, path
+                assert links.all_inner_texts()[:7] == SECTIONS, path
                 current = wide.locator(".primary-nav a[aria-current]")
                 assert current.count() == 1, path
                 expected = {"/proposals": "Projects", "/opportunities": "RFPs & funding"}.get(path)
@@ -3861,7 +3861,7 @@ def test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_f
             menu = narrow.locator(".nav-toggle")
             assert narrow.locator(".primary-nav").is_hidden()
             menu.click()
-            assert narrow.locator(".primary-nav a").all_inner_texts()[:6] == SECTIONS
+            assert narrow.locator(".primary-nav a").all_inner_texts()[:7] == SECTIONS
             about = narrow.locator(".site-nav-panel__about a")
             assert about.is_visible() and about.inner_text() == "About & sources"
             menu.click()

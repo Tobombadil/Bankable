@@ -288,6 +288,19 @@ from services.api.prices import router as prices_router  # noqa: E402
 
 app.include_router(prices_router)
 
+# Prospecting layers at a point (owner decision 2026-10-22; docs/25 "Prospecting layers"): resource,
+# subsurface, incentive, constraint and hazard values, screening grade, from the compact files the
+# prospect build writes; no database.
+from services.api.context_sample import router as context_sample_router  # noqa: E402
+
+app.include_router(context_sample_router)
+
+# The powered-land site finder (owner decision 2026-10-22): corridor bands along 69 kV-and-up lines near
+# a substation and outside the floodplain, from the segments `services/site_finder` precomputes.
+from services.api.site_finder import router as site_finder_router  # noqa: E402
+
+app.include_router(site_finder_router)
+
 # Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
 # metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
 # this file's `list_events` share.

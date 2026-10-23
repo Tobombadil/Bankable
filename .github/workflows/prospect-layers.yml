@@ -1,0 +1,122 @@
+name: prospect-layers
+
+# Builds the prospecting layers (solar irradiance, wind speed, oil and gas basins, plays and reserves,
+# IRA energy communities, protected lands, water stress, seismic hazard) for the contiguous US and
+# uploads them to the PRIVATE R2 bucket (docs/00-PLAN.md decision row of 2026-10-22 "Prospecting
+# layers ... screening grade only"; docs/25 "Prospecting layers"). Monthly cron plus workflow_dispatch.
+# Servers follow prospect/current/<region>.json with `python -m services.context_sample.sync`.
+#
+# Shaped like basemap.yml: runs against the `production` GitHub Environment so the R2 credentials are
+# the ones deploy-beta and backup.sh already use; stops green with a warning until they exist. The
+# bucket is R2_BUCKET (secret or variable), else the name deploy-beta creates
+# (infra/ci/beta.sh BUCKET_PREFIX + "-production") -- never the public tiles bucket, because NLR's notice
+# keeps the solar rasters out of public redistribution (data/sources.yaml us.nrel.nsrdb.psm3_annual).
+#
+# The Global Wind Atlas forbids automated access to its application, so the wind layer is built only
+# from a GeoTIFF a person downloaded and uploaded to prospect/inbox/global_wind_atlas/ (with an optional
+# <name>.json {"downloaded_at": "..."} beside it). Without one, the served wind layer, if any, is kept.
+#
+# infra/scripts/build_prospect_layers.sh uploads to a dated key and moves the pointer last; a failed run
+# leaves the served build in place. A source that fails turns the run red but keeps its previous layer.
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Region to build (texas is the small development region)"
+        type: choice
+        options: [conus, texas]
+        default: conus
+      sources:
+        description: "Comma-separated sources (solar,wind,oil_gas,reserves,energy_communities,protected,water,seismic); empty for all"
+        type: string
+        default: ""
+  schedule:
+    - cron: "41 6 3 * *" # 06:41 UTC on the 3rd: after the basemap build on the 1st; off the hour (docs/60 §9)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prospect-layers
+  cancel-in-progress: false
+
+jobs:
+  build-prospect-layers:
+    name: build and upload the prospecting layers
+    runs-on: ubuntu-24.04 # pinned like basemap.yml and deploy-beta
+    environment: production
+    # Measured on the Texas clip (docs/25 "Prospecting layers"): PAD-US is the long pole, about 40x
+    # Texas for the national geodatabase. 180 minutes leaves room for slow source servers.
+    timeout-minutes: 180
+    steps:
+      - name: R2 credentials present?
+        id: creds
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || vars.R2_BUCKET || 'beta-object-storage-production' }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # The AWS CLI reads only AWS_* (basemap.yml, 2026-10-19).
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          if [[ -z "${R2_ACCOUNT_ID}" || -z "${R2_ACCESS_KEY_ID}" || -z "${R2_SECRET_ACCESS_KEY}" ]]; then
+            echo "::warning::the R2 account id or token is not set in the 'production' environment; prospect layers not built."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif ! aws s3api list-objects-v2 --bucket "${R2_BUCKET}" --max-keys 1 --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" >/dev/null 2>&1; then
+            echo "::warning::the bucket ${R2_BUCKET} does not exist yet (deploy-beta creates it); prospect layers not built."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.creds.outputs.ready == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install the build dependencies
+        if: steps.creds.outputs.ready == 'true'
+        # pyogrio and pyproj read the PAD-US and Aqueduct geodatabases (build only; the API reads the
+        # compact files without GDAL). gdal-bin's gdal_translate clips and re-encodes the wind GeoTIFF.
+        # Each pin must ship a wheel for the python-version above (3.11, as ci.yml): pyproj 3.8.0 is
+        # Requires-Python >=3.12, so 3.7.2 (cp311 wheel); pyogrio 0.13.0 has a cp311 abi3 wheel (PyPI,
+        # read 2026-10-23). pipeline/context/prospect/test_build_script.py holds each pin to its
+        # Requires-Python.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends gdal-bin
+          pip install -r requirements.txt "pyogrio==0.13.0" "pyproj==3.7.2"
+      - name: build and upload (infra/scripts/build_prospect_layers.sh)
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || vars.R2_BUCKET || 'beta-object-storage-production' }}
+          PROSPECT_REGION: ${{ inputs.region || 'conus' }}
+          PROSPECT_SOURCES: ${{ inputs.sources || '' }}
+          PYTHON: python
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: infra/scripts/build_prospect_layers.sh
+      - name: verify the pointer and its manifest are readable
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || vars.R2_BUCKET || 'beta-object-storage-production' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          PROSPECT_REGION: ${{ inputs.region || 'conus' }}
+        run: |
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp "s3://${R2_BUCKET}/prospect/current/${PROSPECT_REGION}.json" pointer.json --endpoint-url "$endpoint"
+          build_id="$(python -c 'import json; print(json.load(open("pointer.json"))["build_id"])')"
+          aws s3api head-object --bucket "${R2_BUCKET}" --key "prospect/builds/${PROSPECT_REGION}/${build_id}/layers.json" \
+            --endpoint-url "$endpoint"
+          cat pointer.json

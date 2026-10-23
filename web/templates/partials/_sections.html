@@ -16,6 +16,7 @@
 } -%}
 {%- set href = {
   "map": "/",
+  "site_finder": "/site-finder",
   "projects": "/proposals",
   "companies": "/organizations",
   "rfps": "/opportunities",
@@ -27,10 +28,12 @@
 } -%}
 {#- The primary links, in order. About & sources is a masthead and footer link (reference, not a
     destination); Pricing and Sign in are added by base.html, which knows the posture and the session. -#}
-{%- set primary = ["map", "projects", "companies", "rfps", "infrastructure", "alerts"] -%}
+{#- The site finder sits after Map: the other map, of land a project could use (docs/25). -#}
+{%- set primary = ["map", "site_finder", "projects", "companies", "rfps", "infrastructure", "alerts"] -%}
 {#- The routes each section holds, so its link is marked on every page under it: a record page, or
     the other Infrastructure tab. Site pages are reached from projects (their breadcrumb says so). -#}
 {%- set holds = {
+  "site_finder": ["/site-finder"],
   "projects": ["/proposals", "/sites"],
   "companies": ["/organizations"],
   "rfps": ["/opportunities"],

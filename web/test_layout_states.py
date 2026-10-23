@@ -719,6 +719,7 @@ def test_font_files_are_served_with_a_long_lived_cache() -> None:
 #: The primary links in order (docs/16 §3.1), as the page prints them.
 PRIMARY = [
     ("/", "Map"),
+    ("/site-finder", "Site finder"),
     ("/proposals", "Projects"),
     ("/organizations", "Companies"),
     ("/opportunities", "RFPs &amp; funding"),
@@ -765,16 +766,16 @@ def _h1(html: str) -> str:
         ("/alerts", {"/alerts": "page"}),
     ],
 )
-def test_the_primary_nav_is_six_sections_in_order_and_marks_where_the_reader_is(
+def test_the_primary_nav_is_seven_sections_in_order_and_marks_where_the_reader_is(
     lists: FakeTransport, path: str, current: dict[str, str]
 ) -> None:
     with TestClient(web_app) as client:
         html = client.get(path).text
     links = _links(_primary_nav(html))
-    assert [(href, text) for href, _, text in links[:6]] == PRIMARY, path
-    assert {href: mark for href, mark, _ in links[:6] if mark} == current, path
-    # After the six: Pricing where the posture offers it, then Sign in. Nothing else.
-    assert [href for href, _, _ in links[6:]] in (["/login"], ["/pricing", "/login"]), path
+    assert [(href, text) for href, _, text in links[:7]] == PRIMARY, path
+    assert {href: mark for href, mark, _ in links[:7] if mark} == current, path
+    # After the seven: Pricing where the posture offers it, then Sign in. Nothing else.
+    assert [href for href, _, _ in links[7:]] in (["/login"], ["/pricing", "/login"]), path
 
 
 @pytest.mark.parametrize(

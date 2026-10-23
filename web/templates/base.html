@@ -122,8 +122,8 @@
         links stay open, as before. -#}
     <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav-panel">Menu</button>
     <div class="site-nav-panel" id="site-nav-panel">
-    {#- Six destinations (docs/16 §3.1, U-6). The current one carries `aria-current` and, as its
-        visible echo, weight and an underline (styles.css). -#}
+    {#- Seven destinations (docs/16 §3.1, U-6; the site finder after Map, docs/25). The current one
+        carries `aria-current` and, as its visible echo, weight and an underline (styles.css). -#}
     <nav class="primary-nav" aria-label="Primary">
       {%- for key in sections.primary %}
       <a href="{{ sections.href[key] }}"{{ sections.current(key, request.url.path) }}>{{ sections.label[key] }}</a>

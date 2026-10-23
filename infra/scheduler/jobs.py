@@ -1294,3 +1294,50 @@ def org_enrich_apply_job(*, _session_factory: Any = None, _data_root: Path | Non
         data = org_enrich.apply_profiles(session, result).as_report()
     _log_report("org_enrich_apply", data)
     return data
+
+
+def site_finder_counties(data_root: Path, _build: Callable[..., Any] | None = None) -> dict[str, Any]:
+    """Bring the Census TIGER/Line counties file the site finder reads up to date before a run
+    (`services/site_finder/counties.py::build`): one HEAD request when Census has not changed the
+    file, a download of the national file (the states `GRID_LAYERS_REGIONS` names kept) when it has
+    or when there is none yet. A failure never stops the run: it reads the file it has, or the
+    vendored 1:20m counties, and its provenance names which (so a store is never left on the coarse
+    fallback only because nobody ran `python -m services.site_finder.counties --fetch`)."""
+    build = _build if _build is not None else _load_fn("services.site_finder.counties", "build")
+    regions = (os.environ.get("GRID_LAYERS_REGIONS") or "").strip()
+    states = (
+        None
+        if not regions or regions.lower() == "all"
+        else [r.strip().upper().removeprefix("US-") for r in regions.split(",") if r.strip()]
+    )
+    try:
+        report = dict(build(data_root, states=states))
+    except Exception as exc:  # the run goes on with the file it has
+        logger.warning("site_finder_counties: not refreshed: %s", f"{type(exc).__name__}: {exc}"[:300])
+        return {"fetched": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+    keep = ("fetched", "counties", "retrieved_at", "last_modified", "states")
+    return {k: report.get(k) for k in keep if k in report}
+
+
+def site_finder_refresh_job(
+    _run: Callable[..., Any] | None = None,
+    *,
+    _session_factory: Any = None,
+    _data_root: Path | None = None,
+    _counties: Callable[[Path], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Body of `site_finder_refresh` (owner decision 2026-10-22, the powered-land site finder): bring the
+    TIGER counties file up to date (`site_finder_counties`), then recompute every candidate segment
+    from what the context load left in the store (the OpenStreetMap lines and substations, the plants,
+    the exactly-located requests) and the files under the connector data root (the FEMA flood build,
+    the TIGER counties, the prospect build, the FCC fiber file), as one new run the API serves only
+    once it is complete (`services/site_finder/compute.py::refresh`). Its own sessions and commits: the
+    run is written in batches and swapped in at the end."""
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    run = _run if _run is not None else _load_fn("services.site_finder.compute", "refresh")
+    data_root = _data_root if _data_root is not None else connector_data_root()
+    counties = (_counties if _counties is not None else site_finder_counties)(data_root)
+    data = dict(run(factory, data_root))
+    data["counties_file"] = counties
+    _log_report("site_finder_refresh", data)
+    return data
