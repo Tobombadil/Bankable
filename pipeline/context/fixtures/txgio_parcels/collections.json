@@ -1,0 +1,45 @@
+{
+ "count": 2,
+ "next": null,
+ "previous": null,
+ "results": [
+  {
+   "collection_id": "0fa04328-872e-481c-b453-126a74777593",
+   "name": "Land Parcels",
+   "acquisition_date": "2025-06-01",
+   "publication_date": "2025-09-11",
+   "license_name": "Creative Commons Zero v1.0 Universal",
+   "license_abbreviation": "CC0-1.0",
+   "license_url": "https://spdx.org/licenses/CC0-1.0.html",
+   "public": true,
+   "authoritative": false,
+   "source_name": "Various Appraisal Districts",
+   "file_type": "GDB,SHP",
+   "spatial_reference": "4326",
+   "resource_types": "LP",
+   "template": "tnris-download",
+   "category": "Basemap",
+   "supplemental_report_url": "https://data.geographic.texas.gov/0fa04328-872e-481c-b453-126a74777593/assets/land-parcels-supplemental-report.zip",
+   "description": "Land parcels are boundaries that have associated information such as property owner, land use, value, and location attributes. In Texas, this property information is recorded and maintained at the county level by the local appraisal districts. Generally, it can be used by public entities to make informed decisions on community planning, development, or emergency preparation and response. \r\n\r\nData are provided by county appraisal districts or their service providers and then translated in the TxGIO common schema. Data collection and transformation was completed by BIS Consultants and delivered to TxGIO. Users should note that the data available in the StratMap Land Parcels dataset is presented \u2018AS-IS\u2019 based on the delivery by the local appraisal districts or their vendors. No values from the original data have been changed or removed. Additionally, StratMap Land Parcels are intended to be used as basemap and cartographic data and are not for detailed analysis. \r\n\r\nWe encourage the user to reach out to the specific county appraisal district with questions regarding the attributes represented in this data. \r\n\r\nEach land parcel dataset consists of a zip file including:  \r\nFile geodatabase\r\nShapefile\r\nMetadata\r\n\r\n\r\n<a href=\"https://geographic.texas.gov/stratmap/land-parcels.html\" target=\"_blank\">Click here for more information about TxGIO's Land Parcel Program</a>\r\n\r\n<a href=\"https://portal.geographic.texas.gov/portal/apps/experiencebuilder/experience/?id=17bf4d274c7444a7836005a3dd3e2512\" target=\"_blank\">StratMap Most Recent Land Parcels Interactive Map</a>\r\n\r\n<a href=\"https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap_land_parcels_48_most_recent/MapServer\" target=\"_blank\">Our most recent Land Parcel data web service can be found HERE</a>"
+  },
+  {
+   "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+   "name": "Land Parcels",
+   "acquisition_date": "2026-09-25",
+   "publication_date": "2026-10-01",
+   "license_name": "Creative Commons Zero v1.0 Universal",
+   "license_abbreviation": "CC0-1.0",
+   "license_url": "https://spdx.org/licenses/CC0-1.0.html",
+   "public": true,
+   "authoritative": false,
+   "source_name": "Various Appraisal Districts",
+   "file_type": "GDB,SHP",
+   "spatial_reference": "4326",
+   "resource_types": "LP",
+   "template": "tnris-download",
+   "category": "Basemap",
+   "supplemental_report_url": "https://data.geographic.texas.gov/1d33dafb-6e9c-40ac-887d-f4577909ed9b/assets/land-parcels-supplemental-report.zip",
+   "description": "Land parcels are boundaries that have associated information such as property owner, land use, value, and location attributes. In Texas, this property information is recorded and maintained at the county level by the local appraisal districts. Generally, it can be used by public entities to make informed decisions on community planning, development, or emergency preparation and response.\r\n\r\nData is provided by county appraisal districts or their service providers and then translated in the TxGIO common schema. Data collection and transformation was completed by BIS Consultants and delivered to TxGIO. Users should note that the data available in the StratMap Land Parcels dataset is presented \u2018AS-IS\u2019 based on the delivery by the local appraisal districts or their vendors. No values from the original data have been changed or removed. Additionally, StratMap Land Parcels are intended to be used as basemap and cartographic data and are not for detailed analysis.\r\n\r\nWe encourage the user to reach out to the specific county appraisal district with questions regarding the attributes represented in this data.\r\n\r\nEach land parcel dataset consists of a zip file including:\r\nFile geodatabase\r\nShapefile\r\nMetadata\r\n\r\nThis dataset currently excludes the following counties: Donley\r\n\r\n<a href=\"https://geographic.texas.gov/stratmap/land-parcels.html\" target=\"_blank\">Click here for more information about TxGIO's Land Parcel Program</a>\r\n\r\n<a href=\"https://portal.geographic.texas.gov/portal/apps/experiencebuilder/experience/?id=17bf4d274c7444a7836005a3dd3e2512\" target=\"_blank\">StratMap Most Recent Land Parcels Interactive Map</a>\r\n\r\n<a href=\"https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap_land_parcels_48_most_recent/MapServer\" target=\"_blank\">Our most recent Land Parcel data web service can be found HERE</a>"
+  }
+ ]
+}

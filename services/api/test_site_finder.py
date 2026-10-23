@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import json
 import math
 import pathlib
 import re
@@ -800,3 +801,274 @@ def test_health_says_whether_the_site_finder_has_a_run_to_show(
         db.execute(sa.delete(SiteFinderRun))
         db.commit()
     assert client.get("/v1/health").json()["site_finder"] == {"computed": False, "segments": 0}
+
+
+# ------------------------------------------------------------------------- land parcels (lane parcels)
+_PARCEL_FIXTURE = (
+    pathlib.Path(__file__).resolve().parents[2] / "pipeline" / "context" / "fixtures" / "txgio_parcels"
+)
+
+
+def _owner_strings() -> set[str]:
+    """The synthetic county's owner, care-of, situs and mailing values (`pipeline/context/fixtures/
+    txgio_parcels/synthetic_county.geojson`): none may reach a response."""
+    doc = json.loads((_PARCEL_FIXTURE / "synthetic_county.geojson").read_text(encoding="utf-8"))
+    out: set[str] = set()
+    for f in doc["features"]:
+        for name in ("OWNER_NAME", "NAME_CARE", "SITUS_ADDR", "MAIL_ADDR", "LEGAL_DESC"):
+            v = f["properties"].get(name)
+            if v and str(v).strip() and "CONFIDENTIAL" not in str(v).upper():
+                out.add(str(v).strip().upper())
+    return out | {"OWNER ALPHA", "OWNER BRAVO", "OWNER DELTA", "SYNTH SITUS", "SYNTH MAIL", "SYNTH CARE"}
+
+
+def _alpha(body: dict[str, Any]) -> dict[str, Any]:
+    return next(b for b in body["data"] if b["line"]["name"] == "Alpha 138 kV")
+
+
+def test_a_band_carries_its_holdings_with_appraisal_links_and_no_owner(client: TestClient) -> None:
+    body = _get(client)
+    land = _alpha(body)["parcels"]
+    assert land["status"] == "ok" and land["counties_missing"] == []
+    assert (
+        land["note"] == "Owner names are on the appraisal district's record; Inframation does not store them."
+    )
+    assert land["largest_holding_acres"] == pytest.approx(632.0, abs=1.0)
+    top = land["top_holdings"]
+    assert top[0]["acres"] == pytest.approx(632.0, abs=1.0) and top[0]["parcels"] == 1
+    assert {h["owner_count"] for h in top} == {1}
+    alpha_holding = next(h for h in top if h["parcels"] == 3)
+    assert alpha_holding["acres"] == pytest.approx(118.5, abs=0.5)
+    assert alpha_holding["land_use"] == "open_space" and alpha_holding["value_per_acre"] > 0
+    # 48999 has no verified appraisal-district route: the Comptroller's directory, with the id to copy.
+    link = top[0]["appraisal_record"]
+    assert link["kind"] == "directory" and link["property_id"] == "50015"
+    assert link["url"] == "https://comptroller.texas.gov/taxes/property-tax/county-directory/fixture.php"
+    assert land["holdings_20_acres_plus"] >= 10 and land["holdings_at_least"]["500"] == 1
+    assert land["provenance"]["source_id"] == "us.tx.txgio.parcels"
+    credits = {r["source_id"]: r for r in body["licence_summary"]["sources"]}
+    assert "Texas Geographic Information Office" in credits["us.tx.txgio.parcels"]["attribution_text"]
+    assert "Neither Inframation nor this information" in credits["us.tx.txgio.parcels"]["attribution_text"]
+    blob = json.dumps(body).upper()
+    assert not sorted(v for v in _owner_strings() if v in blob)
+    # A band whose county has parcels but none near it says so with zeros, not "not loaded".
+    bravo = _bravo(body)["parcels"]
+    assert bravo["status"] == "ok" and bravo["largest_holding_acres"] == 0.0 and bravo["top_holdings"] == []
+
+
+def test_a_band_outside_the_loaded_counties_names_its_county(client: TestClient) -> None:
+    body = _get(client, include_unknown_voltage="true", exclude_flood="false")
+    charlie = next(b for b in body["data"] if b["line"]["voltage_unknown"])
+    land = charlie["parcels"]
+    assert land["status"] == "not_loaded" and land["provenance"] is None
+    assert land["counties_missing"] and land["counties_missing"][0]["fips"] == charlie["place"]["county_fips"]
+
+
+def test_contiguous_acres_and_owners_filter_segments_and_count_the_miles_without_parcels(
+    client: TestClient,
+) -> None:
+    assert _ids(_get(client, min_acres=500)) == ["Alpha 138 kV:0-2"]
+    assert _ids(_get(client, min_acres=1000)) == []
+    assert _ids(_get(client, min_acres=500, max_owners=1)) == ["Alpha 138 kV:0-2"]
+    assert (
+        _get(client, min_acres="none", max_owners="any")["meta"]["site_finder"]["criteria"]["min_acres"]
+        is None
+    )
+    every = _get(client, include_unknown_voltage="true", exclude_flood="false", min_acres=20)
+    assert "Charlie (voltage not stated):0-0" not in _ids(every)
+    summary = every["meta"]["site_finder"]["summary"]
+    assert summary["parcels_unavailable_mi"] == pytest.approx(0.6, abs=0.05)
+    criteria = every["meta"]["site_finder"]["criteria"]
+    assert criteria["min_acres"] == 20 and criteria["rules"]["min_acres_choices"] == [
+        20,
+        50,
+        100,
+        200,
+        500,
+        1000,
+    ]
+    land = _alpha(_get(client, max_owners=3))["parcels"]
+    assert land["assembly"]["max_owners"] == 3 and land["assembly"]["acres"] >= land["largest_holding_acres"]
+
+
+def test_bands_sort_by_their_largest_holding(client: TestClient) -> None:
+    assert _ids(_get(client, sort="-largest_holding_acres")) == ["Alpha 138 kV:0-2", "Bravo 345 kV:0-0"]
+    assert _ids(_get(client, sort="largest_holding_acres")) == ["Bravo 345 kV:0-0", "Alpha 138 kV:0-2"]
+    # Charlie has no parcels measured: last whichever way.
+    for sort in ("-largest_holding_acres", "largest_holding_acres"):
+        every = _get(client, include_unknown_voltage="true", exclude_flood="false", sort=sort)
+        assert _ids(every)[-1] == "Charlie (voltage not stated):0-0"
+
+
+@pytest.mark.parametrize(
+    ("params", "field"),
+    [
+        ({"min_acres": "30"}, "min_acres"),
+        ({"min_acres": "lots"}, "min_acres"),
+        ({"max_owners": "2"}, "max_owners"),
+        ({"max_owners": "-1"}, "max_owners"),
+        ({"sort": "largest_holding"}, "sort"),
+    ],
+)
+def test_parcel_criteria_are_validated(client: TestClient, params: dict[str, str], field: str) -> None:
+    resp = client.get("/v1/site-finder", params=params)
+    assert resp.status_code == 400, resp.text
+    assert field in resp.text
+
+
+AROUND_A = "-98.01,30.98,-97.96,31.02"
+
+
+def test_parcel_outlines_are_drawn_from_zoom_12_with_links_and_no_owner(client: TestClient) -> None:
+    far = client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "11"}).json()
+    assert far["data"]["features"] == [] and far["meta"]["site_finder"]["parcels"]["status"] == "zoom_in"
+    wide = client.get("/v1/site-finder/parcels", params={"bbox": "-99,30,-97,32", "zoom": "13"}).json()
+    assert wide["meta"]["site_finder"]["parcels"]["status"] == "zoom_in"
+    near = client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "13"})
+    assert near.status_code == 200
+    body = near.json()
+    meta = body["meta"]["site_finder"]["parcels"]
+    assert meta["status"] == "ok" and meta["in_view"] == 16 and meta["drawn"] == 16
+    assert meta["counties_loaded_in_view"] == [{"fips": "48999", "name": "Fixture County"}]
+    props = [f["properties"] for f in body["data"]["features"]]
+    assert props[0]["holding_acres"] == pytest.approx(632.0, abs=1.0)  # largest holdings first
+    assert all(
+        p["appraisal_record"]["kind"] == "directory" and p["holding_id"].startswith("h") for p in props
+    )
+    assert body["data"]["features"][0]["geometry"]["type"] in ("Polygon", "MultiPolygon")
+    assert [r["source_id"] for r in body["licence_summary"]["sources"]] == ["us.tx.txgio.parcels"]
+    blob = json.dumps(body).upper()
+    assert not sorted(v for v in _owner_strings() if v in blob)
+    assert client.get("/v1/site-finder/parcels", params={"zoom": "13"}).status_code == 400
+    assert (
+        client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "13", "x": "1"}).status_code
+        == 400
+    )
+
+
+def test_parcel_outlines_say_when_this_server_holds_none(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    from services.context_sample import parcels as cp
+
+    monkeypatch.setenv("PARCELS_DATA_DIR", str(tmp_path / "nothing"))
+    cp.clear_cache()
+    body = client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "13"}).json()
+    assert (
+        body["meta"]["site_finder"]["parcels"]["status"] == "unavailable" and body["data"]["features"] == []
+    )
+    cp.clear_cache()
+
+
+def test_a_gated_parcel_source_is_withheld_everywhere(
+    client: TestClient, factory: sessionmaker[Session], world: World
+) -> None:
+    with factory() as db:
+        db.add(
+            Source(
+                id="us.tx.txgio.parcels",
+                name="TxGIO parcels",
+                jurisdiction="US-TX",
+                category="land",
+                operator="TxGIO",
+                url="https://example.org/txgio",
+                access="bulk_file",
+                cadence="annual",
+                licence_id="osm-lic",
+                publish_state="ingest_only",
+                manifest_version="2026-10-23",
+                manifest_hash="0" * 64,
+            )
+        )
+        db.commit()
+    api.clear_caches()
+    land = _alpha(_get(client))["parcels"]
+    assert land["status"] == "withheld" and "top_holdings" not in land and land["provenance"] is None
+    body = client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "13"}).json()
+    assert body["meta"]["site_finder"]["parcels"]["status"] == "withheld" and body["data"]["features"] == []
+
+
+def test_parcel_responses_match_the_committed_spec(client: TestClient) -> None:
+    import yaml
+
+    from tests.test_api_contract import OPENAPI_PATH, assert_valid
+
+    spec = yaml.safe_load(OPENAPI_PATH.read_text(encoding="utf-8"))
+    listed = _get(client, min_acres=100, max_owners=3, sort="-largest_holding_acres")
+    assert_valid(spec, "SiteFinderListResponse", listed)
+    every = _get(client, include_unknown_voltage="true", exclude_flood="false")
+    assert_valid(spec, "SiteFinderListResponse", every)
+    parcels = client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "13"}).json()
+    assert_valid(spec, "SiteFinderParcelsResponse", parcels)
+
+
+def test_the_largest_holding_sort_follows_a_re_measure_in_place(
+    client: TestClient, factory: sessionmaker[Session], world: World
+) -> None:
+    """A server pulls a different set of counties from the same `latest.json` and re-measures in place
+    (`--parcels-only`): the layer's version is unchanged, but the order must follow the new figures,
+    not the per-run cache of the old ones, within one request."""
+    from services.context_sample import parcels as cp
+    from services.site_finder.compute import refresh_parcels
+
+    assert _ids(_get(client, sort="-largest_holding_acres")) == ["Alpha 138 kV:0-2", "Bravo 345 kV:0-0"]
+    root = world.data_root / "normalized" / "context" / "us.tx.txgio.parcels"
+    current = json.loads((root / "current.json").read_text(encoding="utf-8"))
+    loaded = dict(current["counties"])
+    current["counties"] = {}
+    (root / "current.json").write_text(json.dumps(current), encoding="utf-8")
+    cp.clear_cache()
+    refresh_parcels(factory, world.data_root)
+    after = _get(client, sort="-largest_holding_acres")
+    assert {b["parcels"]["status"] for b in after["data"]} == {"not_loaded"}
+    # Neither band has a figure now: the voltage tie-break orders them, as a fresh process would.
+    assert _ids(after) == ["Bravo 345 kV:0-0", "Alpha 138 kV:0-2"]
+    current["counties"] = loaded
+    (root / "current.json").write_text(json.dumps(current), encoding="utf-8")
+    cp.clear_cache()
+    refresh_parcels(factory, world.data_root)
+    assert _ids(_get(client, sort="-largest_holding_acres")) == ["Alpha 138 kV:0-2", "Bravo 345 kV:0-0"]
+    assert _ids(_get(client, min_acres=500)) == ["Alpha 138 kV:0-2"]
+
+
+def test_a_band_says_how_many_holdings_touch_it_and_which_are_left_out(client: TestClient) -> None:
+    land = _alpha(_get(client))["parcels"]
+    # Alpha's band at a mile: every holding of the fixture county touches it; Foxtrot's exempt tract is
+    # counted but left out of the acreage figures and the list.
+    assert land["holdings_touching"] == 12 and land["holdings_touching_exact"] is False
+    assert land["left_out_holdings_at_least"] == 1
+    assert land["left_out_note"].startswith("Right-of-way strips, exempt land and utility land")
+    assert all(h["land_use"] != "exempt" for h in land["top_holdings"])
+    assert all(":" not in h["holding_id"] and h["county_fips"] == "48999" for h in land["top_holdings"])
+
+
+def test_a_band_outside_texas_says_parcels_are_texas_only(
+    client: TestClient, factory: sessionmaker[Session], world: World
+) -> None:
+    with factory() as db:
+        for row in db.scalars(sa.select(SiteCandidate).where(SiteCandidate.line_asset_id == world.line_c.id)):
+            row.county_fips, row.county_name, row.state_code = "22019", "Calcasieu Parish", "US-LA"
+        db.commit()
+    api.clear_caches()
+    body = _get(client, include_unknown_voltage="true", exclude_flood="false")
+    land = next(b for b in body["data"] if b["line"]["voltage_unknown"])["parcels"]
+    assert land["status"] == "not_loaded" and land["counties_missing"] == []
+    assert land["outside_texas"] == [{"fips": "22019", "name": "Calcasieu Parish"}]
+
+
+def test_a_view_with_more_parcels_than_the_cap_keeps_the_largest_holdings(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The view's rows are ranked and cut in Arrow (`_parcel_features`): the cap keeps the largest
+    holdings, in order, and counts every parcel in view."""
+    monkeypatch.setattr(api, "PARCELS_CAP", 5)
+    body = client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "13"}).json()
+    meta = body["meta"]["site_finder"]["parcels"]
+    assert meta["in_view"] == 16 and meta["drawn"] == 5
+    props = [f["properties"] for f in body["data"]["features"]]
+    acres = [p["holding_acres"] for p in props]
+    assert acres == sorted(acres, reverse=True) and acres[0] == pytest.approx(632.0, abs=1.0)
+    # Alpha's three parcels (118.5 acres together) follow Delta's ranch, tied ones by parcel key.
+    assert [p["holding_parcels"] for p in props[1:4]] == [3, 3, 3]
+    assert [p["parcel_key"] for p in props[1:4]] == sorted(p["parcel_key"] for p in props[1:4])
+    assert {p["holding_kind"] for p in props} == {"land"}

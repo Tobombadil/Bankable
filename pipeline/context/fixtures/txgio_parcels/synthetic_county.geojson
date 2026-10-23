@@ -1,0 +1,965 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1001,
+    "PROP_ID": "50001",
+    "GEO_ID": "0001-000-A1",
+    "OWNER_NAME": "SYNTH OWNER ALPHA LLC",
+    "NAME_CARE": "SYNTH CARE OF A1",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT A1",
+    "LAND_VALUE": 128000,
+    "IMP_VALUE": 32000,
+    "MKT_VALUE": 160000,
+    "SITUS_ADDR": "101 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9001 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9001",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "D1",
+    "LOC_LAND_USE": "D1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.99,
+       31.0008993
+      ],
+      [
+       -97.9858033,
+       31.0008993
+      ],
+      [
+       -97.9858033,
+       31.0044966
+      ],
+      [
+       -97.99,
+       31.0044966
+      ],
+      [
+       -97.99,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1002,
+    "PROP_ID": "50002",
+    "GEO_ID": "0002-000-A2",
+    "OWNER_NAME": "Synth Owner Alpha, L.L.C.",
+    "NAME_CARE": "SYNTH CARE OF A2",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT A2",
+    "LAND_VALUE": 126400,
+    "IMP_VALUE": 31600,
+    "MKT_VALUE": 158000,
+    "SITUS_ADDR": "102 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9002 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9002",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "D1",
+    "LOC_LAND_USE": "D1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9858033,
+       31.0008993
+      ],
+      [
+       -97.9816066,
+       31.0008993
+      ],
+      [
+       -97.9816066,
+       31.0044966
+      ],
+      [
+       -97.9858033,
+       31.0044966
+      ],
+      [
+       -97.9858033,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1003,
+    "PROP_ID": "50003",
+    "GEO_ID": "0003-000-A3",
+    "OWNER_NAME": "SYNTH  OWNER ALPHA L L C",
+    "NAME_CARE": "SYNTH CARE OF A3",
+    "LEGAL_AREA": 1720620,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 1720620,
+    "GIS_AREA_UNIT": "SqFt",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT A3",
+    "LAND_VALUE": 120000,
+    "IMP_VALUE": 30000,
+    "MKT_VALUE": 150000,
+    "SITUS_ADDR": "103 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9003 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9003",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "E1",
+    "LOC_LAND_USE": "E1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9816066,
+       31.0008993
+      ],
+      [
+       -97.9774099,
+       31.0008993
+      ],
+      [
+       -97.9774099,
+       31.0044966
+      ],
+      [
+       -97.9816066,
+       31.0044966
+      ],
+      [
+       -97.9816066,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1004,
+    "PROP_ID": "50004",
+    "GEO_ID": "0004-000-A4",
+    "OWNER_NAME": "SYNTH OWNER ALPHA LLC",
+    "NAME_CARE": "SYNTH CARE OF A4",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT A4",
+    "LAND_VALUE": 96000,
+    "IMP_VALUE": 24000,
+    "MKT_VALUE": 120000,
+    "SITUS_ADDR": "104 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9004 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9004",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "D1",
+    "LOC_LAND_USE": "D1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.99,
+       31.0134898
+      ],
+      [
+       -97.9858033,
+       31.0134898
+      ],
+      [
+       -97.9858033,
+       31.0170871
+      ],
+      [
+       -97.99,
+       31.0170871
+      ],
+      [
+       -97.99,
+       31.0134898
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1005,
+    "PROP_ID": "50005",
+    "GEO_ID": "0005-000-B1",
+    "OWNER_NAME": "SYNTH OWNER BRAVO",
+    "NAME_CARE": "SYNTH CARE OF B1",
+    "LEGAL_AREA": null,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": null,
+    "GIS_AREA_UNIT": null,
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT B1",
+    "LAND_VALUE": 72000,
+    "IMP_VALUE": 18000,
+    "MKT_VALUE": 90000,
+    "SITUS_ADDR": "105 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9005 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9005",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "D1",
+    "LOC_LAND_USE": "D1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9983934,
+       31.0008993
+      ],
+      [
+       -97.9944065,
+       31.0008993
+      ],
+      [
+       -97.9944065,
+       31.0044966
+      ],
+      [
+       -97.9983934,
+       31.0044966
+      ],
+      [
+       -97.9983934,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1006,
+    "PROP_ID": "50006",
+    "GEO_ID": "0006-000-B2",
+    "OWNER_NAME": "SYNTH OWNER BRAVO",
+    "NAME_CARE": "SYNTH CARE OF B2",
+    "LEGAL_AREA": 37.6,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 37.6,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT B2",
+    "LAND_VALUE": 72800,
+    "IMP_VALUE": 18200,
+    "MKT_VALUE": 91000,
+    "SITUS_ADDR": "106 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9006 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9006",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "D1",
+    "LOC_LAND_USE": "D1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9941967,
+       31.0008993
+      ],
+      [
+       -97.9902098,
+       31.0008993
+      ],
+      [
+       -97.9902098,
+       31.0044966
+      ],
+      [
+       -97.9941967,
+       31.0044966
+      ],
+      [
+       -97.9941967,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1007,
+    "PROP_ID": "50007",
+    "GEO_ID": "0007-000-C1",
+    "OWNER_NAME": "SYNTH OWNER CHARLIE TRUST",
+    "NAME_CARE": "SYNTH CARE OF C1",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "AC",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT C1",
+    "LAND_VALUE": 320000,
+    "IMP_VALUE": 80000,
+    "MKT_VALUE": 400000,
+    "SITUS_ADDR": "107 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9007 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9007",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "F1",
+    "LOC_LAND_USE": "F1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9772,
+       31.0008993
+      ],
+      [
+       -97.9730033,
+       31.0008993
+      ],
+      [
+       -97.9730033,
+       31.0044966
+      ],
+      [
+       -97.9772,
+       31.0044966
+      ],
+      [
+       -97.9772,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1008,
+    "PROP_ID": "50008",
+    "GEO_ID": "0008-000-C2",
+    "OWNER_NAME": "SYNTH OWNER CHARLIE TRUST",
+    "NAME_CARE": "SYNTH CARE OF C2",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "AC",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT C2",
+    "LAND_VALUE": 328000,
+    "IMP_VALUE": 82000,
+    "MKT_VALUE": 410000,
+    "SITUS_ADDR": "108 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9008 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9008",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "F1",
+    "LOC_LAND_USE": "F1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9724787,
+       31.0008993
+      ],
+      [
+       -97.968282,
+       31.0008993
+      ],
+      [
+       -97.968282,
+       31.0044966
+      ],
+      [
+       -97.9724787,
+       31.0044966
+      ],
+      [
+       -97.9724787,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1009,
+    "PROP_ID": "50009",
+    "GEO_ID": "0009-000-X1",
+    "OWNER_NAME": "CONFIDENTIAL OWNER",
+    "NAME_CARE": "SYNTH CARE OF X1",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT X1",
+    "LAND_VALUE": 200000,
+    "IMP_VALUE": 50000,
+    "MKT_VALUE": 250000,
+    "SITUS_ADDR": "109 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9009 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9009",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "A1",
+    "LOC_LAND_USE": "A1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9983934,
+       31.0053959
+      ],
+      [
+       -97.9941967,
+       31.0053959
+      ],
+      [
+       -97.9941967,
+       31.0089932
+      ],
+      [
+       -97.9983934,
+       31.0089932
+      ],
+      [
+       -97.9983934,
+       31.0053959
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1010,
+    "PROP_ID": "50010",
+    "GEO_ID": "0010-000-X2",
+    "OWNER_NAME": "** CONFIDENTIAL **",
+    "NAME_CARE": "SYNTH CARE OF X2",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT X2",
+    "LAND_VALUE": 208000,
+    "IMP_VALUE": 52000,
+    "MKT_VALUE": 260000,
+    "SITUS_ADDR": "110 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9010 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9010",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "A1",
+    "LOC_LAND_USE": "A1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9941967,
+       31.0053959
+      ],
+      [
+       -97.99,
+       31.0053959
+      ],
+      [
+       -97.99,
+       31.0089932
+      ],
+      [
+       -97.9941967,
+       31.0089932
+      ],
+      [
+       -97.9941967,
+       31.0053959
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1011,
+    "PROP_ID": "50011",
+    "GEO_ID": "0011-000-Y1",
+    "OWNER_NAME": "",
+    "NAME_CARE": "SYNTH CARE OF Y1",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT Y1",
+    "LAND_VALUE": 40000,
+    "IMP_VALUE": 10000,
+    "MKT_VALUE": 50000,
+    "SITUS_ADDR": "111 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9011 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9011",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "C1",
+    "LOC_LAND_USE": "C1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.99,
+       31.0053959
+      ],
+      [
+       -97.9858033,
+       31.0053959
+      ],
+      [
+       -97.9858033,
+       31.0089932
+      ],
+      [
+       -97.99,
+       31.0089932
+      ],
+      [
+       -97.99,
+       31.0053959
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1012,
+    "PROP_ID": "50012",
+    "GEO_ID": "0012-000-Y2",
+    "OWNER_NAME": null,
+    "NAME_CARE": "SYNTH CARE OF Y2",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT Y2",
+    "LAND_VALUE": 41600,
+    "IMP_VALUE": 10400,
+    "MKT_VALUE": 52000,
+    "SITUS_ADDR": "112 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9012 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9012",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "",
+    "LOC_LAND_USE": ""
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9858033,
+       31.0053959
+      ],
+      [
+       -97.9816066,
+       31.0053959
+      ],
+      [
+       -97.9816066,
+       31.0089932
+      ],
+      [
+       -97.9858033,
+       31.0089932
+      ],
+      [
+       -97.9858033,
+       31.0053959
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1013,
+    "PROP_ID": "50013",
+    "GEO_ID": "0013-000-E1",
+    "OWNER_NAME": "SYNTH OWNER ECHO & SONS",
+    "NAME_CARE": "SYNTH CARE OF E1",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT E1",
+    "LAND_VALUE": 112000,
+    "IMP_VALUE": 28000,
+    "MKT_VALUE": 140000,
+    "SITUS_ADDR": "113 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9013 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9013",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "E",
+    "LOC_LAND_USE": "E"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9816066,
+       31.0053959
+      ],
+      [
+       -97.9774099,
+       31.0053959
+      ],
+      [
+       -97.9774099,
+       31.0089932
+      ],
+      [
+       -97.9816066,
+       31.0089932
+      ],
+      [
+       -97.9816066,
+       31.0053959
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1014,
+    "PROP_ID": "50014",
+    "GEO_ID": "0014-000-E2",
+    "OWNER_NAME": "Synth Owner Echo and Sons",
+    "NAME_CARE": "SYNTH CARE OF E2",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT E2",
+    "LAND_VALUE": 112800,
+    "IMP_VALUE": 28200,
+    "MKT_VALUE": 141000,
+    "SITUS_ADDR": "114 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9014 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9014",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "E",
+    "LOC_LAND_USE": "E"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9774099,
+       31.0053959
+      ],
+      [
+       -97.9732132,
+       31.0053959
+      ],
+      [
+       -97.9732132,
+       31.0089932
+      ],
+      [
+       -97.9774099,
+       31.0089932
+      ],
+      [
+       -97.9774099,
+       31.0053959
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1015,
+    "PROP_ID": "50015",
+    "GEO_ID": "0015-000-D1",
+    "OWNER_NAME": "SYNTH OWNER DELTA RANCH LTD",
+    "NAME_CARE": "SYNTH CARE OF D1",
+    "LEGAL_AREA": 632.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 632.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT D1",
+    "LAND_VALUE": 1520000,
+    "IMP_VALUE": 380000,
+    "MKT_VALUE": 1900000,
+    "SITUS_ADDR": "115 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9015 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9015",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "D1",
+    "LOC_LAND_USE": "D1"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -98.0025901,
+       30.9847116
+      ],
+      [
+       -97.9858033,
+       30.9847116
+      ],
+      [
+       -97.9858033,
+       30.9991007
+      ],
+      [
+       -98.0025901,
+       30.9991007
+      ],
+      [
+       -98.0025901,
+       30.9847116
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 1016,
+    "PROP_ID": "50016",
+    "GEO_ID": "0016-000-F1",
+    "OWNER_NAME": "SYNTH OWNER FOXTROT",
+    "NAME_CARE": "SYNTH CARE OF F1",
+    "LEGAL_AREA": null,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": null,
+    "GIS_AREA_UNIT": null,
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT F1",
+    "LAND_VALUE": null,
+    "IMP_VALUE": null,
+    "MKT_VALUE": 0,
+    "SITUS_ADDR": "116 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9016 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9016",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "X",
+    "LOC_LAND_USE": "X"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -97.9669181,
+       31.0008993
+      ],
+      [
+       -97.9627214,
+       31.0044966
+      ],
+      [
+       -97.9627214,
+       31.0008993
+      ],
+      [
+       -97.9669181,
+       31.0044966
+      ],
+      [
+       -97.9669181,
+       31.0008993
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "OBJECTID": 2000,
+    "PROP_ID": "59999",
+    "GEO_ID": "0001-000-A1",
+    "OWNER_NAME": "SYNTH OWNER GOLF",
+    "NAME_CARE": "SYNTH CARE OF A1",
+    "LEGAL_AREA": 39.5,
+    "LGL_AREA_UNIT": "AC",
+    "GIS_AREA": 39.5,
+    "GIS_AREA_UNIT": "Acres",
+    "LEGAL_DESC": "SYNTH LEGAL DESCRIPTION ABSTRACT A1",
+    "LAND_VALUE": 128000,
+    "IMP_VALUE": 32000,
+    "MKT_VALUE": 160000,
+    "SITUS_ADDR": "101 SYNTH SITUS RD",
+    "SITUS_CITY": "SYNTHVILLE",
+    "MAIL_ADDR": "PO BOX 9001 SYNTH MAIL CITY TX",
+    "MAIL_LINE1": "PO BOX 9001",
+    "MAIL_CITY": "SYNTH MAIL CITY",
+    "MAIL_ZIP": "79999",
+    "SOURCE": "Synthetic CAD",
+    "FIPS": "48999",
+    "COUNTY": "Fixture",
+    "TAX_YEAR": "2026",
+    "YEAR_BUILT": null,
+    "STAT_LAND_USE": "D1",
+    "LOC_LAND_USE": "D1"
+   },
+   "geometry": null
+  }
+ ]
+}

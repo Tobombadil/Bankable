@@ -2695,9 +2695,24 @@ paths:
         miles of any of its segments that the tier may see, the same figure `sort=retiring_mw` orders by.
 
         Sorted by `-voltage_kv` unless `sort` says otherwise. Each sort has a tie-break: voltage then band length
-        (longest first when descending), substation distance then voltage, retiring MW then voltage; equal values
-        then by line and segment, so keyset pages of `limit` bands (default 25, at most 100) never repeat or skip
-        one.
+        (longest first when descending), substation distance then voltage, retiring MW then voltage, largest
+        holding then voltage; equal values then by line and segment, so keyset pages of `limit` bands (default 25,
+        at most 100) never repeat or skip one.
+
+        Land parcels (Texas, TxGIO StratMap, `us.tx.txgio.parcels`, CC0 1.0; owner decision 2026-10-23). Each band
+        carries `parcels`: the same-owner holdings touching it at `adjacent_mi` (a holding is one owner's parcels
+        that touch or lie within 30 m of each other; its acres count each outline once, and overlapping outlines
+        as their union), how many distinct holdings touch it, the largest, how many reach each acreage, the largest
+        contiguous assemblage from at most `max_owners` owners (land two holdings share, such as two owners on one
+        outline, counted once), and the ten largest holdings with acres, parcel count, land-use category, market
+        value per acre and a link to the appraisal district's record. Right-of-way strips, exempt land and utility
+        land are counted but left out of every acreage figure. No owner name, mailing or situs address is stored
+        or served: "Owner names are on the appraisal district's record; Inframation does not store them." With
+        `min_acres` a segment passes when its band reaches that much contiguous land from at most `max_owners`
+        owners; a segment in a county whose parcels this server does not hold never passes, and
+        `meta.site_finder.summary.parcels_unavailable_mi` counts those miles. A band reaching such a county names
+        it in `parcels.counties_missing` ("parcels not loaded for this county"); one reaching outside Texas names
+        those places in `parcels.outside_texas` (parcels cover Texas only).
       x-tier: public
       x-status: live
       x-sprint: 5
@@ -2737,12 +2752,26 @@ paths:
           description: A county's five-digit FIPS code (Census TIGER/Line), such as 48453.
           example: '48453'
           schema: {type: string, pattern: '^[0-9]{5}$'}
+        - name: min_acres
+          in: query
+          description: 'Contiguous acres at least: a segment passes when the largest contiguous land touching its band, from at most `max_owners` owners, reaches this many acres (Texas counties whose parcels the server holds). `none` or absent: no acreage test.'
+          schema:
+            oneOf:
+              - {type: number, enum: [20, 50, 100, 200, 500, 1000]}
+              - {type: string, enum: [none]}
+        - name: max_owners
+          in: query
+          description: 'Owners at most, for `min_acres`: 1 (the largest single holding), 3 or 5 neighbouring holdings. `any` or absent assembles up to 10 neighbouring holdings.'
+          schema:
+            oneOf:
+              - {type: integer, enum: [1, 3, 5]}
+              - {type: string, enum: [any]}
         - name: sort
           in: query
-          description: '`voltage_kv`, `substation_mi`, `length_mi` or `retiring_mw` (retiring and retired plant MW within 5 miles), each optionally prefixed with `-` for descending. Default `-voltage_kv`.'
+          description: '`voltage_kv`, `substation_mi`, `length_mi`, `retiring_mw` (retiring and retired plant MW within 5 miles) or `largest_holding_acres` (the largest same-owner holding touching the band; bands with no parcels last), each optionally prefixed with `-` for descending. Default `-voltage_kv`.'
           schema:
             type: string
-            enum: [voltage_kv, -voltage_kv, substation_mi, -substation_mi, length_mi, -length_mi, retiring_mw, -retiring_mw]
+            enum: [voltage_kv, -voltage_kv, substation_mi, -substation_mi, length_mi, -length_mi, retiring_mw, -retiring_mw, largest_holding_acres, -largest_holding_acres]
         - name: limit
           in: query
           description: Bands per page (1 to 100, default 25).
@@ -2818,6 +2847,18 @@ paths:
           in: query
           example: '48453'
           schema: {type: string, pattern: '^[0-9]{5}$'}
+        - name: min_acres
+          in: query
+          schema:
+            oneOf:
+              - {type: number, enum: [20, 50, 100, 200, 500, 1000]}
+              - {type: string, enum: [none]}
+        - name: max_owners
+          in: query
+          schema:
+            oneOf:
+              - {type: integer, enum: [1, 3, 5]}
+              - {type: string, enum: [any]}
       responses:
         '200':
           description: The bands in view inside the attribution envelope.
@@ -2826,6 +2867,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SiteFinderGeoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/site-finder/parcels:
+    get:
+      operationId: getSiteFinderParcels
+      tags: [Context]
+      summary: Land parcel outlines in view, for the site finder's map (Texas)
+      description: >-
+        Parcel outlines in `bbox` from zoom 12 (a view at most 0.5 degrees on a side), at most 4,000, the largest
+        holdings first (`meta.site_finder.parcels.in_view` counts them all), from the Texas counties whose TxGIO
+        StratMap parcels this server holds (`us.tx.txgio.parcels`, CC0 1.0). Each carries its acres, its holding's
+        acres and parcel count, the land-use category and the appraisal district's link (`appraisal_record`: the
+        record where its route is verified, else the district's search page or the Comptroller's directory, with
+        the property id to copy). No owner field exists to serve. `meta.site_finder.parcels.status` is `ok`,
+        `zoom_in` (below zoom 12 or too wide a view: no features), `unavailable` (no parcels on this server) or
+        `withheld` (the register gates the source). Not survey grade; not for legal purposes.
+      x-tier: public
+      x-status: live
+      x-sprint: 5
+      x-prd-stories: [US-104]
+      security: *sec_public
+      parameters:
+        - name: bbox
+          in: query
+          required: true
+          description: minLon,minLat,maxLon,maxLat (WGS84).
+          schema: {type: string}
+        - name: zoom
+          in: query
+          description: Map zoom, a finite number (clamped to 0-22); outlines from 12.
+          schema: {type: number, minimum: 0, maximum: 22}
+      responses:
+        '200':
+          description: The parcel outlines in view inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteFinderParcelsResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         <<: *common_errors
@@ -15822,6 +15904,9 @@ components:
               type: number
             flood_unavailable_mi:
               type: number
+            parcels_unavailable_mi:
+              type: number
+              description: With `min_acres`, the miles that meet every other criterion but reach no county whose parcels this server holds.
             facets:
               type: object
               description: >-
@@ -15864,7 +15949,7 @@ components:
       description: >-
         One corridor band: adjacent passing segments of one line, the land within `adjacent_mi` of it (`geometry`,
         with the floodplain cut out under `exclude_flood`), and what lies near.
-      required: [id, line, segments, length_mi, adjacent_mi, centre, bbox, centreline, geometry, substation, flood, place, context, prospect, links, provenance]
+      required: [id, line, segments, length_mi, adjacent_mi, centre, bbox, centreline, geometry, substation, flood, place, context, parcels, prospect, links, provenance]
       properties:
         id:
           type: string
@@ -16131,6 +16216,97 @@ components:
                     type: [object, 'null']
             energy_community:
               type: object
+        parcels:
+          type: object
+          description: >-
+            Texas land parcels (TxGIO StratMap, `us.tx.txgio.parcels`) touching the band at `adjacent_mi`. `status`:
+            `ok`, `partial` (part of the band reaches a county with no parcels on this server; figures are lower
+            bounds), `not_loaded` (none does) or `withheld` (the register gates the source). No owner name or address
+            is stored or served (`note`).
+          required: [status, counties_missing, note, not]
+          properties:
+            status:
+              type: string
+              enum: [ok, partial, not_loaded, withheld]
+            counties_missing:
+              type: array
+              description: The Texas counties the band reaches whose parcels are not loaded ("parcels not loaded for this county").
+              items:
+                type: object
+                required: [fips, name]
+                properties:
+                  fips: {type: string}
+                  name: {type: string}
+            outside_texas:
+              type: array
+              description: The places outside Texas the band reaches; parcels cover Texas only.
+              items:
+                type: object
+                required: [fips, name]
+                properties:
+                  fips: {type: string}
+                  name: {type: string}
+            note:
+              type: string
+            not:
+              type: string
+            largest_holding_acres:
+              type: [number, 'null']
+            assembly:
+              type: object
+              description: The largest contiguous acreage from at most `max_owners` neighbouring holdings each touching the band (a greedy lower bound); with no cap, up to `owners_assembled_up_to`.
+              properties:
+                max_owners: {type: [integer, 'null']}
+                owners_assembled_up_to: {type: integer}
+                acres: {type: [number, 'null']}
+                note: {type: string}
+            holdings_touching:
+              type: [integer, 'null']
+              description: How many distinct holdings touch the band (every kind). Exact when `holdings_touching_exact`; otherwise a lower bound (a band of several segments stores only its large holdings by id).
+            holdings_touching_exact:
+              type: [boolean, 'null']
+            left_out_holdings_at_least:
+              type: integer
+              description: Holdings touching the band that are right-of-way strips, exempt land or utility land, left out of every acreage figure and of `top_holdings` (a lower bound for a band of several segments).
+            left_out_note:
+              type: string
+            holdings_20_acres_plus:
+              type: integer
+            holdings_count_exact:
+              type: boolean
+            smaller_holdings_at_least:
+              type: integer
+            holdings_at_least:
+              type: object
+              description: How many holdings touching the band reach each acreage (20, 50, 100, 200, 500, 1000).
+              additionalProperties: {type: integer}
+            threshold_acres:
+              type: integer
+            holdings_at_threshold:
+              type: [integer, 'null']
+            top_holdings:
+              type: array
+              items:
+                type: object
+                required: [holding_id, acres, parcels, owner_count]
+                properties:
+                  holding_id:
+                    type: string
+                    description: Random per parcel build; never derived from an owner.
+                  acres: {type: number}
+                  parcels: {type: integer}
+                  owner_count: {type: integer, enum: [1]}
+                  land_use: {type: [string, 'null']}
+                  land_use_label: {type: [string, 'null']}
+                  value_per_acre: {type: [integer, 'null']}
+                  county_fips: {type: [string, 'null']}
+                  county_name: {type: [string, 'null']}
+                  appraisal_record:
+                    $ref: '#/components/schemas/SiteFinderAppraisalLink'
+            provenance:
+              oneOf:
+                - $ref: '#/components/schemas/SiteFinderProvenance'
+                - type: 'null'
         links:
           type: object
           properties:
@@ -16202,6 +16378,59 @@ components:
                           flood_status:
                             type: string
                             enum: [outside, partly_in, unavailable]
+    SiteFinderAppraisalLink:
+      type: [object, 'null']
+      description: >-
+        Where a reader reads a parcel's owner: `record` (the appraisal district's page for the property, where its
+        route was verified), `search` (the district's search page; copy `property_id`) or `directory` (the
+        Comptroller's page for the county, which names the district's site). Links only: nothing is fetched.
+      properties:
+        kind: {type: string, enum: [record, search, directory]}
+        url: {type: string}
+        district: {type: string}
+        property_id: {type: [string, 'null']}
+        verified: {type: [string, 'null']}
+    SiteFinderParcelsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [type, features]
+              properties:
+                type:
+                  type: string
+                  enum: [FeatureCollection]
+                features:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, geometry, properties]
+                    properties:
+                      type:
+                        type: string
+                        enum: [Feature]
+                      geometry:
+                        type: object
+                      properties:
+                        type: object
+                        required: [parcel_key, holding_id, acres, holding_acres, holding_parcels]
+                        properties:
+                          parcel_key: {type: string}
+                          holding_id: {type: string}
+                          acres: {type: number}
+                          holding_acres: {type: number}
+                          holding_parcels: {type: integer}
+                          holding_kind:
+                            type: string
+                            enum: [land, strip, exempt, utility]
+                            description: '`land`, or a kind left out of the acreage figures: a right-of-way `strip`, `exempt` land or `utility` land.'
+                          land_use: {type: [string, 'null']}
+                          land_use_label: {type: [string, 'null']}
+                          county_fips: {type: string}
+                          appraisal_record:
+                            $ref: '#/components/schemas/SiteFinderAppraisalLink'
     ContextSampleResponse:
       allOf:
         - $ref: '#/components/schemas/Envelope'

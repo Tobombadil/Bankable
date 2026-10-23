@@ -3928,6 +3928,45 @@ sources:
     and every county the finder names says so beside it. The download is deleted once the counties are
     read; only the derived parquet stays on the data root.
 
+- id: us.tx.txgio.parcels
+  name: TxGIO StratMap Land Parcels (Texas appraisal-district parcels, statewide common schema), for the site finder's land parcels
+  jurisdiction: US-TX
+  category: land
+  operator: Texas Geographic Information Office (Texas Water Development Board)
+  url: https://data.geographic.texas.gov/collection/?c=1d33dafb-6e9c-40ac-887d-f4577909ed9b
+  access: bulk_file
+  auth: none
+  format: 'one zip per county (file geodatabase and shapefile; 253 counties, 6,178,503,066 bytes together, Harris the largest at 429,896,042) and a statewide zip (2,714,312,383 bytes, never fetched), listed by https://api.tnris.org/api/v1/resources/?collection_id=1d33dafb-6e9c-40ac-887d-f4577909ed9b; built by pipeline/context/txgio_parcels.py into per-county GeoParquet of parcels and same-owner holdings with no owner, care-of, mailing or situs field, kept in the private object store (R2_BUCKET, data/normalized/context/us.tx.txgio.parcels/), never on the public tiles bucket, and pulled by servers with their object-store credentials'
+  cadence: annual vintage (2026 acquired 2026-09-25, published 2026-10-01); counties refresh on their own schedules
+  license: 'CC0 1.0 Universal — TxGIO DataHub catalogue record, https://api.tnris.org/api/v1/collections/?search=parcels (retrieved 2026-10-23): "license_name": "Creative Commons Zero v1.0 Universal"; TWDB site policies (https://www.geographic.texas.gov/site-policies.html): "The Texas Water Development Board freely grants permission to copy and distribute its materials."'
+  licence_url: https://spdx.org/licenses/CC0-1.0.html
+  reuse: open
+  publication: derived_only
+  attribution: 'Source: Texas Geographic Information Office (TWDB), StratMap Land Parcels, https://geographic.texas.gov; data from Texas appraisal districts'
+  notice: 'Neither Inframation nor this information, as presented on Inframation, is endorsed by the State of Texas or any state agency. Not survey grade; not for legal purposes.'
+  tier: 2
+  effort: M
+  connector: pipeline/context/txgio_parcels.py
+  probe: {method: GET, url: "https://api.tnris.org/api/v1/collections/?search=parcels"}
+  verified: {date: 2026-10-23, result: partial, note: 'Lane parcels, from this egress with the platform user-agent. Catalogue (api.tnris.org, robots.txt 404): collections search HTTP 200, seven Land Parcels vintages, the newest 1d33dafb-6e9c-40ac-887d-f4577909ed9b (acquired 2026-09-25, published 2026-10-01, CC0-1.0, spatial_reference 4326, "This dataset currently excludes the following counties: Donley"); resource list HTTP 200, 254 files (253 county zips, the statewide zip). Downloads: data.geographic.texas.gov answered HTTP 403 "Request blocked" (CloudFront, Paris edge) to robots.txt, a HEAD of the smallest county zip (Kenedy, 352,951 bytes) and every other request, so no parcel was downloaded here; the Actions build (.github/workflows/parcels-layer.yml) runs from GitHub''s US runners and its dry run reports each county zip''s answer. Map service (feature.geographic.texas.gov ... stratmap_land_parcels_48_most_recent/MapServer; robots.txt 404; maxRecordCount 2000): every layer query, count, ids-only and statistics request answered 400 "Requested operation is not supported by this service", so it is not a route, and identify, find and WMS GetFeatureInfo are not used to get around that.'}
+  notes: >-
+    Owner decisions 2026-10-23: Site finder Pro gets land parcels, Texas first, and Inframation serves the owner's own
+    powered-land deals first (docs/00-PLAN.md). derived_only is a privacy rule, not a licence rule
+    (docs/25-siting-parcels.md §4.7 option (b), applied more strictly): OWNER_NAME is read in memory only, to group
+    one owner's contiguous parcels (touching or within 30 m) into a holding, then dropped; NAME_CARE, MAIL_*,
+    SITUS_* and LEGAL_DESC are never read; no keyed owner hash is kept; holding ids are random per build. A parcel
+    with a blank or confidential owner (Tax Code §25.025) is a holding of its own and nothing marks it. Outputs carry
+    parcel ids, the appraisal district's property id, acres, the state land-use category, land and market value
+    and the holding's parcel count and acres; each holding links to the appraisal district's own record
+    (services/site_finder/cad_links.py), where the owner is read. Donley County is excluded by TxGIO (2024 to
+    2026). Written confirmation that CC0 covers display to paying subscribers has been requested from TxGIO
+    (docs/25-siting-parcels.md §7 item 1); the reuse class stands on the catalogue record until it answers.
+    The per-parcel files are the source table less its owner columns, which derived_only does not let us mirror,
+    so they stay in the private object store and the public reads parcels only through the API, behind the register
+    gate (fix round 2026-10-23). Accounts drawn on one outline (a land and a mobile-home account, undivided
+    interests) count once in a holding's acres; right-of-way strips, exempt and utility land are counted but left out
+    of the site finder's acreage figures (docs/25-siting-parcels.md §8.3).
+
 - id: us.fcc.bdc.fixed_summary
   name: FCC Broadband Data Collection — fixed broadband Summary by Geography Type (national file; county fiber-to-the-premises availability)
   jurisdiction: US (states, DC, Puerto Rico and territories)

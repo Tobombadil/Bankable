@@ -1,6 +1,8 @@
 """A small, exactly known world for the site finder's tests (the job, the API and the page), built
 offline: four lines, three substations, plants, requests, a one-state FEMA flood build, a TIGER-shaped
-county file and a stand-in prospect sampler.
+county file, a stand-in prospect sampler and a land parcels build of the synthetic county 48999
+(`write_parcels`, from `pipeline/context/fixtures/txgio_parcels/synthetic_county.geojson`, laid out as a
+pull would leave it; no owner value reaches the build's output).
 
 Geometry (all on the WGS84 mean sphere, `geometry.M_PER_DEG` metres per degree of latitude):
 
@@ -432,7 +434,50 @@ def seed(db: Session, data_root: pathlib.Path) -> World:
     db.commit()
     write_flood(data_root)
     write_counties(data_root)
+    write_parcels(data_root)
     return World(line_a, line_b, line_c, line_d, s1, s2, s3, p1, p2, load, poi_prop, point, data_root)
+
+
+PARCELS_VERSION = "v1/20261001-20261023T0900Z"
+#: The fixture county's box (`write_counties`): the parcel layer's coverage of 48999.
+FIXTURE_COUNTY_BOX = [-98.5, 29.5, -96.5, 31.5]
+
+
+def write_parcels(data_root: pathlib.Path, fixture_name: str = "synthetic_county.geojson") -> dict[str, Any]:
+    """The TxGIO builder's synthetic county (`pipeline/context/fixtures/txgio_parcels/`) built and laid
+    out as a server's pull leaves it, beside line A: Delta's 632-acre ranch south of the line, Alpha's
+    three-parcel holding and Bravo's two north of it, and the rest (`pipeline/context/test_txgio_parcels.py`
+    describes each). The county's box stands in for its outline, as a real county's parcels fill it.
+    `fixture_name` builds another fixture of that folder as the same county instead (the stacked
+    outlines, near -97.5, 30.5)."""
+    from pipeline.context import txgio_parcels as tp
+
+    fixture = pathlib.Path(tp.__file__).parent / "fixtures" / "txgio_parcels" / fixture_name
+    doc = json.loads(fixture.read_text(encoding="utf-8"))
+    frame = tp.frame_from_features(doc["features"], "48999", "Fixture County")
+    frame.source_url = (
+        "https://data.geographic.texas.gov/1d33dafb/resources/stratmap26-landparcels_48999_lp.zip"
+    )
+    frame.retrieved_at = "2026-10-23T09:00:00Z"
+    root = data_root / "normalized" / "context" / tp.SOURCE_ID
+    summary = tp.build_county(frame, root / PARCELS_VERSION)
+    summary["bbox"] = FIXTURE_COUNTY_BOX
+    files = {
+        kind: {**spec, "local": f"{PARCELS_VERSION}/{spec['path']}"}
+        for kind, spec in summary["files"].items()
+    }
+    current = {
+        "source_id": tp.SOURCE_ID,
+        "version": PARCELS_VERSION,
+        "vintage": {
+            "collection_id": "1d33dafb-6e9c-40ac-887d-f4577909ed9b",
+            "publication_date": "2026-10-01",
+        },
+        "counties": {"48999": {**summary, "version": PARCELS_VERSION, "files": files}},
+        "group_distance_m": tp.GROUP_DISTANCE_M,
+    }
+    (root / tp.CURRENT_NAME).write_text(json.dumps(current), encoding="utf-8")
+    return current
 
 
 def write_flood(data_root: pathlib.Path) -> dict[str, Any]:

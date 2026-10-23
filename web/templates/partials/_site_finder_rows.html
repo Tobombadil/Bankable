@@ -21,6 +21,7 @@
       <th scope="col">Floodplain</th>
       <th scope="col">County</th>
       {{ m.sort_th("Retiring MW within 5 mi", sh.retiring, num=True, short="Retiring MW") }}
+      {{ m.sort_th("Largest holding", sh.holding, num=True, short="Holding") }}
     </tr>
   </thead>
   <tbody>
@@ -33,6 +34,7 @@
       <td data-label="Floodplain" class="cell-meta sf-flood sf-flood--{{ r.flood_status }}">{{ r.flood_label }}<span class="cell-unit">{% if r.flood_status == 'outside' %} the floodplain{% endif %}</span></td>
       <td data-label="County" class="cell-meta{% if not r.place_label %} is-empty{% endif %}">{{ r.place_label or '—' }}</td>
       <td data-label="Retiring MW within 5 mi" class="num tnum cell-meta{% if not r.retiring_label %} is-empty{% endif %}">{% if r.retiring_label %}{{ r.retiring_label }}<span class="cell-unit"> retiring nearby</span>{% else %}&mdash;{% endif %}</td>
+      <td data-label="Largest holding" class="num tnum cell-meta{% if not r.holding_label %} is-empty{% endif %}">{% if r.holding_label %}{{ r.holding_label }}<span class="cell-unit"> largest holding</span>{% elif r.holding_missing %}<span class="sf-muted">No parcels</span>{% else %}&mdash;{% endif %}</td>
     </tr>
     {%- endfor %}
   </tbody>
@@ -48,7 +50,7 @@
 {%- elif s.computed %}
 <div class="empty-state sf-empty">
   <p>No band meets every criterion.</p>
-  <p>Try a lower voltage, a wider substation distance{% if criteria.state or criteria.county %}, another place{% endif %}{% if criteria.exclude_flood %}, or let the floodplain in{% endif %}. <a href="/site-finder">Start again from the defaults</a>.</p>
+  <p>Try a lower voltage, a wider substation distance{% if criteria.state or criteria.county %}, another place{% endif %}{% if criteria.min_acres %}, fewer contiguous acres or more owners{% endif %}{% if criteria.exclude_flood %}, or let the floodplain in{% endif %}. <a href="/site-finder">Start again from the defaults</a>.</p>
 </div>
 {%- endif %}
 </div>

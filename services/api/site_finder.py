@@ -11,7 +11,22 @@ segment index), sorts and pages the bands, and only then reads what each band on
 floor the candidates were computed at), `adjacent_mi` [1] (the band's half-width: 0.25, 0.5, 1 or 2,
 the widths the flood shares are stored at), `max_substation_mi` [5] (up to 10, the search radius,
 rounded to a quarter mile), `exclude_flood` [true], `include_unknown_voltage` [false],
-`exclude_protected` [false], `state`, `county` (five-digit FIPS), `sort` [`-voltage_kv`].
+`exclude_protected` [false], `state`, `county` (five-digit FIPS), `min_acres` [none] (20, 50, 100,
+200, 500 or 1000: a segment passes when its band reaches that much contiguous land from at most
+`max_owners` owners), `max_owners` [any] (1, 3 or 5; "any" assembles up to 10 neighbouring holdings),
+`sort` [`-voltage_kv`; `-largest_holding_acres` sorts by the largest single holding touching the band].
+
+**Land parcels** (Texas, TxGIO; `services/site_finder/parcels.py`). Each band carries `parcels`: the
+holdings touching it at the chosen width (one owner's contiguous parcels, each outline counted once;
+acres, parcel count, land-use category, market value per acre, and a link to the appraisal district's
+record of the holding's largest parcel), how many distinct holdings touch it, the largest holding, how
+many reach each acreage, and the largest assemblage under the owners cap (land two holdings share
+counted once). Right-of-way strips, exempt and utility land are counted, never in an acreage figure.
+No owner name exists anywhere in the store or the files: "Owner names are on the appraisal district's
+record; Inframation does not store them." Where the band reaches a Texas county with no parcels on
+this server it says so by name, and a place outside Texas as Texas only. `GET /v1/site-finder/parcels`
+draws parcel outlines from zoom 12. A re-measure in place (`compute.refresh_parcels`) gives the run a
+new parcels stamp, which drops every cache built from its segments (`served_run`).
 
 **Flood rule.** With `exclude_flood=true` a segment passes when its band has flood data throughout
 (inside the FEMA build's area of interest and FEMA's effective digital map, not Zone D) and at least
@@ -57,7 +72,7 @@ import threading
 import time
 import uuid as _uuid
 from collections import OrderedDict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Annotated, Any
 
@@ -108,7 +123,9 @@ from services.db.models import (
     SiteFinderRun,
     Source,
 )
+from services.site_finder import parcels as parcels_mod
 from services.site_finder import prospect as prospect_mod
+from services.site_finder.cad_links import cad_link
 from services.site_finder.compute import CONTEXT_RADIUS_MI, SUBSTATION_SEARCH_MI, current_run
 from services.site_finder.counties import BOUNDARY_NOTE
 from services.site_finder.flood import FULL_COVER, NOT_A_DETERMINATION, SfhaPieces
@@ -133,7 +150,7 @@ SUBSTATION_STEP_MI = 0.25
 MAX_FLOOD_SHARE = 0.9
 #: "Mostly on protected land": more than half the 1-mile band on GAP 1-2 land.
 MOSTLY_PROTECTED = 0.5
-SORTS = ("voltage_kv", "substation_mi", "length_mi", "retiring_mw")
+SORTS = ("voltage_kv", "substation_mi", "length_mi", "retiring_mw", "largest_holding_acres")
 DEFAULT_SORT = "-voltage_kv"
 CRITERIA_PARAMS = {
     "min_kv",
@@ -144,7 +161,18 @@ CRITERIA_PARAMS = {
     "exclude_protected",
     "state",
     "county",
+    "min_acres",
+    "max_owners",
 }
+PARCELS_SOURCE = "us.tx.txgio.parcels"
+#: "Owners at most" choices; absent or `any` means no cap (the finder assembles up to 10).
+OWNER_CHOICES = (1, 3, 5)
+#: Parcel outlines are drawn from this zoom, at most `PARCELS_CAP` at once, in a view no larger than
+#: `PARCELS_MAX_SPAN_DEG` on a side.
+PARCELS_MIN_ZOOM = 12
+PARCELS_CAP = 4000
+PARCELS_MAX_SPAN_DEG = 0.5
+PARCELS_PARAMS = {"bbox", "zoom"}
 LIST_PARAMS = CRITERIA_PARAMS | {"sort", "limit", "cursor", "band", "geometry"}
 #: A band's id: its line's public id, then its first and last segment index (`serialize_band`).
 BAND_ID = re.compile(r"^(?P<line>[A-Za-z0-9_-]{1,64})\.(?P<first>\d{1,6})-(?P<last>\d{1,6})$")
@@ -212,10 +240,22 @@ class Criteria:
     exclude_protected: bool
     state: str | None
     county: str | None
+    min_acres: float | None = None
+    max_owners: int | None = None
 
     @property
     def key(self) -> str:
         return ADJACENT_MI[self.adjacent_mi]
+
+    @property
+    def parcels_path(self) -> tuple[str, str, int, int]:
+        """The stored figure the acreage criterion reads: `parcels.b[width][owners cap]`."""
+        return (
+            "parcels",
+            "b",
+            parcels_mod.width_index(self.adjacent_mi),
+            parcels_mod.owners_index(self.max_owners),
+        )
 
     @property
     def base(self) -> Criteria:
@@ -239,6 +279,8 @@ class Criteria:
             "exclude_protected": self.exclude_protected,
             "state": self.state,
             "county": self.county,
+            "min_acres": self.min_acres,
+            "max_owners": self.max_owners,
         }
 
 
@@ -296,6 +338,20 @@ def parse_criteria(request: Request) -> Criteria:
     county = (request.query_params.get("county") or "").strip() or None
     if county is not None and not (len(county) == 5 and county.isdigit()):
         raise validation_error("county", "county must be a five-digit county FIPS code such as 48453", path)
+    min_acres: float | None = None
+    raw_acres = (request.query_params.get("min_acres") or "").strip().lower()
+    if raw_acres and raw_acres != "none":
+        value = _number(request, "min_acres", 0.0)
+        if value not in parcels_mod.ACRE_THRESHOLDS:
+            allowed = ", ".join(str(t) for t in parcels_mod.ACRE_THRESHOLDS)
+            raise validation_error("min_acres", f"min_acres must be one of {allowed} (acres) or none", path)
+        min_acres = float(value)
+    max_owners: int | None = None
+    raw_owners = (request.query_params.get("max_owners") or "").strip().lower()
+    if raw_owners and raw_owners != "any":
+        if not raw_owners.isdigit() or int(raw_owners) not in OWNER_CHOICES:
+            raise validation_error("max_owners", "max_owners must be 1, 3, 5 or any", path)
+        max_owners = int(raw_owners)
     return Criteria(
         min_kv=min_kv,
         adjacent_mi=adjacent,
@@ -306,6 +362,8 @@ def parse_criteria(request: Request) -> Criteria:
         exclude_protected=_flag(request, "exclude_protected", False),
         state=state,
         county=county,
+        min_acres=min_acres,
+        max_owners=max_owners,
     )
 
 
@@ -342,8 +400,20 @@ def candidate_visibility_filter(entitlement: str) -> list[ColumnElement[bool]]:
     ]
 
 
+def parcels_figure(c: Criteria) -> Any:
+    """The segment's stored acreage for the criteria (`Criteria.parcels_path`), NULL where its band
+    reaches no county with parcels."""
+    return SiteCandidate.context[c.parcels_path].as_float()
+
+
 def segment_filters(
-    c: Criteria, run_id: _uuid.UUID, entitlement: str, *, flood: bool = True, place: bool = True
+    c: Criteria,
+    run_id: _uuid.UUID,
+    entitlement: str,
+    *,
+    flood: bool = True,
+    place: bool = True,
+    parcels: bool = True,
 ) -> list[ColumnElement[bool]]:
     share = getattr(SiteCandidate, f"flood_share_{c.key}")
     cover = getattr(SiteCandidate, f"flood_cover_{c.key}")
@@ -369,6 +439,9 @@ def segment_filters(
         clauses.append(SiteCandidate.state_code == c.state)
     if place and c.county:
         clauses.append(SiteCandidate.county_fips == c.county)
+    if parcels and c.min_acres:
+        # A segment whose band reaches no county with parcels has no figure (NULL) and never passes.
+        clauses.append(parcels_figure(c) >= c.min_acres)
     return clauses
 
 
@@ -474,6 +547,25 @@ _POLYGONS = _Ttl(ttl_s=3600.0, max_entries=4000)
 #: Per run: each line's segments with retiring plants listed, and those plants (ids only).
 _PLANT_SEGS: OrderedDict[str, dict[_uuid.UUID, tuple[list[int], list[tuple[str, ...]]]]] = OrderedDict()
 _PLANT_LOCK = threading.Lock()
+#: Per (run, parcels stamp, width): each line's segments with parcels measured, and the largest holding
+#: touching each (`parcels_stamp`: a re-measure in place gives the run a new stamp).
+_PARCEL_SEGS: OrderedDict[tuple[str, str, int], dict[_uuid.UUID, tuple[list[int], list[float]]]] = (
+    OrderedDict()
+)
+_PARCEL_LOCK = threading.Lock()
+#: The parcels stamp each served run was last seen with. `compute.refresh_parcels` re-measures a run in
+#: place, the one change the per-run caches' "the run never changes" does not cover, so a new stamp for a
+#: run drops every cache built from its segments (`served_run`).
+_SEEN_STAMPS: OrderedDict[str, str] = OrderedDict()
+_STAMP_LOCK = threading.Lock()
+
+
+def _clear_run_caches() -> None:
+    """Forget what was built from a run's segments: bands, orders, summaries and the parcel figures."""
+    for cache in (_SUMMARY, _GROUPS, _BANDS, _ORDERED):
+        cache.clear()
+    with _PARCEL_LOCK:
+        _PARCEL_SEGS.clear()
 
 
 def clear_caches() -> None:
@@ -483,6 +575,10 @@ def clear_caches() -> None:
         cache.clear()
     with _PLANT_LOCK:
         _PLANT_SEGS.clear()
+    with _PARCEL_LOCK:
+        _PARCEL_SEGS.clear()
+    with _STAMP_LOCK:
+        _SEEN_STAMPS.clear()
     with _LINES_LOCK:
         _LINES.clear()
     with _SFHA_LOCK:
@@ -562,10 +658,78 @@ def _plants(db: Session, run_id: _uuid.UUID, entitlement: str) -> _Plants:
     return _Plants(by_line, mw)
 
 
+def parcels_stamp(run: SiteFinderRun | None) -> str:
+    """The parcel measurement a run's segments carry: the layer's version and the `measure_id` drawn each
+    time segments are measured (a full run, or `compute.refresh_parcels` in place, which may keep the
+    version: a wider `PARCELS_COUNTIES` pulled from the same `latest.json`, a `--counties` re-measure)."""
+    meta = (((run.inputs if run is not None else None) or {}).get("parcels")) or {}
+    return f"{meta.get('version') or ''}|{meta.get('measure_id') or meta.get('measured_at') or ''}"
+
+
+def served_run(db: Session) -> SiteFinderRun | None:
+    """The run the API serves (`compute.current_run`); when its parcels stamp differs from the one this
+    process last saw for it, every cache built from its segments is dropped first."""
+    run = current_run(db)
+    if run is None:
+        return None
+    stamp = parcels_stamp(run)
+    with _STAMP_LOCK:
+        seen = _SEEN_STAMPS.get(str(run.id))
+        _SEEN_STAMPS[str(run.id)] = stamp
+        _SEEN_STAMPS.move_to_end(str(run.id))
+        while len(_SEEN_STAMPS) > 8:
+            _SEEN_STAMPS.popitem(last=False)
+    if seen is not None and seen != stamp:
+        _clear_run_caches()
+    return run
+
+
+def _largest_by_segment(
+    db: Session, run_id: _uuid.UUID, stamp: str, width: int
+) -> dict[_uuid.UUID, tuple[list[int], list[float]]]:
+    """Each line's segments with parcels measured, and the largest holding touching each at one width
+    (`parcels.b[width][0]`, one number read in SQL per segment), cached per run, parcels stamp and width."""
+    key = (str(run_id), stamp, width)
+    with _PARCEL_LOCK:
+        hit = _PARCEL_SEGS.get(key)
+    if hit is not None:
+        return hit
+    figure = SiteCandidate.context[("parcels", "b", width, 0)].as_float()
+    rows: dict[_uuid.UUID, list[tuple[int, float]]] = {}
+    for line_id, index, value in db.execute(
+        select(SiteCandidate.line_asset_id, SiteCandidate.segment_index, figure).where(
+            SiteCandidate.run_id == run_id
+        )
+    ):
+        if value is not None:
+            rows.setdefault(line_id, []).append((int(index), float(value)))
+    out: dict[_uuid.UUID, tuple[list[int], list[float]]] = {}
+    for line_id, entries in rows.items():
+        entries.sort(key=lambda t: t[0])
+        out[line_id] = ([i for i, _ in entries], [v for _, v in entries])
+    with _PARCEL_LOCK:
+        _PARCEL_SEGS[key] = out
+        while len(_PARCEL_SEGS) > 4:
+            _PARCEL_SEGS.popitem(last=False)
+    return out
+
+
+def _band_largest(
+    by_line: Mapping[_uuid.UUID, tuple[list[int], list[float]]], line_id: _uuid.UUID, first: int, last: int
+) -> float | None:
+    entry = by_line.get(line_id)
+    if entry is None:
+        return None
+    indexes, values = entry
+    found = values[bisect.bisect_left(indexes, first) : bisect.bisect_right(indexes, last)]
+    return max(found) if found else None
+
+
 @dataclass(frozen=True)
 class BandRow:
     """One band as `bands_subquery` returns it. `retiring_mw` is filled (`_Plants.band_mw`) only for
-    the retiring sort, the one order that needs every band's figure."""
+    the retiring sort, the one order that needs every band's figure; `largest_acres` likewise for the
+    largest-holding sort."""
 
     line_id: _uuid.UUID
     first: int
@@ -582,6 +746,7 @@ class BandRow:
     min_lat: float
     max_lon: float
     max_lat: float
+    largest_acres: float | None = None
 
     def tiebreak(self) -> tuple[str, int]:
         return str(self.line_id), self.first
@@ -629,7 +794,9 @@ def band_sort_value(b: BandRow, field: str, descending: bool) -> float:
     """One number per band that orders it, ascending (negated for descending), with a tie-break built
     in: voltage, then band length (at one voltage the longest band first, so a substation's
     switchyard stubs do not fill the first page); substation distance, then voltage; band length;
-    retiring MW nearby, then voltage. The keyset cursor carries it, then (line id, first segment)."""
+    retiring MW nearby, then voltage; the largest holding touching the band, then voltage (a band with
+    no parcels measured sorts after every band with some). The keyset cursor carries it, then (line
+    id, first segment)."""
     kv = b.voltage_kv if b.voltage_kv is not None else 0.0
     sub = b.substation_mi if b.substation_mi is not None else 99.0
     if field == "voltage_kv":
@@ -638,6 +805,11 @@ def band_sort_value(b: BandRow, field: str, descending: bool) -> float:
         key = sub * 1e4 + (2000.0 - kv)
     elif field == "length_mi":
         key = b.length_mi
+    elif field == "largest_holding_acres":
+        acres = b.largest_acres if b.largest_acres is not None else -1.0
+        key = acres * 1e4 + kv
+        if not descending and b.largest_acres is None:
+            key = 1e12 + kv  # still last when the smallest come first
     else:
         key = (b.retiring_mw or 0.0) * 1e4 + kv
     return -key if descending else key
@@ -658,6 +830,13 @@ def _with_retiring(
     return [replace(b, retiring_mw=plants.band_mw(b.line_id, b.first, b.last)) for b in rows]
 
 
+def _with_largest(
+    db: Session, rows: Iterable[BandRow], run_id: _uuid.UUID, stamp: str, adjacent_mi: float
+) -> list[BandRow]:
+    by_line = _largest_by_segment(db, run_id, stamp, parcels_mod.width_index(adjacent_mi))
+    return [replace(b, largest_acres=_band_largest(by_line, b.line_id, b.first, b.last)) for b in rows]
+
+
 def _order(rows: Iterable[BandRow], field: str, descending: bool) -> _Ordered:
     decorated = sorted(
         (((band_sort_value(b, field, descending), *b.tiebreak()), b) for b in rows), key=lambda t: t[0]
@@ -666,16 +845,24 @@ def _order(rows: Iterable[BandRow], field: str, descending: bool) -> _Ordered:
 
 
 def ordered_bands(
-    db: Session, c: Criteria, run_id: _uuid.UUID, entitlement: str, field: str, descending: bool
+    db: Session,
+    c: Criteria,
+    run_id: _uuid.UUID,
+    entitlement: str,
+    field: str,
+    descending: bool,
+    stamp: str = "",
 ) -> _Ordered:
     """`c.base`'s bands in one sort's order, cached; `_page` applies the voltage floor as it reads."""
-    key = (str(run_id), entitlement, c.base, field, descending)
+    key = (str(run_id), entitlement, c.base, field, descending, stamp)
     hit = _ORDERED.get(key)
     if hit is not None:
         return hit  # type: ignore[no-any-return]
     rows = base_bands(db, c, run_id, entitlement)
     if field == "retiring_mw":
         rows = _with_retiring(db, rows, run_id, entitlement)
+    elif field == "largest_holding_acres":
+        rows = _with_largest(db, rows, run_id, stamp, c.adjacent_mi)
     ordered = _order(rows, field, descending)
     _ORDERED.put(key, ordered)
     return ordered
@@ -736,6 +923,23 @@ def summary_and_facets(db: Session, c: Criteria, run_id: _uuid.UUID, entitlement
             .group_by(SiteCandidate.voltage_kv, SiteCandidate.voltage_unknown),
         )
         out["flood_unavailable_mi"] = round(
+            sum(float(mi or 0.0) for kv, unknown, mi in groups if c.voltage_ok(kv, unknown)), 1
+        )
+    if c.min_acres:
+        # Miles that meet every other criterion where no parcel figure exists: the band reaches no
+        # county whose parcels this server holds, so it can neither pass nor fail the acreage test.
+        groups = _grouped(
+            db,
+            ("no_parcels", run_key, entitlement, base),
+            select(
+                SiteCandidate.voltage_kv,
+                SiteCandidate.voltage_unknown,
+                func.coalesce(func.sum(SiteCandidate.length_mi), 0.0),
+            )
+            .where(*segment_filters(base, run_id, entitlement, parcels=False), parcels_figure(c).is_(None))
+            .group_by(SiteCandidate.voltage_kv, SiteCandidate.voltage_unknown),
+        )
+        out["parcels_unavailable_mi"] = round(
             sum(float(mi or 0.0) for kv, unknown, mi in groups if c.voltage_ok(kv, unknown)), 1
         )
     anywhere = replace(base, state=None, county=None)
@@ -1300,6 +1504,8 @@ def serialize_band(
         elif sid and entry.get("status") not in ("withheld", "unavailable"):
             file_provs.append({**prov, "source_id": sid})
 
+    land = _parcels_block(run, c, segs, gates.get(PARCELS_SOURCE, False), file_provs, provenance)
+
     first, last = segs[0].segment_index, segs[-1].segment_index
     poly_key = (
         str(segs[0].run_id),
@@ -1382,9 +1588,104 @@ def serialize_band(
             "grid_connection": grid_point,
             "fiber": fiber,
         },
+        "parcels": land,
         "prospect": pros,
         "links": links,
         "provenance": provenance,
+    }
+
+
+def _parcels_block(
+    run: SiteFinderRun,
+    c: Criteria,
+    segs: Sequence[SiteCandidate],
+    visible: bool,
+    file_provs: list[dict[str, Any]],
+    provenance: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The band's land parcels (`services/site_finder/parcels.py::merge_band`), with an appraisal-record
+    link per holding. A segment measured with no parcel layer near it names its own county as one whose
+    parcels are not loaded; a county outside Texas is named apart (`outside_texas`): parcels are Texas
+    only, not merely not loaded there."""
+    from pipeline.context.txgio_parcels import COLLECTION_PAGE, LAND_USE_LABELS
+
+    meta = (run.inputs or {}).get("parcels") or {}
+    loaded: dict[str, Any] = dict(meta.get("counties") or {})
+    contexts = [(s.context or {}).get("parcels") for s in segs]
+    merged = parcels_mod.merge_band(contexts, c.adjacent_mi, max_owners=c.max_owners, min_acres=c.min_acres)
+    missing = {m["fips"]: m["name"] for m in merged["counties_missing"]}
+    for s, ctx in zip(segs, contexts, strict=True):
+        if not ctx and s.county_fips and s.county_fips not in loaded:
+            missing.setdefault(s.county_fips, s.county_name or s.county_fips)
+    in_texas = {f: n for f, n in missing.items() if f.startswith(parcels_mod.TEXAS_FIPS)}
+    outside = {f: n for f, n in missing.items() if not f.startswith(parcels_mod.TEXAS_FIPS)}
+    missing_list = [{"fips": f, "name": n} for f, n in sorted(in_texas.items())]
+    status = merged["status"]
+    if status == "ok" and missing:
+        status = "partial"
+    base: dict[str, Any] = {
+        "status": status,
+        "counties_missing": missing_list,
+        "outside_texas": [{"fips": f, "name": n} for f, n in sorted(outside.items())],
+        "note": parcels_mod.NOTE,
+        "not": parcels_mod.NOT_A_SURVEY,
+    }
+    if status == "not_loaded":
+        return {**base, "provenance": None}
+    if not visible:
+        return {**base, "status": "withheld", "provenance": None}
+    touched = sorted({h.fips for h in merged["top"] if h.fips} or set(loaded))
+    first = loaded.get(touched[0]) if touched else None
+    vintage = meta.get("vintage") or {}
+    prov = registry_provenance(
+        PARCELS_SOURCE,
+        source_url=COLLECTION_PAGE.format(cid=vintage.get("collection_id") or ""),
+        retrieved_at=(first or {}).get("retrieved_at"),
+        vintage=vintage.get("publication_date"),
+    )
+    file_provs.append(prov)
+    provenance.append(prov)
+    top = []
+    for h in merged["top"]:
+        county = loaded.get(h.fips or "") or {}
+        name = county.get("name") or next((s.county_name for s in segs if s.county_fips == h.fips), None)
+        top.append(
+            {
+                "holding_id": h.holding_id,
+                "acres": h.acres,
+                "parcels": h.parcels,
+                "owner_count": 1,
+                "land_use": h.land_use,
+                "land_use_label": LAND_USE_LABELS.get(h.land_use or "", None),
+                "value_per_acre": h.value_per_acre,
+                "county_fips": h.fips,
+                "county_name": name,
+                "appraisal_record": cad_link(h.fips, h.link_prop_id, name),
+            }
+        )
+    threshold = int(c.min_acres) if c.min_acres else 100
+    return {
+        **base,
+        "largest_holding_acres": merged["largest_acres"],
+        "assembly": {
+            "max_owners": c.max_owners,
+            "owners_assembled_up_to": merged["owners_cap"],
+            "acres": merged["assembly_acres"],
+            "note": "A greedy join of neighbouring holdings (parcels within 30 m), each touching the band, "
+            "with land two holdings' outlines share counted once: a lower bound on what could be assembled.",
+        },
+        "holdings_touching": merged["holdings_touching"],
+        "holdings_touching_exact": merged["holdings_touching_exact"],
+        "holdings_20_acres_plus": merged["holdings_20_plus"],
+        "holdings_count_exact": merged["holdings_20_plus_exact"],
+        "smaller_holdings_at_least": merged["smaller_holdings_at_least"],
+        "left_out_holdings_at_least": merged["left_out_at_least"],
+        "left_out_note": parcels_mod.LEFT_OUT_NOTE,
+        "holdings_at_least": merged["at_threshold"],
+        "threshold_acres": threshold,
+        "holdings_at_threshold": merged["at_threshold"].get(str(threshold)),
+        "top_holdings": top,
+        "provenance": prov,
     }
 
 
@@ -1394,6 +1695,7 @@ def _gates(db: Session, run: SiteFinderRun, entitlement: str) -> dict[str, bool]
         "us.census.tiger_counties",
         "us.census.cartographic_boundaries",
         "us.fcc.bdc.fixed_summary",
+        PARCELS_SOURCE,
     }
     for meta in (run.layers or {}).values():
         prov = (meta or {}).get("provenance") or {}
@@ -1406,6 +1708,7 @@ def _run_meta(run: SiteFinderRun | None) -> dict[str, Any]:
     if run is None:
         return {"computed": False}
     flood = (run.inputs or {}).get("flood") or {}
+    parcels = (run.inputs or {}).get("parcels") or {}
     return {
         "computed": True,
         "run_id": str(run.id),
@@ -1414,6 +1717,14 @@ def _run_meta(run: SiteFinderRun | None) -> dict[str, Any]:
         "flood_version": flood.get("version"),
         "flood_states": sorted(flood.get("states") or {}),
         "osm": (run.inputs or {}).get("osm"),
+        "parcels": {
+            "version": parcels.get("version"),
+            "publication_date": (parcels.get("vintage") or {}).get("publication_date"),
+            "counties": [
+                {"fips": f, "name": (v or {}).get("name")}
+                for f, v in sorted((parcels.get("counties") or {}).items())
+            ],
+        },
     }
 
 
@@ -1429,6 +1740,10 @@ def _criteria_meta(c: Criteria, field: str, descending: bool) -> dict[str, Any]:
             "context_radius_mi": CONTEXT_RADIUS_MI,
             "adjacent_mi_choices": sorted(ADJACENT_MI),
             "substation_step_mi": SUBSTATION_STEP_MI,
+            "min_acres_choices": list(parcels_mod.ACRE_THRESHOLDS),
+            "max_owners_choices": list(OWNER_CHOICES),
+            "owners_assembled_when_any": parcels_mod.ANY_OWNERS,
+            "holding_rule": "one owner's parcels that touch or lie within 30 m of each other",
         },
     }
 
@@ -1511,7 +1826,7 @@ def list_site_finder(
     with_geometry = _flag(request, "geometry", True)
     after = _cursor_key(request)
     entitlement = ctx.entitlement
-    run = current_run(db)
+    run = served_run(db)
     finder: dict[str, Any] = {
         "criteria": _criteria_meta(c, field, descending),
         "run": _run_meta(run),
@@ -1539,9 +1854,11 @@ def list_site_finder(
         candidates = [_band_row(r) for r in db.execute(select(bands_subquery(c, clauses))).all()]
         if field == "retiring_mw":
             candidates = _with_retiring(db, candidates, run.id, entitlement)
+        elif field == "largest_holding_acres":
+            candidates = _with_largest(db, candidates, run.id, parcels_stamp(run), c.adjacent_mi)
         ordered = _order(candidates, field, descending)
     else:
-        ordered = ordered_bands(db, c, run.id, entitlement, field, descending)
+        ordered = ordered_bands(db, c, run.id, entitlement, field, descending, parcels_stamp(run))
     page_rows, has_more = _page(ordered, c, after, limit)
     rows = [b for _, b in page_rows]
     finder["summary"] = summary_and_facets(db, c, run.id, entitlement)
@@ -1736,7 +2053,7 @@ def site_finder_geo(
     bbox = _parse_bbox(request)
     zoom = _parse_zoom(request)
     entitlement = ctx.entitlement
-    run = current_run(db)
+    run = served_run(db)
     features: list[dict[str, Any]] = []
     licence_rows: list[dict[str, Any]] = []
     total = 0
@@ -1821,4 +2138,132 @@ def site_finder_geo(
             }
         },
     )
+    return build_envelope(data, meta=meta, licence_summary=build_licence_summary(licence_rows))
+
+
+def _parcel_features(layer: Any, bbox: tuple[float, float, float, float]) -> tuple[list[dict[str, Any]], int]:
+    """The parcels in view as GeoJSON features (at most `PARCELS_CAP`, largest holdings first), and how
+    many the view holds. The view's rows are ranked and cut in Arrow, so only the kept outlines become
+    Python objects, however many parcels a city view holds."""
+    import numpy as np
+    import pyarrow.compute as pc  # type: ignore[import-untyped,unused-ignore]
+    import shapely  # type: ignore[import-untyped,import-not-found,unused-ignore]
+
+    from pipeline.context.txgio_parcels import LAND_USE_LABELS
+    from services.context_sample.parcels import MAP_COLUMNS
+
+    table = layer.read_bbox(bbox, columns=MAP_COLUMNS)
+    if table is None or table.num_rows == 0:
+        return [], 0
+    total = table.num_rows
+    keys = [("holding_acres", "descending"), ("parcel_key", "ascending")]
+    if total > PARCELS_CAP:
+        table = table.take(pc.select_k_unstable(table, k=PARCELS_CAP, sort_keys=keys))
+    table = table.take(pc.sort_indices(table, sort_keys=keys))
+
+    def col(name: str, default: Any = None) -> list[Any]:
+        if name in table.column_names:
+            values: list[Any] = table.column(name).to_pylist()
+            return values
+        return [default] * table.num_rows
+
+    geoms = shapely.from_wkb(np.asarray(table.column("geometry").combine_chunks().to_pylist(), dtype=object))
+    cols = {name: col(name) for name in MAP_COLUMNS}
+    kinds = col("holding_kind", "land")
+    features = []
+    for i, geom in enumerate(geoms):
+        fips = cols["fips"][i]
+        county = layer.counties.get(fips)
+        name = county.name if county is not None else None
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": shapely.geometry.mapping(geom),
+                "properties": {
+                    "parcel_key": cols["parcel_key"][i],
+                    "holding_id": cols["holding_id"][i],
+                    "acres": round(float(cols["acres"][i] or 0.0), 1),
+                    "holding_acres": round(float(cols["holding_acres"][i] or 0.0), 1),
+                    "holding_parcels": cols["holding_parcels"][i],
+                    "holding_kind": kinds[i] or "land",
+                    "land_use": cols["land_use"][i],
+                    "land_use_label": LAND_USE_LABELS.get(cols["land_use"][i] or ""),
+                    "county_fips": fips,
+                    "appraisal_record": cad_link(fips, cols["prop_id"][i], name),
+                },
+            }
+        )
+    return features, total
+
+
+@router.get("/v1/site-finder/parcels")
+def site_finder_parcels(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    ctx: Annotated[AuthContext, Depends(get_auth_context)],
+) -> Any:
+    """Parcel outlines in view for the site finder's map, from zoom 12 (Texas counties this server
+    holds; TxGIO StratMap). Each carries its acres, its holding's acres and parcel count, the land-use
+    category and the appraisal district's link. No owner field exists to serve."""
+    from pipeline.context.txgio_parcels import COLLECTION_PAGE
+    from services.context_sample.parcels import default_layer
+
+    check_allowed(request, PARCELS_PARAMS)
+    bbox = _parse_bbox(request)
+    if bbox is None:
+        raise validation_error("bbox", "bbox is required: minLon,minLat,maxLon,maxLat", request.url.path)
+    zoom = _parse_zoom(request)
+    entitlement = ctx.entitlement
+    features: list[dict[str, Any]] = []
+    total = 0
+    licence_rows: list[dict[str, Any]] = []
+    layer = None
+    if not _file_source_visible(db, PARCELS_SOURCE, entitlement):
+        status = "withheld"
+    elif (
+        zoom < PARCELS_MIN_ZOOM
+        or (bbox[2] - bbox[0]) > PARCELS_MAX_SPAN_DEG
+        or (bbox[3] - bbox[1]) > PARCELS_MAX_SPAN_DEG
+    ):
+        status = "zoom_in"
+    else:
+        layer = default_layer(_data_root())
+        if layer is None:
+            status = "unavailable"
+        else:
+            features, total = _parcel_features(layer, bbox)
+            status = "ok"
+    counties: list[dict[str, Any]] = []
+    if layer is not None:
+        vintage = layer.manifest.get("vintage") or {}
+        in_view = layer.counties_in(bbox)
+        counties = [{"fips": f, "name": layer.counties[f].name} for f in in_view]
+        if features:
+            stamps = sorted(layer.counties[f].retrieved_at for f in in_view if layer.counties[f].retrieved_at)
+            prov = registry_provenance(
+                PARCELS_SOURCE,
+                source_url=COLLECTION_PAGE.format(cid=vintage.get("collection_id") or ""),
+                retrieved_at=stamps[-1] if stamps else None,
+                vintage=vintage.get("publication_date"),
+            )
+            licence_rows = _file_rows([prov])
+    meta = build_meta(
+        lag_days=0,
+        tier=entitlement,
+        extra={
+            "site_finder": {
+                "parcels": {
+                    "status": status,
+                    "min_zoom": PARCELS_MIN_ZOOM,
+                    "in_view": total,
+                    "drawn": len(features),
+                    "cap": PARCELS_CAP,
+                    "counties_loaded_in_view": counties,
+                    "note": parcels_mod.NOTE,
+                    "not": parcels_mod.NOT_A_SURVEY,
+                }
+            }
+        },
+    )
+    data = {"type": "FeatureCollection", "features": features}
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary(licence_rows))

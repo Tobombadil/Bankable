@@ -20,7 +20,13 @@ which robots.txt disallows: a fragment is not a page.
 
 The map draws the grid around the bands from OpenStreetMap only (`/api/site-finder/grid`, over
 `GET /v1/assets/geo` with `source=us.osm.power`): lines of 69 kV and up and those that state no
-voltage, coloured by voltage class, and substations from zoom 8.
+voltage, coloured by voltage class, and substations from zoom 8; and from zoom 12 the Texas land
+parcels in view (`/api/site-finder/parcels`, over `GET /v1/site-finder/parcels`).
+
+Land parcels (TxGIO StratMap, Texas; docs/25-siting-parcels.md): two more criteria, "contiguous acres at
+least" (`min_acres`) and "owners at most" (`max_owners`), a "Largest holding" column the list sorts on,
+and in the drawer the holdings touching the band, each with its appraisal district's record link. No
+owner name is stored anywhere; the drawer says where to read it.
 """
 
 from __future__ import annotations
@@ -54,6 +60,11 @@ KV_CHOICES: tuple[int, ...] = (69, 115, 138, 230, 345, 500)
 #: The band half-widths the candidates are stored at (miles; `services/db/models.py::SITE_FINDER_DISTANCES`).
 ADJACENT_CHOICES: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0)
 SUBSTATION_MIN, SUBSTATION_MAX, SUBSTATION_STEP = 1.0, 10.0, 0.5
+#: "Contiguous acres at least" and "owners at most" (`services/site_finder/parcels.py`).
+ACRE_CHOICES: tuple[int, ...] = (20, 50, 100, 200, 500, 1000)
+OWNER_CHOICES: tuple[int, ...] = (1, 3, 5)
+#: "Any" owners assembles up to this many neighbouring holdings (`services/site_finder/parcels.py`).
+ANY_OWNERS = 10
 PAGE_SIZE = 25
 DEFAULT_SORT = "-voltage_kv"
 #: The sortable headings, keyed by the template's name for each (`web/list_sort.py`). Distance to a
@@ -65,6 +76,7 @@ SORT_COLUMNS: dict[str, SortColumn] = {
         "substation_mi", "asc", "distance to a substation", "farthest first", "nearest first"
     ),
     "retiring": column("retiring_mw", "number", "retiring and retired plant MW within 5 miles"),
+    "holding": column("largest_holding_acres", "number", "largest same-owner holding beside the line"),
 }
 _SORT_FIELDS = {c.field for c in SORT_COLUMNS.values()}
 _STATE = re.compile(r"^(?:US-)?([A-Z]{2})$")
@@ -88,7 +100,11 @@ SHORT_SOURCE_NAMES = {
     "us.census.tiger_counties": "Census TIGER/Line counties",
     "us.census.cartographic_boundaries": "Census cartographic boundaries",
     "us.fcc.bdc.fixed_summary": "FCC Broadband Data Collection",
+    "us.tx.txgio.parcels": "TxGIO StratMap Land Parcels",
 }
+#: The map's parcel outlines (`/api/site-finder/parcels`) start at this zoom (the API's own floor).
+PARCELS_MIN_ZOOM = 12
+OWNER_NOTE = "Owner names are on the appraisal district's record; Inframation does not store them."
 
 
 # ------------------------------------------------------------------------------------- criteria
@@ -102,6 +118,8 @@ class Criteria:
     exclude_protected: bool = False
     state: str | None = None  # two letters, "TX"
     county: str | None = None  # five-digit FIPS
+    min_acres: int | None = None  # contiguous acres at least (`ACRE_CHOICES`)
+    max_owners: int | None = None  # owners at most (`OWNER_CHOICES`); None is "any"
     sort: str = DEFAULT_SORT
 
     def api_params(self) -> dict[str, str]:
@@ -118,6 +136,10 @@ class Criteria:
             params["state"] = self.state
         if self.county:
             params["county"] = self.county
+        if self.min_acres:
+            params["min_acres"] = str(self.min_acres)
+        if self.max_owners:
+            params["max_owners"] = str(self.max_owners)
         return params
 
     def url_items(self, *, sort: bool = True) -> list[tuple[str, str]]:
@@ -138,6 +160,10 @@ class Criteria:
             items.append(("state", self.state))
         if self.county:
             items.append(("county", self.county))
+        if self.min_acres:
+            items.append(("min_acres", str(self.min_acres)))
+        if self.max_owners:
+            items.append(("max_owners", str(self.max_owners)))
         if sort and self.sort != DEFAULT_SORT:
             items.append(("sort", self.sort))
         return items
@@ -202,6 +228,24 @@ def snap_substation(value: float | None) -> float:
     return round(clamped / SUBSTATION_STEP) * SUBSTATION_STEP
 
 
+def snap_acres(value: float | None) -> int | None:
+    """The offered acreage that keeps the reader's minimum: the smallest at or over `value` (75 -> 100),
+    the largest past them all; none for no value or zero and under."""
+    if value is None or value <= 0:
+        return None
+    above = [a for a in ACRE_CHOICES if a >= value]
+    return above[0] if above else ACRE_CHOICES[-1]
+
+
+def snap_owners(value: float | None) -> int | None:
+    """The offered owner cap that keeps the reader's maximum: the largest at or under `value` (2 -> 1);
+    "any" (None) for no value, under one, or at least the ten owners "any" assembles."""
+    if value is None or value < 1 or value >= ANY_OWNERS:
+        return None
+    below = [o for o in OWNER_CHOICES if o <= value]
+    return below[-1] if below else None
+
+
 def read_criteria(qp: QueryParams) -> Criteria:
     """The page's criteria from its URL (or the form), every value snapped to one the API accepts."""
     state_match = _STATE.match((_last(qp, "state") or "").upper())
@@ -216,6 +260,8 @@ def read_criteria(qp: QueryParams) -> Criteria:
         exclude_protected=_flag(qp, "exclude_protected", DEFAULTS.exclude_protected),
         state=state_match.group(1) if state_match else None,
         county=county if _COUNTY.match(county) else None,
+        min_acres=snap_acres(_number(qp, "min_acres")),
+        max_owners=snap_owners(_number(qp, "max_owners")),
         sort=sort if sort.lstrip("-") in _SORT_FIELDS else DEFAULT_SORT,
     )
 
@@ -260,6 +306,21 @@ def kv(value: Any) -> str | None:
 def mw(value: Any) -> str | None:
     number = _num(value)
     return None if number is None else f"{formatting.mw(number)} MW"
+
+
+def acres(value: Any) -> str | None:
+    """`640 ac`, `1,250 ac`, `12.5 ac` under ten."""
+    number = _num(value)
+    if number is None:
+        return None
+    if number < 10:
+        return f"{number:,.1f} ac"
+    return f"{number:,.0f} ac"
+
+
+def dollars_per_acre(value: Any) -> str | None:
+    number = _num(value)
+    return None if number is None or number <= 0 else f"${number:,.0f}/ac"
 
 
 def share(value: Any) -> str | None:
@@ -315,8 +376,14 @@ def row_view(band: Mapping[str, Any], c: Criteria) -> dict[str, Any]:
     sub = band.get("substation")
     flood = band.get("flood") or {}
     context = band.get("context") or {}
+    land = band.get("parcels") or {}
     stated = None if line.get("voltage_unknown") else kv(line.get("voltage_kv"))
+    holding = None
+    if land.get("status") in ("ok", "partial") and land.get("largest_holding_acres"):
+        holding = acres(land.get("largest_holding_acres"))
     return {
+        "holding_label": holding,
+        "holding_missing": land.get("status") == "not_loaded",
         "id": band["id"],
         "name": line.get("name") or "Unnamed line",
         "operator": line.get("operator"),
@@ -399,6 +466,118 @@ def _layer_value(entry: Mapping[str, Any]) -> tuple[str, list[str]]:
         gap = f" (GAP {f['gap_status']})" if f.get("gap_status") else ""
         features.append(f"{f.get('name')}{gap}{': ' + fs if fs else ''}")
     return words + lower, features
+
+
+def _record_link(link: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """A holding's appraisal-district link in words: the record itself, or where to search and the id."""
+    if not link or not link.get("url"):
+        return None
+    kind = link.get("kind")
+    pid = link.get("property_id")
+    district = link.get("district") or "the appraisal district"
+    if kind == "record":
+        label = "Appraisal record"
+        hint = None
+    elif kind == "search":
+        label = f"Search {district}"
+        hint = f"property id {pid}" if pid else None
+    else:
+        label = f"Find {district}"
+        hint = f"property id {pid}" if pid else None
+    return {"url": link["url"], "label": label, "hint": hint, "kind": kind}
+
+
+def _assembly_words(assembly: Mapping[str, Any], largest: float) -> str | None:
+    """The joined acreage, only when joining neighbours adds to the largest holding."""
+    joined = _num(assembly.get("acres"))
+    if not joined or joined <= largest:
+        return None
+    cap = assembly.get("max_owners")
+    if cap:
+        return f"{acres(joined)} contiguous from at most {cap} owner{'s' if cap != 1 else ''}"
+    up_to = assembly.get("owners_assembled_up_to")
+    return f"{acres(joined)} contiguous from up to {up_to} neighbouring holdings"
+
+
+def _missing_words(land: Mapping[str, Any]) -> str | None:
+    """Why part of the band has no parcels: Texas counties not loaded on this server, and places outside
+    Texas, where there are no parcels to load."""
+    texas = [m.get("name") or m.get("fips") for m in land.get("counties_missing") or []]
+    outside = [m.get("name") or m.get("fips") for m in land.get("outside_texas") or []]
+    words = []
+    if texas:
+        words.append("Parcels not loaded for " + ", ".join(str(m) for m in texas) + ".")
+    if outside:
+        words.append("Parcels cover Texas only (not " + ", ".join(str(m) for m in outside) + ").")
+    return " ".join(words) or None
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count:,} {word}{'' if count == 1 else 's'}"
+
+
+def parcels_view(land: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The drawer's land section: the holdings touching the band, or why there are none to show."""
+    land = land or {}
+    status = land.get("status") or "not_loaded"
+    view: dict[str, Any] = {
+        "status": status,
+        "missing": _missing_words(land),
+        "note": land.get("note") or OWNER_NOTE,
+        "not": land.get("not"),
+        "source": source_line(land.get("provenance")),
+        "holdings": [],
+    }
+    if status not in ("ok", "partial"):
+        return view
+    assembly = land.get("assembly") or {}
+    largest = _num(land.get("largest_holding_acres")) or 0.0
+    threshold = land.get("threshold_acres")
+    at = land.get("holdings_at_threshold")
+    holdings = []
+    for h in land.get("top_holdings") or []:
+        holdings.append(
+            {
+                "acres": acres(h.get("acres")),
+                "parcels": _plural(int(h.get("parcels") or 0), "parcel"),
+                "use": h.get("land_use_label") or "Land use not stated",
+                "value": dollars_per_acre(h.get("value_per_acre")),
+                "county": h.get("county_name"),
+                "link": _record_link(h.get("appraisal_record")),
+            }
+        )
+    count = int(land.get("holdings_20_acres_plus") or 0)
+    exact = land.get("holdings_count_exact", True)
+    smaller = int(land.get("smaller_holdings_at_least") or 0)
+    touching = land.get("holdings_touching")
+    left_out = int(land.get("left_out_holdings_at_least") or 0)
+    touching_words = None
+    if isinstance(touching, int) and touching:
+        lead = "" if land.get("holdings_touching_exact") else "at least "
+        touching_words = f"{lead}{_plural(touching, 'holding')} touch the band"
+    left_out_words = None
+    if left_out:
+        left_out_words = (
+            f"At least {_plural(left_out, 'holding')} beside the band (right-of-way strips, exempt or "
+            "utility land) left out of these figures."
+        )
+    noun = "holding" if count == 1 else "holdings"
+    view.update(
+        largest=acres(largest) if largest else None,
+        holdings=holdings,
+        touching=touching_words,
+        count=f"{count:,}{'' if exact else ' or more'} {noun} of 20 acres or more",
+        smaller=f"at least {smaller:,} smaller" if smaller else None,
+        at_threshold=(
+            f"{at:,} of {threshold:,} acres or more"
+            if isinstance(at, int) and isinstance(threshold, int)
+            else None
+        ),
+        assembly=_assembly_words(assembly, largest),
+        assembly_note=assembly.get("note"),
+        left_out=left_out_words,
+    )
+    return view
 
 
 def band_view(band: Mapping[str, Any]) -> dict[str, Any]:
@@ -510,6 +689,7 @@ def band_view(band: Mapping[str, Any]) -> dict[str, Any]:
             "source": source_line(fiber.get("provenance")),
         },
         "layers": layers,
+        "land": parcels_view(band.get("parcels")),
         "energy_community": {
             "share": share(ec.get("share")),
             "status": ec.get("status"),
@@ -582,6 +762,13 @@ def _summary_view(meta: Mapping[str, Any], c: Criteria) -> dict[str, Any]:
         "bands": int(summary.get("bands") or 0),
         "miles": _num(summary.get("miles")) or 0.0,
         "flood_unavailable_mi": _num(summary.get("flood_unavailable_mi")),
+        "parcels_unavailable_mi": _num(summary.get("parcels_unavailable_mi")),
+        # Named only while few are loaded (the owner's own counties first); all of Texas reads as no list.
+        "parcel_counties": [
+            p.get("name") for p in ((run.get("parcels") or {}).get("counties") or [])[:9] if p.get("name")
+        ]
+        if len((run.get("parcels") or {}).get("counties") or []) <= 8
+        else [],
         "screening": finder.get("screening"),
         "flood_note": finder.get("flood_note"),
         "states": states,
@@ -595,6 +782,8 @@ def _summary_view(meta: Mapping[str, Any], c: Criteria) -> dict[str, Any]:
 def _criteria_view(c: Criteria) -> dict[str, Any]:
     return {
         "c": c,
+        "acre_choices": ACRE_CHOICES,
+        "owner_choices": OWNER_CHOICES,
         "kv_choices": KV_CHOICES,
         "adjacent_choices": ADJACENT_CHOICES,
         "adjacent_index": ADJACENT_CHOICES.index(c.adjacent_mi),
@@ -676,9 +865,12 @@ def _config_json(c: Criteria, tile_mode: str, tile_url: str | None) -> str:
                 "exclude_flood": DEFAULTS.exclude_flood,
                 "include_unknown_voltage": DEFAULTS.include_unknown_voltage,
                 "exclude_protected": DEFAULTS.exclude_protected,
+                "min_acres": "",
+                "max_owners": "",
                 "sort": DEFAULT_SORT,
             },
             "adjacent_choices": list(ADJACENT_CHOICES),
+            "parcels_min_zoom": PARCELS_MIN_ZOOM,
             "criteria": {**c.api_params(), "sort": c.sort},
             "tile_mode": tile_mode,
             "tile_url": tile_url or "",
@@ -713,6 +905,7 @@ def site_finder_page(request: Request) -> HTMLResponse:
             "basemap_attribution": _basemap_attribution(tile_mode, tile_url),
             "config_json": _config_json(c, tile_mode, tile_url),
             "odbl_url": ODBL_URL,
+            "owner_note": OWNER_NOTE,
         },
     )
 
@@ -765,6 +958,21 @@ def site_finder_geo(request: Request) -> JSONResponse:
             params[name] = qp[name]
     try:
         envelope = get_api(request).get("/v1/site-finder/geo", params=params)
+    except ApiError as exc:
+        return JSONResponse(exc.body, status_code=exc.status_code)
+    return JSONResponse(envelope)
+
+
+@router.get("/api/site-finder/parcels")
+def site_finder_parcels(request: Request) -> JSONResponse:
+    """Same-origin proxy for `GET /v1/site-finder/parcels`: the parcel outlines in `bbox` from zoom 12."""
+    qp = request.query_params
+    if not qp.get("bbox") or not qp.get("zoom"):
+        return JSONResponse({"title": "bbox and zoom are required"}, status_code=400)
+    try:
+        envelope = get_api(request).get(
+            "/v1/site-finder/parcels", params={"bbox": qp["bbox"], "zoom": qp["zoom"]}
+        )
     except ApiError as exc:
         return JSONResponse(exc.body, status_code=exc.status_code)
     return JSONResponse(envelope)
