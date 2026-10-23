@@ -175,9 +175,13 @@ zoom^-0.8.
 
 ### 5.1 Wordmark, mark and lockup
 
-- **Wordmark.** "inframation" in lower case, Geist 700, tracking -0.03em, navy. The first i is dotless, and its dot
-  is an orange north pointer. The pointer is a triangle 0.32em wide and 0.38em tall, with its foot 0.07em above the
-  x-height.
+- **Wordmark.** "inframation" in lower case, tracking -0.03em, set in two parts that name what it joins:
+  **infra**structure and infor**mation** (owner, 2026-10-23: "emphasize the two parts of the word Infra and mation";
+  variant B chosen, "I love it"). "infra" is Geist 700 in `--text` (navy `#0b1023`; `#eef1f5` on dark); "mation" is
+  Geist 400 in `--text-muted` (slate `#4a5063`, 8.5:1 on white; `#a6acb9` on dark). One word, no space or rule between
+  the parts; the accessible name stays "Inframation". The first i is dotless, and its dot is an orange north pointer.
+  The pointer is a triangle 0.32em wide and 0.38em tall, with its foot 0.07em above the x-height. Variants A (weight
+  only), C (mation in evergreen: rejected, green is the data colour) and D (mation bold) are in the review page.
 - **Mark (16px favicon).** The same i, orange pointer over a navy stem:
   `<path fill="#e68023" d="M8 0 11.9 6.6H4.1Z"/><rect x="5.7" y="8" width="4.6" height="8" rx=".7"/>`. The stem turns
   `#f1f3f6` under `prefers-color-scheme: dark`. Checked at 16, 32 and 64px on light and dark tabs.
