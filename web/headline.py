@@ -142,7 +142,10 @@ def compute_figures(api: ApiClient, landing: Landing | None) -> list[Figure]:
         (
             "open",
             "/v1/opportunities",
-            {**scope, "status": "open"},
+            # The energy-relevant ones only, as the RFPs page shows by default (`web/app.py`
+            # `opportunity_relevance`): on 2026-10-23, 490 of the 892 open notices; the rest are tenders
+            # such as building services that the page leaves out, so the figure and its list agree.
+            {**scope, "status": "open", "relevance": "energy"},
             "/opportunities",
             {**scope, "status": "open"},
             "RFP or funding call open now",
