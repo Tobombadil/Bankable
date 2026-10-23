@@ -63,9 +63,11 @@ PROPOSAL_OTHER: dict[str, SortColumn] = {
     "last_changed": column("last_changed", "date", "last change"),
     "first_seen": column("first_seen", "date", "first seen"),
 }
-#: `/opportunities` (API `OPPORTUNITY_SORT_ALLOWLIST`; `budget_amount` needs one currency, so it is
-#: the value column's to offer).
+#: `/opportunities` (API `OPPORTUNITY_SORT_ALLOWLIST`). The Value column sorts by `value`, each
+#: notice's approximate US-dollar equivalent, which ranks across currencies where `budget_amount`
+#: cannot; notices with no equivalent go last either way (lane pages, 2026-10-23).
 OPPORTUNITY_COLUMNS: dict[str, SortColumn] = {
+    "value": column("value", "number", "value in US dollars"),
     "due": column("due_at", "deadline", "deadline"),
 }
 OPPORTUNITY_OTHER: dict[str, SortColumn] = {

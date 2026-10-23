@@ -148,4 +148,5 @@ def test_the_page_prints_what_the_figure_is_never_a_placeholder_as_a_budget() ->
     assert f"<small>stated as 2,147,483,647 USD: {escape(PLACEHOLDER_NOTE)}</small>" in placeholder
     assert "<dt>Budget</dt>" not in placeholder
     ceiling = _page(_valued(20_000_000.0, "USD", "Award ceiling"))
-    assert '<dt>Award ceiling</dt><dd class="tnum">20,000,000 USD</dd>' in ceiling
+    # Lane pages (2026-10-23): the figure in its currency's own form (docs/31 §4), on the value row.
+    assert '<dt>Award ceiling</dt><dd><span class="value-figure tnum">$20,000,000</span>' in ceiling

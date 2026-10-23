@@ -24,10 +24,16 @@
 {%- set show_issuer = (records | selectattr('issuer') | list | length > 0) or (records | selectattr('issuer_code') | list | length > 0) %}
 {%- set sh = sort_headers or {} %}
 {#- Compact two-line rows below 720px (docs/16 U-10; styles.css `.record-table--compact`): status
-    and title, then issuer · technologies · due · source. A title over 110 characters (a quarter of
-    the open notices: TED prints the country, the CPV heading and the buyer's own title) is cut at a
-    word to 100 on that row, so it takes about three lines, not nine; the table and the record page
-    print it whole. -#}
+    and title, then issuer · technologies · value · due · source. A title over 110 characters (a
+    quarter of the open notices: TED prints the country, the CPV heading and the buyer's own title)
+    is cut at a word to 100 on that row, so it takes about three lines, not nine; the table and the
+    record page print it whole.
+    Value (lane pages, 2026-10-23; viewmodels.opportunity_value_view): the amount in its own currency,
+    the approximate US-dollar figure beside it when it was converted (the column sorts by that), and
+    what the figure is under it ("award ceiling", "programme funding"). The exact figures, the ECB
+    fixing and where the amount was read are in the cell's tooltip and on the record page; the ECB's
+    credit is in the sources line under the rows whenever a converted figure is on the page. A
+    placeholder amount is a dash with the number the notice states, never a figure. -#}
 <div class="table-scroll">
 <table class="record-table record-table--compact">
   <caption class="visually-hidden">Opportunities matching the current filters, {{ sort_caption or 'sorted by deadline, soonest first' }}{% if not request.query_params.get('sort') %} by default{% endif %}.</caption>
@@ -37,6 +43,7 @@
       <th scope="col">Title</th>
       {% if show_issuer %}<th scope="col">Issuer</th>{% endif %}
       <th scope="col">Technologies</th>
+      {{ m.sort_th("Value", sh.value, num=True) }}
       {{ m.sort_th("Due", sh.due) }}
       <th scope="col">Source</th>
     </tr>
@@ -50,6 +57,12 @@
         {%- else %}{{ r.title }}{% endif %}</a></td>
       {% if show_issuer %}<td data-label="Issuer" class="cell-meta{% if not (r.issuer_org or r.issuer or r.issuer_code) %} is-empty{% endif %}">{% if r.issuer_org and r.issuer_org.href %}<a href="{{ r.issuer_org.href }}"{% if r.issuer_org.personal_data %} rel="nofollow"{% endif %}>{{ r.issuer_org.name | readable_name }}</a>{% elif r.issuer %}{{ r.issuer | readable_name }}{% elif r.issuer_code %}<span class="mono">{{ r.issuer_code }}</span> <span class="field-grid__source-value">(agency code)</span>{% else %}—{% endif %}</td>{% endif %}
       <td data-label="Technologies" class="cell-meta">{{ (r.technologies | technologies_label) if r.technologies else 'all-source' }}</td>
+      {%- set v = r.value_view %}
+      <td data-label="Value" class="num cell-meta cell-value{% if not v %} is-empty{% endif %}"{% if v %} title="{{ v.label }}: {% if v.placeholder %}stated as {{ v.stated }}, {{ v.note }}{% else %}{{ v.full }}{% if v.usd_full %}, about {{ v.usd_approx or v.usd_full }} at the ECB reference rate of {{ v.fx_date | display_date }}{% elif v.fx_note %} ({{ v.fx_note }}){% endif %}{% endif %}"{% endif %}>
+        {%- if not v %}—
+        {%- elif v.placeholder %}<span class="cell-value__amount">—</span><span class="cell-value__kind"> stated as {{ v.stated }}</span>
+        {%- else %}<span class="cell-value__amount">{{ v.compact }}</span>{% if v.usd_compact %}<span class="cell-value__usd"> &asymp;&#8239;{{ v.usd_compact }}</span>{% endif %}<span class="cell-value__kind"> {{ v.short }}</span>
+        {%- endif %}</td>
       <td data-label="Due" class="nowrap cell-meta{% if not r.due_at %} is-empty{% endif %}">{% if r.due_at %}<span class="cell-unit">Due </span>{{ r.due_at | display_date }}{% else %}—{% endif %}</td>
       <td data-label="Source" class="cell-meta{% if not r.source_label %} mono{% endif %}"><a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a></td>
     </tr>
