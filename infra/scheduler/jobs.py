@@ -1138,16 +1138,22 @@ def default_match(session_factory: Any) -> dict[str, Any]:
 #: an operator run (`python -m pipeline.context.gleif`, docs/61 §4). Each runs as its own process,
 #: as `run_connector` runs the connector CLI, so a builder's memory is returned when it exits.
 #:
-#: The last three are pulls, not builds: they copy what the GitHub Actions builds published (the site
-#: finder's inputs, docs/25 §2.7 limit 1, §5.5, "Prospecting layers" §5.3) to the data root, for the
-#: states `GRID_LAYERS_REGIONS` names (each refuses to run without it; the beta's deploy renders it,
-#: US-TX by default): the OpenStreetMap lines and substations from the tiles bucket's
-#: `grid/osm-power/latest.json` (frames `context_load` loads), the flood layer's per-state files from
-#: the private bucket's `us.fema.nfhl/latest.json` (read by `site_finder_refresh`), and the prospect
-#: build the sampler reads (`prospect/current/<region>.json`). A layer whose workflow has not
-#: published yet answers `not_published` (`NOT_PUBLISHED`) and exits 0: reported, never a failure,
-#: and nothing it held before is touched. `context_load` and then `site_finder_refresh` follow the
-#: whole build (`infra/scheduler/app.py`), so the pulls always land before the load that reads them.
+#: The last four are pulls, not builds: they copy what the GitHub Actions builds published (the site
+#: finder's inputs, docs/25 §2.7 limit 1, §5.5, "Prospecting layers" §5.3, docs/25-siting-parcels.md
+#: §8) to the data root. The first three take the states `GRID_LAYERS_REGIONS` names (each refuses to
+#: run without it; the beta's deploy renders it, US-TX by default): the OpenStreetMap lines and
+#: substations from the tiles bucket's `grid/osm-power/latest.json` (frames `context_load` loads), the
+#: flood layer's per-state files from the private bucket's `us.fema.nfhl/latest.json` (read by
+#: `site_finder_refresh`), and the prospect build the sampler reads (`prospect/current/<region>.json`).
+#: The parcels pull takes the Texas counties `PARCELS_COUNTIES` names (it refuses to run without it;
+#: the beta's deploy renders it, `all` by default) from the private bucket's
+#: `us.tx.txgio.parcels/latest.json`, never a public host: `site_finder_refresh` measures them and the
+#: API's parcel map reads them (`services.context_sample.parcels.parcels_dir`, the directory the pull
+#: writes). A layer whose workflow has not published yet answers `not_published` (`NOT_PUBLISHED`) and
+#: exits 0: reported, never a failure, and nothing it held before is touched (parcels-layer.yml has
+#: no schedule; a person dispatches it, and the next pull takes what it published). `context_load` and
+#: then `site_finder_refresh` follow the whole build (`infra/scheduler/app.py`), so the pulls always
+#: land before the load and the run that read them.
 CONTEXT_BUILDERS: tuple[tuple[str, ...], ...] = (
     ("pipeline.context.eia_plants", "--latest-snapshot"),
     ("pipeline.context.eia_owners", "--latest-snapshot"),
@@ -1165,6 +1171,7 @@ CONTEXT_BUILDERS: tuple[tuple[str, ...], ...] = (
     ("pipeline.context.osm_power", "pull"),
     ("pipeline.context.fema_nfhl", "pull"),
     ("pipeline.context.prospect.pull",),
+    ("pipeline.context.txgio_parcels", "pull"),
 )
 #: The `status` a pull prints on its summary line (its last stdout line, JSON) when the layer it reads
 #: has no published version yet. The pull modules define the same string; a test holds them equal.
@@ -1436,7 +1443,8 @@ def site_finder_refresh_job(
     TIGER counties file up to date (`site_finder_counties`), then recompute every candidate segment
     from what the context load left in the store (the OpenStreetMap lines and substations, the plants,
     the exactly-located requests) and the files under the connector data root (the FEMA flood build,
-    the TIGER counties, the prospect build, the FCC fiber file), as one new run the API serves only
+    the TIGER counties, the prospect build, the FCC fiber file, the Texas parcels the build's last pull
+    wrote, `services.context_sample.parcels.parcels_dir`), as one new run the API serves only
     once it is complete (`services/site_finder/compute.py::refresh`). Its own sessions and commits: the
     run is written in batches and swapped in at the end.
 

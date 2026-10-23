@@ -5,6 +5,7 @@ infra/ci/test_beta.py runs its steps. Checks use `expect` instead of bare `asser
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
 from typing import Any
@@ -35,6 +36,8 @@ VARIABLES = {
 #: MY_PIPELINE (lane tracker, 2026-10-23): `on` opens the private Tracker; unset or `off` keeps it 404.
 #: GRID_LAYERS_REGIONS (lane sf-golive, 2026-10-23): the states the server's grid, flood and prospect
 #: pulls load; a variable, never a secret; unset renders US-TX (docs/25 §2.7 limit 3).
+#: PARCELS_COUNTIES (lane parcels-wire, 2026-10-23): the Texas counties the server's parcels pull loads;
+#: a variable, never a secret; unset renders `all` (docs/25-siting-parcels.md §8).
 OPTIONAL_VARIABLES = {
     "SENDER_LEGAL_NAME",
     "PRODUCT_CONTACT_EMAIL",
@@ -42,6 +45,7 @@ OPTIONAL_VARIABLES = {
     "SITE_ACCESS",
     "MY_PIPELINE",
     "GRID_LAYERS_REGIONS",
+    "PARCELS_COUNTIES",
 }
 #: The ERCOT Public API account (lane price-hubs, 2026-10-22): optional, all three or none.
 OPTIONAL_SECRETS = {"ERCOT_API_SUBSCRIPTION_KEY", "ERCOT_API_USERNAME", "ERCOT_API_PASSWORD"}
@@ -259,13 +263,28 @@ def test_grid_layers_regions_is_a_variable_that_reaches_the_check_and_the_env_fi
     expect(render[0]["env"].get("GRID_LAYERS_REGIONS") == expected, render[0]["env"])
 
 
+def test_parcels_counties_is_a_variable_that_reaches_the_check_and_the_env_file() -> None:
+    """Lane parcels-wire (2026-10-23): PARCELS_COUNTIES travels as an Environment variable (`vars.`,
+    never `secrets.`) into the inputs check, which validates it, and into the render-env step, which
+    writes it into the env file every container reads (the worker's parcels pull)."""
+    expected = "${{ vars.PARCELS_COUNTIES }}"
+    expect("secrets.PARCELS_COUNTIES" not in WORKFLOW.read_text(), "a setting, not a credential")
+    jobs = workflow()["jobs"]
+    check_env = jobs["inputs"]["steps"][1]["env"]
+    expect(check_env.get("PARCELS_COUNTIES") == expected, check_env)
+    render = [s for s in jobs["host"]["steps"] if s.get("run") == "infra/ci/beta.sh render-env"]
+    expect(len(render) == 1, "one render-env step")
+    expect(render[0]["env"].get("PARCELS_COUNTIES") == expected, render[0]["env"])
+
+
 # ------------------------------------------------------- docs/66 "Site finder go-live" (lane sf-golive)
 DOCS_66 = ROOT / "docs" / "66-owner-actions.md"
 BUILDS = {
     name: ROOT / ".github" / "workflows" / f"{name}.yml"
-    for name in ("grid-layers", "flood-layer", "prospect-layers")
+    for name in ("grid-layers", "flood-layer", "prospect-layers", "parcels-layer")
 }
 BUILD_PROSPECT_SH = ROOT / "infra" / "scripts" / "build_prospect_layers.sh"
+BUILD_PARCELS_SH = ROOT / "infra" / "scripts" / "build_parcels_layer.sh"
 
 
 def go_live_section() -> str:
@@ -318,3 +337,31 @@ def test_go_live_prospect_done_signal_shows_on_the_red_run_it_describes() -> Non
     line = line.replace("${REGION}", "texas").replace("${build_id}", "<build_id>")
     line = line.replace("${pointer_key}", "prospect/current/texas.json")
     expect(f"[prospect-layers] {line}" in item, f"docs/66 quotes the line the script prints: {line}")
+
+
+def test_go_live_parcels_steps_use_the_workflows_inputs_and_the_summarys_keys(tmp_path: pathlib.Path) -> None:
+    """Lane parcels-wire (2026-10-23): docs/66 step (f) names parcels-layer.yml's own inputs, the four
+    counties of the first real run (docs/25-siting-parcels.md §8.7), the private bucket's path to each
+    county's summary (the build script's prefix) and the summary's own keys; it points at the TxGIO
+    licence email (item 15) instead of repeating it."""
+    from pipeline.context import txgio_parcels as tp
+
+    section = go_live_section()
+    item = section[section.index("**(f) Texas land parcels") :]
+    doc: dict[Any, Any] = yaml.safe_load(BUILDS["parcels-layer"].read_text())
+    inputs = triggers(doc)["workflow_dispatch"]["inputs"]
+    for name in ("counties", "dry_run"):
+        expect(name in inputs and f"`{name}`" in item, name)
+    expect("`counties` = `48351,48241,48199,48371`" in item and "`counties` = `all`" in item, "the runs")
+    path = " > ".join(f"`{part}`" for part in tp.OBJECT_PREFIX.split("/"))
+    expect(f"`beta-object-storage-production` > **Objects** > {path} > `v1`" in item, path)
+    expect(f'PREFIX="{tp.OBJECT_PREFIX}"' in BUILD_PARCELS_SH.read_text(), "the script's prefix")
+    expect(tp.LAYOUT_VERSION == "v1", "the version keys start with the layout")
+    fixture = ROOT / "pipeline" / "context" / "fixtures" / "txgio_parcels" / "synthetic_county.geojson"
+    features = json.loads(fixture.read_text(encoding="utf-8"))["features"]
+    county = tp.build_county(tp.frame_from_features(features, "48999", "Fixture"), tmp_path)
+    expect({"outlines", "owners"} <= set(county) and "suspect_kept" in county["owners"], sorted(county))
+    for key in ("outlines", "owners", "suspect_kept"):
+        expect(f"`{key}`" in item, key)
+    expect("item 15" in item and "geographic.texas.gov/contact" not in section, "referenced, not repeated")
+    expect("`PARCELS_COUNTIES`" in item, "the optional variable")

@@ -1072,3 +1072,25 @@ def test_a_view_with_more_parcels_than_the_cap_keeps_the_largest_holdings(
     assert [p["holding_parcels"] for p in props[1:4]] == [3, 3, 3]
     assert [p["parcel_key"] for p in props[1:4]] == sorted(p["parcel_key"] for p in props[1:4])
     assert {p["holding_kind"] for p in props} == {"land"}
+
+
+def test_over_the_cap_only_the_kept_parcels_outlines_are_read(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dense view is ranked without outlines; the outlines read afterwards are the kept parcels' only,
+    so a city view never holds every outline in it (the api's 1 GB limit, docs/25-siting-parcels.md §8.9)."""
+    from services.context_sample import parcels as cp
+
+    calls: list[tuple[bool, int | None]] = []
+    real = cp.ParcelLayer.read_bbox
+
+    def spy(self: cp.ParcelLayer, *args: Any, **kwargs: Any) -> Any:
+        keys = kwargs.get("keys")
+        calls.append((kwargs.get("geometry", True), None if keys is None else len(keys)))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(cp.ParcelLayer, "read_bbox", spy)
+    monkeypatch.setattr(api, "PARCELS_CAP", 5)
+    body = client.get("/v1/site-finder/parcels", params={"bbox": AROUND_A, "zoom": "13"}).json()
+    assert body["meta"]["site_finder"]["parcels"]["drawn"] == 5
+    assert calls == [(False, None), (True, 5)]

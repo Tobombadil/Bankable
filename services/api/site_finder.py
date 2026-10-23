@@ -2143,8 +2143,10 @@ def site_finder_geo(
 
 def _parcel_features(layer: Any, bbox: tuple[float, float, float, float]) -> tuple[list[dict[str, Any]], int]:
     """The parcels in view as GeoJSON features (at most `PARCELS_CAP`, largest holdings first), and how
-    many the view holds. The view's rows are ranked and cut in Arrow, so only the kept outlines become
-    Python objects, however many parcels a city view holds."""
+    many the view holds. The view is ranked on its keys and holding sizes alone, without outlines; only
+    the kept parcels' outlines are then read (a central-Houston view at the widest span can hold most of
+    a million parcels, whose outlines would not fit the api's memory), and only those become Python
+    objects."""
     import numpy as np
     import pyarrow.compute as pc  # type: ignore[import-untyped,unused-ignore]
     import shapely  # type: ignore[import-untyped,import-not-found,unused-ignore]
@@ -2152,13 +2154,22 @@ def _parcel_features(layer: Any, bbox: tuple[float, float, float, float]) -> tup
     from pipeline.context.txgio_parcels import LAND_USE_LABELS
     from services.context_sample.parcels import MAP_COLUMNS
 
-    table = layer.read_bbox(bbox, columns=MAP_COLUMNS)
-    if table is None or table.num_rows == 0:
-        return [], 0
-    total = table.num_rows
     keys = [("holding_acres", "descending"), ("parcel_key", "ascending")]
+    ranked = layer.read_bbox(bbox, columns=("parcel_key", "holding_acres"), geometry=False)
+    if ranked is None or ranked.num_rows == 0:
+        return [], 0
+    total = ranked.num_rows
+    wanted = None
     if total > PARCELS_CAP:
-        table = table.take(pc.select_k_unstable(table, k=PARCELS_CAP, sort_keys=keys))
+        wanted = (
+            ranked.take(pc.select_k_unstable(ranked, k=PARCELS_CAP, sort_keys=keys))
+            .column("parcel_key")
+            .combine_chunks()
+        )
+    del ranked
+    table = layer.read_bbox(bbox, columns=MAP_COLUMNS, keys=wanted)
+    if table is None or table.num_rows == 0:
+        return [], total
     table = table.take(pc.sort_indices(table, sort_keys=keys))
 
     def col(name: str, default: Any = None) -> list[Any]:

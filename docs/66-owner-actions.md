@@ -37,7 +37,8 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
 | grid-layers.yml | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; optional `R2_ACCOUNT_ID`, `R2_TILES_BUCKET` | `DOMAIN`, `CLOUDFLARE_ACCOUNT_ID`; optional `R2_ACCOUNT_ID`, `R2_TILES_BUCKET` | Yes. Unset, the optional ones fall back to `CLOUDFLARE_ACCOUNT_ID` and the bucket `beta-object-storage-tiles-production` |
 | flood-layer.yml | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; optional `R2_ACCOUNT_ID`, `R2_BUCKET` | `CLOUDFLARE_ACCOUNT_ID`, `DOMAIN` (default inframation.io); optional `R2_ACCOUNT_ID`, `R2_BUCKET` | Yes. Unset, `R2_BUCKET` falls back to `beta-object-storage-production` |
 | prospect-layers.yml | as flood-layer.yml | `CLOUDFLARE_ACCOUNT_ID`; optional `R2_ACCOUNT_ID`, `R2_BUCKET` | Yes, same fallbacks |
-| deploy-beta.yml | the `docs/64` §2 list | the `docs/64` §2 list, plus the new optional variable `GRID_LAYERS_REGIONS` | Yes. Leave `GRID_LAYERS_REGIONS` **unset**: the deploy then sets `US-TX`. `all` is accepted with a warning: national does not fit this server |
+| parcels-layer.yml | as flood-layer.yml (the dry run reads none) | `DOMAIN` (default inframation.io), `CLOUDFLARE_ACCOUNT_ID`; optional `R2_ACCOUNT_ID`, `R2_BUCKET` | Yes, same fallbacks |
+| deploy-beta.yml | the `docs/64` §2 list | the `docs/64` §2 list, plus the new optional variables `GRID_LAYERS_REGIONS` and `PARCELS_COUNTIES` | Yes. Leave `GRID_LAYERS_REGIONS` **unset**: the deploy then sets `US-TX`. `all` is accepted with a warning: national does not fit this server. Leave `PARCELS_COUNTIES` unset too: the deploy then sets `all` (step (f)) |
 
 - [ ] **(a) Confirm Geofabrik's page and robots.txt (5 min). Do this before the coordinator merges the release to
   `main`:** from then on grid-layers.yml also runs a national build by itself, on the 2nd of each month at 06:41
@@ -108,7 +109,7 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
      `region` = `texas`. It should now be green.
 - [ ] **(d) Deploy (5 min), once (b) is done.** Open [deploy-beta](https://github.com/Tobombadil/Bankable/actions/workflows/deploy-beta.yml)
   > **Run workflow** > action `deploy`, tag empty > **Run workflow**. When it is green, run it again with action
-  `seed`: that queues the context build, which ends with the three pulls, then the load, then the site finder run
+  `seed`: that queues the context build, which ends with the four pulls, then the load, then the site finder run
   (about 35 minutes for Texas). Without `seed` the server pulls on its own on the 4th of the month at 02:43 UTC.
 - [ ] **(e) Check it worked (about 1 to 3 hours after `seed`).**
   1. Open [api.inframation.io/v1/health](https://api.inframation.io/v1/health): it reads
@@ -121,6 +122,49 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
      summary (queue depths and the seed log). If the worker's log says `site_finder_refresh: not run: the worker's
      memory limit`, the release did not hold the memory change (above): the coordinator ships it, then you run
      (d) again.
+- [ ] **(f) Texas land parcels (15 min of clicks; up to several hours of waiting), once (e) shows the site finder.**
+  [parcels-layer](https://github.com/Tobombadil/Bankable/actions/workflows/parcels-layer.yml) builds TxGIO's
+  county parcel files on GitHub's machines into the private bucket; the server's monthly context build pulls the
+  counties `PARCELS_COUNTIES` names (`all` unless you set it) and the site finder run measures them. Until the first
+  build the server's log says the parcels are "not published", and nothing fails. The parcel files stay in the
+  private bucket `beta-object-storage-production`: never copy them to the tiles bucket or share them (the source is
+  derived only, `docs/25-siting-parcels.md` §8.1). The licence email to TxGIO is item 15 under "Soon"; it does not
+  block these steps, but Site finder Pro is not sold before the answer.
+  1. **Dry run.** Run the workflow with `counties` = `all` and `dry_run` ticked. It downloads nothing and reads no
+     secret. Done when the job "dry run (catalogue and a HEAD per county zip)" is green; its summary says how many
+     county files answered as catalogued and lists any that did not (warnings, not a stop). Send the coordinator
+     that count.
+  2. **Four counties.** Run it again with `counties` = `48351,48241,48199,48371` (Newton, Jasper, Hardin, Pecos)
+     and `dry_run` unticked: about 10 minutes (estimated). Done when the job "manifest, per-county report and latest.json" is
+     green; its summary lists the four with their parcels and holdings, and names the build's version
+     (`v1/...`). Then run [deploy-beta](https://github.com/Tobombadil/Bankable/actions/workflows/deploy-beta.yml)
+     with action `seed` (or wait for the 4th), so the server pulls them and the site finder measures them.
+  3. **Read the counts.** In the [Cloudflare dashboard](https://dash.cloudflare.com), **R2 Object Storage** >
+     `beta-object-storage-production` > **Objects** > `data` > `normalized` > `context` > `us.tx.txgio.parcels` >
+     `v1` > the version from step 2 > `counties`, open `48351.json`, `48241.json`, `48199.json` and `48371.json`.
+     Copy each file's `outlines` block (how often the county's roll stacks accounts on one outline, and how many
+     outlines overlap) and `owners` block (counts of named, blank, withheld and placeholder owners, and
+     `suspect_kept`: kept names that look like a placeholder) to the coordinator. These files hold counts only, no
+     name or address.
+  4. **Open three record links per county by hand.** On [inframation.io/site-finder](https://inframation.io/site-finder),
+     pick a county, open a band's drawer and, under "Land beside the line", open the appraisal link of three
+     holdings (or zoom the map in to a parcel and use its card). Newton, Jasper and Hardin link to the parcel's own
+     record on the district's `esearch` site: check that each opens a record, and that its acres and place match
+     the parcel. Pecos links to the district's search page with the property id to copy: search three of them. Tell
+     the coordinator which counties' links failed; those switch to search-page links (`docs/25-siting-parcels.md`
+     §8.4).
+  5. **All of Texas.** Run the workflow with `counties` = `all`, `dry_run` unticked. Not yet run in Actions: allow
+     several hours (each batch job may take up to its 4-hour limit). Done when the job "manifest, per-county report
+     and latest.json" has run; a county that failed is listed in its summary with the reason, keeps any version
+     already published, and turns the run red, while the others are published. The server pulls them at the next
+     `seed` or on the 4th: about 1.6 GB of files for the whole state. The Houston counties are the densest; the
+     map reads them in bounded chunks, measured only on synthetic data so far (`docs/25-siting-parcels.md` §8.9).
+  6. **Optional: fewer counties.** To have the server pull only some counties, add the Environment variable
+     `PARCELS_COUNTIES` (GitHub > Settings > Environments > `production` > Variables), for example
+     `48351,48241,48199,48371`: Texas county FIPS codes, comma separated, or `all`. A variable, not a secret; the
+     deploy refuses anything else (`351` alone, a county name). It takes effect at the next `deploy`, then the next
+     `seed` or the 4th. Fewer counties also means less disk: about 1.6 GB for all of Texas,
+     up to twice that while the previous version is kept (`docs/25-siting-parcels.md` §8.9).
 
 ## Soon (internal tier and wider coverage)
 

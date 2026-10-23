@@ -532,6 +532,72 @@ def test_grid_layers_regions_all_is_accepted_with_a_warning() -> None:
     expect("does not fit the one-server beta" in markdown and "All inputs present." in markdown, markdown)
 
 
+def test_parcels_counties_reaches_the_env_file_all_by_default() -> None:
+    """Lane parcels-wire (2026-10-23): the server's parcels pull refuses to run without
+    PARCELS_COUNTIES (`pipeline/context/txgio_parcels.py` `wanted_counties`), so every deploy renders
+    it: the Environment variable, normalised, or `all` when it is unset or blank (every county the
+    owner has built and published; the pull answers not_published until the first build)."""
+    env = GOOD_ENV | {"PRODUCT_NAME": "Example Product"}
+    keys = [k for k, _ in beta.render_env(env, outputs(), site_hash="aGFzaA==")]
+    expect(
+        keys.index("GRID_LAYERS_REGIONS") + 1 == keys.index("PARCELS_COUNTIES"),
+        f"the example file's order: {keys}",
+    )
+    for value, rendered in (
+        (None, "all"),
+        ("", "all"),
+        ("   ", "all"),
+        ("ALL", "all"),
+        (" all ", "all"),
+        ("48351", "48351"),
+        (" 48351 , 48241 ,", "48351,48241"),
+        ("48351,48241,48199,48371,48241", "48351,48241,48199,48371"),
+    ):
+        source = env if value is None else env | {"PARCELS_COUNTIES": value}
+        pairs = dict(beta.render_env(source, outputs(), site_hash="aGFzaA=="))
+        expect(pairs["PARCELS_COUNTIES"] == rendered, f"{value!r} rendered {pairs['PARCELS_COUNTIES']!r}")
+        expect(beta.dotenv_line("PARCELS_COUNTIES", rendered) == f"PARCELS_COUNTIES={rendered}", rendered)
+    with pytest.raises(beta.InputError, match="PARCELS_COUNTIES"):
+        beta.render_env(env | {"PARCELS_COUNTIES": "Newton"}, outputs(), site_hash="aGFzaA==")
+
+
+@pytest.mark.parametrize(
+    ("value", "fragment"),
+    [
+        ("351", "did you mean 48351"),
+        ("Newton", "Texas county FIPS code"),
+        ("48351,22019", "22019"),
+        ("all,48351", "all not a Texas county"),
+        ("4835", "4835 not"),
+        (",", "names no county"),
+        ("48351;48241", "Texas county FIPS code"),
+    ],
+)
+def test_parcels_counties_accepts_texas_fips_codes_or_all_only(value: str, fragment: str) -> None:
+    problems = check(GOOD_ENV | {"PARCELS_COUNTIES": value})
+    expect([r.name for r in problems] == ["PARCELS_COUNTIES"], problems)
+    expect(fragment in str(problems[0].problem), problems[0].problem)
+
+
+def test_parcels_counties_check_reports_the_default_and_takes_what_the_pull_takes() -> None:
+    rows, _ = beta.check_inputs(
+        GOOD_ENV, tag="sha-abc1234", commit="abc1234def", code_domain=DOMAIN, code_product_name="Example"
+    )
+    row = next(r for r in rows if r.name == "PARCELS_COUNTIES")
+    expect(row.kind == "variable, optional" and row.problem is None and "all" in row.status, row)
+    expect(row.warning is None, "the default carries no warning")
+    from pipeline.context import txgio_parcels
+
+    for value in ("all", "ALL", "48351", "48351,48241,48199,48371"):
+        expect(not check(GOOD_ENV | {"PARCELS_COUNTIES": value}), value)
+        rendered = beta.rendered_parcels_counties({"PARCELS_COUNTIES": value})
+        # What the deploy writes, the pull reads without refusing it (`wanted_counties`).
+        wanted = txgio_parcels.wanted_counties(rendered)
+        expect(wanted is None if rendered == "all" else wanted == set(rendered.split(",")), (value, wanted))
+    # One code rule for the check and the pull, so the deploy never lets through what the pull refuses.
+    expect(beta.PARCELS_FIPS.pattern == txgio_parcels.FIPS_RE.pattern, "one FIPS rule")
+
+
 def test_no_domain_or_product_name_is_hard_coded() -> None:
     """The domain comes from the DOMAIN variable and the product name from the code (coordinator,
     2026-10-15): neither may be written into the workflow, its scripts or its backend."""
@@ -747,6 +813,11 @@ def test_check_inputs_reads_the_domain_from_the_tags_commit(sh: tuple[pathlib.Pa
     expect(national.returncode == 0, national.stdout + national.stderr)
     expect("::warning::GRID_LAYERS_REGIONS: national" in national.stdout, national.stdout)
     expect("::warning::" not in result.stdout, "no warning for the default")
+    counties = beta_sh("check-inputs", env=good | {"PARCELS_COUNTIES": "Newton"})
+    expect(counties.returncode == 1, counties.stdout + counties.stderr)
+    expect(
+        "::error::PARCELS_COUNTIES: Newton not a Texas county FIPS code" in counties.stdout, counties.stdout
+    )
     expect(lines_of(log) == [], "no network call")
 
 

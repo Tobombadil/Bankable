@@ -11,6 +11,7 @@ import pathlib
 import threading
 import time
 
+import pyarrow as pa  # type: ignore[import-untyped,unused-ignore]
 import pytest
 
 from services.context_sample import parcels as cp
@@ -52,6 +53,34 @@ def test_a_box_read_keeps_only_the_parcels_that_meet_it(root: pathlib.Path) -> N
     assert set(small.column_names) >= {*cp.MAP_COLUMNS, "geometry", "bbox"}
     assert all(h for h in small.column("holding_id").to_pylist())
     assert layer.read_bbox((-97.5, 30.5, -97.4, 30.6)) is None
+
+
+def test_a_read_can_leave_out_the_outlines_and_keep_only_named_parcels(root: pathlib.Path) -> None:
+    """The map's two passes (`services/api/site_finder.py::_parcel_features`): rank without outlines, then
+    read the outlines of the kept parcels only."""
+    layer = cp.default_layer(root)
+    assert layer is not None
+    box = (-98.1, 30.9, -97.9, 31.1)
+    ranked = layer.read_bbox(box, columns=("parcel_key", "holding_acres"), geometry=False)
+    assert ranked is not None and ranked.num_rows == 16 and "geometry" not in ranked.column_names
+    keys = sorted(ranked.column("parcel_key").to_pylist())[:3]
+    kept = layer.read_bbox(box, columns=cp.MAP_COLUMNS, keys=pa.array(keys))
+    assert kept is not None and sorted(kept.column("parcel_key").to_pylist()) == keys
+    assert "geometry" in kept.column_names
+    assert layer.read_bbox(box, columns=cp.MAP_COLUMNS, keys=pa.array(["48999-none"], pa.string())) is None
+
+
+def test_a_read_in_chunks_of_row_groups_matches_one_read(
+    root: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layer = cp.default_layer(root)
+    assert layer is not None
+    box = (-98.1, 30.9, -97.9, 31.1)
+    whole = layer.read_bbox(box, columns=cp.MAP_COLUMNS)
+    monkeypatch.setattr(cp, "READ_CHUNK_GROUPS", 1)
+    chunked = layer.read_bbox(box, columns=cp.MAP_COLUMNS)
+    assert whole is not None and chunked is not None
+    assert sorted(chunked.column("parcel_key").to_pylist()) == sorted(whole.column("parcel_key").to_pylist())
 
 
 def test_a_new_pull_is_noticed(root: pathlib.Path) -> None:

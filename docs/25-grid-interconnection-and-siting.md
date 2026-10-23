@@ -765,7 +765,8 @@ the Texas extract holds.
 
 1. ~~**Wire the pull into `context_build`**~~ **Closed 2026-10-23 (lane sf-golive).** In one change:
    `infra/scheduler/jobs.py::CONTEXT_BUILDERS` ends with three pulls, `("pipeline.context.osm_power", "pull")`,
-   `("pipeline.context.fema_nfhl", "pull")` and `("pipeline.context.prospect.pull",)`, after every builder, so
+   `("pipeline.context.fema_nfhl", "pull")` and `("pipeline.context.prospect.pull",)` (since 2026-10-23 a fourth,
+   the parcels pull, follows them: `docs/25-siting-parcels.md` §8.9), after every builder, so
    the chain is pulls, then `context_load`, then `site_finder_refresh`; `services/ingest/context_layers.py::
    expected_files()` lists `OSM_POWER_FILES`; `infra/scheduler/test_context_and_match.py` maps both frames to
    `osm_power` and runs the three pulls' real CLIs against a published grid build and an empty private bucket.
@@ -2440,8 +2441,9 @@ scale 0.01) and `compress=PACKBITS, BIGTIFF=YES`. `pipeline/context/prospect/tes
    `<data root>/normalized/prospect` on the worker's `connector_data` volume, before `site_finder_refresh`
    samples it. A Texas server follows `prospect/current/texas.json` only, never `conus` (item 9: the national
    build is unmeasured), and only a dispatch with region `texas` moves that pointer; the monthly scheduled run
-   builds `conus`, so a Texas server's layers are as fresh as its last `texas` dispatch. Still open: the API container mounts no data volume, so `GET /v1/context/sample` on the beta
-   answers without these files until the api service gets a read-only mount of the same directory (compose).
+   builds `conus`, so a Texas server's layers are as fresh as its last `texas` dispatch. Closed 2026-10-23 (lane parcels-wire): on the single host the api mounts the worker's `connector_data` volume
+   read-only at the same path (`infra/compose/compose.single.yml`), so `GET /v1/context/sample` reads these files;
+   the three-VM `compose.prod.yml` shares no volume and has no such mount.
 8. No OpenStreetMap data is used by these layers; the "© OpenStreetMap contributors" rule applies to the map and
    site-finder lanes that draw lines and substations under them.
 9. The national builds are designed and tested end to end against a fake bucket, but have not yet run in Actions:

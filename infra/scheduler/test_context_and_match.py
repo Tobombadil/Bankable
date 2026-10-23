@@ -124,9 +124,16 @@ def test_context_build_runs_every_builder_and_survives_a_failure_and_a_timeout()
 
 
 # ------------------------------------------------------------- the site finder's pulls (lane sf-golive)
-PULLS = ("pipeline.context.osm_power", "pipeline.context.fema_nfhl", "pipeline.context.prospect.pull")
+PULLS = (
+    "pipeline.context.osm_power",
+    "pipeline.context.fema_nfhl",
+    "pipeline.context.prospect.pull",
+    "pipeline.context.txgio_parcels",
+)
 GRID_URL = "https://tiles.example.test/grid/osm-power"
 GRID_TS = "2026-10-21T20:21:02Z"
+PRIVATE_BUCKET = "beta-object-storage-production"
+PARCELS_LATEST = "data/normalized/context/us.tx.txgio.parcels/latest.json"
 
 
 class _Resp:
@@ -152,25 +159,54 @@ class _Tiles:
         return _Resp(200, self.served[url]) if url in self.served else _Resp(404)
 
 
-class _EmptyBucket:
-    """The private bucket before flood-layer.yml and prospect-layers.yml have run: every key missing,
-    answered the way botocore does (a 404 `response`) and the way `S3Backend.get` does."""
+class _Bucket:
+    """The private bucket, holding `objects` (none: before flood-layer.yml, prospect-layers.yml and
+    parcels-layer.yml have run). A missing key is answered the way botocore does (a 404 `response`)
+    and the way `S3Backend.get` does; the calls are the ones each pull makes (the flood pull's store,
+    the prospect pull's HEAD, the parcels pull's GET and download)."""
 
     class Missing(Exception):
         def __init__(self, key: str) -> None:
             super().__init__(key)
             self.response = {"Error": {"Code": "404"}, "ResponseMetadata": {"HTTPStatusCode": 404}}
 
-    def __init__(self) -> None:
+    class Body:
+        def __init__(self, data: bytes) -> None:
+            self.data = data
+
+        def read(self) -> bytes:
+            return self.data
+
+    def __init__(self, objects: dict[str, bytes] | None = None) -> None:
+        self.objects = objects or {}
         self.asked: list[str] = []
 
     def get(self, key: str) -> bytes:
         self.asked.append(key)
-        raise FileNotFoundError(key)
+        if key not in self.objects:
+            raise FileNotFoundError(key)
+        return self.objects[key]
 
     def head_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803 - boto3's names
+        assert Bucket == PRIVATE_BUCKET
         self.asked.append(Key)
-        raise self.Missing(Key)
+        if Key not in self.objects:
+            raise self.Missing(Key)
+        return {}
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803 - boto3's names
+        assert Bucket == PRIVATE_BUCKET
+        self.asked.append(Key)
+        if Key not in self.objects:
+            raise self.Missing(Key)
+        return {"Body": self.Body(self.objects[Key])}
+
+    def download_file(self, bucket: str, key: str, filename: str) -> None:
+        assert bucket == PRIVATE_BUCKET
+        self.asked.append(key)
+        if key not in self.objects:
+            raise self.Missing(key)
+        pathlib.Path(filename).write_bytes(self.objects[key])
 
 
 def _published_grid(tmp_path: pathlib.Path) -> dict[str, bytes]:
@@ -215,17 +251,20 @@ def _published_grid(tmp_path: pathlib.Path) -> dict[str, bytes]:
 
 
 def _server(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, tiles: _Tiles, bucket: _EmptyBucket
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, tiles: _Tiles, bucket: _Bucket
 ) -> pathlib.Path:
-    """The worker's environment as the beta's env file sets it (GRID_LAYERS_REGIONS=US-TX, the R2
-    names), with the network replaced: the tiles host by `tiles`, the private bucket by `bucket`.
-    Returns the data root."""
+    """The worker's environment as the image and the beta's env file set it (INFRAQUE_DATA_DIR,
+    GRID_LAYERS_REGIONS=US-TX, PARCELS_COUNTIES=all, the R2 names; no PARCELS_DATA_DIR), with the
+    network replaced: the tiles host by `tiles`, the private bucket by `bucket`. Returns the data root."""
     import pipeline.connectors.http as http
     import services.context_sample.sync as sync_mod
-    from pipeline.context import fema_nfhl, osm_power
+    from pipeline.context import fema_nfhl, osm_power, txgio_parcels
 
     data_root = tmp_path / "data"
+    monkeypatch.setenv("INFRAQUE_DATA_DIR", str(data_root))
+    monkeypatch.delenv("PARCELS_DATA_DIR", raising=False)
     monkeypatch.setenv("GRID_LAYERS_REGIONS", "US-TX")
+    monkeypatch.setenv("PARCELS_COUNTIES", "all")
     monkeypatch.setenv("GRID_LAYERS_URL", GRID_URL)
     monkeypatch.setenv("PROSPECT_DATA_DIR", str(data_root / "normalized" / "prospect"))
     monkeypatch.setattr(osm_power, "DATA_DIR", data_root)
@@ -234,21 +273,23 @@ def _server(
     monkeypatch.setattr(http, "PoliteSession", lambda *a, **k: tiles)
     monkeypatch.setattr(fema_nfhl, "DATA_DIR", data_root)
     monkeypatch.setattr(fema_nfhl, "store_from_env", lambda: bucket)
-    monkeypatch.setattr(sync_mod, "client_from_env", lambda: (bucket, "beta-object-storage-production"))
+    monkeypatch.setattr(sync_mod, "client_from_env", lambda: (bucket, PRIVATE_BUCKET))
+    monkeypatch.setattr(txgio_parcels, "object_store_client", lambda: (bucket, PRIVATE_BUCKET))
     return data_root
 
 
 def _run_pulls_in_process() -> tuple[Any, list[list[str]]]:
-    """`subprocess.run` for `context_build_job`: the three pulls run their real CLI in this process
+    """`subprocess.run` for `context_build_job`: the four pulls run their real CLI in this process
     (the environment is the one `subprocess.run` would hand the child: it passes no `env`), every
     other builder answers ok."""
-    from pipeline.context import fema_nfhl, osm_power
+    from pipeline.context import fema_nfhl, osm_power, txgio_parcels
     from pipeline.context.prospect import pull as prospect_pull
 
     mains: dict[str, Any] = {
         "pipeline.context.osm_power": osm_power.main,
         "pipeline.context.fema_nfhl": fema_nfhl.main,
         "pipeline.context.prospect.pull": prospect_pull.main,
+        "pipeline.context.txgio_parcels": txgio_parcels.main,
     }
     calls: list[list[str]] = []
 
@@ -274,36 +315,40 @@ def _run_pulls_in_process() -> tuple[Any, list[list[str]]]:
 
 
 def test_the_pulls_run_last_in_the_build_so_the_load_and_the_site_finder_follow_them() -> None:
-    """Order (docs/25 §2.7 limit 1): every builder, then the three pulls, inside `context_build`, which
-    chains to `context_load` and that to `site_finder_refresh` (tests above and below)."""
-    assert tuple(argv[0] for argv in jobs.CONTEXT_BUILDERS[-3:]) == PULLS
-    assert jobs.CONTEXT_BUILDERS[-3][1:] == ("pull",) and jobs.CONTEXT_BUILDERS[-2][1:] == ("pull",)
-    from pipeline.context import fema_nfhl, osm_power
+    """Order (docs/25 §2.7 limit 1): every builder, then the four pulls, inside `context_build`, which
+    chains to `context_load` and that to `site_finder_refresh` (tests above and below). The parcels
+    pull (lane parcels-wire, 2026-10-23) comes after the prospect pull."""
+    assert tuple(argv[0] for argv in jobs.CONTEXT_BUILDERS[-4:]) == PULLS
+    assert [argv[1:] for argv in jobs.CONTEXT_BUILDERS[-4:]] == [("pull",), ("pull",), (), ("pull",)]
+    from pipeline.context import fema_nfhl, osm_power, txgio_parcels
     from pipeline.context.prospect import pull as prospect_pull
 
-    assert {osm_power.NOT_PUBLISHED, fema_nfhl.NOT_PUBLISHED, prospect_pull.NOT_PUBLISHED} == {
-        jobs.NOT_PUBLISHED
-    }
+    assert {
+        osm_power.NOT_PUBLISHED,
+        fema_nfhl.NOT_PUBLISHED,
+        prospect_pull.NOT_PUBLISHED,
+        txgio_parcels.NOT_PUBLISHED,
+    } == {jobs.NOT_PUBLISHED}
 
 
 def test_context_build_pulls_the_grid_for_the_configured_regions_and_an_unpublished_layer_fails_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
-    """The OpenStreetMap build is published, the flood and prospect builds are not: the OSM pull
-    writes the frames for GRID_LAYERS_REGIONS (Texas only, though the build is national), the other
-    two report "not published", and nothing counts as failed."""
+    """The OpenStreetMap build is published, the flood, prospect and parcels builds are not: the OSM
+    pull writes the frames for GRID_LAYERS_REGIONS (Texas only, though the build is national), the
+    other three report "not published", and nothing counts as failed."""
     import pandas as pd
 
     tiles = _Tiles(_published_grid(tmp_path))
-    bucket = _EmptyBucket()
+    bucket = _Bucket()
     data_root = _server(monkeypatch, tmp_path, tiles, bucket)
     fake_run, calls = _run_pulls_in_process()
     report = jobs.context_build_job(_run=fake_run, timeout_s=7)
 
-    assert [c[0] for c in calls[-3:]] == list(PULLS)
+    assert [c[0] for c in calls[-4:]] == list(PULLS)
     assert report["failed"] == []
-    assert report["not_published"] == ["fema_nfhl pull", "prospect.pull"]
-    assert report["ok"] == len(jobs.CONTEXT_BUILDERS) - 2
+    assert report["not_published"] == ["fema_nfhl pull", "prospect.pull", "txgio_parcels pull"]
+    assert report["ok"] == len(jobs.CONTEXT_BUILDERS) - 3
     context = data_root / "normalized" / "context"
     lines = pd.read_parquet(context / "us.osm.power.lines.parquet")
     substations = pd.read_parquet(context / "us.osm.power.substations.parquet")
@@ -315,19 +360,27 @@ def test_context_build_pulls_the_grid_for_the_configured_regions_and_an_unpublis
     assert bucket.asked == [
         "data/normalized/context/us.fema.nfhl/latest.json",
         "prospect/current/texas.json",  # a Texas server never falls back to the national build
+        PARCELS_LATEST,  # the private bucket: per-parcel files are never on the tiles host
     ]
+    assert not any("parcels" in url for url in tiles.requested)
     assert not (data_root / "normalized" / "prospect").exists()
+    assert not (data_root / "normalized" / "context" / "us.tx.txgio.parcels").exists()
 
 
 def test_before_any_build_is_published_every_pull_reports_it_and_the_build_still_succeeds(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     tiles = _Tiles({})
-    data_root = _server(monkeypatch, tmp_path, tiles, _EmptyBucket())
+    data_root = _server(monkeypatch, tmp_path, tiles, _Bucket())
     fake_run, _calls = _run_pulls_in_process()
     report = jobs.context_build_job(_run=fake_run, timeout_s=7)
     assert report["failed"] == []
-    assert report["not_published"] == ["osm_power pull", "fema_nfhl pull", "prospect.pull"]
+    assert report["not_published"] == [
+        "osm_power pull",
+        "fema_nfhl pull",
+        "prospect.pull",
+        "txgio_parcels pull",
+    ]
     assert tiles.requested == [f"{GRID_URL}/latest.json"]
     assert not (data_root / "normalized" / "context").exists()
 
@@ -336,19 +389,139 @@ def test_a_pull_without_a_regions_setting_fails_alone(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     """The pulls refuse an unset GRID_LAYERS_REGIONS (never read as national); the deploy always
-    renders it (infra/ci/beta.py), so this is a misconfigured server, reported as a failed builder."""
-    _server(monkeypatch, tmp_path, _Tiles({}), _EmptyBucket())
+    renders it (infra/ci/beta.py), so this is a misconfigured server, reported as a failed builder.
+    The parcels pull reads PARCELS_COUNTIES instead and goes on (here: nothing published)."""
+    _server(monkeypatch, tmp_path, _Tiles({}), _Bucket())
     monkeypatch.delenv("GRID_LAYERS_REGIONS")
     fake_run, _calls = _run_pulls_in_process()
     report = jobs.context_build_job(_run=fake_run, timeout_s=7)
     assert report["failed"] == ["osm_power pull: exit 1", "fema_nfhl pull: exit 1", "prospect.pull: exit 1"]
-    assert report["ok"] == len(jobs.CONTEXT_BUILDERS) - 3
+    assert report["not_published"] == ["txgio_parcels pull"]
+    assert report["ok"] == len(jobs.CONTEXT_BUILDERS) - 4
+
+
+def test_a_parcels_pull_without_a_counties_setting_fails_alone(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The parcels pull refuses an unset PARCELS_COUNTIES (a server says what it serves; never read
+    as `all`); the deploy always renders it (infra/ci/beta.py, `all` by default), so this is a
+    misconfigured server: one failed builder, and the other pulls run on."""
+    _server(monkeypatch, tmp_path, _Tiles({}), _Bucket())
+    monkeypatch.delenv("PARCELS_COUNTIES")
+    fake_run, _calls = _run_pulls_in_process()
+    report = jobs.context_build_job(_run=fake_run, timeout_s=7)
+    assert report["failed"] == ["txgio_parcels pull: exit 1"]
+    assert report["not_published"] == ["osm_power pull", "fema_nfhl pull", "prospect.pull"]
+
+
+def _published_parcels(tmp_path: pathlib.Path) -> dict[str, bytes]:
+    """The private bucket after parcels-layer.yml published the site finder fixture's county (48999,
+    beside line A; `services.site_finder.testing.write_parcels`): `latest.json` and the county's files
+    under the version that built them, as `infra/scripts/build_parcels_layer.sh` leaves them."""
+    from pipeline.context import txgio_parcels as tp
+    from services.site_finder.testing import write_parcels
+
+    built = tmp_path / "built"
+    current = write_parcels(built)
+    entry = current["counties"]["48999"]
+    files = {kind: {k: v for k, v in spec.items() if k != "local"} for kind, spec in entry["files"].items()}
+    latest = {**current, "counties": {"48999": {**entry, "files": files}}}
+    objects = {PARCELS_LATEST: json.dumps(latest).encode()}
+    for spec in files.values():
+        key = f"{tp.OBJECT_PREFIX}/{current['version']}/{spec['path']}"
+        objects[key] = (
+            built / "normalized" / "context" / tp.SOURCE_ID / current["version"] / spec["path"]
+        ).read_bytes()
+    return objects
+
+
+def test_the_site_finder_run_after_the_build_measures_the_parcels_the_pull_wrote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """Lane parcels-wire (2026-10-23): `context_build` pulls the published parcels into the worker's
+    data root, and the `site_finder_refresh` that follows the load measures the segments beside the
+    county from those files: the job hands `compute.refresh` the connector data root, whose
+    `load_parcels` opens `parcels_dir(data_root)`, the directory the pull wrote. Nothing else puts
+    parcels there: the world's own copy is removed first."""
+    import shutil
+
+    import sqlalchemy as sa
+
+    from services.context_sample.parcels import CURRENT_NAME, parcels_dir
+    from services.db.models import SiteCandidate, SiteFinderRun
+    from services.site_finder.compute import refresh
+    from services.site_finder.testing import PARCELS_VERSION, FakeSampler, seed
+
+    bucket = _Bucket(_published_parcels(tmp_path))
+    data_root = _server(monkeypatch, tmp_path, _Tiles({}), bucket)
+    engine = get_engine(f"sqlite+pysqlite:///{tmp_path / 'sf.db'}")
+    init_db(engine)
+    factory = get_sessionmaker(engine)
+    with factory() as db:
+        world = seed(db, data_root)
+    shutil.rmtree(parcels_dir(data_root))
+
+    fake_run, _calls = _run_pulls_in_process()
+    report = jobs.context_build_job(_run=fake_run, timeout_s=7)
+    assert report["failed"] == [] and "txgio_parcels pull" not in report["not_published"]
+    assert (parcels_dir(data_root) / CURRENT_NAME).exists()
+    assert parcels_dir(data_root) == parcels_dir(jobs.connector_data_root())
+
+    roots: list[pathlib.Path] = []
+
+    def run(session_factory: Any, root: pathlib.Path) -> dict[str, Any]:
+        roots.append(root)
+        return dict(refresh(session_factory, root, sampler=FakeSampler()))
+
+    result = jobs.site_finder_refresh_job(
+        run,
+        _session_factory=factory,
+        _counties=lambda root: {"fetched": False},
+        _memory_limit=lambda: None,
+    )
+    assert roots == [data_root] and result["status"] == "ok"
+    with factory() as db:
+        served = db.scalars(sa.select(SiteFinderRun).where(SiteFinderRun.status == "ok")).one()
+        contexts = [
+            (c or {}).get("parcels")
+            for c in db.scalars(
+                sa.select(SiteCandidate.context)
+                .where(SiteCandidate.line_asset_id == world.line_a.id)
+                .order_by(SiteCandidate.segment_index)
+            )
+        ]
+    assert served.inputs["parcels"]["loaded"] is True
+    assert served.inputs["parcels"]["version"] == PARCELS_VERSION
+    assert contexts and all(c is not None and c["cov"] == "ok" and c["n"][-1] > 0 for c in contexts)
+    engine.dispose()
+
+
+def test_the_pull_the_job_and_the_api_name_one_parcels_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """The pull's default directory, the site finder job's (`load_parcels(connector_data_root())`)
+    and the API's (`default_layer(services.api.site_finder._data_root())`) are one, with and without
+    PARCELS_DATA_DIR. On the single host the api container mounts the worker's `connector_data`
+    volume read-only at the same INFRAQUE_DATA_DIR (infra/test_compose.py)."""
+    from services.api.site_finder import _data_root as api_data_root
+    from services.context_sample.parcels import parcels_dir
+
+    monkeypatch.setenv("INFRAQUE_DATA_DIR", str(tmp_path / "data"))
+    for explicit in (None, str(tmp_path / "parcels")):
+        if explicit is None:
+            monkeypatch.delenv("PARCELS_DATA_DIR", raising=False)
+        else:
+            monkeypatch.setenv("PARCELS_DATA_DIR", explicit)
+        assert parcels_dir() == parcels_dir(jobs.connector_data_root()) == parcels_dir(api_data_root())
+    monkeypatch.delenv("PARCELS_DATA_DIR")
+    assert parcels_dir() == tmp_path / "data" / "normalized" / "context" / "us.tx.txgio.parcels"
 
 
 def test_builder_names_and_summaries() -> None:
     assert jobs.builder_name(("pipeline.context.eia_atlas", "--layer", "all")) == "eia_atlas"
     assert jobs.builder_name(("pipeline.context.osm_power", "pull")) == "osm_power pull"
     assert jobs.builder_name(("pipeline.context.prospect.pull",)) == "prospect.pull"
+    assert jobs.builder_name(("pipeline.context.txgio_parcels", "pull")) == "txgio_parcels pull"
     assert jobs.builder_summary('progress\n{"status": "pulled"}\n{"status": "not_published"}\n') == {
         "status": "not_published"
     }

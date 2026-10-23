@@ -33,6 +33,8 @@ SOURCE_ID = "us.tx.txgio.parcels"
 RELATIVE_DIR = pathlib.Path("normalized") / "context" / SOURCE_ID
 CURRENT_NAME = "current.json"
 BBOX_KEYS = ("xmin", "ymin", "xmax", "ymax")
+#: Row groups (2,048 parcels each, `pipeline.context.txgio_parcels.ROW_GROUP_SIZE`) per read call.
+READ_CHUNK_GROUPS = 32
 #: What the map and the finder read; never the provenance columns row by row (they are the county's).
 MAP_COLUMNS = (
     "parcel_key",
@@ -108,21 +110,36 @@ class CountyFile:
         self.names = frozenset(self._pf.schema_arrow.names)
         self._lock = threading.Lock()
 
-    def read(self, bbox: Box, columns: Sequence[str]) -> Any:
-        """The rows whose box meets `bbox`, with those of `columns` the file has, `geometry` and the box
-        (a file from an earlier layout lacks the newer columns; readers default them)."""
+    def read(self, bbox: Box, columns: Sequence[str], *, geometry: bool = True, keys: Any = None) -> Any:
+        """The rows whose box meets `bbox`, with those of `columns` the file has, the box and (unless
+        `geometry` is False) the outline; a file from an earlier layout lacks the newer columns and
+        readers default them. `keys` (parcel keys) keeps only those parcels. Row groups are read
+        `READ_CHUNK_GROUPS` at a time and filtered before the next, so a dense view never holds more
+        than one chunk of outlines it will not keep. None when nothing meets the box."""
+        import pyarrow.compute as pc  # type: ignore[import-untyped,unused-ignore]
+
         x0, y0, x1, y1 = bbox
         b = self.row_group_bounds
         groups = np.nonzero((b[:, 0] <= x1) & (b[:, 2] >= x0) & (b[:, 1] <= y1) & (b[:, 3] >= y0))[0]
-        wanted = [c for c in dict.fromkeys([*columns, "geometry", "bbox"]) if c in self.names]
-        if not len(groups):
+        extra = ["geometry"] if geometry else []
+        if keys is not None:
+            extra.append("parcel_key")
+        wanted = [c for c in dict.fromkeys([*columns, *extra, "bbox"]) if c in self.names]
+        parts = []
+        for start in range(0, len(groups), READ_CHUNK_GROUPS):
+            chunk = [int(g) for g in groups[start : start + READ_CHUNK_GROUPS]]
+            with self._lock:
+                table = self._pf.read_row_groups(chunk, columns=wanted)
+            box = table.column("bbox").combine_chunks()
+            xmin, ymin, xmax, ymax = (np.asarray(box.field(k)) for k in BBOX_KEYS)
+            table = table.filter(pa.array((xmin <= x1) & (xmax >= x0) & (ymin <= y1) & (ymax >= y0)))
+            if keys is not None and table.num_rows:
+                table = table.filter(pc.is_in(table.column("parcel_key"), value_set=keys))
+            if table.num_rows:
+                parts.append(table)
+        if not parts:
             return None
-        with self._lock:
-            table = self._pf.read_row_groups([int(g) for g in groups], columns=wanted)
-        box = table.column("bbox").combine_chunks()
-        xmin, ymin, xmax, ymax = (np.asarray(box.field(k)) for k in BBOX_KEYS)
-        keep = (xmin <= x1) & (xmax >= x0) & (ymin <= y1) & (ymax >= y0)
-        return table.filter(pa.array(keep))
+        return pa.concat_tables(parts) if len(parts) > 1 else parts[0]
 
 
 @dataclass(frozen=True)
@@ -224,14 +241,21 @@ class ParcelLayer:
             return handle
 
     def read_bbox(
-        self, bbox: Box, columns: Sequence[str] = FINDER_COLUMNS, counties: Iterable[str] | None = None
+        self,
+        bbox: Box,
+        columns: Sequence[str] = FINDER_COLUMNS,
+        counties: Iterable[str] | None = None,
+        *,
+        geometry: bool = True,
+        keys: Any = None,
     ) -> Any:
-        """Every parcel whose box meets `bbox` in the loaded counties (or those named), as one table."""
+        """Every parcel whose box meets `bbox` in the loaded counties (or those named), as one table;
+        `geometry` and `keys` as `CountyFile.read`."""
         tables = []
         for fips in counties if counties is not None else self.counties_in(bbox):
             if fips not in self.counties:
                 continue
-            table = self._file(fips).read(bbox, columns)
+            table = self._file(fips).read(bbox, columns, geometry=geometry, keys=keys)
             if table is not None and table.num_rows:
                 tables.append(table)
         if not tables:

@@ -613,17 +613,32 @@ def test_a_county_whose_job_never_reported_is_a_failure(tmp_path: pathlib.Path) 
 
 
 # ------------------------------------------------------------------------------------------ the pull
-class _FakeS3:
-    """The two calls `pull` makes of a boto3 S3 client, answered from a dict of object keys."""
+class _ClientError(Exception):
+    """What botocore raises, structurally (`objectstore._error_code` reads `response`)."""
 
-    def __init__(self, objects: dict[str, bytes]) -> None:
+    def __init__(self, code: str, status: int) -> None:
+        super().__init__(code)
+        self.response = {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}}
+
+
+class _FakeS3:
+    """The two calls `pull` makes of a boto3 S3 client, answered from a dict of object keys: a missing
+    key is botocore's 404, and `denied` answers every key with a 403 (a token without read access)."""
+
+    def __init__(self, objects: dict[str, bytes], *, denied: bool = False) -> None:
         self.objects = objects
+        self.denied = denied
         self.calls: list[tuple[str, str, str]] = []
+
+    def _check(self, key: str) -> None:
+        if self.denied:
+            raise _ClientError("AccessDenied", 403)
+        if key not in self.objects:
+            raise _ClientError("NoSuchKey", 404)
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803 - boto3's names
         self.calls.append(("get_object", Bucket, Key))
-        if Key not in self.objects:
-            raise KeyError(f"NoSuchKey: {Key}")
+        self._check(Key)
 
         class Body:
             def __init__(self, data: bytes) -> None:
@@ -636,23 +651,33 @@ class _FakeS3:
 
     def download_file(self, bucket: str, key: str, filename: str) -> None:
         self.calls.append(("download_file", bucket, key))
-        if key not in self.objects:
-            raise KeyError(f"NoSuchKey: {key}")
+        self._check(key)
         pathlib.Path(filename).write_bytes(self.objects[key])
+
+
+VERSION = "v1/20261001-20261023T0900Z"
+
+
+def _published(out: pathlib.Path, summary: dict[str, Any], version: str = VERSION) -> dict[str, bytes]:
+    """The private bucket after parcels-layer.yml published the fixture county: `latest.json` and the
+    county's two files under the version that built them."""
+    prefix = tp.OBJECT_PREFIX
+    latest = {"version": version, "counties": {"48999": {**summary, "version": version}}}
+    objects = {f"{prefix}/latest.json": json.dumps(latest).encode()}
+    for kind in ("parcels", "holdings"):
+        rel = summary["files"][kind]["path"]
+        objects[f"{prefix}/{version}/{rel}"] = (out / rel).read_bytes()
+    return objects
 
 
 def test_pull_reads_the_private_object_store_checks_every_file_and_writes_current_last(
     tmp_path: pathlib.Path, built: tuple[pathlib.Path, dict[str, Any]]
 ) -> None:
     out, summary = built
-    version = "v1/20261001-20261023T0900Z"
+    version = VERSION
     prefix = tp.OBJECT_PREFIX
     assert prefix == "data/normalized/context/us.tx.txgio.parcels"  # the private bucket's data prefix
-    latest = {"version": version, "counties": {"48999": {**summary, "version": version}}}
-    objects = {f"{prefix}/latest.json": json.dumps(latest).encode()}
-    for kind in ("parcels", "holdings"):
-        rel = summary["files"][kind]["path"]
-        objects[f"{prefix}/{version}/{rel}"] = (out / rel).read_bytes()
+    objects = _published(out, summary)
     client = _FakeS3(objects)
     dest = tmp_path / "server"
     result = tp.pull(client=client, bucket="objects", counties={"48999", "48351"}, out_dir=dest)
@@ -676,9 +701,81 @@ def test_pull_reads_the_private_object_store_checks_every_file_and_writes_curren
         tp.pull(client=client, bucket="objects", counties=None, out_dir=dest)
     assert not (dest / tp.CURRENT_NAME).exists()
     assert not list((dest / version).rglob("*.part"))
-    # A missing object names its key, not a public URL.
-    with pytest.raises(tp.ParcelsError, match=r"latest\.json"):
-        tp.pull(client=_FakeS3({}), bucket="objects", counties=None, out_dir=dest)
+    # A failure other than "no such key" names its key, not a public URL.
+    with pytest.raises(tp.ParcelsError, match=r"latest\.json: StoreReadError"):
+        tp.pull(client=_FakeS3(objects, denied=True), bucket="objects", counties=None, out_dir=dest)
+    # A county file the manifest names but the store lacks is a broken build, never "not published".
+    del objects[f"{prefix}/{version}/holdings/48999.parquet"]
+    with pytest.raises(tp.ParcelsError, match=r"holdings/48999\.parquet"):
+        tp.pull(client=_FakeS3(objects), bucket="objects", counties=None, out_dir=dest)
+    assert not (dest / tp.CURRENT_NAME).exists()
+
+
+def test_pull_before_any_build_is_not_published_and_touches_nothing(
+    tmp_path: pathlib.Path, built: tuple[pathlib.Path, dict[str, Any]]
+) -> None:
+    """Lane parcels-wire (2026-10-23): the server's monthly `context_build` runs the pull whether or not
+    parcels-layer.yml has published. No `latest.json` is `not_published` (exit 0; `infra/scheduler/jobs.py`
+    reports it, never as a failure), as the flood and prospect pulls answer; so is a `latest.json` with
+    none of the counties this server serves. Either way what the server held stays as it was."""
+    dest = tmp_path / "server"
+    empty = _FakeS3({})
+    result = tp.pull(client=empty, bucket="objects", counties=None, out_dir=dest)
+    assert result == {
+        "source_id": tp.SOURCE_ID,
+        "status": tp.NOT_PUBLISHED,
+        "key": f"{tp.OBJECT_PREFIX}/latest.json",
+        "to_publish": "run parcels-layer.yml (docs/66 'Site finder go-live')",
+    }
+    assert empty.calls == [("get_object", "objects", f"{tp.OBJECT_PREFIX}/latest.json")]
+    assert not dest.exists()
+
+    out, summary = built
+    dest.mkdir()
+    held = '{"version": "v1/20260901-20260902T0000Z", "counties": {}}'
+    (dest / tp.CURRENT_NAME).write_text(held, encoding="utf-8")
+    other = _FakeS3(_published(out, summary))
+    result = tp.pull(client=other, bucket="objects", counties={"48351"}, out_dir=dest)
+    assert result["status"] == tp.NOT_PUBLISHED and result["not_published"] == ["48351"]
+    assert result["version"] == VERSION and [c[0] for c in other.calls] == ["get_object"]
+    assert (dest / tp.CURRENT_NAME).read_text(encoding="utf-8") == held
+    assert sorted(p.name for p in dest.iterdir()) == [tp.CURRENT_NAME]
+
+
+def test_the_pull_cli_exits_0_when_not_published_and_refuses_without_counties(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = _FakeS3({})
+    monkeypatch.setattr(tp, "object_store_client", lambda: (client, "objects"))
+    monkeypatch.setenv("PARCELS_COUNTIES", "all")
+    tp.main(["pull", "--out-dir", str(tmp_path / "server")])
+    summary = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert summary["status"] == tp.NOT_PUBLISHED and not (tmp_path / "server").exists()
+    monkeypatch.delenv("PARCELS_COUNTIES")
+    with pytest.raises(SystemExit, match="set PARCELS_COUNTIES"):
+        tp.main(["pull", "--out-dir", str(tmp_path / "server")])
+
+
+def test_the_pull_writes_where_the_site_finder_and_the_api_read(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, built: tuple[pathlib.Path, dict[str, Any]]
+) -> None:
+    """Without `--out-dir` the pull writes to `parcels_dir()`: `PARCELS_DATA_DIR` when set, else
+    `<INFRAQUE_DATA_DIR>/normalized/context/us.tx.txgio.parcels`, the directory
+    `services/site_finder/compute.py::load_parcels` and the API's `default_layer` open. Before
+    2026-10-23 it wrote to the data root's copy whatever PARCELS_DATA_DIR said."""
+    from services.context_sample.parcels import CURRENT_NAME, parcels_dir
+
+    out, summary = built
+    root = tmp_path / "data"
+    monkeypatch.setenv("INFRAQUE_DATA_DIR", str(root))
+    monkeypatch.delenv("PARCELS_DATA_DIR", raising=False)
+    tp.pull(client=_FakeS3(_published(out, summary)), bucket="objects", counties=None)
+    assert parcels_dir(root) == parcels_dir() == root / "normalized" / "context" / tp.SOURCE_ID
+    assert (parcels_dir(root) / CURRENT_NAME).exists()
+    elsewhere = tmp_path / "parcels"
+    monkeypatch.setenv("PARCELS_DATA_DIR", str(elsewhere))
+    tp.pull(client=_FakeS3(_published(out, summary)), bucket="objects", counties=None)
+    assert parcels_dir(root) == elsewhere and (elsewhere / CURRENT_NAME).exists()
 
 
 def test_the_pull_takes_the_object_store_credentials_and_has_no_public_route() -> None:

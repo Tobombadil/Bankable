@@ -59,6 +59,7 @@ OPTIONAL_VARIABLES = (
     "SITE_ACCESS",
     "MY_PIPELINE",
     "GRID_LAYERS_REGIONS",
+    "PARCELS_COUNTIES",
 )
 #: The ERCOT Public API account (docs/29 §2.1; owner, 2026-10-22: a person registers it). All three
 #: or none: without them the ERCOT price connector works from the public MIS downloads and display
@@ -89,6 +90,14 @@ GRID_LAYERS_ALL_WARNING = (
     "national: does not fit the one-server beta (about 1.3 GB more per API process, and a site-finder "
     "run of about ten times Texas's; docs/25 section 2.7, limit 3). Leave it unset for US-TX"
 )
+#: `PARCELS_COUNTIES`: the Texas counties whose land parcels the server's monthly `context_build` pulls
+#: from the private bucket (`pipeline/context/txgio_parcels.py` `wanted_counties`; docs/25-siting-parcels.md
+#: §8). `all` (every county parcels-layer.yml has published; the pull answers not_published until the
+#: first build) or comma-separated county FIPS codes; unset renders `all`. The code rule is the pull's
+#: `FIPS_RE` (infra/ci/test_beta.py holds the two equal), written here because this module runs on the
+#: runner's bare `python3`.
+DEFAULT_PARCELS_COUNTIES = "all"
+PARCELS_FIPS = re.compile(r"^48\d{3}$")
 #: docs/00-PLAN.md decisions log, 2026-09-18.
 DEFAULT_SENDER_LEGAL_NAME = "Compass International Trading Group LLC"
 #: Cost of the gate's bcrypt hash: `caddy hash-password`'s default, which docs/64 documents.
@@ -268,6 +277,18 @@ def check_inputs(
     if regions == "all" and not regions_problem:
         regions_row = replace(regions_row, warning=GRID_LAYERS_ALL_WARNING)
     rows.append(regions_row)
+    counties_raw = env.get("PARCELS_COUNTIES", "")
+    counties, counties_problem = parcels_counties(counties_raw)
+    rows.append(
+        row(
+            "PARCELS_COUNTIES",
+            "variable, optional",
+            counties_problem,
+            counties
+            if counties_raw.strip()
+            else f"default: {DEFAULT_PARCELS_COUNTIES} (every county published)",
+        )
+    )
     ercot_set = [name for name in OPTIONAL_SECRETS if env.get(name, "")]
     for name in OPTIONAL_SECRETS:
         value = env.get(name, "")
@@ -357,6 +378,34 @@ def grid_layers_regions(value: str) -> tuple[str, str | None]:
         hint = f" (did you mean {', '.join(hints)}?)" if hints else ""
         return "", (
             f"{', '.join(unknown)} not a US state's ISO 3166-2 code{hint}: use codes such as US-TX "
+            "(comma separated), or all"
+        )
+    return ",".join(codes), None
+
+
+def parcels_counties(value: str) -> tuple[str, str | None]:
+    """(the value the env file carries, a problem or None). Unset or blank is
+    `DEFAULT_PARCELS_COUNTIES`; `all` (any case) stays `all`; otherwise each comma-separated code is
+    stripped, duplicates dropped, order kept, and must be a Texas county FIPS code (`48` and three
+    digits: `48351`, not `351` or `Newton`), so the pull never refuses what this check let through."""
+    text = value.strip()
+    if not text:
+        return DEFAULT_PARCELS_COUNTIES, None
+    if text.lower() == "all":
+        return "all", None
+    codes: list[str] = []
+    for part in text.split(","):
+        code = part.strip()
+        if code and code not in codes:
+            codes.append(code)
+    if not codes:
+        return "", "names no county: use Texas county FIPS codes such as 48351 (comma separated), or all"
+    unknown = [c for c in codes if not PARCELS_FIPS.match(c)]
+    if unknown:
+        hints = [f"48{c}" for c in unknown if re.fullmatch(r"\d{3}", c)]
+        hint = f" (did you mean {', '.join(hints)}?)" if hints else ""
+        return "", (
+            f"{', '.join(unknown)} not a Texas county FIPS code{hint}: use codes such as 48351 "
             "(comma separated), or all"
         )
     return ",".join(codes), None
@@ -611,6 +660,17 @@ def rendered_grid_layers_regions(env: Mapping[str, str]) -> str:
     return value
 
 
+def rendered_parcels_counties(env: Mapping[str, str]) -> str:
+    """`PARCELS_COUNTIES` as the env file carries it: the Environment variable normalised
+    (`parcels_counties`), `all` when unset. Always rendered, because the server's parcels pull refuses
+    to run without it (`pipeline/context/txgio_parcels.py` `wanted_counties`). check-inputs has already
+    refused a malformed value; this refuses one too rather than write it."""
+    value, problem = parcels_counties(env.get("PARCELS_COUNTIES", ""))
+    if problem:
+        raise InputError(f"PARCELS_COUNTIES: {problem}")
+    return value
+
+
 def render_env(
     env: Mapping[str, str], outputs: Mapping[str, Any], *, site_hash: str
 ) -> list[tuple[str, str]]:
@@ -644,6 +704,7 @@ def render_env(
         ("CSP_MODE", "report"),
         ("MY_PIPELINE", my_pipeline(env)),
         ("GRID_LAYERS_REGIONS", rendered_grid_layers_regions(env)),
+        ("PARCELS_COUNTIES", rendered_parcels_counties(env)),
         ("SESSION_SECRET", generated["SESSION_SECRET"]),
         ("API_INTERNAL_TOKEN", generated["API_INTERNAL_TOKEN"]),
         ("AUDIT_HASH_PEPPER", generated["AUDIT_HASH_PEPPER"]),

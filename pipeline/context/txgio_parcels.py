@@ -64,7 +64,10 @@ a right-of-way `strip` (20 acres or more, on average under 60 m across), `exempt
 5. ``pull``: a server fetches `latest.json` and the files of the counties `PARCELS_COUNTIES` names
    (`all`, or FIPS codes) from the private object store with its own credentials (`R2_*`), checks each
    sha256, and writes them under `<data root>/normalized/context/us.tx.txgio.parcels/<version>/` with
-   `current.json` last.
+   `current.json` last (`PARCELS_DATA_DIR` in place of that directory when set: the readers'
+   `services.context_sample.parcels.parcels_dir`). Run by the server's monthly `context_build`
+   (`infra/scheduler/jobs.py` `CONTEXT_BUILDERS`). Before the first build, or when none of those
+   counties is published, it answers `status: not_published` (exit 0) and touches nothing.
 
 Outputs are GeoParquet 1.1 (WKB, a `bbox` covering struct, rows in Z-order, zstd), read by
 `services/context_sample/parcels.py`. They live in the private object store under `OBJECT_PREFIX`
@@ -100,8 +103,6 @@ import numpy as np
 import pyarrow as pa  # type: ignore[import-untyped,unused-ignore]
 import pyarrow.parquet as pq  # type: ignore[import-untyped,unused-ignore]
 
-from pipeline.connectors.store import DATA_DIR
-
 SOURCE_ID = "us.tx.txgio.parcels"
 COLLECTIONS_URL = "https://api.tnris.org/api/v1/collections/?search=parcels"
 RESOURCES_URL = "https://api.tnris.org/api/v1/resources/?collection_id={cid}&limit=400"
@@ -131,12 +132,12 @@ NOTICE = (
 LAYOUT_VERSION = "v1"
 #: Where the build writes, in the private object store (`R2_BUCKET`, the bucket the flood and prospect
 #: builds use; never the public tiles bucket): the per-parcel files are a derived-only source's table.
-#: The local layout mirrors it under the data root (`LOCAL_DIR`).
+#: The local layout mirrors it under the data root (`services.context_sample.parcels.parcels_dir`, the
+#: directory the site finder and the API read).
 OBJECT_PREFIX = f"data/normalized/context/{SOURCE_ID}"
 LATEST_NAME = "latest.json"
 MANIFEST_NAME = "manifest.json"
 CURRENT_NAME = "current.json"
-LOCAL_DIR = DATA_DIR / "normalized" / "context" / SOURCE_ID
 #: Parcels of one owner this close (metres, equal-area plane) are one holding.
 GROUP_DISTANCE_M = 30.0
 #: Display outlines: Douglas-Peucker at about a metre, coordinates on a 1e-6 degree grid (about 0.1 m).
@@ -1946,12 +1947,24 @@ def wanted_counties(value: str | None) -> set[str] | None:
     return codes
 
 
+#: The summary `status` when the object store has nothing for this server yet (no `latest.json`, or
+#: none of the counties it serves in it); `infra/scheduler/jobs.py` (`NOT_PUBLISHED`) reports it as
+#: "not published", never as a failed builder.
+NOT_PUBLISHED = "not_published"
+#: What a "not published" answer tells the operator to run (`.github/workflows/parcels-layer.yml`).
+DISPATCH_HINT = "run parcels-layer.yml (docs/66 'Site finder go-live')"
+
+
 def _get_bytes(client: Any, bucket: str, key: str) -> bytes:
+    """The object at `key`. FileNotFoundError when the store has no such key (`S3Backend.get` reads
+    botocore's 404 structurally, as the flood and prospect pulls do); any other failure is a
+    ParcelsError naming the key."""
+    from pipeline.connectors.objectstore import S3Backend, StoreError
+
     try:
-        body: bytes = client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    except Exception as exc:  # botocore's ClientError, read without importing botocore
+        return S3Backend(bucket, prefix="", client=client).get(key)
+    except (StoreError, ValueError) as exc:
         raise ParcelsError(f"{key}: {type(exc).__name__}: {str(exc)[:200]}") from exc
-    return body
 
 
 def pull(
@@ -1967,12 +1980,29 @@ def pull(
     against its sha256, under `<out_dir>/<version>/`; `current.json` (the manifest narrowed to those
     counties, with local paths) is written last, so a reader never sees a half-pulled version. The
     per-parcel files are a derived-only source's table and are never on a public host: the server reads
-    them with the object store's credentials, as it reads the prospect and flood builds."""
-    out_dir = out_dir or LOCAL_DIR
-    latest = json.loads(_get_bytes(client, bucket, f"{prefix}/{LATEST_NAME}"))
+    them with the object store's credentials, as it reads the prospect and flood builds.
+
+    `out_dir` defaults to `parcels_dir()`, where `services/site_finder/compute.py::load_parcels` and the
+    API read. No `latest.json` (parcels-layer.yml has not published yet), or none of the wanted counties
+    in it -> `status: not_published` and nothing written: what the server held before stays."""
+    if out_dir is None:
+        from services.context_sample.parcels import parcels_dir
+
+        out_dir = parcels_dir()
+    latest_key = f"{prefix}/{LATEST_NAME}"
+    try:
+        raw = _get_bytes(client, bucket, latest_key)
+    except FileNotFoundError:
+        return {
+            "source_id": SOURCE_ID,
+            "status": NOT_PUBLISHED,
+            "key": latest_key,
+            "to_publish": DISPATCH_HINT,
+        }
+    latest = json.loads(raw)
     version = str(latest.get("version") or "")
     if not VERSION_RE.match(version):
-        raise ParcelsError(f"{prefix}/{LATEST_NAME} names no usable version: {version!r}")
+        raise ParcelsError(f"{latest_key} names no usable version: {version!r}")
     current_path = out_dir / CURRENT_NAME
     held = json.loads(current_path.read_text(encoding="utf-8")) if current_path.exists() else {}
     selected = {
@@ -1981,6 +2011,14 @@ def pull(
         if counties is None or fips in counties
     }
     missing = sorted((counties or set()) - set(selected))
+    if not selected:
+        return {
+            "source_id": SOURCE_ID,
+            "status": NOT_PUBLISHED,
+            "version": version,
+            "not_published": missing,
+            "to_publish": DISPATCH_HINT,
+        }
     if held.get("version") == version and set(held.get("counties") or {}) == set(selected):
         return {"source_id": SOURCE_ID, "version": version, "status": "unchanged", "counties": len(selected)}
     local_root = out_dir / version
@@ -2100,7 +2138,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_pull.add_argument("--prefix", default=OBJECT_PREFIX)
     p_pull.add_argument("--counties", help="Default: $PARCELS_COUNTIES ('all' or FIPS codes)")
-    p_pull.add_argument("--out-dir", type=pathlib.Path)
+    p_pull.add_argument(
+        "--out-dir",
+        type=pathlib.Path,
+        help="Default: PARCELS_DATA_DIR or <data>/normalized/context/us.tx.txgio.parcels",
+    )
 
     args = parser.parse_args(argv)
     out: Any

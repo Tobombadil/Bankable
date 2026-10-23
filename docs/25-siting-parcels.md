@@ -856,10 +856,12 @@ to search-page links in `cad_links.py`.
 - **Map:** parcel outlines from zoom 12 (`GET /v1/site-finder/parcels`, a box at most 0.5° wide, at most 4,000
   outlines, ranked and cut in Arrow so only the kept outlines become Python objects); a click opens the parcel's
   card with acres, land use, its holding, whether its kind is left out, and the appraisal link.
-- **Refresh after a pull:** `python -m pipeline.context.txgio_parcels pull` (counties from `PARCELS_COUNTIES`;
-  the private object store from `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_ENDPOINT` or
-  `R2_ACCOUNT_ID`, the names the beta deploy already renders), then `python -m services.site_finder --parcels-only`
-  re-measures the served run in place. With `--counties`, only segments whose midpoint lies in those counties are
+- **Refresh after a pull:** on the server the monthly `context_build` runs the pull, and the full
+  `site_finder_refresh` after the load measures what it wrote (§8.9). By hand:
+  `python -m pipeline.context.txgio_parcels pull` (counties from `PARCELS_COUNTIES`; the private object store
+  from `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_ENDPOINT` or `R2_ACCOUNT_ID`, the names the
+  beta deploy already renders), then `python -m services.site_finder --parcels-only` re-measures the served run in
+  place. With `--counties`, only segments whose midpoint lies in those counties are
   re-measured; a neighbouring county's band that reaches in is updated by a run without `--counties`. Each
   measurement stamps the run with a new `measure_id`; the API keys its parcel caches on it and drops every cache
   built from the run's segments when it changes, so a re-measure that keeps the layer's version (a wider
@@ -950,8 +952,10 @@ they say how often the rolls stack accounts and whether a placeholder the screen
    holdings.
 4. **Assembly is greedy** (a lower bound), and touching means within 30 m in the appraisal roll's outlines, which
    are not survey grade.
-5. **Go-live wiring** (pull on deploy or schedule with the server's `R2_*` values, `PARCELS_COUNTIES`,
-   `--parcels-only` after it, server disk for the files) belongs to the go-live lane.
+5. ~~**Go-live wiring**~~ **Done 2026-10-23 (lane parcels-wire), §8.9:** the monthly pull with the server's
+   `R2_*` values, `PARCELS_COUNTIES` (default `all`), the full refresh after it, the api's read-only mount. Open:
+   the API's and the worker's memory with all of Texas, and Harris in particular, are estimates (§8.9), not
+   measurements.
 6. **Cold requests:** the first list after a re-measure or for a new width is 1.6 to 6.0 s here; warm 0.2 to 0.9 s.
 7. **TxGIO's written confirmation** that CC0 covers display to paying subscribers (§7 item 1) and counsel items 1
    and 2 (§6) before Pro is sold.
@@ -961,6 +965,51 @@ they say how often the rolls stack accounts and whether a placeholder the screen
    `pipeline/context/txgio_parcels.py` or `services/site_finder/parcels.py`.
 9. **Harris** (the largest county) is estimated at about 7 GB peak in the build (§8.7); if a 7 GB runner fails it,
    the failure is reported and a larger runner is the fix.
+
+### 8.9 On the server (go-live wiring, lane parcels-wire, 2026-10-23)
+
+- **When.** `python -m pipeline.context.txgio_parcels pull` is the last of the four pulls in the worker's monthly
+  `context_build` (`infra/scheduler/jobs.py` `CONTEXT_BUILDERS`, the 4th at 02:43 UTC; deploy-beta's `seed` queues
+  the same build). `context_load` and then the full `site_finder_refresh` follow it, so each month's run measures
+  the parcels pulled minutes before; `--parcels-only` stays for a pull made by hand. `parcels-layer.yml` has no
+  schedule: a build a person dispatches mid-month reaches the server at the next `seed` or the next 4th.
+- **What.** The counties `PARCELS_COUNTIES` names: a GitHub Environment variable that `infra/ci/beta.py` renders
+  into the env file, `all` when unset, else Texas county FIPS codes (`48` and three digits, the pull's own rule);
+  the inputs check refuses anything else. Unset on a server whose env file lacks it (staging and production take
+  it from their SOPS file), the pull refuses to run and the build reports one failed builder; the others go on.
+- **Not published.** No `latest.json` in the private bucket (before the first build), or none of the server's
+  counties in it: the pull prints `status: not_published`, exits 0, and leaves what the server held. The build's
+  report lists it under `not_published`, never `failed`. A county file the manifest names but the bucket lacks,
+  a failed sha256 or a refused read is a failure, and `current.json` does not move.
+- **Where.** The pull writes to `services.context_sample.parcels.parcels_dir()`: `PARCELS_DATA_DIR` when set, else
+  `<INFRAQUE_DATA_DIR>/normalized/context/us.tx.txgio.parcels` (`/var/lib/infraque/data/...` in the image), the
+  directory `compute.load_parcels(connector_data_root())` and the API's `default_layer` open. Before this lane it
+  ignored `PARCELS_DATA_DIR`; nothing sets that variable on the beta, so the paths agreed there already. The files
+  come from the private bucket only, with the server's own credentials, and never touch the tiles host.
+- **The API.** On the single host the api container now mounts the worker's `connector_data` volume read-only at
+  the same path (`infra/compose/compose.single.yml`); before, its data directory was the image's empty one, so the
+  parcel outlines (`GET /v1/site-finder/parcels`), a band's flood pieces and `GET /v1/context/sample` had nothing to
+  read on the beta. The three-VM topology shares no volume between VMs and has no such mount.
+- **Disk.** About 115 bytes a parcel (§8.7): about 1.6 GB for the state's ~14 million parcels. The pull keeps the
+  current and the previous version, and a new `latest.json` version is downloaded whole (unchanged counties too),
+  so up to about 3.2 GB on the `connector_data` volume after the first rebuild. `docs/64` sizes no disk.
+- **Memory, estimated (low confidence; not measured on real parcels or a real city).** Measured so far: the full
+  Texas run without parcels peaked at 1.2 GB (`docs/25` §7), and the four synthetic rural counties' re-measure at
+  639 MB (§8.7). The per-chunk parcel read adds, for each chunk of 10 segments, the parcels within about 2 miles
+  of it (a box of about 90 to 150 km²) as Arrow columns (about 220 bytes a parcel measured on the fixtures, more
+  for real outlines with more vertices), then shapely geometries and Python lists (about 1 to 2 KB a parcel,
+  assumed). Rural Texas holds about 27 parcels per km² (Newton's synthetic count), so a few thousand per chunk;
+  central Houston perhaps 1,000 to 2,000 per km², so 0.1 to 0.3 million per chunk and about 0.1 to 0.6 GB on top
+  of the run's 1.2 GB. That stays inside the worker's 3 GB limit, but above the 1.2 GB peak that
+  `SITE_FINDER_MIN_MEMORY_BYTES` (2 GiB) was derived from. The API is the tighter one: its 1 GB container peaked at 606 to 638 MB without parcels
+  (`docs/60` §2). The outlines route (`services/api/site_finder.py::_parcel_features`) therefore never holds a
+  view's outlines: it ranks the view on `parcel_key`, `holding_acres` and the box alone (about 60 to 70 bytes a
+  parcel, so about 70 MB for a million), then reads the outlines of the 4,000 it keeps, `READ_CHUNK_GROUPS` row
+  groups (65,536 parcels) at a time, each chunk filtered before the next (`services/context_sample/parcels.py`;
+  coordinator, 2026-10-23, after the parcels-wire lane estimated that a one-pass read of a 0.5° central-Houston
+  view, 0.5 to 1 million parcels, could pass 1 GB). Estimated peak on top of the api's own: about 0.1 GB at the
+  widest Houston view; unmeasured on real outlines. Check the api's memory (`docker stats`) after the first pull
+  that includes Harris (48201). No limit changed.
 
 ## Assumptions
 
