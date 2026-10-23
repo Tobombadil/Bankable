@@ -320,6 +320,11 @@ frontend lane. M-14 rides with the record-header work.
 - M-6: the view switch left the home map, so the save link shares its line with "Open these in the list"; the
   map's search field is a 44px bar above the canvas, so the map now starts at 404px at 390x844 (360px before).
 - M-15: the phone fold budget in `web/test_e2e.py` (`PHONE_MAP_TOP_BUDGET`) moves from 368 to 412px with it.
+- M-6, 2026-10-23 (owner: "a site link that will do well when it lands in a contact's inbox"): the home page's
+  opening figures (`web/headline.py`: projects added this week, planned large loads, open RFPs) sit on one
+  28px line under the lede on a phone, scrolling sideways rather than wrapping. The map starts at 432px at
+  390x844 on the dev store; `PHONE_MAP_TOP_BUDGET` moves from 412 to 440px. A view someone filtered shows no
+  figures, so it keeps the 404px start.
 
 **Not duplicated here:**
 - U-6: menu contents.

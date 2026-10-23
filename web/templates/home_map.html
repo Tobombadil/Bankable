@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Inframation{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 {% block masthead_modifier %} masthead--keep{% endblock %}
 {% block meta_description %}{{ map_description }}{% endblock %}
 {% block extra_head %}
@@ -23,6 +23,15 @@
 <div class="map-intro">
   <h1 class="map-intro__title">{{ map_heading }}</h1>
   <p class="map-intro__lede" id="map-intro-lede">Projects from public grid-queue and permit filings in the US and GB, matched across registers<span class="map-intro__more" id="map-intro-more">: every claim linked to its source, every status change dated, and <a href="/alerts">alerts</a> when something you follow moves. <strong data-touch-words="Tap a cluster to zoom in, or a dot to open its record.">Click a cluster to zoom in, or a dot to open its record.</strong></span><span class="map-intro__stop" aria-hidden="true">.</span> <button type="button" class="map-intro__about" id="map-intro-about" aria-expanded="false" aria-controls="map-intro-more">About this map</button></p>
+{%- if headline_figures %}
+  {#- Live counts, each a link to its list (web/headline.py): what a contact opening the link sees
+      before the map has drawn. -#}
+  <ul class="map-figures" aria-label="{{ 'In ' ~ landing.name ~ ' now' if landing else 'On the register now' }}">
+    {%- for f in headline_figures %}
+    <li><a href="{{ f.href }}" data-figure="{{ f.key }}"><strong>{{ '{:,}'.format(f.count) }}</strong> <span>{{ f.words }}</span></a></li>
+    {%- endfor %}
+  </ul>
+{%- endif %}
 </div>
 {{ m.preview_banner(delayed) }}
 

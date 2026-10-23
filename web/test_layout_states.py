@@ -334,9 +334,11 @@ def test_the_map_page_heading_and_its_meta_share_one_source(transport: FakeTrans
         html = client.get("/").text
     title = re.search(r'<h1 class="map-intro__title">(.*?)</h1>', html, re.S)
     assert title is not None and unescape(title.group(1)) == map_heading()
+    # The description ends with the map's own sentence; on the plain map it opens with the live
+    # figures first (web/headline.py, owner 2026-10-23), so a link preview says something specific.
     for attr in ('name="description"', 'property="og:description"', 'name="twitter:description"'):
         match = re.search(rf'<meta {attr} content="([^"]*)"', html)
-        assert match is not None and unescape(match.group(1)) == map_description(), attr
+        assert match is not None and unescape(match.group(1)).endswith(map_description()), attr
     assert "Planned power plants, batteries and data centres<" not in html
 
 

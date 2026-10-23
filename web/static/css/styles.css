@@ -1742,6 +1742,12 @@ a.button-secondary:visited { color: var(--link); }
 .map-intro__title { font-size: var(--text-5); margin: 0 0 var(--space-1); }
 .map-intro__lede { margin: 0; max-width: none; }
 .map-intro__lede strong { font-weight: 600; }
+/* The opening figures (web/headline.py): one line of live counts, each a link to its list. On a phone
+   they stay on one line and scroll sideways rather than push the map down. */
+.map-figures { display: flex; flex-wrap: wrap; gap: 0 var(--space-5); list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.map-figures a { display: inline-flex; align-items: baseline; gap: 0.3em; min-height: 1.5rem; text-decoration: none; color: inherit; }
+.map-figures a:hover span, .map-figures a:focus-visible span { text-decoration: underline; }
+.map-figures strong { font-size: var(--text-3); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--link); }
 .map-intro + .delayed-notice { margin: var(--space-3) 0; }
 .filter-bar--map { gap: var(--space-3) var(--space-4); padding: var(--space-2) 0; margin-bottom: var(--space-2); }
 /* Layers and placement change what else is drawn, not which proposals match: a second, closed
@@ -1965,6 +1971,9 @@ a.button-secondary:visited { color: var(--link); }
      rest); the count and the notice's short form share a line ("Why?" opens the notice); "Open these
      in the list" and the save link share the next. Keyed on `.js`: without scripts all of it shows. */
   .map-intro { padding-top: var(--space-3); }
+  .map-figures { flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; scrollbar-width: none; gap: 0 var(--space-4); margin-top: var(--space-1); }
+  .map-figures strong { font-size: var(--text-2); }
+  .map-figures span { font-size: var(--text-1); }
   .js .map-intro__more { display: none; }
   .js .map-intro__lede.is-open .map-intro__more { display: inline; }
   .js .map-intro__stop { display: inline; }

@@ -2366,8 +2366,10 @@ def test_a_newer_view_aborts_the_asset_requests_of_the_one_it_replaces(server: o
 #: is 300px; the masthead line and the header bar are what remains between the two. 8px of slack for
 #: a fallback font on a first load (`font-display: optional`). Owner, 2026-10-22: the map's search
 #: field is a 44px bar above the canvas on a phone (docs/31 §5.18), and the view switch left the line
-#: under the count, so the map starts 44px lower: 404px measured on the dev store.
-PHONE_MAP_TOP_BUDGET = 412
+#: under the count, so the map starts 44px lower: 404px measured on the dev store. Owner, 2026-10-23
+#: ("a site link that will do well when it lands in a contact's inbox"): the opening figures
+#: (web/headline.py) take one 28px line under the lede on a phone, so 432px measured, budget 440.
+PHONE_MAP_TOP_BUDGET = 440
 #: Share of the visible map any control or panel covers: docs/17 asks for under 6%, open or closed.
 #: The column is 44x200px on a 358x490 canvas, 4.6% of it; 55.6% on the live site before.
 PHONE_MAP_COVER_BUDGET = 6.0
