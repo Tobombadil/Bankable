@@ -115,7 +115,7 @@ coverage-gate:
 COVERAGE_FLOORS := \
   "pipeline/*.py=75" \
   "pipeline/connectors/*=88" \
-  "pipeline/context/*=80" \
+  "pipeline/context/*=81" \
   "services/api/*=94" \
   "services/ingest/*=85" \
   "services/resolve/*=88" \
