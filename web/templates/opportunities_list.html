@@ -8,7 +8,9 @@
   <h1>{{ sections.heading.rfps }}</h1>
   {#- One line (docs/16 §3.1, U-17) that says which side of the market the rows are. docs/30 §4.5: a
       developer submits a project from here to have it matched (US-1001). -#}
-  <p>Demand side: buyers and funders asking for projects. Open {{ 'energy ' if relevance != 'all' }}notices, soonest deadline first; sort by Value for the largest. Developing a project? <a href="/submit">Submit it for review</a> to have it matched against these.</p>
+  {#- Lane rfp-view: the default view is open and announced notices together; a chosen status is
+      named here in its own words ("Closed energy notices"). -#}
+  <p>Demand side: buyers and funders asking for projects. {{ status_phrase or 'Open and announced' }} {{ 'energy ' if relevance != 'all' }}notices{% if not sort_param %}, soonest deadline first{% endif %}; sort by Value for the largest. Developing a project? <a href="/submit">Submit it for review</a> to have it matched against these.</p>
 </div>
 {{ m.delayed_banner(delayed) }}
 
@@ -24,7 +26,10 @@
   </div>
   <div class="filter-field">
     <label for="f-status">Status</label>
-    <select id="f-status" name="status" data-default="open">
+    {#- The page's default, open and announced together (lane rfp-view), is the first option. -#}
+    {%- set sd = status_default or 'open,announced' %}
+    <select id="f-status" name="status" data-default="{{ sd }}">
+      <option value="{{ sd }}" {% if filters.get('status') == sd %}selected{% endif %}>Open and announced</option>
       <option value="all" {% if filters.get('status') == 'all' %}selected{% endif %}>All</option>
       {% for s in statuses %}<option value="{{ s }}" {% if filters.get('status') == s %}selected{% endif %}>{{ s | lifecycle_label }}</option>{% endfor %}
     </select>
@@ -45,7 +50,7 @@
   {% if relevance == 'all' %}<input type="hidden" name="relevance" value="all">{% endif %}
   {% if sort_param %}<input type="hidden" name="sort" value="{{ sort_param }}">{% endif %}
   <button class="filter-bar__submit" type="submit">Apply filters</button>
-  {% if filters.get('kind') or filters.get('jurisdiction') or filters.get('technologies') or (filters.get('status') and filters.get('status') != 'open') %}
+  {% if filters.get('kind') or filters.get('jurisdiction') or filters.get('technologies') or status_chosen %}
   <a class="filter-bar__clear" href="/opportunities">Clear all</a>
   {% endif %}
 </form>

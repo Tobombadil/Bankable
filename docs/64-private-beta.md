@@ -97,6 +97,7 @@ GitHub's secret fields: never into chat, an email or the repository.
   | `CLOUDFLARE_ZONE_ID` | variable | step A, Zone ID |
   | `SITE_ACCESS_USER` | variable | the shared user name: letters, digits, `.`, `_`, `@` or `-` |
   | `SITE_ACCESS` | variable, optional | `basic` (the default: the shared login) or `open` (public, no login; §6) |
+  | `MY_PIPELINE` | variable, optional | `off` (the default: `/my` and `/v1/my` answer 404) or `on` (My pipeline, the signed-in user's private Tracker, `docs/19` §11). Takes effect at the next `deploy` |
   | `SENDER_POSTAL_ADDRESS` | variable | the legal sender's real postal address, on one line (manual step 9 says why) |
   | `SENDER_LEGAL_NAME` | variable, optional | default: Compass International Trading Group LLC (decided 2026-09-18) |
   | `PRODUCT_CONTACT_EMAIL` | variable, optional | default: `hello@<your domain>` |

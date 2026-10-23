@@ -1,5 +1,5 @@
-"""Migration 0040 (`private_*` tables, `checklist_template_item`): up and down on SQLite and on
-Postgres, and the migration's schema equal to the models'.
+"""Migrations 0040 (`private_*` tables, `checklist_template_item`) and 0042 (the tracker's kinds):
+up and down on SQLite and on Postgres, and the migrations' schema equal to the models'.
 
 SQLite: 0037/0038's shape. The store starts at the schema `Base.metadata` builds (which declares the
 nine tables), is stamped `0040`, walked down (the tables go) and up again (they return), and the
@@ -31,7 +31,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from services.db.base import Base
-from services.projects import models
+from services.projects import kinds, models
 from services.projects.models import PRIVATE_TABLES
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -115,6 +115,9 @@ def test_0040_round_trip_matches_the_models_on_sqlite(sqlite_url: str) -> None:
     assert "user" in sa.inspect(engine).get_table_names()
 
     command.upgrade(cfg, "0040")
+    assert "kind" not in {column["name"] for column in sa.inspect(engine).get_columns("private_project")}
+    # 0041 (prices) and 0042 (the tracker's kinds) bring the tables to today's models.
+    command.upgrade(cfg, "head")
     assert _snapshot(engine) == from_models
 
     # The partial unique indexes behave on SQLite as the models declare.
@@ -178,6 +181,143 @@ def test_0040_freezes_the_models_vocabularies() -> None:
         assert getattr(migration, name) == getattr(models, name), name
     assert set(migration.TABLES) == TABLES
     assert "verified" not in migration.ITEM_STATUSES
+
+
+# --------------------------------------------------------------------------- 0042: the tracker's kinds
+MIGRATION_0042_PATH = MIGRATIONS_DIR / "versions" / "0042_tracker_kinds.py"
+#: What 0042 adds, by table.
+ADDED_COLUMNS = {
+    "private_project": {"kind", "parent_project_id", "submitted_on"},
+    "private_project_member": {"last_viewed_at", "email_changes"},
+}
+
+
+def _migration_0042() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("migration_0042", MIGRATION_0042_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _0042_down() -> str:
+    return str(_migration_0042().down_revision)
+
+
+def _columns(engine: sa.Engine, table: str) -> set[str]:
+    return {column["name"] for column in sa.inspect(engine).get_columns(table)}
+
+
+def _checks(engine: sa.Engine, table: str) -> set[str]:
+    return {check["name"] for check in sa.inspect(engine).get_check_constraints(table)}
+
+
+def test_0042_freezes_the_kinds_and_their_stages() -> None:
+    migration = _migration_0042()
+    assert migration.ITEM_KINDS == kinds.ITEM_KINDS
+    assert migration.PROJECT_STAGES == kinds.PROJECT_STAGES == models.PROJECT_STAGES
+    assert migration.KIND_STAGES == dict(kinds.KIND_STAGES)
+    # 0041 (prices) on this lane's base; the coordinator relinks it if the site finder's revision
+    # lands on 0041 first, so the test follows whatever 0042 revises.
+    assert migration.down_revision in ("0041", "0039")
+    stage_check = dict(migration.NEW_CHECKS)["stage_for_kind"]
+    assert stage_check == kinds.stage_for_kind_condition()
+
+
+def test_0042_round_trip_on_sqlite_keeps_projects_and_refuses_to_drop_bids(sqlite_url: str) -> None:
+    """Up from 0041 with a project in the table: it becomes a `project` and keeps its stage; the
+    schema is then the models'. Each kind takes only its own stages; only a bid has a project or a
+    submitted date; deleting a bid's project leaves the bid standing alone. Down is refused while a
+    bid exists, and runs clean (0040's project-only stage check back) once none does."""
+    engine = sa.create_engine(sqlite_url, future=True)
+    Base.metadata.create_all(engine)
+    from_models = _snapshot(engine)
+    cfg = _config(sqlite_url)
+    command.stamp(cfg, "head")
+
+    command.downgrade(cfg, _0042_down())
+    for table, added in ADDED_COLUMNS.items():
+        assert not added & _columns(engine, table), table
+    checks = _checks(engine, "private_project")
+    assert "ck_private_project_stage_vocab" in checks and "ck_private_project_stage_for_kind" not in checks
+
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO private_project (id, public_id, title, stage) "
+                "VALUES ('p', 'prj_1', 't', 'development')"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO private_project_member (id, project_id, user_id, role) "
+                "VALUES ('m', 'p', 'u', 'owner')"
+            )
+        )
+    command.upgrade(cfg, "0042")
+    assert _snapshot(engine) == from_models
+    with engine.connect() as conn:
+        assert conn.execute(sa.text("SELECT kind, stage FROM private_project")).one() == (
+            "project",
+            "development",
+        )
+        assert conn.execute(
+            sa.text("SELECT last_viewed_at, email_changes FROM private_project_member")
+        ).one() == (
+            None,
+            0,
+        )
+
+    insert = sa.text(
+        "INSERT INTO private_project (id, public_id, title, kind, stage, parent_project_id, submitted_on) "
+        "VALUES (:id, :pid, 't', :kind, :stage, :parent, :submitted)"
+    )
+
+    def row(**values: object) -> dict[str, object]:
+        n = values.pop("n")
+        base: dict[str, object] = {"id": f"x{n}", "pid": f"prj_x{n}", "parent": None, "submitted": None}
+        return {**base, **values}
+
+    refused = [
+        row(n=1, kind="bid", stage="development"),
+        row(n=2, kind="project", stage="won"),
+        row(n=3, kind="investment", stage="preparing"),
+        row(n=4, kind="portfolio", stage="prospecting"),
+        row(n=5, kind="project", stage="prospecting", parent="p"),
+        row(n=6, kind="investment", stage="screening", submitted="2026-10-01"),
+    ]
+    for values in refused:
+        with pytest.raises(sa.exc.IntegrityError), engine.begin() as conn:
+            conn.execute(insert, values)
+    with pytest.raises(sa.exc.IntegrityError), engine.begin() as conn:
+        conn.execute(insert, row(n=7, kind="bid", stage="considering"))
+        conn.execute(sa.text("UPDATE private_project SET parent_project_id = id WHERE id = 'x7'"))
+
+    with engine.begin() as conn:
+        conn.execute(sa.text("PRAGMA foreign_keys=ON"))
+        conn.execute(insert, row(n=8, kind="bid", stage="submitted", parent="p", submitted="2026-10-20"))
+        conn.execute(insert, row(n=9, kind="investment", stage="term_sheet"))
+        conn.execute(sa.text("DELETE FROM private_project WHERE id = 'p'"))
+        assert (
+            conn.execute(sa.text("SELECT parent_project_id FROM private_project WHERE id = 'x8'")).scalar()
+            is None
+        )
+
+    with pytest.raises(RuntimeError, match=r"bid=1, investment=1"):
+        command.downgrade(cfg, _0042_down())
+    assert _snapshot(engine) == from_models
+    with engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM private_project WHERE kind <> 'project'"))
+    command.downgrade(cfg, _0042_down())
+    for table, added in ADDED_COLUMNS.items():
+        assert not added & _columns(engine, table), table
+    assert "ck_private_project_stage_vocab" in _checks(engine, "private_project")
+    assert "ix_private_project_parent_project_id" not in {
+        index["name"] for index in sa.inspect(engine).get_indexes("private_project")
+    }
+    command.upgrade(cfg, "head")
+    assert _snapshot(engine) == from_models
+    engine.dispose()
 
 
 # ---------------------------------------------------------------------------------------- Postgres
@@ -482,3 +622,89 @@ def test_a_concurrent_reinvite_waits_for_the_first_and_replaces_it(pg_engine: sa
             )
             conn.execute(sa.text('DELETE FROM "user" WHERE id = :u'), {"u": owner_id})
             conn.execute(sa.text("DELETE FROM account WHERE id = :a"), {"a": account_id})
+
+
+@pg_only
+def test_0042_down_and_up_on_postgres(pg_engine: sa.Engine) -> None:
+    cfg = _config(str(POSTGIS_URL))
+    command.downgrade(cfg, _0042_down())
+    inspector = sa.inspect(pg_engine)
+    for table, added in ADDED_COLUMNS.items():
+        assert not added & {c["name"] for c in inspector.get_columns(table)}, table
+    old_checks = {c["name"] for c in inspector.get_check_constraints("private_project")}
+    assert "ck_private_project_stage_vocab" in old_checks
+    command.upgrade(cfg, "head")
+    inspector = sa.inspect(pg_engine)
+    with pg_engine.connect() as conn:
+        types = dict(
+            conn.execute(
+                sa.text(
+                    "SELECT table_name || '.' || column_name, data_type FROM information_schema.columns "
+                    "WHERE table_name IN ('private_project', 'private_project_member')"
+                )
+            ).all()
+        )
+    assert types["private_project.kind"] == "text"
+    assert types["private_project.parent_project_id"] == "uuid"
+    assert types["private_project.submitted_on"] == "date"
+    assert types["private_project_member.last_viewed_at"] == "timestamp with time zone"
+    assert types["private_project_member.email_changes"] == "boolean"
+    checks = {c["name"] for c in inspector.get_check_constraints("private_project")}
+    assert {
+        "ck_private_project_kind_vocab",
+        "ck_private_project_stage_for_kind",
+        "ck_private_project_parent_bid_only",
+        "ck_private_project_parent_not_self",
+        "ck_private_project_submitted_bid_only",
+    } <= checks
+    assert "ck_private_project_stage_vocab" not in checks
+    parent_fk = [
+        fk
+        for fk in inspector.get_foreign_keys("private_project")
+        if fk["constrained_columns"] == ["parent_project_id"]
+    ]
+    assert [fk["options"].get("ondelete") for fk in parent_fk] == ["SET NULL"]
+
+
+@pg_only
+def test_bids_attach_to_projects_and_outlive_them_on_postgres(pg_engine: sa.Engine) -> None:
+    from services.api.auth import register_user
+    from services.api.errors import ProblemError
+    from services.projects.authz import authorize, create_project, delete_project
+    from services.projects.conftest import TEST_PASSWORD, session_ctx
+    from services.projects.models import PrivateProject
+
+    with pg_engine.connect() as conn:
+        outer = conn.begin()
+        db = Session(bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False)
+        try:
+            owner = register_user(db, email="pg-tracker@example.org", password=TEST_PASSWORD)
+            owner.email_verified_at = NOW
+            db.flush()
+            ctx = session_ctx(owner)
+            project = create_project(db, ctx, fields={"title": "Site"}, now=NOW).project
+            bid = create_project(
+                db,
+                ctx,
+                fields={
+                    "title": "Bid",
+                    "kind": "bid",
+                    "stage": "submitted",
+                    "parent_project_id": project.public_id,
+                    "submitted_on": "2026-10-20",
+                },
+                now=NOW,
+            ).project
+            assert bid.parent_project_id == project.id and str(bid.submitted_on) == "2026-10-20"
+            with pytest.raises(ProblemError):
+                create_project(db, ctx, fields={"title": "x", "kind": "bid", "stage": "development"}, now=NOW)
+            with pytest.raises(sa.exc.IntegrityError), db.begin_nested():
+                db.execute(
+                    sa.update(PrivateProject).where(PrivateProject.id == project.id).values(stage="won")
+                )
+            delete_project(db, authorize(db, ctx, project.public_id, "delete"))
+            reloaded = db.get(PrivateProject, bid.id)
+            assert reloaded is not None and reloaded.parent_project_id is None
+        finally:
+            db.close()
+            outer.rollback()

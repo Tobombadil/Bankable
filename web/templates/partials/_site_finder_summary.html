@@ -1,0 +1,14 @@
+{#- How many bands match, above the map so it is in the first screen (`web/site_finder.py::_rows_context`),
+    and the miles left out for want of a flood map. site_finder.js swaps it with the list after every
+    change; `data-bounds` is the box of the bands listed, which the map fits when the place changes. -#}
+{%- set s = summary %}
+<div class="sf-summary" id="sf-summary" data-bounds='{{ bounds | tojson if bounds else "" }}' data-bands="{{ s.bands }}">
+{%- if not s.computed %}
+  <p class="result-count sf-count">The site finder has not been computed yet. It runs after each load of the grid and flood data; come back after the next one.</p>
+{%- else %}
+  <p class="result-count sf-count" aria-live="polite"><strong class="tnum">{{ '{:,}'.format(s.bands) }} band{{ 's' if s.bands != 1 }}</strong> along <span class="tnum">{{ '{:,.1f}'.format(s.miles) }}</span> miles of line match{{ 'es' if s.bands == 1 }}{% if s.bands > 1 %}, {{ sort_caption }}{% endif %}.{% if s.computed_at %} <span class="sf-count__asof">Computed {{ s.computed_at }}.</span>{% endif %} <a class="sf-count__list" href="#sf-results">See the list</a></p>
+  {%- if s.flood_unavailable_mi %}
+  <p class="sf-note">{{ '{:,.1f}'.format(s.flood_unavailable_mi) }} miles of line that meet the other criteria have no FEMA flood map to check, so they are left out. Untick &ldquo;Leave out the floodplain&rdquo; to see them, marked &ldquo;No flood data&rdquo;.</p>
+  {%- endif %}
+{%- endif %}
+</div>

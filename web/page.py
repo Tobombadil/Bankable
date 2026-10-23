@@ -255,6 +255,17 @@ def paid_tiers_offered(request: Request) -> bool:
     return not (posture is not None and posture.get("value") == "noncommercial")
 
 
+def site_finder_listed(request: Request) -> bool:
+    """Whether the primary navigation lists the site finder: only once `GET /v1/health` reports a
+    finished run with segments (`site_finder.computed`, docs/25 §7), so a deploy whose grid and flood
+    layers are not built yet shows no empty section (owner, 2026-10-22: no empty sections; docs/30
+    §11.2, a section joins the bar once its page has content). False when the API cannot say.
+    `/site-finder` itself stays reachable by URL and says it has not been computed yet."""
+    health = _request_health(request)
+    finder = health.get("site_finder") if health else None
+    return bool(isinstance(finder, Mapping) and finder.get("computed"))
+
+
 #: User agents that are not a reader: search and social crawlers, link unfurlers, uptime probes,
 #: headless browsers and HTTP libraries. Read only to decide whether to count, never stored.
 _NOT_A_READER = re.compile(
@@ -304,6 +315,7 @@ templates.env.globals["footer_lag_days"] = get_lag_days
 # Every environment that renders `base.html` registers this (web/auth.py, web/legal.py,
 # web/pricing.py): the primary navigation leaves "Pricing" out under the noncommercial posture.
 templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
+templates.env.globals["site_finder_listed"] = site_finder_listed
 # The same four register the private beta's header link (web/beta.py; off unless SITE_ACCESS=basic).
 templates.env.globals["beta_feedback_href"] = feedback_href
 templates.env.globals["asset_version"] = ASSET_VERSION

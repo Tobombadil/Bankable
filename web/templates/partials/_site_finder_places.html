@@ -1,0 +1,17 @@
+{#- The state and county choices (`web/site_finder.py::_summary_view`), from the API's facets under every
+    criterion but the place ones. The page renders them in its two selects; the rows fragment carries
+    them again in a template element so site_finder.js refreshes both after a change of criteria (a
+    loosened criterion can bring in a county the first render did not list). When the bands span more
+    counties than the API lists without a state (a national run), the select asks for a state first. -#}
+{%- macro state_options(summary, c) -%}
+      <option value="">All states</option>
+      {%- for s in summary.states %}
+      <option value="{{ s.code }}"{% if s.code == c.state %} selected{% endif %}>{{ s.name }}</option>
+      {%- endfor %}
+{%- endmacro -%}
+{%- macro county_options(summary, c) -%}
+      <option value="">{{ 'Choose a state first' if summary.counties_need_state else 'All counties' }}</option>
+      {%- for r in summary.counties %}
+      <option value="{{ r.fips }}" data-state="{{ r.state }}"{% if r.fips == c.county %} selected{% endif %}>{{ r.label }}{% if summary.count_by_state %}, {{ r.state }}{% endif %}</option>
+      {%- endfor %}
+{%- endmacro -%}

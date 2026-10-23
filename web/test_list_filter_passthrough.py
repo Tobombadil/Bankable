@@ -158,7 +158,9 @@ def test_a_linked_opportunity_filter_reaches_the_list(transport: FakeTransport) 
     # The first call is the list; every later one is a one-row call: an empty list counts each facet
     # without it (docs/31 §6), the "Energy-related · All notices" switch counts the other scope, and
     # the Kind filter asks whether each kind has a notice (lane list-sort; no count needed there).
+    # The one exception is the "Recently closed" section's own page of closed notices (lane rfp-view).
     list_params, *follow_ups = transport.params_for("/v1/opportunities")
+    follow_ups = [p for p in follow_ups if p.get("status") != "closed"]
     assert follow_ups and all(p.get("limit") == 1 for p in follow_ups)
     facet_counts = [p for p in follow_ups if "kind" not in p or p.get("include") == "count"]
     assert facet_counts and all(p.get("include") == "count" for p in facet_counts)

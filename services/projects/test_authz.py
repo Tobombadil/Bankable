@@ -339,7 +339,12 @@ def test_create_project_makes_an_owner_row_a_checklist_and_a_history(
     assert db.execute(sa.select(sa.func.count()).select_from(PrivateProjectItem)).scalar() == 32
     activity = db.execute(sa.select(PrivateProjectActivity)).scalars().one()
     assert activity.action == "created"
-    assert activity.detail == {"origin_type": "proposal", "origin_public_id": "prop_0000000001"}
+    assert activity.detail == {
+        "kind": "project",
+        "origin_type": "proposal",
+        "origin_public_id": "prop_0000000001",
+    }
+    assert project.kind == "project" and project.stage == "prospecting"
 
 
 @pytest.mark.parametrize(

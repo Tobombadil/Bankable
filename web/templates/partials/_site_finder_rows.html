@@ -1,0 +1,54 @@
+{#- The site finder's results list and pager (`web/site_finder.py::_rows_context`): the page renders
+    it under the map, and site_finder.js fetches it again from `/api/site-finder/rows` (with the
+    summary, `_site_finder_summary.html`) after every change of criteria, sort or page, so the wording
+    lives here only. Every number is the API's. A row's name is a link to the same view with its band
+    open (`band=`), so the drawer works without scripts; with them the click opens the drawer in
+    place and moves the map to the band. -#}
+{% import "_macros.html" as m %}
+{%- set s = summary %}
+{%- set sh = sort_headers or {} %}
+<div class="sf-list" id="sf-list">
+{%- if rows %}
+<div class="table-scroll">
+<table class="record-table record-table--compact sf-table">
+  <caption class="visually-hidden">Corridor bands matching the criteria, {{ sort_caption }}.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Line</th>
+      {{ m.sort_th("Voltage", sh.voltage, num=True) }}
+      {{ m.sort_th("Band length", sh.length, num=True, short="Length") }}
+      {{ m.sort_th("Nearest substation", sh.substation, num=True, short="Substation") }}
+      <th scope="col">Floodplain</th>
+      <th scope="col">County</th>
+      {{ m.sort_th("Retiring MW within 5 mi", sh.retiring, num=True, short="Retiring MW") }}
+    </tr>
+  </thead>
+  <tbody>
+    {%- for r in rows %}
+    <tr data-band="{{ r.id }}"{% if r.id == selected %} class="is-selected"{% endif %}>
+      <td data-label="Line" class="cell-title"><a class="row-link sf-band-link" href="{{ r.href }}" data-band="{{ r.id }}"{% if r.id == selected %} aria-current="true"{% endif %}>{{ r.name }}</a>{% if r.operator %} <span class="sf-operator">{{ r.operator }}</span>{% endif %}</td>
+      <td data-label="Voltage" class="num tnum cell-meta"><span class="sf-swatch sf-swatch--{{ r.voltage_class }}" aria-hidden="true"></span>{{ r.voltage_label }}<span class="cell-unit">{% if r.voltage_label == 'Not stated' %} voltage{% endif %}</span></td>
+      <td data-label="Band length" class="num tnum cell-meta">{{ r.length_label }}<span class="cell-unit"> band</span></td>
+      <td data-label="Nearest substation" class="num tnum cell-meta{% if not r.substation_label %} is-empty{% endif %}">{% if r.substation_label %}{{ r.substation_label }}<span class="cell-unit"> to a substation</span>{% else %}&mdash;{% endif %}</td>
+      <td data-label="Floodplain" class="cell-meta sf-flood sf-flood--{{ r.flood_status }}">{{ r.flood_label }}<span class="cell-unit">{% if r.flood_status == 'outside' %} the floodplain{% endif %}</span></td>
+      <td data-label="County" class="cell-meta{% if not r.place_label %} is-empty{% endif %}">{{ r.place_label or '—' }}</td>
+      <td data-label="Retiring MW within 5 mi" class="num tnum cell-meta{% if not r.retiring_label %} is-empty{% endif %}">{% if r.retiring_label %}{{ r.retiring_label }}<span class="cell-unit"> retiring nearby</span>{% else %}&mdash;{% endif %}</td>
+    </tr>
+    {%- endfor %}
+  </tbody>
+</table>
+</div>
+{%- if next_href or first_href %}
+<nav class="pager sf-pager" aria-label="Pages of results">
+  {%- if first_href %}<a href="{{ first_href }}" data-sf-page>&larr; First page</a>{% else %}<span class="pager__disabled">&larr; First page</span>{% endif %}
+  {%- if next_href %}<a href="{{ next_href }}" data-sf-page>Next {{ rows | length }} bands &rarr;</a>{% else %}<span class="pager__disabled">Last page</span>{% endif %}
+</nav>
+{%- endif %}
+{{ m.credits_line(credits) }}
+{%- elif s.computed %}
+<div class="empty-state sf-empty">
+  <p>No band meets every criterion.</p>
+  <p>Try a lower voltage, a wider substation distance{% if criteria.state or criteria.county %}, another place{% endif %}{% if criteria.exclude_flood %}, or let the floodplain in{% endif %}. <a href="/site-finder">Start again from the defaults</a>.</p>
+</div>
+{%- endif %}
+</div>

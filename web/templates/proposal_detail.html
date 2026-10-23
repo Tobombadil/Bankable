@@ -50,6 +50,7 @@
 </dl>
 {% include "partials/_proposal_location.html" %}
 {% include "_site_panel.html" %}
+{% set track_type = "proposal" %}{% include "partials/_track.html" %}
 
 {{ m.provenance_panel(provenance_rows, number="1.") }}
 

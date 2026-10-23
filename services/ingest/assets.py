@@ -67,9 +67,14 @@ ASSET_TYPE_SOURCE_IDS: dict[str, tuple[str, ...]] = {
     "rng_project": ("us.epa.lmop", "us.epa.agstar"),
     "ethanol_plant": ("us.eia.atlas.ethanol_plants", "us.eia.ethanol_capacity"),
     # Grid lane G2, 2026-09-28 (`pipeline/context/lbnl_transmission.py`): LBNL's CC BY 4.0 copy of
-    # the HIFLD line geometry. `substation` stays unwired on purpose -- DHS restricts the only
-    # national substation layer (docs/13 §2.19), so loading one raises rather than guessing.
-    "transmission_line": ("us.lbnl.ferc_hifld_transmission_lines",),
+    # the HIFLD line geometry. Lane grid-osm, 2026-10-22 (`pipeline/context/osm_power.py`): the
+    # OpenStreetMap network (ODbL 1.0) for coverage, both loaded (docs/25 §2.7 says which the map
+    # draws where).
+    "transmission_line": ("us.lbnl.ferc_hifld_transmission_lines", "us.osm.power"),
+    # Lane grid-osm, 2026-10-22: substations from OpenStreetMap only (owner, "public now"). DHS's
+    # restricted HIFLD substation layer, and anything derived from it, is never a source here
+    # (docs/13 §2.19), so it is not listed and loading it raises.
+    "substation": ("us.osm.power",),
 }
 
 

@@ -1,0 +1,55 @@
+{#- Linked records (docs/19 §2.2; docs/30 §11.5): each linked public record read live, with its
+    Sources line, "Open" and "Remove". A record the viewer can no longer see says so and nothing else.
+    Primary action: link a record. -#}
+<section aria-labelledby="linked-heading">
+  <h2 id="linked-heading" class="visually-hidden">Linked records</h2>
+  {%- if item.links %}
+  <ul class="my-records">
+    {%- for link in item.links %}
+    <li class="my-record">
+      {%- if link.record %}
+      <p class="my-record__head"><a href="{{ link.record.url }}">{{ link.record.name or record_type_labels.get(link.record_type, 'Record') }}</a>{% if link.state == 'merged' %} <span class="my-muted">(merged into this record)</span>{% endif %}</p>
+      <p class="my-muted">{{ record_type_labels.get(link.record_type, link.record_type) }} &middot; {{ relation_labels.get(link.relation, link.relation) }}{% if link.record.status %} &middot; {{ link.record.status | replace('_', ' ') }}{% endif %}</p>
+      {%- set facts = link.record.facts or {} %}
+      {%- if facts.due_at %}<p>Due <time datetime="{{ facts.due_at[:10] }}">{{ facts.due_at | display_date }}</time></p>{% endif %}
+      {%- if facts.capacity_mw %}<p class="tnum">{{ facts.capacity_mw | mw }} MW</p>{% endif %}
+      {%- if link.record.sources %}
+      <p class="my-credit">Sources: {% for source in link.record.sources %}{{ source.source_name or source.source_id }} ({{ source.reuse_class }}{% if source.retrieved_at %}, retrieved {{ source.retrieved_at | display_date }}{% endif %}){% if source.attribution_text %} &middot; {{ source.attribution_text }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}</p>
+      {%- endif %}
+      {%- else %}
+      <p class="my-record__head">{{ link.message }}</p>
+      <p class="my-muted">{{ record_type_labels.get(link.record_type, link.record_type) }} &middot; {{ relation_labels.get(link.relation, link.relation) }}</p>
+      {%- endif %}
+      {%- if can_edit %}
+      <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/links/{{ link.link_id }}/remove">
+        <button type="submit" class="button-secondary">Remove<span class="visually-hidden"> this link</span></button>
+      </form>
+      {%- endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- else %}
+  <p class="my-empty">No linked records yet.</p>
+  {%- endif %}
+
+  {%- if can_edit %}
+  <form class="auth-form my-form" method="post" action="/my/items/{{ item.public_id }}/links">
+    <h3 class="my-card__title">Link a record</h3>
+    <div class="field">
+      <label for="link-reference">Inframation page address</label>
+      <input id="link-reference" name="reference" type="text" required placeholder="https://inframation.io/proposals/…"{% if error and error.field_errors.reference %} aria-invalid="true" aria-describedby="link-reference-error"{% endif %}>
+      {%- if error and error.field_errors.reference %}<p class="field__error" id="link-reference-error">{{ error.field_errors.reference }}</p>{% endif %}
+      <p class="field-hint">A project, RFP, company, plant, site or grid point page. Its facts stay on the record and are read live; nothing is copied.</p>
+    </div>
+    <div class="field">
+      <label for="link-relation">How it relates</label>
+      <select id="link-relation" name="relation">
+        {%- for relation in relations %}
+        <option value="{{ relation }}"{% if relation == 'nearby' %} selected{% endif %}>{{ relation_labels.get(relation, relation) }}</option>
+        {%- endfor %}
+      </select>
+    </div>
+    <div class="form-actions"><button type="submit">Link record</button></div>
+  </form>
+  {%- endif %}
+</section>

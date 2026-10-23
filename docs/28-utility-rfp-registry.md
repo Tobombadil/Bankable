@@ -378,6 +378,24 @@ What every issuer connector needs, from docs/13 §3.3 and the registry:
 - Never fetch bid portals and never store solicitation documents (docs/10 US-302 AC1: title and link
   only).
 
+**Note, headings on the AEP template (lane rfp-view, 2026-10-23).** An AEP listing item is a bold title
+with a description, a page of its own, or both (`pipeline/connectors/us_rfp/extract.py::aep_items`). A
+bold line that only names a year ("2024 RFPs", "2025-26 Requests for Proposals") and has no page of its
+own, and any bold line with neither a description nor a page ("Current RFPs", a bold "Archive" line), is a
+heading. It is left out before classification and counted in the snapshot's `meta.left_out` under
+`heading.year` or `heading.section` (`aep_heading_rule`); a bold "Archive" line also starts the archive
+section, as an `Archive` heading does. Read as an item, a year heading with a sentence under it took that
+sentence's resource words and loaded as an RFP with no deadline, so status unknown. None of the four pages
+recorded on 2026-10-21 has such a heading, so the tests insert headings into the recorded PSO and APCo
+pages (`test_connector.py`). I&M's "2024 RFPs", the one unknown record in the 2026-10-23 store, is not a
+heading: it has its own description ("I&M has issued Requests for Proposals ("2024 RFPs") which seeks to
+secure up to 4,000 MW of generation resources") and its own page, which names four RFPs, so it stays a
+record. Its status stays unknown because neither AEP page states a deadline. The schedule is on Charles
+River Associates' RFP site (https://imallsourcerfp.com/), a host the connector does not read. Showing it
+as closed would take either that host cleared in this registry or an admin override of its status
+(`PATCH /admin/v1/opportunities/{public_id}`, which records the override); the connector does not guess
+(`status_map.yaml`: "without one the state is unknown, never guessed").
+
 ## 9. Unlock plan: where the next issuers come from
 
 | Lever | Rows it can move | First targets (by developer value) |

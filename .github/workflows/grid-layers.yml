@@ -1,0 +1,144 @@
+name: grid-layers
+
+# Builds the US high-voltage network from OpenStreetMap (power lines and cables of 69 kV and up, and
+# substations) and publishes it as GeoParquet on the tiles R2 bucket (owner decisions 2026-10-22:
+# the powered-land site finder; substations from OpenStreetMap, public now; docs/25 §2.7). The
+# server's monthly `context_build` pulls `grid/osm-power/latest.json` and the files it names
+# (`python -m pipeline.context.osm_power pull`). Modelled on .github/workflows/basemap.yml: same
+# `production` environment, same R2 credentials and tiles bucket, same green-with-a-warning stop
+# when they are not there yet.
+#
+# The build reads Geofabrik's US state extracts one at a time (download, filter with pyosmium,
+# delete), so the runner's disk only ever holds one state. `infra/scripts/build_grid_layers.sh`
+# uploads each build under its own versioned key and promotes it to `latest.json` only when the
+# promotion gate passes (no state lost, no state's lines or substations down by more than 10% and 50
+# rows); a failed or refused build leaves the published version in place, and the server keeps the
+# frames it already pulled.
+#
+# On a pull request that touches the build module, its fixtures or this file, only the `test-osm-files`
+# job runs: it installs pyosmium (not in requirements.txt) and runs the tests that read OSM files,
+# which skip in ci.yml. No secrets, no network beyond pip, no build.
+
+on:
+  pull_request:
+    paths:
+      - pipeline/context/osm_power.py
+      - pipeline/context/test_osm_power.py
+      - pipeline/context/geo.py
+      - pipeline/context/fixtures/osm_power_texas_sample.osm
+      - pipeline/context/fixtures/osm_power_texas_sample.expected.json
+      - pipeline/context/fixtures/osm_power_texas_sample/**
+      - data/vendored/regions/us_states.geojson
+      - .github/workflows/grid-layers.yml
+  workflow_dispatch:
+    inputs:
+      states:
+        description: "'all', or Geofabrik slugs / ISO codes (texas,US-OK). A subset is uploaded, never promoted."
+        required: false
+        default: all
+  schedule:
+    - cron: "41 6 2 * *" # 06:41 UTC on the 2nd: after the basemap (1st), off the hour (docs/60 §9 convention)
+
+permissions:
+  contents: read
+
+concurrency:
+  # A PR's test run never queues behind (or holds up) the monthly build.
+  group: grid-layers-${{ github.event_name == 'pull_request' && github.ref || 'build' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-osm-files:
+    name: OSM-file tests (pyosmium, recorded fixtures, no network)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install
+        run: python -m pip install -r requirements.txt "osmium==4.3.2"
+      - name: test the build module, failing if the OSM-file tests skipped
+        shell: bash
+        run: |
+          python -m pytest pipeline/context/test_osm_power.py -q -rs | tee pytest.out
+          if grep -q "could not import 'osmium'" pytest.out; then
+            echo "::error::the OSM-file tests skipped: pyosmium did not import"
+            exit 1
+          fi
+
+  build-grid-layers:
+    name: build and upload the OpenStreetMap grid layers
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04 # pinned like basemap and deploy-beta
+    environment: production
+    timeout-minutes: 180
+    steps:
+      - name: R2 credentials present?
+        id: creds
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          if [[ -z "${R2_ACCOUNT_ID}" || -z "${R2_ACCESS_KEY_ID}" || -z "${R2_SECRET_ACCESS_KEY}" ]]; then
+            echo "::warning::the R2 account id or token is not set in the 'production' environment; grid layers not built."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif ! aws s3api list-objects-v2 --bucket "${R2_TILES_BUCKET}" --max-keys 1 --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" >/dev/null 2>&1; then
+            echo "::warning::the tiles bucket ${R2_TILES_BUCKET} does not exist yet (deploy-beta creates it); grid layers not built."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.creds.outputs.ready == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.creds.outputs.ready == 'true'
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: install
+        if: steps.creds.outputs.ready == 'true'
+        run: python -m pip install -r requirements.txt "osmium==4.3.2"
+      # The OSM-file tests need pyosmium, which requirements.txt does not carry, so they run here, in
+      # the one job that reads OSM files, before anything is built.
+      - name: test the build module (recorded fixture, no network)
+        if: steps.creds.outputs.ready == 'true'
+        run: python -m pytest pipeline/context/test_osm_power.py -q
+      - name: build and upload (infra/scripts/build_grid_layers.sh)
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
+          # The contact URL in the build's User-Agent (pipeline/connectors/http.py).
+          BANKABLE_DOMAIN: ${{ vars.DOMAIN }}
+          GRID_STATES: ${{ github.event.inputs.states || 'all' }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: infra/scripts/build_grid_layers.sh
+      - name: verify latest.json is reachable where the server reads it
+        if: steps.creds.outputs.ready == 'true' && (github.event.inputs.states || 'all') == 'all'
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID || vars.R2_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          R2_TILES_BUCKET: ${{ secrets.R2_TILES_BUCKET || vars.R2_TILES_BUCKET || 'beta-object-storage-tiles-production' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          DOMAIN: ${{ vars.DOMAIN }}
+        run: |
+          aws s3api head-object --bucket "${R2_TILES_BUCKET}" --key grid/osm-power/latest.json \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          if [[ -n "${DOMAIN}" ]]; then
+            code="$(curl -sS -o /dev/null -w '%{http_code}' "https://tiles.${DOMAIN}/grid/osm-power/latest.json" || true)"
+            [[ "${code}" == 200 ]] || echo "::warning::https://tiles.${DOMAIN}/grid/osm-power/latest.json answered ${code}, not 200"
+          fi

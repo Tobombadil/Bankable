@@ -9,6 +9,9 @@ openpyxl>=3.1,<4           # <4: the bound gridstatus (openpyxl~=3.1) held befor
 rapidfuzz>=3.9
 pytest>=8
 pyshp>=2.3               # pipeline/context/regions.py: Census/Natural Earth shapefiles, pure-Python (no geopandas, ADR 0008)
+shapely==2.1.2           # services/site_finder (the job's band buffers and flood areas, the API's band polygons) and
+                         # pipeline/context/fema_nfhl.py, whose tests skipped in the core suite without it (docs/25 §5.8
+                         # item 1). The version flood-layer.yml already installs; wheels bundle GEOS, so no system package.
 websocket-client>=1.8    # pipeline/connectors/us_epa_class_vi: EPA's Class VI tracker is a public
                          # Qlik Sense app whose only machine route is the Engine JSON API over a
                          # websocket. Imported lazily inside fetch(); parser tests need it not.

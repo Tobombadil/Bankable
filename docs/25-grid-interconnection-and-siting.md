@@ -20,10 +20,19 @@ verifies and merges.
 4. **Fiber availability (G4).** An area-level "is fiber service present here" layer from the FCC Broadband Data
    Collection. **No fiber routes**: there is no open, current, route-level national dataset (InterTubes is
    2014–15 vintage; carrier maps are the carriers'), and precise routes are security-sensitive.
+5. **Floodplain (lane flood, 2026-10-22).** FEMA National Flood Hazard Layer Special Flood Hazard Areas near
+   69 kV-and-up lines, and the footprint of FEMA's digital maps, for the powered-land site finder (§5).
+6. **Prospecting layers (resources lane, 2026-10-22).** Solar irradiance, wind speed, oil and gas basins, plays and
+   reserves, IRA energy communities, protected lands, water stress and seismic hazard, sampled at a point and
+   along a corridor for the site finder; screening grade only (section 5).
+7. **Site finder (lane site-finder, 2026-10-23).** Corridor bands of land beside 69 kV-and-up lines, near a
+   substation and out of the floodplain, with what lies within 5 miles: the candidates job, `GET /v1/site-finder`
+   and the `/site-finder` page (section 7).
 
 **Out of scope.** Internet exchanges and colocation facilities (PeeringDB's AUP forbids commercial application
 and bulk redistribution: https://www.peeringdb.com/aup). Anything from the private aggregators named in
-CLAUDE.md. OpenStreetMap substations and lines (ODbL share-alike; excluded in `data/sources.yaml`).
+CLAUDE.md. OpenStreetMap substations and lines were out of scope (ODbL share-alike) until the owner's
+2026-10-22 decisions brought them in for the powered-land site finder: §2.7.
 
 ## 1. Interconnection points
 
@@ -330,6 +339,13 @@ not, because the only national layer is restricted by its publisher.** Terms are
 `docs/13-legal-data-rights.md` §2.19; the manifest entries are `us.lbnl.ferc_hifld_transmission_lines`,
 `us.dhs.hifld.transmission_lines`, `us.dhs.hifld.electric_substations` and `us.noaa.ocm.electric_substations`.
 
+**Changed 2026-10-22 (§2.7).** The owner's powered-land site finder needs the whole network and substations, so
+both now come from OpenStreetMap (`us.osm.power`, ODbL 1.0): lines of 69 kV and up and substations, built
+nationally in GitHub Actions and pulled by the server. The LBNL layer stays loaded for its FERC owner data; the
+map draws OpenStreetMap's lines wherever an OpenStreetMap extract covers the line's states (§2.7, "Which layer is
+shown where"). What §2.1–§2.6 say about DHS's restricted substation layer still holds: it is never used, nor is
+anything derived from it, and the LBNL endpoint names are still not assembled into substation points.
+
 ### 2.1 Sources and terms (read 2026-09-28, platform user-agent, robots.txt first)
 
 | Candidate | What it says | Route | Decision |
@@ -340,6 +356,7 @@ not, because the only national layer is restricted by its publisher.** Terms are
 | DHS HIFLD, substations | data.gov DCAT `MGMT-GMO-HIFLD-546955`: `"accessLevel": "restricted public"`; DHS GMO: HIFLD Secure holds "commercially licensed and FOUO … data … approved Data Use Agreement" | withdrawn from HIFLD Open; no archive (DRP sitemap, HSDL group checked) | `restricted`/`none`; **do not ingest, do not derive** |
 | NOAA OCM "Electric Power Substations" (coastal, 2017) | data.gov: CC0; InPort: "Use Constraints: For coastal and ocean planning"; lineage: the HIFLD substations layer | zip not fetched | `unknown`/`none` (conflicting terms, restricted lineage) |
 | LBNL, "A Harmonized Geospatial Dataset of U.S. Transmission Lines: Linking FERC Form 1 and HIFLD, 1994-2024" (OEDI 8742) | dataset page links "License" to CC BY 4.0; LBNL's own DCAT: `"license": "https://creativecommons.org/licenses/by/4.0/"` | `data.openei.org/files/8742/…csv`, fetched after three HTTP 429s (one request a minute gets through); OpenEI general disclaimer 404 (browser task) | **used**: `attribution`/`raw_ok`, credit Yin, Nait Belaid & Heleno (2026), LBNL, OEDI, CC BY 4.0 |
+| OpenStreetMap power features via Geofabrik's US state extracts (added 2026-10-22, §2.7) | openstreetmap.org/copyright: ODbL, "credit OpenStreetMap and its contributors", "you may distribute the result only under the same license"; Geofabrik: "Derived databases have to retain the same license" (quoted in `data/sources.yaml` `us.osm.power`) | `download.geofabrik.de/north-america/us/<state>-latest.osm.pbf`, built in GitHub Actions; the server pulls the published GeoParquet | **used** (owner, "Public now"): `attribution`/`raw_ok`, credit "© OpenStreetMap contributors", share-alike offer of the derived database |
 
 Substations are critical infrastructure. The rule applied: publish only what a public source itself published, at
 its precision. DHS itself restricts the substation layer, so the `substation` asset type stays empty, is not wired
@@ -477,11 +494,325 @@ name link alone (POI → node name → the lines that end there) does not have t
 1. **Full-network lines** need the HIFLD archive: a human reads DataLumos's terms (project 240591) in a browser and
    records them in `data/sources.yaml` before any connector touches it. Never a third-party ArcGIS copy.
 2. **Substations** stay empty until a source that itself publishes substations openly is found and its terms read.
+   *Answered 2026-10-22:* OpenStreetMap, §2.7.
 3. **Owner links** need a reviewed alias table from LBNL's 259 owner strings to existing organisations (73 already
    key-match); then `owner_name` can be filled and the generic edge loader used.
 4. OpenEI's general disclaimer (incl. "Generative AI Terms and Conditions") answered 404 — browser task.
 5. `source_vintage` for this source is unset (no vocabulary for a dataset-page modified date).
 6. The national line payload (1.8 MB for 1,500 lines) argues for the vector-tile path ADR 0008 deferred.
+
+### 2.7 The OpenStreetMap network: lines of 69 kV and up, and substations (lane grid-osm, 2026-10-22)
+
+Owner decisions 2026-10-22 (`docs/00-PLAN.md`): the powered-land site finder (within 1 mile of a 69 kV-or-higher
+line, within 5 miles of a substation, outside the FEMA floodplain; all three adjustable), and substations from
+OpenStreetMap, public now. Source row `us.osm.power` (`data/sources.yaml`, ODbL quoted), register row
+`docs/13` §6. Code: `pipeline/context/osm_power.py` (build, pull, normalise), `services/ingest/osm_power.py`
+(load, withdraw), `infra/scripts/build_grid_layers.sh` and `.github/workflows/grid-layers.yml` (the national
+build), `services/api/assets.py` (map, page, nearby grid).
+
+#### What is kept
+
+- **Lines**: ways tagged `power=line` or `power=cable` whose highest stated voltage is 69 kV or more, and every
+  such way with no usable voltage (`voltage_unknown`, kept so the finder can include them on request). Cables
+  are underground or submarine by definition and carry `underground: true`, unless an explicit `location` says
+  otherwise: `location=overhead` or `overground` (an aerial cable) is not underground, and `underground` or
+  `underwater` on a `power=line` is. `line=busbar` and `line=bay` are a
+  substation's own conductors and are dropped. `voltage` is parsed as OpenStreetMap writes it: volts, `;` between
+  circuits (`138000;69000` -> highest 138 kV, `voltages_kv` [138, 69]), `kV` strings (`345 kV`, `138kV`). Every
+  stated value is kept, a repeated one too: `138000;138000` is two 138 kV circuits, `voltages_kv` [138, 138] (fix
+  round 2: the first version deduplicated it to [138]; 1,217 Texas ways repeat a value). A comma
+  is read by what surrounds it: a list separator when four or more digits follow it or the number before it is
+  already 1,000 or more (`12470,69000` -> [69, 12.47], so the 69 kV circuit is kept), a thousands mark when
+  exactly three digits follow a one-to-three-digit number (`138,000` -> 138 kV), else a decimal mark (`12,47 kV`,
+  `13,8`). A bare
+  number under 1,000 is read as kilovolts, and flagged `voltage_assumed_kv`, only when it is a US transmission
+  nominal (69, 115, 138, 161, 230, 287, 345, 500, 765) or has a decimal part (`34.5`); any other bare integer is
+  volts. The Texas run showed why: every bare integer there (`240`, `208`, `480`, 29 ways) is a service drop
+  tagged `power=line`, and read as kilovolts they had passed as 230 kV- and 500 kV-class lines. `0` and words
+  (`medium`) are no voltage. Kept tags: `operator`, `name`, `ref`, `circuits`, `cables`, `frequency`, `location`,
+  `line` and the raw `voltage`.
+- **Substations**: `power=substation` nodes (the point) and areas (closed ways and multipolygon relations: the
+  area-weighted centroid is the point, the outline rides in `attributes.outline` as GeoJSON), with `voltage`,
+  `name`, `operator`, `ref` and the `substation=*` subtype. `traction` and `minor_distribution` are dropped;
+  every other subtype (transmission, distribution, converter, generation, switching, industrial, ...) and
+  untagged ones are kept with the subtype recorded. No voltage floor: a 138/12.47 kV distribution substation is
+  what a large load connects to. A substation mapped twice, as a closed way and as the multipolygon relation
+  whose only outer is that way, is one substation: the relation is kept, takes any tag only the way states (old
+  multipolygons carry the name on the outer way), and the way is dropped, so nearby-grid and the subtype counts
+  see it once.
+- **Never**: DHS's restricted HIFLD substation layer or anything derived from it; OpenInfraMap (a renderer of the
+  same OpenStreetMap data, never scraped); Geofabrik's paid "Power Networks" product.
+
+#### Build, publish, pull
+
+1. **Build** (GitHub Actions, monthly on the 2nd, `grid-layers.yml`): for each of the 52 Geofabrik US extracts
+   (50 states, DC, Puerto Rico) in turn: download, filter to the power features and everything they reference
+   with pyosmium (`BackReferenceWriter`, the equivalent of `osmium tags-filter`), delete the raw extract, read the
+   filtered file with node locations and area assembly. The runner's disk holds one state at a time. Sequential
+   downloads, five seconds apart, robots.txt honoured. Each state is checked against Geofabrik's `<file>.md5`
+   (read before the file, so a file replaced between the two requests fails the check) and against its
+   Content-Length; a transfer reset part-way, cut short or not matching its checksum is downloaded again for that
+   state alone, three attempts 30 s and 120 s apart, the partial file deleted each time (fix round 2: one reset in
+   state 40 of 52 used to abort the whole run, and a short file was caught only when pyosmium failed to read it).
+   A refusal (robots.txt, a challenge page, HTTP 404) is not retried. An element in two extracts (a way across a state line, or
+   one that Geofabrik's slightly generous state polygons both hold) is kept once, from the more complete copy
+   (more resolved vertices; an assembled outline), with every extract that held it recorded.
+
+   **Regions: one rule** (fix round, 2026-10-22). The first version gave a border way to whichever state came
+   first in the alphabetical extract table (Arkansas, Louisiana, New Mexico and Oklahoma all precede Texas), so a
+   `GRID_LAYERS_REGIONS=US-TX` server lost every way across the Red River, the Sabine and the New Mexico line,
+   while still hiding LBNL's Texas lines. Now each row carries `region` (the vendored state polygon at the line's
+   representative point or the substation's point, else the extract that held it: this is `state_code`),
+   `states_crossed` (every state a vertex falls in, plus `region`), `extract_regions` (every extract that held
+   it) and `scope_regions` (the last two together). A load of states *W* holds exactly the rows whose
+   `scope_regions` meet *W*; the loader withdraws only rows whose `scope_regions` meet *W*; the manifest's
+   per-state `lines_kept` and `substations_kept` count rows the same way, so the promotion gate compares what a
+   one-state server would get. Including `extract_regions` matters because the vendored polygons are coarse
+   (Census 1:20m; Texas has 551 vertices, and the Red River and the Sabine meander inside that tolerance): a way
+   wholly inside Texas that the polygon misplaces across the river is still in Texas's scope, because the Texas
+   extract holds it. The cost is a few lines just outside the state in a one-state load, which is harmless (they
+   are real lines, drawn and listed as such).
+2. **Publish**: `lines.parquet` and `substations.parquet` (GeoParquet 1.1, WKB, zstd; OpenStreetMap's own
+   seven-decimal coordinates), `manifest.json` (per-state data timestamps, kept and dropped counts by rule, sha256
+   of each file) and `README.txt` (the ODbL notice) go to the tiles bucket under
+   `grid/osm-power/v1/<data timestamp>-<build time>/`, a key never overwritten. The version is promoted to
+   `grid/osm-power/latest.json` only when the gate passes (`osm_power check`): no state the published build has
+   may be missing, no state's kept lines or substations may fall by more than 10% and at least 50 rows (the floor
+   keeps a handful of ordinary edits in DC or Rhode Island from blocking the national promotion), and none may fall
+   to zero. A build of a subset of states is uploaded and never promoted.
+3. **Pull** (the server's monthly `context_build`): `python -m pipeline.context.osm_power pull` reads
+   `latest.json` from `$GRID_LAYERS_URL`, else `https://tiles.$BANKABLE_DOMAIN/grid/osm-power`, fetches the two
+   files it names, refuses any whose sha256 differs from the manifest, and writes the asset frames
+   `normalized/context/us.osm.power.{lines,substations}.parquet` plus the manifest. A version already held is not
+   fetched again. `GRID_LAYERS_REGIONS` (`pull --regions`, ISO codes such as `US-TX`, or `all` for every state)
+   **must be set**: the pull refuses to run without it, because read as national it would put the line index the
+   beta server cannot hold (limit 3) behind a missing environment variable. It keeps the rows in those states'
+   scope (the region rule above), filtered in pyarrow batch by batch so a one-state pull never holds the national
+   table as Python objects, and narrows the manifest copied beside them, so the loader withdraws nothing outside
+   that scope: the lever for a server that cannot hold the national line index yet. Narrowing it later (from
+   `US-TX,US-OK` to `US-TX`, say) removes the dropped states' rows at the next load (step 4), so they neither go
+   stale nor keep counting as covered in the map's source rule. The two frames and the manifest copy are written
+   as temporary files and renamed into place, the manifest last, all three stamped with one `frame_set` token; a
+   crash part-way leaves a mix the loader refuses (step 4) rather than new frames paired with the previous load's
+   covered regions. **Wiring left to the
+   coordinator** (outside this lane's files), in one change: append `("pipeline.context.osm_power", "pull")` to
+   `infra/scheduler/jobs.py::CONTEXT_BUILDERS`, add `OSM_POWER_FILES` to
+   `services/ingest/context_layers.py::expected_files()`, and map both frames to `osm_power` in
+   `infra/scheduler/test_context_and_match.py`. `context_load` already loads the frames whenever they are
+   present; until the wiring lands, a deployed store gets them only from an operator run of the pull.
+4. **Load** (`context_load`, `services/ingest/osm_power.py`): every row through `load_assets`, so each carries
+   `source_id` `us.osm.power`, `source_url` the element's openstreetmap.org page (linked, never fetched: robots.txt
+   disallows `/way/`, `/node/`, `/relation/` to crawlers), `retrieved_at` the extract's replication timestamp and
+   the licence; `source_asset_id` `way/<id>` etc., so a reload inserts nothing. An element in a covered state's
+   scope that the new build no longer has is **withdrawn** (its row deleted, owner and source links with it, an
+   interconnection point that named it unlinked), never one wholly outside the states the load covers, and never
+   more than 10% of a state's rows in one load when that is 50 rows or more (above that the state is held, with
+   every missing row in its scope, and logged for a person). The share is of the rows the state held before the
+   load, read before the upsert, so a load's own inserts cannot dilute it. When the manifest says the load was
+   narrowed to named states (`regions_loaded`), rows in none of their scopes are removed as well, outside the churn
+   guard because that is a configuration change, with the count per state in the report; nothing is removed
+   without a manifest, after an unnarrowed load, or for a requested state the build lacks (`regions_missing`).
+   Frames and manifest whose `frame_set` tokens differ load and withdraw nothing, and the store keeps what it
+   holds until the next pull writes a whole set. The licence row is marked
+   `share_alike`. Operators stay text (`attributes.operator`): linking free-text operator strings would mint
+   duplicate utilities, as LBNL's owner strings would have (§2.2).
+
+The asset row's line is Douglas-Peucker simplified at about 5 m (`ASSET_SIMPLIFY_DEG`) and stored at six
+decimals; the published GeoParquet keeps every vertex. Towers along a straight run carry nothing the map or the
+finder uses, and the line index `/v1/assets/geo` holds in memory grows with vertex count (measured below).
+
+#### Which layer is shown where
+
+| Surface | Lines it shows |
+|---|---|
+| Map, `GET /v1/assets/geo` (no `source`) | OpenStreetMap's lines; an LBNL line only where OpenStreetMap does not cover every state it crosses (coverage = the states the loaded build covers, the union of its rows' `attributes.coverage_regions`, which is each row's scope narrowed to the states loaded: a US-TX load covers Texas only, even though it holds the ways that cross into Oklahoma). With the national build loaded that is nowhere; with Texas alone (the beta) LBNL still draws the other 48 states and the LBNL lines that cross the Texas border, while OpenStreetMap draws every line in Texas's scope. |
+| `GET /v1/assets/geo?source=<id>[,<id>]` | Exactly the named sources, everywhere. |
+| `GET /v1/assets/{id}/nearby-grid` | The map's rule: one physical line is not listed twice. Plus `substations` (OpenStreetMap). The candidate box round the point follows the sphere (fix round 2: it was padded `radius_km / 100` degrees both ways, which east-west at 30.7 N is 28.7 km for a 30 km radius, so a substation or line just inside the radius due east or west was dropped before the distance test; the same helper serves `nearby-proposals` and the organisation's nearby proposals, which had the same shortfall). |
+| Asset pages, `GET /v1/assets`, search | Both sources, each line its own record: LBNL's pages keep the FERC owner (`attributes.owner`). |
+| Interconnection-point matcher (§2.5) | LBNL endpoint names, unchanged. Matching to OpenStreetMap substation names is a later lane. |
+
+The licence summary covers the whole filter match, not the viewport (as before this lane), less the rows the
+source rule and the voltage filter leave out: LBNL is credited while any LBNL line is drawn under the same
+filters (with Texas alone loaded, the other states' lines), and not once OpenStreetMap covers every state.
+"© OpenStreetMap contributors" travels in `licence_summary` and in each OpenStreetMap feature's
+`source.attribution_text`, followed by the ODbL statement (`data/sources.yaml` `changes_statement`). **Web lane**:
+the map legend's "lines FERC Form 1 filers own (LBNL); not the whole grid" (§2.2) no longer describes what is
+drawn once OpenStreetMap is loaded, and substations need a marker and legend entry; neither is in this lane's
+files. Also web-lane: `web/labels.py` `labelled_attributes` recurses into dicts and lists, so an asset page would
+print a substation's `outline` coordinates and the bookkeeping keys in its Attributes table; `outline`,
+`vertex_count_source`, `osm_id`, `osm_type`, `extract_regions`, `scope_regions` and `coverage_regions` belong in
+`INTERNAL_ATTRIBUTE_KEYS` (the voltage fields, `substation_type`, `operator`, `states_crossed` and `region` are for
+readers).
+
+#### Share-alike: how the derived database is offered
+
+The API and the map serve a Derivative Database of OpenStreetMap (ODbL §4.4(b), quoted in `docs/13` §2.10), so
+it must be offered under ODbL 1.0 with access to it in machine-readable form (§4.6). The build's own public files
+are that offer: `https://tiles.<DOMAIN>/grid/osm-power/<version>/lines.parquet` and `substations.parquet`, the
+manifest that names the rules and every count, and the README that carries the licence. Until the page below
+exists, the credit itself says where they are: the statement of changes (`data/sources.yaml`
+`changes_statement`, which every OpenStreetMap feature's `source.attribution_text` and the `licence_summary`
+carry) names `https://tiles.inframation.io/grid/osm-power/` and its `latest.json`. Proposed, for the legal
+lane to word: a short "OpenStreetMap data" page linked wherever the credit renders (map attribution, asset page,
+API `licence_summary` via `licence_url`), naming the licence and linking the current version's files and
+`pipeline/context/osm_power.py` as the method. Joining these rows with Inframation's own records (the finder's
+corridor bands, queue context) raises the Collective Database question (§4.5(a)); the critical-infrastructure
+question the owner's decision sends to the legal lane (pairing substation locations with queue and capacity
+context) is open too.
+
+#### Measured on Texas (development, 2026-10-22)
+
+**Route.** From the lane's sandbox, `download.geofabrik.de` and `overpass-api.de` were closed at the egress
+proxy straight after the TLS hello on every attempt (eleven to Geofabrik over the day, the last three at
+17:49 UTC). OpenStreetMap France's extracts (`download.openstreetmap.fr/robots.txt`: `Disallow: /*.pbf$` for
+every agent) and `planet.openstreetmap.org` (`robots.txt` disallows every agent but wget) were not fetched. The
+public Overpass instances timed out or answered 502 and 504. The development run therefore read the same
+OpenStreetMap elements from Overture Maps' base/infrastructure theme, release 2026-10-21.0 (ODbL, public bucket
+`overturemaps-us-west-2`). Only the row groups whose bounding box meets Texas's were range-read: about 420 MB,
+and 50,905 `power_line`, `cable` and `substation` rows, each with its OSM element id, version and full tag set.
+Those rows were written back as OSM elements, with synthetic ids only for vertex nodes, because Overture carries
+way geometry, not node ids. The real build then ran on that file (`build --file US-TX=... --clip`, pyosmium
+4.3.2, then `normalise`). The data is current to at least 2026-10-03T15:21:49Z, the newest element edit. Nothing
+from this route is published: production reads Geofabrik (step 1 above), and the first national run's
+`manifest.json` gives the Geofabrik counts for Texas to compare with these.
+
+**Lines kept: 21,233** (490 cables), out of the Texas extract's power ways. Dropped: 13,069 busbars and bays,
+840 below 69 kV (29 of them the volt-tagged service drops above), and 6,974 wholly outside Texas (the bounding
+box clip). 1,666 ways state more than one voltage value (476 of them more than one distinct voltage, 1,217 a
+repeated one such as `138000;138000`), 7,240 state circuits, 4,254 an operator and 207 a name. The
+5 m simplification keeps 110,271 of 525,502 vertices (21%).
+
+| Voltage class (highest stated) | Lines | Miles, whole ways | Miles inside Texas | Of which underground |
+|---|---:|---:|---:|---:|
+| 69-99 kV | 4,456 | 12,202 | 12,095 | 14 |
+| 100-161 kV | 12,480 | 26,062 | 25,820 | 48 |
+| 220-287 kV | 455 | 2,120 | 1,988 | 0 |
+| 345 kV | 2,286 | 12,852 | 12,469 | 1 |
+| 500 kV | 10 | 180 | 103 | 0 |
+| voltage not stated | 1,546 | 1,829 | 1,829 | 36 |
+| **All** | **21,233** | **55,245** | **54,303** | **99** |
+
+**Against LBNL in Texas** (the same method on `us.lbnl.ferc_hifld_transmission_lines`, fetched the same day: one
+request, 26,932,786 bytes, the same sha256 as on 2026-09-28): LBNL has 1,390 lines and **12,581 miles** inside
+Texas, all at 100 kV and up (100-161 kV 6,574; 220-287 kV 1,128; 345 kV 4,778; 500 kV 100). OpenStreetMap
+has 40,380 miles at 100 kV and up (3.2 times LBNL), and 54,303 miles with the 69-99 kV lines and the unstated
+ones (4.3 times). By class: 345 kV 12,469 against 4,778 (2.6 times); 100-161 kV 25,820 against 6,574 (3.9
+times). LBNL has no line under 100 kV in Texas (its national file starts at 70 kV), so the 69 kV network that
+large loads often connect to comes only from OpenStreetMap. "Inside Texas" means a segment counts when its
+midpoint falls in the vendored US-TX polygon, at geodesic length. OpenStreetMap is measured on its stored 5 m
+line and LBNL on its own vertices.
+
+**Substations kept: 6,205**, of which 6,204 were mapped as areas (centroid plus outline) and 1 as a node. 47
+`minor_distribution` were dropped; Texas has no `traction` substation in this data. Subtypes: distribution
+2,928; transmission 1,322; untagged 908; industrial 706; generation 236; compensation 33; switching 22;
+transition 18; `yes` 17; and 15 others (generator 8, converter 3, switch_yard 2, switchyard 1,
+generation;switching 1), each kept as tagged. 5,503 state 69 kV or more, 689 state no voltage, 3,289 are
+named and 3,160 name an operator.
+
+**Sizes and timings** (this sandbox). Build of the Texas file 23.5 s (filter, read, assemble areas, clip);
+`normalise` 11.8 s. GeoParquet: lines 7.8 MB, substations 0.72 MB; asset frames 3.4 MB and 1.1 MB. Load into a
+fresh SQLite store already holding LBNL: 20.1 s; the reload took 25.8 s with 0 inserted, 27,438 updated and 0
+withdrawn. Store 73.9 MB (LBNL plus OpenStreetMap Texas). The licence row comes out `share_alike: true`.
+
+`/v1/assets/geo?asset_type=transmission_line` through the app (TestClient), on that store:
+
+| Request | Time | Bytes | Features |
+|---|---:|---:|---|
+| Cold first request (builds the line index) | 4.1-4.3 s (LBNL alone 2.1-2.3 s) | | |
+| National, zoom 4, warm | 0.21 s | 1,473,287 | 1,057 (892 LBNL, 165 OpenStreetMap) |
+| Texas, zoom 6 (first at this zoom) | 1.3 s | 2,161,901 | 1,500, the cap (1,284 OpenStreetMap; 216 LBNL in the box's other states or crossing the border) |
+| Central Texas, zoom 8 (first) | 2.0 s | 613,628 | 418, all OpenStreetMap |
+| Houston, zoom 10 (first) | 2.3 s | 320,768 | 211, all OpenStreetMap |
+| Oklahoma, zoom 7 (first) | 1.4 s | 254,600 | 175 LBNL, 2 OpenStreetMap (border ways in the Texas extract) |
+| `asset_type=substation`, Texas, zoom 6 | 0.15 s | 27,657 | 69 clusters for 6,205; Houston at zoom 11: 116 points |
+| `nearby-grid`, 10 km round a substation | 0.14 s | | 10 lines, 10 substations |
+
+Each first request at a new zoom pays one simplification pass over every line, then is cached. Steady-state
+memory of the API process (VmRSS after garbage collection, after the first national request): +144 MB for the
+line index with LBNL alone, +258 MB with LBNL plus OpenStreetMap Texas.
+
+**Fix round re-measure (2026-10-22, the same development file, pyosmium 4.3.2).** The fixed build
+(`build --file US-TX=... --clip`) gives the figures above unchanged: 21,233 lines, 6,205 substations, 55,245 whole
+miles and 54,303 miles inside Texas. The Texas data has no comma-written voltage and no substation mapped as both a
+way and its relation, so those two rules change nothing here. Nine cables tagged `location=overground` (0.15 miles
+in all) are no longer flagged underground; the underground column above rounds the same.
+
+**The border loss the fix removes, measured on the same file.** Read as five extracts in table order (Arkansas,
+Louisiana, New Mexico, Oklahoma, Texas), each the file clipped to that state's polygon, so each holds the border
+ways the way Geofabrik's do, then loaded as `GRID_LAYERS_REGIONS=US-TX`:
+
+| Build | US-TX load: lines | Whole miles | Miles inside Texas |
+|---|---:|---:|---:|
+| v1 (first extract keeps the way) | 21,161 | 53,628 | 53,492 |
+| Fixed (scope rule) | 21,240 | 55,262 | 54,303 |
+
+v1 lost **79 lines, 1,635 miles (812 inside Texas)**: 26 first held by New Mexico, 24 by Oklahoma, 15 by Louisiana
+and 14 by Arkansas. Of the 79, 39 lie mostly in Texas (their representative point is there) and 19 are 345 kV, 2 are
+500 kV, 6 are 220-287 kV, 31 are 100-161 kV, 18 are under 100 kV and 3 state no voltage. With v1 the map, nearby-grid
+and the finder would have lost them with no warning, while LBNL's Texas lines stayed hidden. The fixed US-TX load
+holds 7 more lines than the single-file build (21,240 against 21,233; 0.2 more miles inside Texas): border ways
+that the state lookup's 1 km cache cell (`pipeline/context/geo.py` `StateIndex`) puts in Texas when another state's
+points filled the cell first. That is the harmless direction.
+
+**Fix round 2 (2026-10-23), re-run with the current module on the same file:** the same figures (five extracts
+loaded as US-TX: 21,240 lines, 6,209 substations, 55,262 whole miles, 54,303 inside Texas; v1 lost 79 lines,
+1,635 miles, 27 of them at 230 kV or more). The second review measured the same loss another way, on the lane's
+own clipped build against the state polygons: 74 kept ways that cross into a neighbour sorting before Texas,
+1,603 whole-way miles, 26 at 230 kV or more. So the Texas-only figures in this section (the table, +114 MB, the
+Oklahoma zoom-7 row) are what a US-TX server loads from the national build, within those 7 lines: the clipped
+development build kept every way with a vertex in Texas, which is the scope rule's set less the few ways only
+the Texas extract holds.
+
+#### Limits and open items
+
+1. **Wire the pull into `context_build`** (step 3 above): three small edits, two of them outside this lane's
+   files, with `GRID_LAYERS_REGIONS=US-TX` set on the worker in the same change (limit 3). Without it the pull
+   exits non-zero with a message naming the setting, so a missed variable fails the builder instead of loading
+   national.
+2. **pyosmium is not in `requirements.txt`**: only the build reads OSM files, and it installs `osmium==4.3.2`
+   itself. The OSM-file tests skip in `ci.yml`; `grid-layers.yml` runs them in a light `test-osm-files` job on
+   every pull request that touches the build module, its fixtures, `geo.py`, the state polygons or the workflow
+   (no secrets, no build), and fails if they skipped.
+3. **The national map payload is too large for the in-memory line index.** Texas holds 8.6% of LBNL's national
+   route miles. Scaling the Texas build by that share gives roughly 250,000 lines and 1.3 million stored vertices
+   nationally: about 1.3 GB more resident memory per API process, a cold first map request of about 25 s, and
+   each first request at a new zoom growing the same way. That does not fit the one-server beta. Until the map's
+   line layers move to vector tiles (ADR 0008's deferred path; the GeoParquet on R2 is the input such a build
+   would take, in the same Actions job), the server should load only the states it can hold:
+   **`GRID_LAYERS_REGIONS=US-TX` for the beta** (the map opens on Texas; +114 MB, +2 s cold, measured above on
+   the clipped file, which a US-TX load of the national build matches within 7 lines).
+   LBNL keeps drawing every other state through the map's source rule. The published files stay national
+   either way. The setting is required (unset is refused), and the pull's region filter runs in pyarrow before
+   any row becomes a Python object, so a US-TX pull of the national file peaks at Texas's size plus one
+   65,536-row batch, not at the nation's.
+4. **Geofabrik's usage notes and robots.txt, read second-hand**: `download.geofabrik.de` is still closed at the
+   sandbox's egress (connection reset after the TLS hello, 2026-10-22 evening), so on 2026-10-22 about 23:50 UTC
+   they were read through a fetch service that returns a summary with quotes, not the raw bytes.
+   `https://download.geofabrik.de/robots.txt` answered HTTP 404 (no robots file, so nothing is disallowed). The
+   front page: "This open data download service is offered free of charge by Geofabrik GmbH."; "License: ODbL
+   1.0"; the files "do not contain the user names, user IDs and changeset IDs of the OSM objects". The technical
+   page (`technical.html`) and the US index (`north-america/us.html`) state no rate limit, no rule on parallel or
+   automated downloads, and no bulk-download policy; the data is updated "Once a day, around 21:00 CET". The
+   licence sentences on `www.geofabrik.de/data/download.html` re-read the same way match those quoted in
+   `data/sources.yaml`. The build's own politeness (one state at a time, five seconds apart, robots.txt checked at
+   run time) is therefore the platform's default, not a Geofabrik figure. **Blocking for the first national run**:
+   a human opens the front page and `robots.txt` in a browser, confirms these quotes against the raw text, and
+   records the result in `data/sources.yaml` `verified`. Whether GitHub's runners reach the download server is
+   not verified from here; the build fails rather than publishes if they do not.
+5. **Untagged voltage**: in Texas, 1,546 lines (7.3% of lines, 1,829 miles, 3.4% of the miles) state no usable
+   voltage (1,536 have no `voltage` tag, 9 say `0`, 1 says `medium`), and so do 689 substations (11%). They are
+   kept with `voltage_unknown: true`; `voltage_kv[gte]` leaves them out unless `include_voltage_unknown=true`.
+   The finder should offer that switch, because a 1,536-way gap is visible on a map and some of it is high voltage.
+6. **Substation names to interconnection points**: OpenStreetMap substations are named and placed; matching queue
+   POI strings to them (the §2.5 matcher against a much larger node table) is the next grid lane, and placing a
+   point by a substation's location is now the owner's "public now" decision applied, not a derived layer.
+7. **The development counts came from Overture's copy, not Geofabrik's extract** (route above). Both carry the
+   same OpenStreetMap elements, but Overture's pipeline may drop an element it cannot build a geometry for.
+   Compare the first national run's Texas counts with the table above; a gap over 1% is worth a look. Since the
+   fix round the manifest's US-TX `lines_kept` counts every row in Texas's scope, as a US-TX server loads it,
+   which is what the clipped development build counted (every way with a vertex in the Texas polygon), plus the
+   few ways wholly outside the polygon that Geofabrik's Texas extract also holds. Expect the national count to
+   be at or slightly above the table's, never below it because of the border.
 
 ## 3. Data-centre demand signals
 
@@ -1390,7 +1721,758 @@ lane (G2 owns `map.js`).
 6. The FCC API's own rate limit is in the unread spec; the connector uses one request per five
    seconds (three requests per run).
 
+## 5. Floodplain: FEMA National Flood Hazard Layer (lane flood, 2026-10-22)
+
+Owner decision 2026-10-22 (`docs/00-PLAN.md`): the powered-land site finder looks for sites within a
+mile of a 69 kV-or-higher line, within 5 miles of a substation, **outside the FEMA floodplain**; where FEMA
+has no digital map the result says "flood data unavailable", never "outside". This lane builds the
+floodplain files the finder reads. It adds no table and no API.
+
+Code: `pipeline/context/fema_nfhl.py` (route, range reads, geodatabase catalog, classification, clipping,
+GeoParquet, manifest, CLI, and `FloodLayer.assess`, the finder's rule as a reference implementation), tests
+beside it with recorded fixtures under `pipeline/context/fixtures/fema_nfhl/`,
+`infra/scripts/build_flood_layer.sh` and `.github/workflows/flood-layer.yml` (the production build), manifest
+id `us.fema.nfhl`, register row in `docs/13` §6.
+
+### 5.1 Source, route and terms
+
+The National Flood Hazard Layer is FEMA's compilation of the effective Flood Insurance Rate Map (FIRM)
+databases and Letters of Map Revision, "the current effective flood data for the country, where maps have
+been modernized" (FEMA's NFHL web map description, ArcGIS item `fa23d2702e244058ab47eb62a991d600`, read
+2026-10-22). FEMA publishes it per state as a zipped Esri file geodatabase and per county as shapefile zips.
+On 2026-10-22 the 52 state files (50 states, DC, Puerto Rico) were **37,120 MB** of zips: Florida 2,693 MB,
+Iowa 2,262, Georgia 2,125, Texas 2,031, Virginia 1,657, down to DC at 4 MB. 29 were dated within 30 days and
+38 within 60; the oldest is Puerto Rico's (2021-12-16). Each is in NAD83 geographic coordinates (EPSG:4269).
+
+**robots.txt decides the route** (both hosts read 2026-10-22):
+
+| Path | robots.txt | Used |
+|---|---|---|
+| NFHL ArcGIS REST services, `hazards.fema.gov/arcgis/...` and anything with a query string | `Disallow: /arcgis`, `Disallow: /*?*` | never |
+| MSC direct download, `msc.fema.gov/portal/downloadProduct?productID=...` | `Disallow: /portal/downloadProduct?productID=`, `/*?*` | never |
+| MSC "Search All Products" form, `POST msc.fema.gov/portal/advanceSearch` | path allowed | one POST per state: for a community in the state (`STATE_PROBES`), the answer names the current state file |
+| The file, `hazards.fema.gov/nfhlv2/output/State/NFHL_<FIPS>_<YYYYMMDD>.zip` | path allowed | HTTP range requests: the zip's central directory, then only the members used |
+
+The probe communities were found by product-ID searches of countywide products (`NFHL_<county FIPS>C`),
+whose answers name a community; Connecticut needs its pre-2022 county code, DC and Puerto Rico their
+community-wide ids. The search is a page form, not a documented API: if it changes, `--product-file` names
+the file by hand and the workflow fails loudly rather than guessing. The stdlib robots parser does not
+implement `*` wildcards, so the module refuses any FEMA URL with a query string itself (`fema_url_allowed`).
+
+**Only two layers are fetched.** A state geodatabase stores each layer as a table file (`aXXXXXXXX.gdbtable`
+and companions). The module reads the zip's directory, extracts the system tables (ids 1-8, about 300 kB),
+reads `GDB_SystemCatalog` in Python to learn which numbers hold `S_FLD_HAZ_AR` and `S_FIRM_PAN` (GDAL refuses
+a geodatabase holding only system tables), and extracts those two. Texas: **1,005 MB fetched of 2,031 MB**,
+90 requests, 404 s through the development egress (2.5 MB/s), 1,277 MB written. Every range request carries
+`If-Range` with the first ETag, so a file FEMA replaces mid-read fails the run instead of mixing two files.
+The raw tables are deleted after clipping whether the build succeeds or not. A county product takes the same
+path as shapefiles: Taylor County, `48441C_20260611.zip`, 8.8 MB fetched of 16.1 MB in 7 requests.
+
+**Terms** (quoted in full in `data/sources.yaml` and `docs/13` §6): a US government work (17 U.S.C. §105);
+DHS's DCAT record states `"license": "https://www.usa.gov/government-works"`, `"accessLevel": "public"`; the
+MSC says NFHL geodatabases "are available for free download". Credit rendered: "Source: FEMA National Flood
+Hazard Layer". FEMA's NFHL map adds the one condition that shapes the product: a map on another base map
+"should be used for general reference only, and not official NFIP purposes", so every finder result says it
+is not a flood determination. FEMA's website policies on www.fema.gov answered 403 from this egress (browser
+task). No use constraint is embedded in the data itself.
+
+### 5.2 What counts as floodplain
+
+`S_FLD_HAZ_AR` polygons are classified per row (`classify`):
+
+| Category (file) | Rule | Texas, statewide rows |
+|---|---|---|
+| `sfha` (`sfha/`) | `SFHA_TF` is true **or** `FLD_ZONE` is A, AE, AH, AO, AR, A99, V or VE | 69,459 (AE 48,325 incl. floodway, A 19,659, VE 1,107, AO 235, AH 131, and 2 zone X rows flagged SFHA) |
+| `shaded_x` (`zones_other/`) | zone X with any subtype but "area of minimal flood hazard": 0.2 % annual chance (the "500-year"), levee-reduced risk, 1 % future conditions, 1 % shallower than a foot | 136,463 |
+| `zone_d` | zone D: hazard undetermined | 0 |
+| `open_water` | zone OPEN WATER | 19 |
+| `not_included` | AREA NOT INCLUDED: inside a map's extent, mapped by nobody | 9 |
+| `unrecognised` | any other zone (vocabulary drift; reported in the run summary) | 0 |
+| not written | zone X, "area of minimal flood hazard" or no subtype (unshaded X) | 30,017 |
+
+Where `SFHA_TF` and the zone disagree the row counts as floodplain: the safe reading for an "outside the
+floodplain" claim. Texas has three such rows (two zone X rows flagged true, one AE floodway flagged false).
+Texas's 4,186 "1 PCT FUTURE CONDITIONS" polygons are shaded X on the effective FIRM and are reported, not
+excluded. The rows sum to the layer's 235,967.
+
+The geodatabase read skips only rows `classify` would drop: zone `X` with no subtype or the minimal-hazard
+one, and `SFHA_TF` NULL or `F` (`ZONE_WHERE`). Every clause is NULL-safe. Until 2026-10-23 the filter used
+`FLD_ZONE <> 'X'`, which is NULL, not true, for a NULL zone, so on GDAL's path a row with no zone (an
+"unrecognised" row, flood data unavailable) and a zone X row flagged SFHA with a value other than `T` were
+never read. Texas's statewide count above has no unrecognised row. A test writes such rows to an OpenFileGDB
+table and reads them back through GDAL.
+
+Invalid source polygons are repaired by structure (`make_valid(method="structure")`): overlapping parts are
+unioned. The default "linework" repair keeps area by the even-odd rule and drops what two parts share (two
+overlapping 2 x 2 squares: union 7, repaired 6), which would turn floodplain into "outside". On Harris County's
+product (`48201C_20260517.zip`, read by range 2026-10-23, 56 MB of 103 MB, then deleted) 16 of 10,806 zone
+polygons are invalid, 7 of them SFHA, and the two repairs agree within 1 m² in all: self-touching rings, not
+overlapping parts. Texas's 264 were not re-checked (§5.7).
+
+### 5.3 What "outside the floodplain" means
+
+The zone files hold rows **only inside the areas of interest** (§5.4); the coverage files are statewide. So a
+covering panel alone says nothing about a site outside the areas of interest: there is no `sfha` row there to
+find, floodplain or not. On the recorded Taylor County fixture with a 0.5-mile area of interest, 0.67 km² of
+the 1.68 km² of source SFHA inside covering panels lies outside the area of interest; the rule as first
+written (covering panel, no zone polygon) called all of it "outside" (review, 2026-10-23).
+
+The rule, in order (`FINDER_RULE` in the manifest; `FloodLayer.assess` implements it and the tests hold it to
+the recorded county product, with a grid of 1,681 points none of which reads "outside" inside the source SFHA):
+
+1. **In the floodplain** when the site comes within the tolerance (10 m) of an `sfha` piece of any state.
+2. **Flood data unavailable (not computed)** when any part of the site lies outside every state's area of
+   interest: the state's row of `aoi.parquet` under that state's own version (`states[ST].aoi.key`).
+3. **Flood data unavailable (no digital map)** when any part lies outside the union, over states, of *that
+   state's* area of interest intersected with *its* covering panels (grown by the tolerance, which closes the
+   seams independently simplified panels leave). Never one state's area of interest with another state's
+   panels: near a border the other state's zone files were not computed there.
+4. **Flood data unavailable** when the site comes within the tolerance of a `zone_d`, `not_included` or
+   `unrecognised` piece (the reason names which).
+5. Otherwise **outside the floodplain**: outside the Special Flood Hazard Area on the effective FIRM, at the
+   10 m precision of these files. Shaded X and open water within the tolerance are reported beside the answer.
+
+The finder should load every state of the manifest (a band near a border needs both states). Until the areas
+of interest are rebuilt from the OpenStreetMap lines (§5.4), most bands near OSM-only lines will read "not
+computed"; that is the honest answer, and the next build removes it. "Outside the floodplain" does not mean:
+
+- **Not a flood determination.** Lenders and insurers use a Standard Flood Hazard Determination; owners amend
+  a map by LOMA. LOMAs (single lots or structures removed from the SFHA by letter) are not in
+  `S_FLD_HAZ_AR` and are not applied. LOMRs are: FEMA folds them into the NFHL.
+- **Not "no flood risk".** The 0.2 % annual chance area (shaded X) is reported beside the result
+  ("in the 500-year floodplain"), never used to exclude a site, as the owner asked. Unshaded X can flood too.
+- **Effective maps only.** Preliminary FIRMs (the proposed next map, before it takes effect) are not read; a
+  site outside today's SFHA can be inside the next effective map.
+- **Edges are 10 m.** A site within 10 m of an `sfha` edge counts as touching it (rule 1, measured in metres
+  at the site's latitude), which errs toward "in the floodplain". Where FEMA's digital map ends, the grown
+  coverage can read as mapped up to about 20 m past the true edge.
+
+"Flood data unavailable" is the answer outside the areas of interest (not computed), where no covering panel is
+present (FEMA has no digital map there: paper-only or unmapped communities), and inside `zone_d`,
+`not_included` or `unrecognised`. A site the reader sees should say which.
+
+### 5.4 Areas of interest
+
+The national NFHL is not needed whole: the finder asks about land within 2 miles of a line at most. `aoi`
+buffers every line of 69 kV and up by 2 miles plus a 200 m margin, assigns each buffer to every state within
+10 km of it, and dissolves per state. Until the OpenStreetMap lines land, the lines are the LBNL x HIFLD subset
+(§2), about a fifth of US transmission mileage, so these files cover floodplain near those lines only, and the
+finder answers "not computed" elsewhere (§5.3). The workflow's plan job takes `LINES_PARQUET` and the next
+build covers the OSM network. The coverage files are statewide and do not depend on the lines.
+
+- **Metric buffers, at each line's own latitudes.** Longitude is scaled by the cosine of the latitude, per
+  band of at most half a degree of latitude (the bands overlap slightly, because GEOS's rectangle clip drops
+  a segment lying exactly on the rectangle's edge). One cosine for a whole line left the 3.15-degree Leland
+  Olds - Fort Thompson 345 kV line's buffer 104 m short east-west at its north end. Measured over all 13,084
+  LBNL lines, due east and west of every vertex: worst shortfall 104 m before, 43 m with bands. The rest is
+  the polygonal arc, not the latitude: GEOS rounds a join's arc to whole steps, so at `quad_segs` 8 a chord
+  can cut about 37 m inside the true circle (on the worst line, 64 segments per quarter circle leave 11 m).
+  The 200 m margin covers both.
+- **States within 10 km** (`STATE_SLACK_M`). The state shapes are the Census 1:20,000,000 cartographic
+  boundaries (median segment 7 km), which can sit kilometres off the true border. A buffer that touched no
+  generalised shape would be in no state's flood files.
+- **The lines input is checked** before any buffer: a GeoParquet `crs` other than OGC:CRS84 or EPSG:4326, a
+  voltage column that is not numeric (OSM's `138000;69000` or `115 kV` must be parsed to one kV value first),
+  a kV value above 1,500 (volts), geometries that are not lines, and coordinates outside lon/lat range (a
+  projected file with no `crs`) each stop the plan with a message saying so. The LBNL asset parquet
+  (`geom_line_wkt`, `attributes.voltage_kv`) is read as it is; a recorded three-line sample tests that path.
+- **Provenance per state.** Each `aoi.parquet` row is a record derived from the lines buffered into that state
+  and carries their `source_id`, `source_url`, `retrieved_at` and `licence`, not those of every line read.
+
+### 5.5 Outputs: the finder's contract
+
+R2, object store bucket (`R2_BUCKET`, not the public tiles bucket), under the pipeline's `data/` prefix:
+
+```
+data/normalized/context/us.fema.nfhl/<version>/aoi.parquet, aoi.json
+data/normalized/context/us.fema.nfhl/<version>/sfha/<ST>.parquet
+data/normalized/context/us.fema.nfhl/<version>/zones_other/<ST>.parquet
+data/normalized/context/us.fema.nfhl/<version>/coverage/<ST>.parquet
+data/normalized/context/us.fema.nfhl/<version>/states/<ST>.json, manifest.json
+data/normalized/context/us.fema.nfhl/latest.json     (copy of the newest complete manifest)
+```
+
+`<version>` is the build time, `20261022T0441Z`. Read `latest.json`, then **each state's files at the keys
+the manifest names for that state**: `states[ST].files[sfha|zones_other|coverage].key` and
+`states[ST].aoi.key` (the state's row of that `aoi.parquet`). A state carried forward by a partial rebuild
+(§5.6) keeps its own `version` and `prefix`, so one manifest can name files under several versions;
+`r2_prefix` is only where this build's own files and the manifest live. `latest.json` moves only after every
+state of a build succeeded and the quality gates passed. The local layout is the same under the data root
+(`INFRAQUE_DATA_DIR`; `local_path` maps a key to it).
+
+The manifest also carries `layers` (what each file holds, including that the zone files stop at the areas of
+interest and the coverage does not), `finder_rule` (§5.3, in order), `reference_implementation`
+(`FloodLayer.assess`), `states_built`, `states_carried`, `states_dropped` and `previous_version`.
+
+Every file is GeoParquet 1.1: `geometry` (WKB, Polygon or MultiPolygon, OGC:CRS84 lon/lat; NFHL's NAD83
+coordinates carried unchanged, 1-2 m from WGS84 in the contiguous US), a `bbox` covering struct, rows in
+Z-order so row-group statistics prune by area.
+
+| Column | `sfha/`, `zones_other/` | `coverage/` |
+|---|---|---|
+| `piece_id` | `<ST>:<FLD_AR_ID>:<FIRM_PAN>:<n>`, unique (FEMA reuses an `FLD_AR_ID` for several polygons of a panel: 26 times in Texas) | — |
+| `category`, `sfha` | §5.2; `sfha` true only in `sfha/` | — |
+| `zone`, `zone_subtype`, `sfha_tf` | FEMA's `FLD_ZONE`, `ZONE_SUBTY`, `SFHA_TF` | — |
+| `fld_ar_id`, `dfirm_id`, `version_id` | FEMA's ids | `dfirm_id`, `version_id` |
+| `firm_panel`, `panel_effective_date` | the FIRM panel the piece lies on and its effective date (each piece is split along panel edges); `firm_panel` is the MSC product id for a link to the FIRM | the panel itself, `panel_type`, `covers` (false for "Area Not Included" panels) |
+| `state`, `area_m2` | postal code; area (local scale, within 0.5 %) | same |
+| `nfhl_product`, `source_id`, `source_url`, `retrieved_at`, `licence`, `raw` | provenance: the state file, `us.fema.nfhl`, its URL, fetch time, the manifest's licence text, FEMA's attributes as JSON | same |
+
+`aoi.parquet`: one row per state, `state`, `buffer_miles`, `margin_m`, `min_kv`, `line_count`, `area_m2`, and
+the provenance of the lines buffered into that state (`source_id`, `source_url`, `retrieved_at`, `licence`).
+
+### 5.6 Refresh
+
+FEMA reissues a state file when a study or LOMR goes effective (29 of 52 files were under 30 days old on
+2026-10-22). Siting does not need monthly floodplain: the workflow runs **quarterly** (04:41 UTC on the 3rd of
+January, April, July and October) and on demand for chosen states. One job per state, at most three at a time
+(each at most one range request per 2 s), a plan job for the areas of interest, and a publish job that writes
+the manifest and moves `latest.json` only when every state succeeded. R2 credentials are the `production`
+Environment's, as for the basemap; without them the plan job warns and the rest is skipped. The plan step
+captures the state list before writing it out, so a failed plan fails its own step (inside
+`echo "states=$(...)"` echo's exit status would have hidden it until the matrix failed to parse).
+
+Publishing refuses, and leaves `latest.json` as it was, when:
+
+- a state's SFHA row count fell by more than half since the previous build (a truncated download, not a
+  remapping);
+- a **full** build (the quarterly run, or a dispatch with no `states`) did not rebuild a state the previous
+  manifest lists, unless `allow_dropped_states` names it. A plan that loses a state (the lines input changed,
+  a state shape missed) would otherwise remove that state's flood data silently.
+
+A **partial** rebuild (`workflow_dispatch` with `states=TX`) rebuilds those states and carries every other state
+of `latest.json` forward unchanged, under its own version's keys, so the finder never loses a state between
+quarterly runs. A version prefix stays needed for as long as `latest.json` names it: do not put an expiry
+rule on these keys.
+
+Every build starts with a `test` job: `pipeline/context/test_fema_nfhl.py` with shapely and pyogrio at the
+versions the build installs, recorded fixtures only, no network. It runs with no secret: the R2 account and
+bucket are set on the build jobs, not the workflow. The same job is the workflow's only job on a pull request
+that touches the flood files or a file they read (the module, its tests and fixtures, `http.py`,
+`registry.py`, `store.py`, `lbnl_transmission.py`, `data/sources.yaml`, the state shapes, `requirements.txt`,
+the build script, the workflow). A failing test stops the build before any request to FEMA.
+
+### 5.7 Measured: Texas, 2026-10-22 (this sandbox)
+
+The development area is Texas, whole: its 2,031 MB file fit, because only 1,005 MB of it is fetched.
+
+| Step | Result |
+|---|---|
+| Areas of interest | 1,398 LBNL lines (1,391 in Texas, 7 in neighbours within reach), 103,948 km² (about 15 % of the state), 95 parts, 23,213 vertices; 7.7 s; 355 kB |
+| Fetch | 1,005 MB of 2,031 MB, 90 range requests, 404 s; `S_FLD_HAZ_AR` 235,967 polygons (1,270 MB table), `S_FIRM_PAN` 5,445 panels |
+| Clip | 80,079 polygons read (all but unshaded X, intersecting the areas of interest) into 134,581 pieces on 2,850 panels; 264 invalid source polygons repaired, 7,810 slivers under 1 m² dropped; vertices 81.3 M to 5.1 M; 309 s, 3.35 GB peak memory |
+| `sfha/TX.parquet` | 56,158 pieces, 18,409 km² (17.7 % of the areas of interest), 23.6 MB |
+| `zones_other/TX.parquet` | 78,423 pieces: shaded X 3,144 km², open water 108 km², area not included 79 km², Zone D none; 24.4 MB |
+| `coverage/TX.parquet` | 5,445 panels, all covering (Texas has no "Area Not Included" panel), effective dates 2001-08-23 to 2026-08-04; 0.28 MB |
+| Total | about 12 minutes and 48 MB for the largest-but-three state |
+
+**Simplification checked** on 400 random SFHA polygons (708 pieces), against the same pieces unsimplified,
+distances in metres with longitude scaled: largest distance from an original vertex to the simplified edge
+9.99 m (99th percentile 9.94 m, median 8.31 m); area +0.077 %; vertices 551k to 31k. The first build used GEOS's
+topology-preserving simplifier, which broke the bound on 29 of the 708 pieces (up to 16.0 m, 1.57 times the
+tolerance); the module now runs plain Douglas-Peucker ring by ring and keeps any ring that would collapse
+(`simplify_polygonal`; four of those pieces are the fixture `tps_violations_nfhl_48.json`). All 56,158 SFHA
+pieces are valid; 2,000 sampled lie inside the areas of interest plus 10 m. The sizes above include the
+`piece_id` column, added after the run and measured by rewriting the same rows.
+
+**National, estimated from Texas** by zip size (37,120 / 2,031 = 18.3): about 3.7 hours of job time, about
+1.3 hours of wall time at three states in parallel plus setup, and about 0.9 GB of output with the LBNL areas
+of interest; the OSM network will enlarge both. Not yet run in Actions (no R2 credentials here).
+
+**Review fixes, 2026-10-23: Texas not re-run.** This machine had 2.8 GB of disk free, shared with other lanes,
+and a Texas run writes 1.3 GB of raw tables, so the figures above are from the 2026-10-22 code. What the fixes
+can move there: the read filter (no change, Texas has no unrecognised row); the structure repair of the 264
+invalid polygons (it only adds back area the linework repair dropped, so the 18,409 km² is if anything low;
+on Harris County's 16 invalid polygons the two agree within 1 m², §5.2); the 10 km state slack (more neighbouring lines in Texas's areas of interest, and Texas lines
+in its neighbours'); banded buffers (a slightly larger area for tall lines). The first Actions run re-measures.
+Measured this round, on recorded fixtures and the local LBNL parquet: the rule's grid test (§5.3), the buffer
+shortfall (§5.4), and the memory of the clip-and-write step (§5.8 item 6).
+
+### 5.8 Limits and open items
+
+1. `shapely` is not in `requirements.txt`, so `ci.yml`'s core suite skips the test module (it names the
+   skip in the log). The tests run in `flood-layer.yml`'s `test` job instead (§5.6). Adding `shapely==2.1.2`
+   to `requirements.txt` would run them in the core suite too, and the finder will need shapely anyway to read
+   these files. `pyogrio` (GDAL, for the state geodatabases) stays a build-time install; without it the
+   county fixture is read with pyshp.
+2. Rebuild the areas of interest from the OpenStreetMap lines when that lane lands (`LINES_PARQUET`).
+3. LOMAs are not applied; preliminary FIRMs are not read (§5.3).
+4. FEMA's website policies (www.fema.gov, 403 here): read in a browser and add to the register row.
+5. The MSC search form can change without notice; `STATE_PROBES` and `--product-file` are the fallbacks.
+6. Memory: 3.35 GB for Texas; Florida's file is a third larger, and OSM areas of interest will be about five
+   times the LBNL ones. Since 2026-10-23 each batch's pieces go to Arrow as they are made (repeated strings,
+   such as the 1.5 kB licence on every row, dictionary-encoded until written) and the file is written one
+   row group at a time, instead of every piece of the state held as Python objects. On a synthetic
+   Texas-shaped workload with the real provenance (jagged polygons, 58 vertices kept per piece), peak memory
+   of the clip-and-write step: 135,000 pieces, 916 MB before and 781 MB after; 270,000 pieces, 1,672 MB
+   before and 1,206 MB after. Each further 135,000 pieces cost 756 MB before and 425 MB after, and that
+   growth is what a 5x area of interest multiplies. The files hold the same table, metadata and row groups as
+   before. What makes up the rest of Texas's 3.35 GB was not measured: the synthetic's source polygons have
+   80 vertices, Texas's averaged about 1,000 (81.3 M over the 80,079 read), so per-batch work on large
+   source polygons is the likely part. The state job runs on a standard runner: watch Florida and Texas in
+   the first Actions run.
+7. Texas was not re-run after the 2026-10-23 review fixes (disk; §5.7). The first Actions run re-measures it.
+
+### 5.9 Assumptions
+
+- The union of effective FIRM panels in a state's NFHL is where FEMA has a digital map. FEMA's own
+  availability layer is an ArcGIS service robots.txt disallows, so it was not used to check this.
+- A 0.2 % annual chance area is information for the reader, not a reason to drop a site (owner's instruction).
+- Floodplain within 2 miles of a line is enough: the finder's largest adjacency is 2 miles.
+
+## 5. Prospecting layers (resources lane, 2026-10-22)
+
+Owner, verbatim: "Could we also track things like solar irradiance, windspeeds, oil/gas reserves and any other
+aspect that goes into pre-origination (prospecting & feasibility?)". Decision row: `docs/00-PLAN.md`, 2026-10-22,
+"Prospecting layers: resource, constraint and incentive data join the base map and the site finder, screening
+grade only". This lane builds the data and the sampling; the map display and the site finder's use of it are
+later lanes (5.6 is their contract).
+
+**Everything served here is screening grade.** Every value carries `screening: "screening"` and `not`, one plain
+sentence of what the value is not, and `provenance` (`source_id`, `source_url`, `retrieved_at`, `licence`,
+`licence_id`, the dataset's own `vintage`, the credit line and the licence URL). A source whose row in
+`data/sources.yaml` does not allow publication is answered `status: "withheld"` with no value and no credit.
+
+### 5.1 Layers, sources and terms
+
+Terms are quoted in full in `data/sources.yaml` (rows under "M. PROSPECTING LAYERS") and classified in
+`docs/13-legal-data-rights.md` §6; each build re-reads the terms page and stops that source if a quoted clause is
+gone (`pipeline/context/prospect/common.py` `verify_terms`).
+
+| Layer id | What it is | Source (`source_id`) | Terms | Grid or geometry | Vintage |
+|---|---|---|---|---|---|
+| `solar_ghi`, `solar_dni` | Annual average daily global horizontal and direct normal irradiance, kWh/m²/day | NLR (formerly NREL) NSRDB PSM v3 GIS rasters (`us.nrel.nsrdb.psm3_annual`) | NLR data notice: free use and copying with the entire notice in every copy and credit to DOE/NLR/ALLIANCE; `derived_only` (values served with the notice; the raster stays in the private bucket) | 0.04° (about 4 km) | 1998-2016 average (Sengupta et al. 2018) |
+| `wind_speed_100m` | Mean wind speed at 100 m, m/s | Global Wind Atlas v4.0, DTU with the World Bank Group (`global.dtu.global_wind_atlas`) | CC BY 4.0, confirmed on its own Terms of Use; the same Terms forbid automated access to the application, so **a person downloads the file** | 0.0025° (250 m) | GWA 4.0 long-term mean |
+| `oil_gas_basins` | Lower 48 sedimentary basins with shale plays | EIA US Energy Atlas (`us.eia.atlas.sedimentary_basins`) | Public domain (EIA reuse page; acknowledgement with date) | polygons | Feb 2024 |
+| `oil_gas_plays` | Tight oil and shale gas (low-permeability) plays | EIA US Energy Atlas (`us.eia.atlas.shale_plays`) | Public domain | polygons (they overlap: benches stack) | 2021 update |
+| `oil_gas_reserves_state` | The state's proved reserves: crude oil and lease condensate (MMbbl), natural gas wet after lease separation (Bcf) | EIA-23L tables 6 and 8 (`us.eia.proved_reserves`), joined to the vendored Census state polygons | Public domain | state polygons; the full table (states, RRC districts, offshore areas) as `oil_gas_reserves_by_state.csv` | Year-end 2024, released 2026-03-25 |
+| `energy_community_coal_closure` | IRA coal-closure census tracts and the tracts adjoining them | DOE NETL ArcGIS layers (`us.doe.netl.energy_communities`) | Creative Commons Attribution (no version named) with NETL's citation; every value repeats NETL's line that taxpayers may not rely on the data | tract polygons | as of 2024-06-07 |
+| `energy_community_ffe` | Statistical areas (MSA/non-MSA, by county) meeting the fossil-fuel employment threshold; `is_energy_community` where they also meet the unemployment test | same | same | county polygons | as of 2024-05-31 (energy communities) and 2024-06-07 (threshold only) |
+| `protected_lands` | PAD-US fee and designation features; `hard_constraint` = GAP status 1 or 2 | USGS PAD-US 4.1 (`us.usgs.padus`) | Public domain (ScienceBase rights) | polygons, simplified 0.00005° (about 5 m) | revision of 2025-03-31 |
+| `water_stress` | Baseline annual water stress per HydroBASINS level 6 sub-basin: score 0-5, category, label, raw ratio | WRI Aqueduct 4.0 (`global.wri.aqueduct40`) | CC BY 4.0 (WRI's stated standard; the dataset page says "Creative Commons" only) | polygons | 2023 release, baseline 1979-2019 |
+| `seismic_pga_2pct50` | Peak ground acceleration with a 2% chance of exceedance in 50 years, site class BC (Vs30 760 m/s), g | USGS 2023 NSHM, revision CONUS.2023.R2 (`us.usgs.nshm2023`) | CC0 | 0.05° nodes, nearest node served | data release 2026-08-10 |
+
+Not built: **EIA oil and gas field boundaries** (requested; EIA's map pages answer 404, and none of the 130 items
+EIA.gov owns on ArcGIS Online is a field outline: `us.eia.oil_gas_field_boundaries`, `verified: not_found`). Its
+row is `reuse: unknown`, `publication: none` (corrected 2026-10-23 from open/raw-ok): no file was found, so its own
+terms were never read, and EIA said some field shapefiles were held back for the data source's copyright.
+Candidates are USGS assessment units or state agencies, each with its own terms (Texas RRC data is
+`noncommercial`).
+
+The proved-reserves table is the union of EIA's crude oil and natural gas sheets: Pennsylvania (95,135 Bcf, about
+16% of US proved gas at year-end 2024) and New York (124 Bcf) are on the gas sheet only, Nebraska and South Dakota on
+the crude sheet only (fixed 2026-10-23; before, gas-only states were dropped). `row_kind` separates states from
+subdivisions, federal offshore areas, "Other States" and the totals; only states join to a polygon, and the layer's
+provenance names the Census outlines (`geometry_source_id`) beside EIA's values.
+
+### 5.2 What each value is not
+
+The sentence travels with every value (`services/context_sample/catalog.py`):
+
+- Solar: "A satellite-modelled 1998-2016 average over a 4 km cell, not a bankable resource assessment, which needs
+  on-site measurement."
+- Wind: "A modelled long-term mean wind speed on a 250 m grid, not a bankable resource assessment, which needs
+  on-site measurement (a met mast or lidar)."
+- Energy communities: "A screening map of IRA energy-community areas, not tax advice: DOE NETL says taxpayers may
+  not rely on it to substantiate a tax return position."
+- Basins, plays: an outline is not evidence of producible oil or gas at the site, of mineral ownership or of
+  drilling activity. Reserves: a statewide total, not what lies under the site.
+- Protected lands: a national inventory compiled from many managers, not a title or survey record; land outside
+  the polygons can still carry easements.
+- Water stress: a sub-basin index, not a water-rights or supply assessment. Aqueduct scores "Arid and Low Water
+  Use" sub-basins 5 with category -1 (most of West Texas): show the label, not the bare score.
+- Seismic: a probabilistic value for a reference site class, not a site-specific geotechnical or design value.
+
+### 5.3 Build: Texas here, CONUS in GitHub Actions
+
+`python -m pipeline.context.prospect.build --region texas|conus [--sources ...] [--snapshots DIR] [--out-dir DIR]`
+runs one module per source (`pipeline/context/prospect/`: `nrel_nsrdb`, `gwa_wind`, `eia_oil_gas`,
+`eia_reserves`, `netl_energy_communities`, `usgs_padus`, `wri_aqueduct`, `usgs_nshm`) and writes one compact file
+per layer plus `layers.json`, the manifest the sampler reads (file, sha256, bytes, provenance, build summary).
+The manifest is merged, not replaced: a source that fails keeps its previous entry, is listed under `failures`,
+and the command exits 1.
+
+Fetch routes, all through `pipeline.connectors.http.PoliteSession` (the platform User-Agent; robots.txt honoured
+for pages, ArcGIS REST and range reads treated as APIs as elsewhere in the repo): NLR's two GIS zips (140 MB
+each; only the annual raster is extracted); EIA's Atlas feature services and the reserves xlsx (124 KB); NETL's
+ArcGIS server (EDX refuses the platform User-Agent and its robots.txt disallows resource downloads); the PAD-US
+state or national geodatabase from ScienceBase; Aqueduct's 261 MB zip; and for NSHM only the one 10 MB `map.csv`
+member of a 1.9 GB zip, by HTTP range requests (`remote_zip.py`). Raw downloads are working files in a temporary
+directory, deleted as soon as the layer is written.
+
+**Re-measured 2026-10-23: PAD-US and Aqueduct have no permitted automated route today.** ScienceBase's catalogue
+route for the PAD-US zips (`catalog/file/get/<item>?name=...`), which answered the Texas zip on 2026-10-22, now
+answers 404; the item JSON points at its new file manager (`sciencebase.usgs.gov/manager/...`), whose file and
+download links answer a JavaScript application, and the S3 keys it names answer 403. The Aqueduct zip is on
+`files.wri.org`, whose robots.txt is `User-agent: *` / `Disallow: /` (only Twitterbot allowed), so the polite
+session refuses it. Both builders keep their automated route (it will work again if the hosts change) and fail
+that source cleanly when it does not; until then each takes a file a person downloaded, like the wind file below
+(`prospect/inbox/padus/`, `prospect/inbox/wri_aqueduct/`, step 2b of the build script).
+
+**Wind is manual.** No code contacts globalwindatlas.info. A person downloads the United States "Mean wind speed,
+100 m" GeoTIFF from the application in a browser and uploads it to the private bucket at
+`prospect/inbox/global_wind_atlas/<name>.tif`, with an optional `<name>.json` `{"downloaded_at": "<ISO time>"}`
+that becomes the value's `retrieved_at` (otherwise the file's modification time, and the provenance says so). The
+same sidecar works for the PAD-US and Aqueduct zips. `data/sources.yaml` gives the wind row no probe block, so the
+weekly probe never sends an automated request to the application either.
+
+**GitHub Actions** (`.github/workflows/prospect-layers.yml`, monthly on the 3rd and on demand; region `conus` or
+`texas`): installs `requirements.txt` plus pyogrio 0.13.0 and pyproj 3.7.2 (geodatabase reading, build only; each
+pin has a wheel for the job's Python 3.11 -- pyproj 3.8.0 needs 3.12, which is why the first draft's pin could not
+install -- and `test_build_script.py` holds the pins to their Requires-Python) and gdal-bin (only
+`gdal_translate`, which clips the wind file to the region and re-encodes it as tiled Deflate so the pure-Python
+reader never decodes a national LZW file), then runs `infra/scripts/build_prospect_layers.sh`:
+
+1. seed the output with the served build, so a source that fails this month keeps last month's layer; only a 404
+   on the pointer means "nothing served" -- any other error reading it (403, timeout) stops the run before
+   anything is built, so a partial build can never pass the layer-count check against a served count of zero;
+2. take the inbox files; 3. build; 4. check every file against its sha256 and refuse to publish fewer layers
+   than are served;
+5. upload to `prospect/builds/<region>/<build_id>/` in the **private** bucket (`R2_BUCKET`, never the public
+   tiles bucket, because NLR's notice keeps the solar rasters out of public redistribution), then write the
+   pointer `prospect/current/<region>.json` last;
+6. copy the run records to the bucket's `data/runs/`.
+
+The job stops green with a warning until the R2 credentials and bucket exist, as `basemap.yml` does. A source
+failure turns the run red but the pointer still moves when the new manifest holds as many layers as the served one.
+
+**Servers** follow the pointer with `python -m services.context_sample.sync [--region conus]` (environment: the
+`R2_*` names the beta deploy already renders). It downloads a new build into `<PROSPECT_DATA_DIR>/<build_id>/`,
+checks the manifest against the pointer's `manifest_sha256` and every file against the manifest, rewrites the
+file paths, and replaces `layers.json` last; a running sampler reopens when the manifest's mtime changes. It keeps
+the served build and the one it replaced (by role, so a pointer rolled back to an older build is kept) and
+deletes the rest. Wiring the sync into `infra/scripts/deploy.sh` or the scheduler is for the coordinator (open
+item 7).
+
+### 5.4 Formats, and why no GDAL at serving time
+
+The API containers carry numpy and pyarrow, not GDAL or shapely (ADR 0008), so both sides are pure Python:
+
+- **Rasters** are single-band integer COGs written by `pipeline/context/prospect/cog.py`: uint16, 256 × 256
+  tiles, Deflate with predictor 2, overviews halving to one tile, every IFD before the tile data and the smallest
+  overview first, georeferenced by ModelPixelScale/ModelTiepoint with GeoKeys for EPSG:4326, `GDAL_NODATA`, and
+  `GDAL_METADATA` carrying the scale and offset plus the provenance items (NLR's notice and Sengupta et al.'s
+  citation inside the solar files). Stored precision equals the source's: NSRDB 0.001 kWh/m²/day, GWA 0.01 m/s,
+  NSHM 0.0001 g. The build reads sources band by band (`rasters.read_scaled`), so a CONUS wind clip (about
+  23,000 × 10,000 cells) needs about 470 MB, not 1.9 GB per float64 copy.
+- **Polygons** are GeoParquet 1.1 (`geoparquet.py`): WKB MultiPolygon, 6-decimal coordinates, a `bbox` struct
+  column (`xmin`/`ymin`/`xmax`/`ymax`, float64) declared as the bbox covering in the form the specification
+  defines (`"xmin": ["bbox", "xmin"]`, so GDAL 3.9+ and DuckDB can prune with it; the first draft used top-level
+  columns, which the specification does not define), rows sorted along a Z-order curve in row groups of 256 so a
+  query reads one or two groups, then the attribute columns and the five provenance columns on every row (a row
+  may carry its own `source_url`: the statistical-area layer joins two NETL services). The file's metadata also
+  records the layer's **coverage** (`coverage.py`): the region box, or for a source fetched per state (NETL and
+  PAD-US in the Texas build) the states and their outline from the vendored Census file. The writer streams
+  (`write_geoparquet_features`): a national geodatabase never sits in memory as Python coordinates.
+- PAD-US arrives from GDAL's Arrow stream in batches of 2,000, filtered by GDAL to the region box in the layer's
+  own Albers CRS (so a CONUS build never decodes, reprojects or simplifies Alaska, Hawaii or the territories); its
+  curved features (309 of Texas's 11,864 fee features, arcs in park and lake outlines) are re-read through
+  pyogrio's row reader, which linearises them, so none is dropped. Twelve Texas features (under about 5 m across)
+  collapse under simplification and are counted as `dropped_geometry`.
+- `services/context_sample/geotiff.py` reads the COGs and the source rasters (classic and BigTIFF; strips or
+  tiles; none, LZW, Deflate or PackBits; predictors 1-3), checked against four GDAL-written fixtures.
+  `services/context_sample/vectors.py` prunes row groups by the statistics of the columns the file's covering
+  names and runs a vectorised even-odd point-in-polygon test, exact for valid polygons with holes. Every read of a
+  shared Parquet file goes through a per-layer lock: one pyarrow `ParquetFile` read from several threads at once
+  raised `ReadRangeCache did not find matching cache entry`, returned wrong rows, or aborted the interpreter
+  (reviewer's reproduction, 16 threads; the API serves this route from a threadpool). The GeoTIFF reader already
+  held its lock across seek and read.
+
+### 5.5 Sampling
+
+`services/context_sample` (`sample`, `sample_line`, `SITE_FINDER_LAYERS`):
+
+- **At a point**: a raster's cell value (`value`, rounded to the source's precision; `no_data` outside coverage);
+  a polygon layer's containing features (`inside`, `features` with the layer's fields, up to 10), plus
+  `hard_constraint` on protected lands and `qualifies` on the statistical-area layer. A polygon layer answers
+  `no_data` (with `coverage` and a reason), not `inside: false`, at a point outside the area it was built for:
+  in the Texas build, PAD-US and NETL in New Mexico.
+- **Along a corridor**: the buffer around a GeoJSON LineString or MultiLineString (or a list of `[lon, lat]`) is
+  covered by a square lattice in an equal-area (sinusoidal) plane per group of nearby parts, and each lattice
+  point is kept by its distance from the line measured in a plane centred on the nearest piece of it (pieces about
+  two buffers long), so the band is the true buffer at any length, direction or latitude (measured: within 0.05%
+  of the buffer's distance at 2 and 10 miles on 210-mile diagonal lines at 26-28.5 N and 47-49.4 N; the previous
+  single equirectangular plane was about 1.6% off at the ends of a 250-mile north-south line). Far-apart parts
+  of a MultiLineString are laid out separately, and the work follows the band's area, not its bounding box, so the
+  automatic spacing is never refused. The spacing aims for about 1,500 points but is never coarser than a sixth of
+  the band's width (a long narrow corridor gets more points rather than a band one or two cells wide) and never
+  under 30 m. A polygon layer's `share` is the share of points inside any feature (an estimate of the share of the
+  buffer's area, error falling with spacing), with each feature's own `share`, and `coverage_share`, the share of
+  points inside the area the layer was built for: below 1 the status is `partial` and the shares are lower bounds;
+  at 0 it is `no_data`. A raster's `summary` is `mean`, `min`, `max`, `p10`, `p90` and `coverage_share` over the
+  points with data. The answer states its point count and spacing (`method`). Limits: buffer at most 10 miles, line
+  at most 250 miles and 5,000 vertices, at most 400,000 candidate cells (a caller-chosen `spacing_m` finer than
+  that is refused with the smallest that fits; the automatic spacing coarsens itself instead).
+- **Energy community, combined**: `energy_community` in both answers takes the two NETL layers together: at a
+  point `qualifies` (a coal-closure tract or adjoining tract, or a statistical area that is an energy community
+  in the list's year); along a corridor `share`, each lattice point counted once. Every area in the
+  statistical-area layer meets the employment threshold; only `is_energy_community` areas qualify
+  (`qualifying_share`), so the statistical-area layer's own `share` is not the incentive answer. The block names
+  its `source_id` and, per layer used, the build's `vintage` and the dataset's own `dataset_as_of`
+  (2024-06-07 and 2024-05-31 in the layers NETL serves), because Treasury revises the statistical-area list every
+  year: in October 2026 the 2024 list is not the one that applies to a project placed in service now, and NETL's
+  ArcGIS server still has only the 2024 layers (its `EAT_Online_2025_Update` layer 19 is dataset version
+  2023.2, per the review of 2026-10-23). `status: "partial"` when only one layer could be served or a corridor is
+  only partly covered (a lower bound).
+- **Threads**: a `Sampler` is safe to share. The API serves the point route from FastAPI's threadpool, and the
+  site finder may call `sample_line` from several threads; Parquet reads are serialised per layer, GeoTIFF reads
+  per file, and decoded row groups and tiles are cached per process.
+
+### 5.6 Contract for the site finder
+
+Per corridor segment (a band along a line at the finder's buffer, 0.25-2 miles), call in process:
+
+```python
+from services.context_sample import SITE_FINDER_LAYERS, sample_line
+
+result = sample_line(segment, buffer_mi, layers=list(SITE_FINDER_LAYERS))
+```
+
+`segment` is the segment's GeoJSON LineString (EPSG:4326). Keep segments at or under about 25 miles: the lattice
+aims for about 1,500 points (more for a narrow band), so a longer segment is sampled more coarsely. One `Sampler`
+may be shared across the finder's threads. Read, per segment:
+
+| Purpose | Field | Use |
+|---|---|---|
+| Hard constraint | layer `protected_lands`: `hard_constraint_share` | share of the band on GAP 1-2 land; exclude or shrink the band; `features[].unit_name`, `manager`, `gap_status` to name it |
+| Protected land of any kind | `protected_lands`: `share` | a fact, not an exclusion (GAP 3-4 is multiple-use land) |
+| IRA bonus | top-level `energy_community`: `share`, `status`, `dataset_as_of` | "x% of the band is in an energy community (NETL data as of <the latest date in `dataset_as_of`, one per layer>; not tax advice)": render the dates from the answer, never a fixed year; `status: partial` means a lower bound |
+| Coverage | every polygon layer: `coverage_share`, `status` | `partial` (part of the band is outside the area the layer was built for) means the shares are lower bounds: say "no data for x% of the band", never 0% |
+| Solar resource | `solar_ghi`: `summary.mean` (and `min`/`max`) | kWh/m²/day |
+| Wind resource | `wind_speed_100m`: `summary.mean` | m/s; `unavailable` until the manual file is uploaded |
+| Water | `water_stress`: `features[0].label` (largest share first), `features[0].share` | show the label |
+| Seismic | `seismic_pga_2pct50`: `summary.max` | g |
+| Subsurface | `oil_gas_plays`: `share`, `features[].name`; `oil_gas_basins`: `features[0].name` | context, not a constraint |
+| Every layer | `status`, `not`, `provenance`, `screening` | use a value when `status` is `ok`, or `partial` as a lower bound; show `not` beside it; credit each `provenance.source_id` (the API's `licence_summary` shows the shape) |
+
+Never treat `withheld`, `unavailable` or `no_data` as zero. `solar_dni` and `oil_gas_reserves_state` are left out
+of `SITE_FINDER_LAYERS` (DNI matters only for concentrating solar; reserves are statewide); ask for them by id
+when needed. Measured cost on Texas (5.8): 12-317 ms per segment the first time its area is read, 10-56 ms warm,
+so a corridor search that samples a few hundred segments takes seconds; the sampler caches decoded tiles and row
+groups per process.
+
+### 5.7 API
+
+`GET /v1/context/sample?lat=&lon=[&layers=]` (`services/api/context_sample.py`, `api/openapi.yaml`
+`getContextSample`, public tier, no database) returns `sample(lon, lat)` inside the attribution envelope, with
+`layers_built` and a `licence_summary` crediting each source that supplied a value. Unknown layer ids, missing or
+out-of-range coordinates and unknown parameters are 400. Corridors are not on the API; the site finder samples
+them in process.
+
+### 5.8 Measured on Texas (re-measured 2026-10-23 after the review fixes; this sandbox, 4 shared cores)
+
+Build, 2026-10-23: EIA basins and plays, reserves, NETL and NSHM rebuilt live with the current code (terms pages
+re-read) in 39 s: EIA 5.4 s, reserves 3.2 s, NETL 10.6 s, NSHM 4.6 s. PAD-US and Aqueduct could not be fetched
+(5.3: ScienceBase 404, files.wri.org robots), so their 2026-10-22 Texas outputs (built by the same builders from the
+real inputs) were rewritten row for row in the current GeoParquet layout with their coverage, and the two NSRDB
+COGs (format unchanged) were carried over. The 2026-10-22 build of every layer except wind took 85 s from local
+copies of the NSRDB, PAD-US and Aqueduct inputs: NSRDB 2.4 s for both layers, Aqueduct 21 s, PAD-US 38 s (11,864
+fee and 80 designation features). The national PAD-US geodatabase is several times larger (1.52 GB zipped against
+Texas's 261 MB); the workflow allows 180 minutes.
+
+Values (`sample`, all layers; places approximate), unchanged by the fixes:
+
+| Place | GHI / DNI kWh/m²/day | Basin; plays | Energy community | Protected | Water stress | PGA 2%/50 yr |
+|---|---|---|---|---|---|---|
+| West Texas solar, Pecos County near Fort Stockton (-102.95, 30.95) | 5.81 / 7.13 | Permian; Wolfcamp | no (West Texas nonmetro area meets the FFE threshold only) | no | Arid and Low Water Use | 0.084 g |
+| Panhandle wind, Oldham County near Wildorado (-102.20, 35.21) | 5.45 / 6.89 | none | no (Amarillo MSA, FFE threshold only) | no | Extremely High (>80%) | 0.152 g |
+| Permian, Midland (-102.078, 31.997) | 5.64 / 6.89 | Permian; Spraberry, Wolfcamp - Midland | no (Midland MSA, FFE only) | no | Extremely High (>80%) | 0.048 g |
+| Gulf Coast, Port Arthur (-93.94, 29.885) | 4.90 / 4.94 | Western Gulf; none | **yes** (Beaumont-Port Arthur MSA) | no | Low - Medium (10-20%) | 0.051 g |
+| Austin, Texas Capitol (-97.7404, 30.2747) | 4.99 / 5.26 | Western Gulf; none | no (Austin-Round Rock MSA, FFE only) | no | Medium - High (20-40%) | 0.036 g |
+
+Every point: Texas proved reserves 19,644 MMbbl crude and lease condensate, 138,670 Bcf wet gas (year-end 2024);
+`energy_community` names `us.doe.netl.energy_communities` and `dataset_as_of` 2024-06-07 (coal closure) and
+2024-05-31 (statistical areas); the four FFE-threshold-only areas carry their own service's `source_url`; wind
+`unavailable` (no Global Wind Atlas file yet). Hobbs, New Mexico (-103.14, 32.70), inside the Texas box: basins,
+plays, reserves and water answer; PAD-US and both NETL layers answer `no_data` (outside Texas), and
+`energy_community` is `unavailable`, not "no". The reserves table has 51 rows, Pennsylvania's among them (95,135
+Bcf, `row_kind: state`, "no row on the crude oil sheet"). Checks: the seismic values equal the nearest nodes of
+USGS's `map.csv` (0.1516, 0.0838, 0.0480, 0.0363 g); the clip's maximum, 0.712 g, is at (-98.40, 34.75), the Meers
+fault in south-west Oklahoma inside the Texas bounding box. The Pecos GHI equals the NSRDB raster's 5.808.
+
+Timing: first point in a new process 1.3 s (most of it parsing `data/sources.yaml` once and opening files; 3.6 s
+on 2026-10-22 under heavier load); warm, all layers, median 2.7 ms, p95 11 ms (200 points). A point answer is
+about 19 KB of JSON (NLR's notice is 2.4 KB of it, twice). Threads: the reviewer's reproduction on this build
+(5 trials of 16 threads sampling 400 random Texas points from one fresh `Sampler`) gave 0 answers different from a
+single thread's. Corridors with the 9 site-finder layers (first call in a fresh sampler at 0.25 mi / warm):
+
+| Corridor | 0.25 mi buffer | 1 mi | 2 mi | Result at 1 mi |
+|---|---|---|---|---|
+| Pecos County, 20 mi east-west | 1,470 pts; 290 / 15 ms | 1,510; 12 / 10 ms | 1,478; 12 / 11 ms | GHI 5.81; plays 77%; protected 0% |
+| Big Bend, 25 mi | 1,724; 235 / 43 ms | 1,502; 45 / 39 ms | 1,501; 87 / 46 ms | GAP 1-2 protected 100% (Big Bend National Park) |
+| Panhandle, 30 mi, bent | 2,699; 151 / 26 ms | 1,500; 30 / 12 ms | 1,499; 16 / 12 ms | basin 25%; PGA 0.149 g |
+| Houston Ship Channel, 10 mi | 1,493; 317 / 24 ms | 1,502; 69 / 25 ms | 1,500; 29 / 25 ms | protected 0.1% (3.0% at 2 mi); energy community 100% |
+| Permian, 50 mi diagonal | 3,947; 309 / 56 ms | 1,503; 42 / 29 ms | 1,501; 32 / 21 ms | plays 72%; protected 6% |
+| Pecos River into New Mexico, 25 mi north-south | 1,772; 135 / 28 ms | 1,527; 41 / 23 ms | 1,516; 26 / 27 ms | PAD-US and NETL `partial`, `coverage_share` 0.56; energy community `partial` |
+
+The 0.25-mile Panhandle and Permian bands hold 2,699 and 3,947 points because the spacing is capped at a sixth of
+the band's width (134 m). Output sizes, Texas: protected lands 7.3 MB, NETL statistical areas 2.4 MB and coal tracts
+0.99 MB, Aqueduct 1.0 MB, plays 94 KB, basins 61 KB, reserves 30 KB plus the 18 KB table, DNI 72 KB, GHI 51 KB, PGA
+42 KB, manifest 28 KB: 12.2 MB in all (the bbox struct and the coverage outline add under 1%). Raw inputs on this
+machine on 2026-10-22: 708 MB of extracted files (the two NSRDB annual rasters, the Texas PAD-US and the global
+Aqueduct geodatabases; each zip deleted on extraction), deleted once the clips were written; on 2026-10-23 only the
+124 KB reserves workbook (deleted) and the 10 MB NSHM range reads.
+
+### 5.9 Priority 3: wetlands, land cover and slope (design and Actions steps only)
+
+Terms read 2026-10-22: Annual NLCD is CC0 (ScienceBase rights) and 3DEP is "free of charge and without use
+restrictions" (USGS); both rows are open, and nothing is served until a layer is in the catalogue. NWI's pages
+carry limitations but no licence statement, so `us.usfws.nwi` stays `unknown` (nothing published) until one is
+quoted. All three build only in Actions; nothing national is downloaded on a development machine.
+
+**Status (2026-10-23): design only.** No workflow step builds these yet: the GDAL commands below have not run
+anywhere (this machine has no GDAL command-line tools), and an untested job that publishes nothing would only
+look finished. The inputs are confirmed, so the next lane starts from known files: Annual NLCD Collection 1.2
+land cover is ScienceBase item `697b9279b66b0197c3043cc3` ("Conterminous United States Collection 1.2 Land
+Cover"), latest year `Annual_NLCD_LndCov_2025_CU_C1V2.zip` (1,457,983,950 bytes; listed 2026-10-23), which
+has the same ScienceBase download problem as PAD-US (5.3) and so arrives through the inbox; the 3DEP 1
+arc-second tiles are public objects such as
+`https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/TIFF/current/n31w104/USGS_1_n31w104.tif`
+(HEAD answered 200, 2026-10-23), readable by `/vsicurl/` range requests without a full download. NWI is not
+fetched at all while its row is `unknown`.
+
+- **Wetlands (`us.usfws.nwi`)**: per-state file geodatabases from FWS (the national file is too large for one
+  runner). A matrix job per state streams the wetlands polygons with pyogrio (as PAD-US), keeps `WETLAND_TYPE` and
+  the Cowardin `ATTRIBUTE`, simplifies to about 5 m and writes one GeoParquet per state; the manifest lists the
+  state files with their bboxes and the sampler gains a multi-file polygon layer that opens only the parts a query
+  touches. Sampled like PAD-US: `inside` and the wetland type at a point; `share` of the band and the share per
+  wetland type along a corridor. Not-sentence: "A wetland mapped from aerial imagery on a biological definition,
+  not a jurisdictional delineation under the Clean Water Act."
+- **Land cover (`us.mrlc.nlcd`)**: the latest Annual NLCD land cover year (30 m, Albers). In Actions,
+  `gdalwarp -t_srs EPSG:4326 -tr 0.0009 0.0009 -r mode` (about 90 m) straight to a tiled Deflate COG
+  (`-of COG -co BLOCKSIZE=256`), then the provenance items with `gdal_edit.py -mo`; at CONUS size GDAL writes the
+  COG, not `cog.py` (a 90 m grid is about 2.3 billion cells), and `geotiff.py` already reads GDAL's COG and BigTIFF
+  output tile by tile. Sampled as a class code mapped to its NLCD legend at a point, and the share of the band per
+  class group (developed, water, wetland, forest, shrub and grass, agriculture, barren) along a corridor.
+  Not-sentence: "A 30 m satellite classification for one year, not a survey of current land use or zoning."
+- **Slope (`us.usgs.3dep_slope`)**: the 1 arc-second DEM tiles from The National Map's staged products (one
+  1° × 1° GeoTIFF each, read by `/vsicurl/` range requests). A matrix job per latitude band warps each tile to its
+  UTM zone at 30 m, runs `gdaldem slope -p` (percent), aggregates to 90 m (`-r average` for the mean and a second
+  band from `-r max`), warps back to EPSG:4326 at 0.0009° and writes a band COG; a final job mosaics the bands
+  (`gdalbuildvrt` + `gdal_translate -of COG`) and stores percent slope as uint16 at 0.01%. Sampled as the value at
+  a point; along a corridor the mean, p90 and the shares of the band above 5% and 10% (the usual solar and
+  large-load grading thresholds). Not-sentence: "A slope computed from a 30 m elevation model and averaged to
+  90 m, not a site grading survey."
+
+### 5.10 Test fixtures (offline; `pipeline/context/prospect/fixtures/`, `services/context_sample/fixtures/`)
+
+All small (113 KB in all) and recorded from the real sources except where marked: NSRDB GHI and DNI excerpts
+around Pecos County, rewritten by GDAL in the source's own layout (float64, uncompressed strips, nodata 0); EIA
+basin and play and NETL pages recorded from the services with server-side generalisation and trimmed to a few
+features; sheets 6 and 8 of the real reserves workbook trimmed to a dozen areas, plus the real gas-only
+Pennsylvania row and crude-only Nebraska row (added 2026-10-23, so the union of the two sheets is tested); PAD-US and Aqueduct features read
+from the Texas and global geodatabases, simplified and written as GeoJSON; 99 rows of the real NSHM `map.csv`. The **wind fixture is synthetic**: a GDAL-written float32 LZW grid on the Global Wind Atlas lattice near
+Amarillo (value = 5 + col × 0.01 + row × 0.1 m/s), because no Global Wind Atlas file was downloaded. The four
+reader fixtures are one 37 × 23 grid written by GDAL 3.12.2 through rasterio with `compress=LZW` (strips),
+`compress=DEFLATE, predictor=3, tiled, 16 × 16`, `driver=COG, compress=LZW, predictor=2, blocksize=16` (int16 with
+scale 0.01) and `compress=PACKBITS, BIGTIFF=YES`. `pipeline/context/prospect/test_build_script.py` runs
+`infra/scripts/build_prospect_layers.sh` end to end against a fake `aws` and then syncs and samples the result.
+
+### 5.11 Limits and open items
+
+1. **Wind is unmeasured.** The owner (or someone they name) downloads the Global Wind Atlas United States mean wind
+   speed at 100 m GeoTIFF in a browser and uploads it with its `.json` download date to
+   `prospect/inbox/global_wind_atlas/`; the next Actions run builds it. The Terms were read from the application
+   bundle that renders the Terms page (it is client-rendered); a person should confirm the CC BY 4.0 clause on the
+   rendered page at the same time. NLR's WIND Toolkit is the US alternative the plan names; not built.
+2. **Solar rasters stay private** (`derived_only`): the map lane must not hand out the COG URL or tiles of it; a
+   map layer of irradiance needs a derived product (classed areas, or server-rendered tiles carrying the notice),
+   which is a question for the map lane and the legal lane.
+3. **Energy communities are the 2024 layers**, the latest on NETL's ArcGIS server, and in October 2026 the
+   2024 statistical-area list is not the one that applies to a project placed in service now. Whether a 2025 or
+   2026 update is on EDX is a browser check (EDX refuses automated access). The dataset's own date shows on
+   every value and in the combined `energy_community` block (`dataset_as_of`), and the finder renders it.
+4. Aqueduct's licence version is inferred from WRI's standard; NETL's names no CC version (docs/13 §6 rows).
+5. Field boundaries: not available from EIA (5.1).
+6. The NSRDB vintage is 1998-2016; a newer NSRDB summary with GIS files would replace it when NLR publishes one.
+7. **Serving needs the sync wired**: `python -m services.context_sample.sync` in `infra/scripts/deploy.sh` (after
+   the containers start) or as a scheduler job, and `PROSPECT_DATA_DIR` on a volume. Not in this lane's paths.
+8. No OpenStreetMap data is used by these layers; the "© OpenStreetMap contributors" rule applies to the map and
+   site-finder lanes that draw lines and substations under them.
+9. The national builds are designed and tested end to end against a fake bucket, but have not yet run in Actions:
+   the first run's timings and sizes belong in 5.8.
+10. **PAD-US and Aqueduct need a person's download** until ScienceBase's catalogue route returns or WRI's file
+    host allows automated access (5.3): upload the Texas or national PAD-US zip to `prospect/inbox/padus/` and
+    the Aqueduct zip to `prospect/inbox/wri_aqueduct/`, each with its `.json` download date. Without them the
+    CONUS run reports both sources as failed and serves neither layer.
+11. **Solar values at any point** (docs/13 §6 row): `derived_only` withholds the raster, but the point route
+    returns a cell's value anywhere, which a client could repeat across the grid. It fits NLR's notice (copying
+    with the notice) and is rate-limited, but it is looser than the class name; the legal lane confirms the
+    reading or moves the row to raw-ok with the notice.
+12. **Coverage outlines** are Census's 1:20,000,000 state shapes: within about a kilometre of a state line a
+    point a state-filtered layer does cover can read `no_data` (never the reverse: a point inside one of the
+    layer's own polygons always counts as covered). The CONUS build's coverage is the region box, so a point
+    in Canada or Mexico inside that box reads as covered with no polygon (not protected, not an energy
+    community); a states outline for CONUS (the 48 states and DC from the same vendored file) would close that
+    if the finder ever samples near the borders.
+
+## 7. Site finder (lane site-finder, 2026-10-23)
+
+Owner decision 2026-10-22 (`docs/00-PLAN.md`): find land within a chosen distance of a 69 kV-or-higher line, near
+a substation, out of the floodplain. Code: `services/site_finder/` (job), `services/api/site_finder.py` (API),
+`web/site_finder.py` (page).
+
+**Method.** Every OpenStreetMap power line (`us.osm.power`) of 69 kV and up, and every line that states no
+voltage (flagged, shown only on request), is cut into `max(1, round(length / 0.5 mi))` equal segments per part.
+Per segment the job stores (`site_candidate`, one row per segment per run, migration 0039): the nearest OSM
+substation within 10 miles and its distance to the segment; the share of the segment's band in FEMA's 1%
+annual-chance floodplain at 0.25, 0.5, 1 and 2 miles, with the share of each band FEMA's digital maps cover; the
+county of the segment's midpoint (Census TIGER/Line 2026, `us.census.tiger_counties`; the vendored cartographic
+boundary file when the TIGER file is not built); within 5 miles, retired and retiring plants (EIA-860M, MW and
+owners), data-centre and large-load requests, the queue requests that name a grid connection point, and county
+fiber availability; and the prospecting layers over the 1-mile band (§5 above, `sample_line`). A run replaces the
+previous run's rows only when it finishes; the scheduler defers it after each context load
+(`site_finder_refresh`, queue `resolve`, lock `site_finder`).
+
+**Criteria and bands.** A segment passes when its line meets the voltage floor, its nearest substation is within
+the distance chosen (1 to 10 miles), and, with the floodplain left out (the default), FEMA's digital maps cover its
+whole band (cover >= 0.999) and at most 90% of the band is floodplain. Adjacent passing segments of one line part
+form one band. The band's outline is its centreline buffered by the distance chosen, less the floodplain (cut on
+request from the per-state SFHA GeoParquet; where the API server does not hold the flood files the outline is the
+plain buffer and says so). "Leave out bands mostly on protected land" drops segments whose 1-mile band is more than
+half GAP 1-2 land (PAD-US).
+
+**Texas, measured 2026-10-23** (development store: Geofabrik Texas extract, FEMA NFHL for Texas, TIGER counties,
+prospect build `tx2`): 21,233 lines, 55,243 line-miles, 120,699 segments (4,496 voltage not stated) in 1,966 s
+(peak 1.2 GB). At the 1-mile band: 8,953 segments outside the floodplain, 68,733 partly in, 43,013 without flood
+data, of which 40,755 (19,117 miles) are in areas with no effective digital FEMA map. At the defaults (69 kV,
+1 mile, substation within 5 miles, floodplain out): **15,188 bands along 30,816 miles of line**; 15,362 miles that
+meet the other criteria are left out for want of a flood map and counted on the page. On SQLite, warm, a page of
+25 bands answers in 0.3-0.5 s, one band by id in about 0.04 s, the state-wide map view (2,000 longest of 15,188
+bands) in 0.5 s.
+
+**Texas, re-measured after the fix round (2026-10-23)**, same store, run recomputed with the stored vertices and
+per-request entries: the same 120,699 segments in 2,051 s (peak 1.2 GB; the flood files read once, one layer
+built), the same 15,188 bands along 30,816 miles at the defaults. The default sort now leads with the longest
+500 kV bands (15.5, 13.0 and 7.6 miles) instead of switchyard stubs. On SQLite, in process: the first request after
+a run 5.5 s (the store-wide window query and facets, once per run and criteria but the voltage floor; a new floor
+afterwards 0.7 s), a warm page of 25 bands 0.45-0.8 s with outlines and 0.57 s without (the page's list), sorted
+by substation 0.25 s, one county 0.24 s, one band by id 0.06 s, the state-wide map 0.46 s, an Austin view 0.11 s.
+Of the first 1,000 bands by substation distance with the floodplain in, 175 name a grid connection point, every
+one from requests within 5 miles (at most 2 counted).
+
+**Requests at the caller's tier (fix round, 2026-10-23).** Nothing derived from a proposal is stored but its id
+and its distance: a segment keeps each large-load request within 5 miles as (proposal, miles) and each queue request
+naming a grid connection point as (proposal, point, miles), whatever their visibility. The API keeps a request only
+when the caller's tier may see it (`proposal_visibility_filter`: published, out of the free tier's delay, from a
+source the tier may read) and may be served its exact location (`location_exact_permitted`, the nearby-proposals
+rule), and takes the point's nearest distance, queued MW and count from those survivors only. Before this, a
+point kept public by one request 200 miles away showed the distance of a hidden request a mile from the band, and
+the far request's MW as if it were nearby. A band's retiring MW is the sum over the distinct visible plants near
+any of its segments, the figure shown and sorted on alike. Bands are drawn from the vertices the run stored, so a
+context load that moves a line cannot misplace a band the run measured.
+
+**Not what it is.** A screening list, not a site assessment: it cannot see spare substation capacity, zoning,
+ownership, easements or water rights, and the floodplain shares are not a flood determination (§5). Every value
+the API serves carries its source quartet; a value whose source the register gates is withheld, never estimated.
+
 ## Assumptions
+
+- Site finder (§7): half-mile segments, a 10-mile substation search and a 5-mile context radius are the owner's
+  2026-10-22 brief turned into fixed numbers; a band is "outside the floodplain" only where FEMA's digital maps
+  cover all of it (0.999) and at most 90% of it is SFHA, so a band beside a mapped river still passes with the
+  floodplain cut out. Where FEMA has no effective digital map (about a third of Texas line-miles), the finder
+  leaves the band out by default rather than guess.
 
 - A queue's point-of-interconnection text names a substation or bus, sometimes with a bus number and voltage
   ("59903 Bearkat 345kV"), sometimes a line tap ("Cortland - Fenner 115kV"). A line tap has no single

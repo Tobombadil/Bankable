@@ -32,7 +32,14 @@ VARIABLES = {
     "SITE_ACCESS_USER",
     "SENDER_POSTAL_ADDRESS",
 }
-OPTIONAL_VARIABLES = {"SENDER_LEGAL_NAME", "PRODUCT_CONTACT_EMAIL", "PRODUCT_NAME", "SITE_ACCESS"}
+#: MY_PIPELINE (lane tracker, 2026-10-23): `on` opens the private Tracker; unset or `off` keeps it 404.
+OPTIONAL_VARIABLES = {
+    "SENDER_LEGAL_NAME",
+    "PRODUCT_CONTACT_EMAIL",
+    "PRODUCT_NAME",
+    "SITE_ACCESS",
+    "MY_PIPELINE",
+}
 #: The ERCOT Public API account (lane price-hubs, 2026-10-22): optional, all three or none.
 OPTIONAL_SECRETS = {"ERCOT_API_SUBSCRIPTION_KEY", "ERCOT_API_USERNAME", "ERCOT_API_PASSWORD"}
 PINNED = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")

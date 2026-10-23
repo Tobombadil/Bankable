@@ -1,6 +1,9 @@
 # Build a deal: private projects on Inframation's graph
 
-Status: **specification, 2026-10-22. Nothing here is built.**
+Status: **specification, 2026-10-22; amended 2026-10-23 to what is built.** Lanes P0 (logs), P1 (data and
+authorisation core) and P2 (API) are built, and the Tracker (lane tracker: the P3 pages with the item types of
+the decision row of 2026-10-23, "My pipeline is one central tracker") is built behind the `MY_PIPELINE` switch
+(§11). P4 to P6 are not.
 
 - **The decision behind it:** the row of 2026-10-22 in `docs/00-PLAN.md`, "'Build a deal' is built natively in
   Inframation; bankablehq is the reference design, not an integration target". The ADR is
@@ -9,6 +12,11 @@ Status: **specification, 2026-10-22. Nothing here is built.**
   mapping, §4 for the securities flag).
 
 The thinnest useful version comes first (§2). Everything else is named and deferred (§3).
+
+**Amended 2026-10-23 (the Tracker, §11).** A private project is now one **item** of the user's tracker: a
+**project**, a **bid** or an **investment**, each with its own stages. "Track" replaces "Start a deal" on record
+pages; the pages live at `/my` and `/my/items/{id}` (docs/30 §11.10), not `/my/projects…`. Where §1 to §8 say
+"project" or "deal" for the private record, read "item"; §11 states what changed and what was built.
 
 **Fit with what exists.** The spec is written against Inframation's code as it is:
 
@@ -59,7 +67,8 @@ The records follow the `docs/30` §2.6 table. The prefill obeys the licence rule
 A project is title, technology, capacity (MW, plus MWh for storage), a stage the user sets, and a map point.
 
 - **Stages** (user-set, never inferred and never shown publicly): Prospecting, Site control, Development
-  (interconnection and permits), Ready to build, Construction, Operating.
+  (interconnection and permits), Ready to build, Construction, Operating. These are a project's; a bid and an
+  investment have their own (§11.1).
 - **Technology** uses Inframation's classes (`pipeline/normalize.py`), so a project and its linked records speak
   one vocabulary.
 - **The map point** is a latitude and longitude with a precision:
@@ -566,6 +575,9 @@ once the export writes an `exported` activity row, consider making it a `POST`, 
 
 ### 6.2 Pages (`web/my_projects.py`; templates in `web/templates/my/`; `web/static/css/my.css`)
 
+**Superseded in part, 2026-10-23:** the pages were built as the Tracker (§11.4), under docs/30 §11's URLs and
+words. The design rules below stand; "Start a deal" became "Track".
+
 **Design rules.** Average user first, phone first at 360px:
 
 - plain forms, no JavaScript needed for any core step;
@@ -711,3 +723,147 @@ member". Questions 5 to 7 stay open; the v1 limits in 6 stand as defaults until 
 | B4 | The site finder may or may not give corridors stable ids; §4.2 covers both | PLAN row 2026-10-22 (the finder); the lane has not landed |
 | B5 | v1 private data is small (tens of projects per user), so resolving links live on each view costs a few in-process reads | Measure on the beta; cap of 50 links per project |
 | B6 | The generic checklist item names are industry terms, not Bankable's proprietary content | They are the standard project-finance document names; the decision row keeps "detailed template content" private, not the names |
+| B7 | The bid pack's eight names are the generic steps of any utility RFP or public solicitation, not a product's content | Registration, bid fee, site control, interconnection, pricing, credit support, forms and submission are what solicitations themselves ask for (§11.1) |
+| B8 | Browsers send `Sec-Fetch-Site` with form posts (Chromium, Firefox and Safari 16.4+), so a form posted under `no-referrer` can still be checked as same-origin | Measured in Chromium on 2026-10-23 (§11.4); an older browser without it is refused, not let through |
+
+## 11. The Tracker, as built (lane tracker, 2026-10-23)
+
+The decision rows of 2026-10-23 ("My pipeline is one central tracker", "Navigation v2", "Inframation serves the
+owner's own powered-land deals first") and docs/30 §11.4, §11.5 and §11.9.4, built on P1 and P2. Everything
+stays behind `MY_PIPELINE=on`: pages and API alike answer `404` until then. The pages' `404` is the one an
+unknown address gets, byte for byte, and `robots.txt` names `/my` only while the switch is on, so a crawler or
+visitor learns nothing about the pages before launch. The API's paths are in the published contract anyway.
+
+**Turning it on.** On the one-server beta the owner sets the GitHub Environment variable `MY_PIPELINE` to `on`
+(a variable, not a secret: it is not a credential) and runs `deploy-beta` with `deploy`. `infra/ci/beta.py`
+writes `MY_PIPELINE=on` into the env file only for exactly `on` (any case); unset, `off` or anything else
+renders `off`, and the inputs check refuses a value other than `on` or `off`. A SOPS-file deploy sets
+`MY_PIPELINE: "on"` in its secrets file (`infra/sops/secrets.example.plain.yaml`); a local Compose run sets it in
+`infra/compose/.env`. Editing the beta host's `.env` by hand does not last: every deploy rewrites it.
+
+### 11.1 Item types and stages (migration `0042_tracker_kinds`, after 0041)
+
+| Kind | Stages, in order | Closed stages (no next deadline) | Checklist |
+|---|---|---|---|
+| `project` | prospecting, site_control, development, ready_to_build, construction, operating (§2.1, unchanged) | none | the bankability pack (§2.3) |
+| `bid` | considering, preparing, submitted, shortlisted, won, lost, withdrawn | won, lost, withdrawn | the bid pack, `data/checklist/bid-v1.yaml` |
+| `investment` | screening, diligence, term_sheet, committed, closed, passed | closed, passed | the bankability pack |
+
+- **`private_project`** gains `kind` (text NOT NULL, default `project`, so every earlier row is a project), one
+  CHECK tying the stage to its kind's vocabulary (`stage_for_kind`, in place of 0040's `stage_vocab`),
+  `parent_project_id` (a bid's project: uuid NULL, foreign key to `private_project` ON DELETE SET NULL, CHECKs
+  `parent_bid_only` and `parent_not_self`) and `submitted_on` (date NULL, bids only).
+- **`private_project_member`** gains the member's own view of the item: `last_viewed_at` (timestamptz NULL) and
+  `email_changes` (boolean NOT NULL default false).
+- **The kind is set at creation and never changes.** A bid's checklist is another pack, and only a project may
+  have bids attached; an edit naming `kind` is a `400` that says so. Changing type means a new item.
+- **A bid attaches to one of the user's own projects they can edit** (owner or editor, not archived), checked
+  through the same authorisation function; any other id (unknown, someone else's, read-only, archived) is the
+  same `400`, so the field is no oracle. One project may have many bids. Deleting the project leaves its bids
+  standing alone. The details form never sends the bid's project (a collaborator who cannot see that project
+  would detach it by saving); the bid card has its own "Attach to" form. That form names the project only to a
+  member of it; anyone else reads "None of your projects", which is true whether or not one is attached. The
+  form's preselected first choice writes nothing (the project's own name for a member of it, "Leave it as it
+  is" for anyone else), so saving it unchanged neither detaches a project the viewer cannot see nor re-sends
+  one since archived, which the API would refuse. Detaching is its own choice ("None: it stands alone").
+- **The vocabulary lives in `services/projects/kinds.py`**; the migration freezes its own copy and
+  `services/projects/test_migration.py` pins the two equal. The pages read it from `GET /v1/my/kinds`.
+- **Downgrade** drops the columns and constraints and restores `stage_vocab`, and refuses while any bid or
+  investment exists (0020's precedent: a schema rollback must not delete a user's items or turn a bid into a
+  project). Before launch there are none; after, back up first.
+
+**The bid pack** (`bid-v1`, the bankability pack's schema, names only, pillar by folder): notice of intent or
+registration; bid fee or deposit; site control evidence; interconnection status; pricing; credit support;
+required forms; submission confirmation. Its keys start `bid_` and share none with the bankability pack, so a
+private content pack (whose keys must be bankability keys) cannot replace them, and `bid-v1` is a reserved pack
+name like `generic-v1`. No public-record evidence rule attaches to a bid item yet.
+
+### 11.2 The tracker's two live columns (`services/api/my_projects.py::TrackerColumns`)
+
+- **Next deadline.** The soonest `due_at`, today or later, of a linked RFP or funding notice, read through the
+  gated serialiser (`gated_record`) at the viewer's tier and following merges; `null` when there is none the
+  viewer can see, or the item's stage is closed. A project also takes the soonest deadline of its open,
+  unarchived bids that the viewer is a member of (`via_bid`), so the list and the project's own page agree. A
+  past due date is not a next deadline.
+- **Changed since your last visit.** True when a linked proposal, notice or plant has a public change event,
+  visible at the viewer's tier through the predicate the feeds use (`event_visibility_filter`;
+  `asset_event_visibility_filter` for plants), that became visible after the member last opened the item (or
+  joined it, before any visit). The badge gives the reason that asks most of the user: `deadline` (`due_at`
+  changed), then `status` (lifecycle, listing or retirement), then `updated`; the Overview lists every such
+  change with its source. Opening an item (`GET /v1/my/projects/{id}`) is the visit: it computes the changes,
+  then stamps `last_viewed_at`. The stamp is the member's own and is shown to no one else.
+- **Order.** Next deadline soonest first; then, and for undated items, the most recently changed first.
+- **Cost, measured 2026-10-23** on a copy of the e2e dev store (9,563 proposals) with 25 items of 5 links each
+  (125 links, 25 added notices with due dates, 125 visible change events), in process on SQLite, on a shared
+  machine: `GET /v1/my/projects` median 124 to 137 ms and p95 290 to 355 ms over 30 calls (two runs); an item's
+  detail median 116 to 153 ms over 15. The list reads the links in one query, the linked proposals and notices
+  in one query per type (their sources by `selectinload`), merged ids one by one, and the change events in one
+  query per history.
+
+### 11.3 API additions (the "Private projects" paths of `api/openapi.yaml`)
+
+- `kind`, a stage of that kind, `parent_project_id` and `submitted_on` on create; `stage`, `parent_project_id`,
+  `submitted_on` and the member's own `email_changes` on edit (any member may set their own; stored only, no
+  email is sent).
+- `GET /v1/my/projects` takes `kind` (one or several) and returns `kind`, `stage_label`, `closed`,
+  `next_deadline` and `changed_since_last_visit` on every row; the filter narrows rows, never deadlines.
+- `GET /v1/my/projects/{id}` adds `stages`, `parent` (only for a member of that project), `bids` (only those the
+  viewer is a member of, archived ones marked `archived`), `next_deadline`, `changes`, `last_viewed_at` (the
+  previous visit) and `email_changes`.
+- `GET /v1/my/kinds`: the kinds, their stages, the technologies, the link relations and what Track makes from
+  each record type.
+- "Track" (`from`): an RFP or funding notice makes a bid (`offtake_or_rfp` or `funding`); a project page a
+  project (`this_project` or `nearby`) or an investment (`this_project`); a site a project (`candidate_site` or
+  `nearby`); a retiring or retired plant or a grid point a project (`grid_connection`). `POST /v1/my/prefill`
+  takes `kind`. An item's `url` is `/my/items/{id}`.
+
+### 11.4 Pages (`web/my_projects.py`, `web/templates/my/`, `web/static/css/my.css`)
+
+| Page | What it does |
+|---|---|
+| `/my` | The Tracker: a type filter (All · Projects · Bids · Investments, counts only the user sees), one row per item with type, stage, next deadline, a "changed" badge with its reason, and checklist progress. Ruled two-line cards below 720px, a table from 720px. The empty state points to the map, the site finder and RFPs. `?archived=1` lists archived items |
+| `/my/items/new` | The type first (Project · Bid · Investment), then title, stage, a bid's project and submitted date, technology, capacity and map point. "Track" posts here with the record in the body and gets the form back prefilled under §7; `POST /my/items` creates |
+| `/my/items/{id}` | Overview: set the stage (primary action), next deadline, changes since your last visit with their sources, a project's bids or a bid's project, readiness by pillar ("your status, not verified"), details, "Email me changes" ("Coming soon: no email is sent yet"), archive and delete |
+| `…/linked`, `…/checklist`, `…/notes`, `…/people` | Linked records with Sources and Remove, and "Link a record" by pasting an Inframation address; the checklist in one form (only changed statuses are written) with Accept and Dismiss on suggestions; notes newest first with links clickable; members, roles, transfer, leaving, and invitations by a link shown once. Documents is not shown until data rooms ship |
+| `/my/invitations/accept?t=…` | Who invited you, to what and as what, once token and address check out; Accept |
+
+- **Private by construction:** with the switch on, every response carries `Cache-Control: private, no-store`,
+  `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer` and `Vary: Cookie`, and `robots.txt`
+  disallows `/my` and `/my/` (`web/sitemaps.py::MY_PIPELINE_DISALLOW`); the `<title>` never names an item; URLs
+  carry opaque ids only; the pages read nothing private but through the API. With it off, every route is
+  Starlette's own `404`, before any check of its own (`web/my_projects.py::switched_on`, the router's
+  dependency).
+- **Forms under `no-referrer`.** A browser posting a form from a page served with `no-referrer` sends
+  `Origin: null` and no `Referer` (found driving Chromium), so the usual same-origin check refused every form.
+  The pages accept a form when the `Origin` check passes or the browser says `Sec-Fetch-Site: same-origin`
+  (`web/my_projects.py::same_origin_form`, assumption B8), and refuse it otherwise.
+- **The Track block** (`web/templates/partials/_track.html`) sits after the key facts on project, RFP or funding
+  notice, and retiring or retired plant pages, only for a visitor with a session cookie while the switch is on
+  (the site's signed-in test, as the header's Account link uses: an expired cookie gets the block, whose form
+  and link lead to sign-in and show nothing private), and links "Your tracker". It never shows a count or "already tracked": `web/test_my_projects.py` and
+  `services/api/test_my_projects.py` pin that a public record's page HTML and API answers are byte-identical
+  before and after two users track it. Site pages offer Track through the API and the form; the block's include
+  on `site_detail.html` is left to the record-tabs lane (V3), which holds that template.
+- **Checked in Chromium** at 360, 720 and 1440px: no horizontal scroll on the tracker, the item tabs and a
+  record page with the block, a 40-character unbroken word in a title included (it wraps in the breadcrumbs and
+  the Overview's fields); cards below 720px, a table from 720px.
+- **Not built here:** the `/my/invitations` list of invitations waiting for the user (it needs an API listing),
+  the top bar's "My pipeline" link (lane V1 holds `base.html`), the email of changes (it needs a named automated
+  channel with disclosure, `CLAUDE.md`), and Documents (data rooms, §3).
+
+### 11.5 Tests
+
+`services/projects/test_kinds.py` (vocabularies, packs, the parent rules, the last visit and the email opt-in),
+`services/projects/test_migration.py` (0042 up and down with rows, the refusal while bids exist, Postgres types
+and constraints), `services/api/test_my_projects.py` (Track kinds, the deadline order, changes per member and per
+tier, the email opt-in and its rollback with a refused edit, an editor's bid the project's owner never sees,
+archived bids, the kinds route, byte-identical public answers), `web/test_my_projects.py` (the switch and its
+unknown-address `404`, sign-in, headers, robots, forms, every tab, the "Attach to" form that never detaches a
+project the viewer cannot see, invitations, byte-identical public pages) and `infra/ci/test_beta.py` (the
+beta's env file carries `MY_PIPELINE`, `off` unless the variable is `on`).
+
+**Known limits.** "Today", "tomorrow" and the cut-off for a past deadline are UTC dates, so near midnight UTC a
+reader in the Americas can see a day's difference. The site-wide footer on these pages still says every record
+is public as soon as it is ingested (it means the public records; `base.html` belongs to lane V1). The private
+transaction names in `infra/observability.py` scrub this lane's new path segments to `{id}`: safe, less
+readable.

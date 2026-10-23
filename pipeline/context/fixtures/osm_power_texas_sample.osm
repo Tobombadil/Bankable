@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Recorded fixture for pipeline/context/test_osm_power.py (lane grid-osm, 2026-10-22).
+  Sixteen real OpenStreetMap elements from the Texas bounding box, one per rule the build applies
+  (docs/25 section 2.7): element type, id, version, tags and coordinates are OpenStreetMap's.
+  (c) OpenStreetMap contributors, Open Database License 1.0, https://www.openstreetmap.org/copyright
+  They were read from Overture Maps' base/infrastructure theme, release 2026-10-21.0 (ODbL), because
+  download.geofabrik.de and the public Overpass instances were unreachable from the lane's sandbox.
+  That copy carries each way's geometry but not its node ids, so vertex nodes and the member ways of
+  relation 21433644 have synthetic ids from 1000000000000; nothing else is invented. Newest element
+  edit: 2026-10-03T15:21:49Z. The header states no replication timestamp, on purpose: the build must
+  refuse a file without one unless it is given (test_a_file_without_a_timestamp_is_refused).
+  Way 915732550 (Siloam Springs, Arkansas) is inside the Texas bounding box but outside the state;
+  it is the only power=substation way there that does not close into an area.
+-->
+<osm version="0.6" generator="lane grid-osm fixture">
+  <node id="1743496119" version="2" lat="29.5596159" lon="-95.6530727">
+    <tag k="location" v="indoor"/>
+    <tag k="power" v="substation"/>
+    <tag k="substation" v="minor_distribution"/>
+  </node>
+  <node id="11922386120" version="1" lat="31.7848768" lon="-101.8360271">
+    <tag k="barrier" v="fence"/>
+    <tag k="frequency" v="60"/>
+    <tag k="name" v="Peck Substation"/>
+    <tag k="operator" v="Oncor"/>
+    <tag k="operator:wikidata" v="Q7092125"/>
+    <tag k="power" v="substation"/>
+    <tag k="substation" v="distribution"/>
+    <tag k="voltage" v="69000;12500"/>
+  </node>
+  <node id="1000000000000" version="1" lat="29.7064349" lon="-95.2448016"/>
+  <node id="1000000000001" version="1" lat="29.7065875" lon="-95.2457346"/>
+  <node id="1000000000002" version="1" lat="30.2333431" lon="-97.6149273"/>
+  <node id="1000000000003" version="1" lat="30.2343829" lon="-97.6137325"/>
+  <node id="1000000000004" version="1" lat="30.2366202" lon="-97.6132665"/>
+  <node id="1000000000005" version="1" lat="29.6453448" lon="-99.5232512"/>
+  <node id="1000000000006" version="1" lat="29.6453428" lon="-99.5231569"/>
+  <node id="1000000000007" version="1" lat="33.0080168" lon="-102.9042004"/>
+  <node id="1000000000008" version="1" lat="33.0080129" lon="-102.9050309"/>
+  <node id="1000000000009" version="1" lat="29.4493173" lon="-98.6398994"/>
+  <node id="1000000000010" version="1" lat="29.4483979" lon="-98.6384572"/>
+  <node id="1000000000011" version="1" lat="29.6787317" lon="-98.7092931"/>
+  <node id="1000000000012" version="1" lat="29.6786935" lon="-98.7093125"/>
+  <node id="1000000000013" version="1" lat="29.6794987" lon="-98.6864366"/>
+  <node id="1000000000014" version="1" lat="29.6792675" lon="-98.6864645"/>
+  <node id="1000000000015" version="1" lat="27.0686863" lon="-99.3844447"/>
+  <node id="1000000000016" version="1" lat="27.0687953" lon="-99.3845097"/>
+  <node id="1000000000017" version="1" lat="28.7903395" lon="-99.1938462"/>
+  <node id="1000000000018" version="1" lat="28.7903716" lon="-99.1939728"/>
+  <node id="1000000000019" version="1" lat="27.3272082" lon="-99.4149439"/>
+  <node id="1000000000020" version="1" lat="27.3272225" lon="-99.4138756"/>
+  <node id="1000000000021" version="1" lat="27.3283782" lon="-99.4138951"/>
+  <node id="1000000000022" version="1" lat="27.3283639" lon="-99.4149634"/>
+  <node id="1000000000023" version="1" lat="28.4523683" lon="-97.9870641"/>
+  <node id="1000000000024" version="1" lat="28.4523646" lon="-97.9866229"/>
+  <node id="1000000000025" version="1" lat="28.4525957" lon="-97.9866204"/>
+  <node id="1000000000026" version="1" lat="28.4525994" lon="-97.9870616"/>
+  <node id="1000000000027" version="1" lat="26.5577753" lon="-99.1702893"/>
+  <node id="1000000000028" version="1" lat="26.5579959" lon="-99.1698376"/>
+  <node id="1000000000029" version="1" lat="26.5580981" lon="-99.1704891"/>
+  <node id="1000000000030" version="1" lat="31.7741685" lon="-106.4361946"/>
+  <node id="1000000000031" version="1" lat="31.7741212" lon="-106.4356112"/>
+  <node id="1000000000032" version="1" lat="31.7753587" lon="-106.4354604"/>
+  <node id="1000000000033" version="1" lat="31.7754254" lon="-106.4361826"/>
+  <node id="1000000000034" version="1" lat="36.1707462" lon="-94.5583854"/>
+  <node id="1000000000035" version="1" lat="36.1707462" lon="-94.5584056"/>
+  <node id="1000000000036" version="1" lat="36.1708228" lon="-94.5584054"/>
+  <node id="1000000000037" version="1" lat="36.1708235" lon="-94.5589898"/>
+  <node id="1000000000038" version="1" lat="36.1703828" lon="-94.5589906"/>
+  <node id="1000000000039" version="1" lat="36.1703821" lon="-94.5584101"/>
+  <node id="1000000000040" version="1" lat="36.1705292" lon="-94.5584098"/>
+  <way id="21236946" version="3">
+    <nd ref="1000000000015"/>
+    <nd ref="1000000000016"/>
+    <tag k="cables" v="3"/>
+    <tag k="frequency" v="60"/>
+    <tag k="line" v="busbar"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="138000"/>
+  </way>
+  <way id="100671606" version="4">
+    <nd ref="1000000000027"/>
+    <nd ref="1000000000028"/>
+    <nd ref="1000000000029"/>
+    <nd ref="1000000000027"/>
+    <tag k="fixme" v="name"/>
+    <tag k="power" v="substation"/>
+    <tag k="substation" v="generation"/>
+    <tag k="voltage" v="138000"/>
+  </way>
+  <way id="318896180" version="3">
+    <nd ref="1000000000009"/>
+    <nd ref="1000000000010"/>
+    <tag k="cables" v="3"/>
+    <tag k="frequency" v="60"/>
+    <tag k="location" v="underground"/>
+    <tag k="power" v="cable"/>
+    <tag k="voltage" v="138000"/>
+  </way>
+  <way id="344295460" version="1">
+    <nd ref="1000000000017"/>
+    <nd ref="1000000000018"/>
+    <tag k="cables" v="3"/>
+    <tag k="frequency" v="60"/>
+    <tag k="line" v="bay"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="69000"/>
+  </way>
+  <way id="451971745" version="2">
+    <nd ref="1000000000019"/>
+    <nd ref="1000000000020"/>
+    <nd ref="1000000000021"/>
+    <nd ref="1000000000022"/>
+    <nd ref="1000000000019"/>
+    <tag k="barrier" v="fence"/>
+    <tag k="frequency" v="60"/>
+    <tag k="name" v="Molina Substation"/>
+    <tag k="operator" v="American Electric Power"/>
+    <tag k="operator:short" v="AEP"/>
+    <tag k="operator:wikidata" v="Q464092"/>
+    <tag k="power" v="substation"/>
+    <tag k="substation" v="transmission"/>
+    <tag k="voltage" v="138000"/>
+  </way>
+  <way id="915732550" version="4">
+    <nd ref="1000000000034"/>
+    <nd ref="1000000000035"/>
+    <nd ref="1000000000036"/>
+    <nd ref="1000000000037"/>
+    <nd ref="1000000000038"/>
+    <nd ref="1000000000039"/>
+    <nd ref="1000000000040"/>
+    <tag k="barrier" v="fence"/>
+    <tag k="operator" v="City of Siloam Springs Electric Department"/>
+    <tag k="power" v="substation"/>
+    <tag k="substation" v="distribution"/>
+    <tag k="voltage" v="69000"/>
+  </way>
+  <way id="1343869767" version="1">
+    <nd ref="1000000000005"/>
+    <nd ref="1000000000006"/>
+    <tag k="power" v="line"/>
+  </way>
+  <way id="1344685162" version="1">
+    <nd ref="1000000000007"/>
+    <nd ref="1000000000008"/>
+    <tag k="cables" v="3"/>
+    <tag k="note" v="not connected"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="0"/>
+  </way>
+  <way id="1426037084" version="1">
+    <nd ref="1000000000023"/>
+    <nd ref="1000000000024"/>
+    <nd ref="1000000000025"/>
+    <nd ref="1000000000026"/>
+    <nd ref="1000000000023"/>
+    <tag k="power" v="substation"/>
+    <tag k="voltage" v="69000"/>
+  </way>
+  <way id="1490401455" version="1">
+    <nd ref="1000000000002"/>
+    <nd ref="1000000000003"/>
+    <nd ref="1000000000004"/>
+    <tag k="cables" v="3"/>
+    <tag k="circuits" v="1"/>
+    <tag k="frequency" v="60"/>
+    <tag k="name" v="Zorn - Hutto / Clear Springs - Gilleland Creek"/>
+    <tag k="operator" v="Lower Colorado River Authority"/>
+    <tag k="operator:short" v="LCRA"/>
+    <tag k="operator:wikidata" v="Q16155608"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="345000"/>
+    <tag k="wires" v="double"/>
+  </way>
+  <way id="1501447693" version="1">
+    <nd ref="1000000000013"/>
+    <nd ref="1000000000014"/>
+    <tag k="cables" v="1"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="240"/>
+  </way>
+  <way id="1502518443" version="1">
+    <nd ref="1000000000011"/>
+    <nd ref="1000000000012"/>
+    <tag k="cables" v="1"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="34500"/>
+  </way>
+  <way id="1535302130" version="1">
+    <nd ref="1000000000000"/>
+    <nd ref="1000000000001"/>
+    <tag k="cables" v="6"/>
+    <tag k="circuits" v="2"/>
+    <tag k="frequency" v="60"/>
+    <tag k="operator" v="CenterPoint Energy"/>
+    <tag k="operator:wikidata" v="Q1053560"/>
+    <tag k="power" v="line"/>
+    <tag k="voltage" v="138000;69000"/>
+  </way>
+  <way id="1000000000000" version="1">
+    <nd ref="1000000000030"/>
+    <nd ref="1000000000031"/>
+    <nd ref="1000000000032"/>
+    <nd ref="1000000000033"/>
+    <nd ref="1000000000030"/>
+  </way>
+  <relation id="21433644" version="1">
+    <member type="way" ref="1000000000000" role="outer"/>
+    <tag k="name" v="Durazno Substation"/>
+    <tag k="power" v="substation"/>
+    <tag k="type" v="multipolygon"/>
+    <tag k="voltage" v="115000"/>
+  </relation>
+</osm>

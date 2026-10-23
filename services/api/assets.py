@@ -34,11 +34,12 @@ so a re-filter never touches the database.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import json
 import math
 import threading
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Annotated, Any, NamedTuple
 
@@ -169,7 +170,25 @@ LINE_FEATURE_ATTRIBUTE_KEYS: tuple[str, ...] = (
     "length_miles",
     "states",
     "voltage_kv",
+    # Lane grid-osm, 2026-10-22: what OpenStreetMap states about a line (`pipeline/context/osm_power.py`).
+    "voltages_kv",
+    "voltage_class",
+    "voltage_unknown",
+    "underground",
+    "circuits",
+    "power",
 )
+
+#: Asset types whose rows carry voltage attributes (`voltage_kv` highest, `voltages_kv` every stated
+#: value, `voltage_unknown` when none is), filterable with `voltage_kv[gte]` (lane grid-osm, 2026-10-22).
+VOLTAGE_ASSET_TYPES: frozenset[str] = frozenset({"transmission_line", "substation"})
+#: `voltage_kv[gte]` bounds a caller may ask for; the highest US line is 765 kV.
+VOLTAGE_KV_RANGE = (0.0, 2000.0)
+#: Line sources the map draws only where the preferred source does not cover the line (docs/25 §2.7):
+#: LBNL's FERC x HIFLD subset (about a fifth of US mileage) gives way to OpenStreetMap's network
+#: wherever an OpenStreetMap extract covers every state the LBNL line crosses. Both stay loaded, on
+#: their pages and in `GET /v1/assets`; an explicit `source=` shows a source's lines regardless.
+MAP_LINE_SOURCE_PREFERENCE: dict[str, str] = {"us.lbnl.ferc_hifld_transmission_lines": "us.osm.power"}
 
 
 def stated_length_miles(attributes: dict[str, Any] | None) -> float | None:
@@ -245,6 +264,12 @@ class AssetIndexRow:
     country: str
     #: `asset.status`, so `GET /v1/assets/geo?status=` filters the cached index without SQL (R1).
     status: str = "operating"
+    #: Lane grid-osm: `source=` and `voltage_kv[gte]` filter the cached index without SQL, and the
+    #: licence summary subtracts what the voltage filter drops (`_licence_rows_after_exclusions`).
+    source_id: str = ""
+    licence_id: str = ""
+    voltage_kv: float | None = None
+    voltage_unknown: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +297,9 @@ class LineIndexRow:
     parts: Parts
     bbox: Bbox
     length_km: float
+    #: Drawn on the map only when asked for by `source=`: a `MAP_LINE_SOURCE_PREFERENCE` line whose
+    #: states the preferred source covers (docs/25 §2.7).
+    superseded: bool = False
 
 
 _CacheKey = tuple[int, int, str | None, str | None, str | None]
@@ -374,13 +402,26 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
                 Asset.capacity_mw,
                 Asset.country,
                 Asset.status,
+                Asset.source_id,
+                Asset.licence_id,
             )
             .where(*_point_index_where())
             .order_by(Asset.id)
         )
-        for asset_id, lon, lat, asset_type, technology, capacity_mw, country, status in db.execute(
-            stmt
-        ).all():
+        voltages = _point_voltages(db, id_col)
+        for (
+            asset_id,
+            lon,
+            lat,
+            asset_type,
+            technology,
+            capacity_mw,
+            country,
+            status,
+            source_id,
+            licence_id,
+        ) in db.execute(stmt).all():
+            kv, unknown = voltages.get(asset_id, (None, False))
             rows.append(
                 AssetIndexRow(
                     id=asset_id,
@@ -391,6 +432,10 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
                     capacity_mw=float(capacity_mw) if capacity_mw is not None else None,
                     country=country,
                     status=status,
+                    source_id=source_id,
+                    licence_id=licence_id,
+                    voltage_kv=kv,
+                    voltage_unknown=unknown,
                 )
             )
         return tuple(rows)
@@ -406,14 +451,28 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
             Asset.capacity_mw,
             Asset.country,
             Asset.status,
+            Asset.source_id,
+            Asset.licence_id,
         )
         .where(*_point_index_where())
         .order_by(Asset.id)
     )
-    for asset_id, geom_text, asset_type, technology, capacity_mw, country, status in db.execute(stmt).all():
+    voltages = _point_voltages(db, id_col)
+    for (
+        asset_id,
+        geom_text,
+        asset_type,
+        technology,
+        capacity_mw,
+        country,
+        status,
+        source_id,
+        licence_id,
+    ) in db.execute(stmt).all():
         if geom_text is None:  # pragma: no cover - excluded by the WHERE clause; defensive only
             continue
         geom = json.loads(geom_text)
+        kv, unknown = voltages.get(asset_id, (None, False))
         rows.append(
             AssetIndexRow(
                 id=asset_id,
@@ -424,9 +483,34 @@ def _rebuild_asset_index(db: Session) -> tuple[AssetIndexRow, ...]:
                 capacity_mw=float(capacity_mw) if capacity_mw is not None else None,
                 country=country,
                 status=status,
+                source_id=source_id,
+                licence_id=licence_id,
+                voltage_kv=kv,
+                voltage_unknown=unknown,
             )
         )
     return tuple(rows)
+
+
+def voltage_of(attributes: dict[str, Any] | None) -> tuple[float | None, bool]:
+    """`(highest kV, unknown)` from an asset's attributes: `voltage_kv` as the loaders write it
+    (LBNL and OpenStreetMap alike); unknown when it is absent. A boolean or non-number is unknown."""
+    kv = (attributes or {}).get("voltage_kv")
+    if isinstance(kv, (int, float)) and not isinstance(kv, bool) and math.isfinite(kv):
+        return float(kv), False
+    return None, True
+
+
+def _point_voltages(db: Session, id_col: Any) -> dict[str, tuple[float | None, bool]]:
+    """`asset id -> (voltage_kv, voltage_unknown)` for the point assets of `VOLTAGE_ASSET_TYPES`
+    (substations): one query that reads `attributes.voltage_kv` alone (JSON path access:
+    `json_extract` on SQLite, `->` on Postgres), never the rest of the attributes, so an index
+    rebuild does not parse every substation's outline, and the point index of every other type
+    stays as narrow as before."""
+    stmt = select(id_col, Asset.attributes["voltage_kv"]).where(
+        Asset.asset_type.in_(sorted(VOLTAGE_ASSET_TYPES)), *_point_index_where()
+    )
+    return {asset_id: voltage_of({"voltage_kv": kv}) for asset_id, kv in db.execute(stmt).all()}
 
 
 def _get_asset_index(db: Session, key: _CacheKey | None = None) -> tuple[AssetIndexRow, ...]:
@@ -475,6 +559,7 @@ def _rebuild_line_index(db: Session) -> tuple[LineIndexRow, ...]:
         Asset.slug,
     ).where(Asset.geom_line.is_not(None), asset_geometry_permitted(), *asset_visibility_filter())
     rows: list[LineIndexRow] = []
+    full_attributes: dict[str, dict[str, Any]] = {}
     for row in db.execute(stmt).all():
         try:
             parts = parse_line_parts(row[15])
@@ -482,6 +567,7 @@ def _rebuild_line_index(db: Session) -> tuple[LineIndexRow, ...]:
             parts = None  # an unparseable geometry is a data defect, not a map outage
         if parts is None:
             continue
+        full_attributes[row[0]] = row[14] or {}
         rows.append(
             LineIndexRow(
                 id=row[0],
@@ -505,7 +591,33 @@ def _rebuild_line_index(db: Session) -> tuple[LineIndexRow, ...]:
                 length_km=parts_length_km(parts),
             )
         )
-    return tuple(rows)
+    return tuple(_mark_superseded(rows, full_attributes))
+
+
+def _mark_superseded(rows: list[LineIndexRow], attributes: dict[str, dict[str, Any]]) -> list[LineIndexRow]:
+    """`MAP_LINE_SOURCE_PREFERENCE`: the regions a preferred source covers are the union of its
+    rows' `coverage_regions` (`pipeline/context/osm_power.py`, "Regions": each row's scope within the
+    regions its load covered, so a US-TX load covers US-TX and nothing else, even though the Texas
+    rows include ways that cross into Oklahoma); a line of a superseded source is `superseded` when
+    every state it crosses is covered. A line that leaves the covered area keeps being drawn, so a
+    border line is never lost, at the cost of drawing the covered part twice."""
+    preferred = set(MAP_LINE_SOURCE_PREFERENCE.values())
+    covered: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        if r.source_id in preferred:
+            coverage = attributes.get(r.id, {}).get("coverage_regions")
+            if isinstance(coverage, list):
+                covered[r.source_id].update(str(region) for region in coverage if region)
+    if not covered:
+        return rows
+    out: list[LineIndexRow] = []
+    for r in rows:
+        prefer = MAP_LINE_SOURCE_PREFERENCE.get(r.source_id)
+        states = attributes.get(r.id, {}).get("states_crossed") or []
+        if prefer and states and {str(x) for x in states} <= covered.get(prefer, set()):
+            r = dataclasses.replace(r, superseded=True)
+        out.append(r)
+    return out
 
 
 def _get_line_index(db: Session, key: _CacheKey) -> _LineIndexCache:
@@ -536,14 +648,42 @@ def _simplified_for_zoom(cache: _LineIndexCache, zoom: int) -> dict[str, _MapLin
         return cache.simplified[zoom]
 
 
+@dataclass(frozen=True)
+class VoltageFilter:
+    """`voltage_kv[gte]` and `include_voltage_unknown` (lane grid-osm, 2026-10-22): keep the
+    `VOLTAGE_ASSET_TYPES` rows whose highest stated voltage is at least `min_kv`, plus, when
+    `include_unknown`, the rows that state none. Every other asset type has no voltage, so a voltage
+    filter excludes it, as a `technology` filter excludes every line."""
+
+    min_kv: float | None = None
+    include_unknown: bool = False
+
+    @property
+    def active(self) -> bool:
+        return self.min_kv is not None
+
+    def keeps(self, asset_type: str, voltage_kv: float | None, unknown: bool) -> bool:
+        if self.min_kv is None:
+            return True
+        if asset_type not in VOLTAGE_ASSET_TYPES:
+            return False
+        if voltage_kv is not None:
+            return voltage_kv >= self.min_kv
+        return self.include_unknown and unknown
+
+
 def _filter_index(
     index: tuple[AssetIndexRow, ...],
     asset_types: list[str] | None,
     technologies: list[str] | None,
     countries: list[str] | None,
     statuses: list[str] | None = None,
+    sources: list[str] | None = None,
 ) -> list[AssetIndexRow]:
     rows: list[AssetIndexRow] = list(index)
+    if sources is not None:
+        source_set = set(sources)
+        rows = [r for r in rows if r.source_id in source_set]
     if statuses is not None:
         status_set = set(statuses)
         rows = [r for r in rows if r.status in status_set]
@@ -565,13 +705,18 @@ def _filter_line_index(
     technologies: list[str] | None,
     countries: list[str] | None,
     statuses: list[str] | None = None,
+    sources: list[str] | None = None,
 ) -> list[LineIndexRow]:
     """Lines carry no `technology` (pipelines and transmission have none in the vocabulary), so a
     `technology` filter excludes every line -- the same result `Asset.technology IN (...)` gives
-    in SQL for a NULL column."""
+    in SQL for a NULL column. `sources` narrows by source id; superseded lines are dropped later
+    (`_map_lines`), not here, because the licence summary's SQL cannot see that rule."""
     if technologies is not None:
         return []
     rows: list[LineIndexRow] = list(index)
+    if sources is not None:
+        source_set = set(sources)
+        rows = [r for r in rows if r.source_id in source_set]
     if asset_types is not None:
         type_set = set(asset_types)
         rows = [r for r in rows if r.asset_type in type_set]
@@ -584,7 +729,63 @@ def _filter_line_index(
     return rows
 
 
+def _narrow_points(rows: list[AssetIndexRow], voltage: VoltageFilter) -> list[AssetIndexRow]:
+    if not voltage.active:
+        return rows
+    return [r for r in rows if voltage.keeps(r.asset_type, r.voltage_kv, r.voltage_unknown)]
+
+
+def _map_lines(
+    rows: list[LineIndexRow], voltage: VoltageFilter, *, explicit_sources: bool
+) -> list[LineIndexRow]:
+    """The lines the map draws out of the SQL-expressible match: superseded lines dropped unless the
+    caller named sources (`MAP_LINE_SOURCE_PREFERENCE`), then the voltage filter."""
+    out = rows if explicit_sources else [r for r in rows if not r.superseded]
+    if voltage.active:
+        out = [r for r in out if voltage.keeps(r.asset_type, *voltage_of(r.attributes))]
+    return out
+
+
+def _licence_rows_after_exclusions(
+    licence_rows: list[tuple[Any, ...]], excluded: Counter[tuple[str, str]]
+) -> list[tuple[Any, ...]]:
+    """The SQL licence aggregate (one row per `(source, licence)`, count last) less the rows the
+    Python-only rules dropped (superseded lines, the voltage filter), so a source none of whose rows
+    is served is not credited. `max(retrieved_at)` is the aggregate's, over the source's matching
+    rows."""
+    if not excluded:
+        return licence_rows
+    out: list[tuple[Any, ...]] = []
+    for row in licence_rows:
+        remaining = int(row[-1]) - excluded.get((str(row[0]), str(row[3])), 0)
+        if remaining > 0:
+            out.append((*row[:-1], remaining))
+    return out
+
+
+def _voltage_feature_properties(attributes: dict[str, Any] | None) -> dict[str, Any]:
+    """The voltage fields a substation marker and an asset page carry (lane grid-osm)."""
+    attrs = attributes or {}
+    kv, unknown = voltage_of(attrs)
+    values = attrs.get("voltages_kv")
+    voltages = (
+        [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if isinstance(values, list)
+        else ([kv] if kv is not None else [])
+    )
+    return {"voltage_kv": kv, "voltages_kv": voltages, "voltage_unknown": unknown}
+
+
 def _asset_feature(asset: Asset, lon: float, lat: float, withheld: WithheldNames) -> dict[str, Any]:
+    feature = _asset_point_feature(asset, lon, lat, withheld)
+    if asset.asset_type in VOLTAGE_ASSET_TYPES:
+        props = feature["properties"]
+        props.update(_voltage_feature_properties(asset.attributes))
+        props["substation_type"] = (asset.attributes or {}).get("substation_type")
+    return feature
+
+
+def _asset_point_feature(asset: Asset, lon: float, lat: float, withheld: WithheldNames) -> dict[str, Any]:
     return {
         "type": "Feature",
         "id": asset.public_id,
@@ -886,6 +1087,43 @@ def _status_filter_values(request: Request) -> list[str] | None:
     return statuses
 
 
+def _source_filter_values(request: Request) -> list[str] | None:
+    """`source=us.osm.power,...` (lane grid-osm): csv of `data/sources.yaml` ids. An id with no
+    asset simply matches nothing, as `organization=` does; naming any source also turns off the
+    map's line-source preference, so `source=us.lbnl.ferc_hifld_transmission_lines` draws LBNL's
+    lines everywhere."""
+    v = request.query_params.get("source")
+    if not v:
+        return None
+    return csv_param(v) or None
+
+
+def _voltage_filter(request: Request) -> VoltageFilter:
+    """`voltage_kv[gte]` (a number, 0-2000) and `include_voltage_unknown` (`true`|`false`, default
+    `false`; it only widens a voltage filter, so alone it changes nothing)."""
+    raw = request.query_params.get("voltage_kv[gte]")
+    min_kv: float | None = None
+    if raw is not None:
+        try:
+            min_kv = float(raw)
+        except ValueError as exc:
+            raise validation_error(
+                "voltage_kv[gte]", "voltage_kv[gte] must be a number", request.url.path
+            ) from exc
+        if not VOLTAGE_KV_RANGE[0] <= min_kv <= VOLTAGE_KV_RANGE[1]:  # NaN fails this too
+            raise validation_error(
+                "voltage_kv[gte]",
+                f"voltage_kv[gte] must be between {VOLTAGE_KV_RANGE[0]:g} and {VOLTAGE_KV_RANGE[1]:g}",
+                request.url.path,
+            )
+    flag = request.query_params.get("include_voltage_unknown")
+    if flag is not None and flag not in ("true", "false"):
+        raise validation_error(
+            "include_voltage_unknown", "include_voltage_unknown must be true or false", request.url.path
+        )
+    return VoltageFilter(min_kv=min_kv, include_unknown=flag == "true")
+
+
 def _retirement_year_bound(request: Request, name: str) -> int | None:
     value = int_param(request, name)
     if value is not None and not (RETIREMENT_YEAR_RANGE[0] <= value <= RETIREMENT_YEAR_RANGE[1]):
@@ -914,7 +1152,10 @@ def _apply_sql_filters(
     technologies: list[str] | None,
     countries: list[str] | None,
     statuses: list[str] | None = None,
+    sources: list[str] | None = None,
 ) -> sa.Select[Any]:
+    if sources is not None:
+        stmt = stmt.where(Asset.source_id.in_(sources))
     if statuses is not None:
         stmt = stmt.where(Asset.status.in_(statuses))
     if asset_types is not None:
@@ -979,6 +1220,8 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
     technologies = _technology_filter_values(request)
     countries = _country_filter_values(request)
     statuses = _status_filter_values(request)
+    sources = _source_filter_values(request)
+    voltage = _voltage_filter(request)
     org_asset_ids = (
         _organization_asset_ids(db, org_filter, scope_from_request(request))
         if org_filter is not None
@@ -987,12 +1230,23 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
 
     key = _asset_index_cache_key(db)
     index = _get_asset_index(db, key)
-    filtered = _filter_index(index, asset_types, technologies, countries, statuses)
+    matched = _filter_index(index, asset_types, technologies, countries, statuses, sources)
     line_cache = _get_line_index(db, key)
-    filtered_lines = _filter_line_index(line_cache.rows, asset_types, technologies, countries, statuses)
+    matched_lines = _filter_line_index(
+        line_cache.rows, asset_types, technologies, countries, statuses, sources
+    )
     if org_asset_ids is not None:
-        filtered = [row for row in filtered if row.id in org_asset_ids]
-        filtered_lines = [row for row in filtered_lines if row.id in org_asset_ids]
+        matched = [row for row in matched if row.id in org_asset_ids]
+        matched_lines = [row for row in matched_lines if row.id in org_asset_ids]
+    # The rules SQL cannot express (lane grid-osm): the voltage filter, and the map's line-source
+    # preference. What they drop is subtracted from the licence summary below.
+    filtered = _narrow_points(matched, voltage)
+    filtered_lines = _map_lines(matched_lines, voltage, explicit_sources=sources is not None)
+    kept_ids = {r.id for r in filtered} | {r.id for r in filtered_lines}
+    excluded: Counter[tuple[str, str]] = Counter(
+        (p.source_id, p.licence_id) for p in matched if p.id not in kept_ids
+    )
+    excluded.update((ln.source_id, ln.licence_id) for ln in matched_lines if ln.id not in kept_ids)
 
     asset_type_counts: dict[str, int] = defaultdict(int)
     technology_counts: dict[str, int] = defaultdict(int)
@@ -1034,6 +1288,8 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
         tuple(countries or ()),
         tuple(statuses or ()),
         None if org_asset_ids is None else frozenset(org_asset_ids),
+        None if sources is None else tuple(sources),
+        voltage,
     )
     licence_rows = _ASSET_LICENCE_ROWS.get(agg_key)
     if licence_rows is None:
@@ -1063,13 +1319,16 @@ def _asset_geo_impl(request: Request, db: Session, *, forced_asset_type: str | N
             technologies,
             countries,
             statuses,
+            sources,
         ).group_by(Source.id, Licence.id)
         # Explicit, because a `GROUP BY` promises no order: SQLite returned the groups by key and
         # Postgres by hash, so `licence_summary.sources` differed between the backends (audit A2).
         agg_stmt = agg_stmt.order_by(Source.id, Licence.id)
         if org_asset_ids is not None:
             agg_stmt = agg_stmt.where(sa.cast(Asset.id, sa.Text).in_(sorted(org_asset_ids)))
-        licence_rows = [tuple(row) for row in db.execute(agg_stmt).all()]
+        licence_rows = _licence_rows_after_exclusions(
+            [tuple(row) for row in db.execute(agg_stmt).all()], excluded
+        )
         _ASSET_LICENCE_ROWS.put(agg_key, licence_rows)
     licence_summary = licence_summary_from_source_aggregates(licence_rows)
 
@@ -1091,6 +1350,9 @@ def get_assets_geo(request: Request, db: Annotated[Session, Depends(get_db)]) ->
             "scope",
             "include_subsidiaries",
             "status",
+            "source",
+            "voltage_kv[gte]",
+            "include_voltage_unknown",
         },
     )
     return _asset_geo_impl(request, db, forced_asset_type=None)
@@ -1265,6 +1527,9 @@ def get_asset(public_id: str, request: Request, db: Annotated[Session, Depends(g
     data = serialize_asset(asset, withheld=withheld_names(db), owners=owners)
     data["geometry"] = asset_geometry(asset, parts=parts)
     data["length_miles"] = asset_length_miles(asset, parts=parts)
+    if asset.asset_type in VOLTAGE_ASSET_TYPES:
+        # Lane grid-osm: the voltage fields typed at the top level (they are also in `attributes`).
+        data.update(_voltage_feature_properties(asset.attributes))
     changes = asset_retirement_changes(db, asset)
     data["retirement_changes"] = [row for row, _event in changes]
     meta = build_meta(lag_days=0, tier="public")
@@ -1407,12 +1672,29 @@ def _location_in_bbox_clause(db: Session, bbox: Bbox) -> Any:
     return sa.and_(lon >= min_lon, lon <= max_lon, lat >= min_lat, lat <= max_lat)
 
 
+#: Floor of `_padded_bbox`'s pad in degrees, and the slack factor over the exact spherical bound.
+_PAD_FLOOR_DEG = 0.05
+_PAD_SLACK = 1.01
+
+
 def _padded_bbox(parts: Parts, radius_km: float) -> Bbox:
-    """The geometry's bbox grown by a generous degree pad (1 degree of latitude is ~111 km, so
-    `radius_km / 100` degrees over-approximates every radius the endpoints allow)."""
-    deg_pad = max(radius_km / 100.0, 0.05)
+    """The geometry's bbox grown by `radius_km` on the haversine sphere (`EARTH_RADIUS_KM`), so no
+    point within `radius_km` of the geometry falls outside it. Latitude: the radius as an arc,
+    `rho` radians. Longitude: a circle of angular radius `rho` round a point at latitude `phi`
+    reaches `asin(sin rho / cos phi)` east and west, widest at the geometry's latitude furthest
+    from the equator; at or past the pole the box spans every longitude. Both get 1% slack and a
+    floor of 0.05 degrees. (It used `radius_km / 100` degrees both ways before lane grid-osm's fix
+    round, 2026-10-22, which fell short east-west: a 30 km radius got 28.7 km at 30.7 N, 100 km
+    about 79 km at 45 N, so candidates near the radius's edge were dropped before the distance
+    test.)"""
     min_lon, min_lat, max_lon, max_lat = parts_bbox(parts)
-    return (min_lon - deg_pad, min_lat - deg_pad, max_lon + deg_pad, max_lat + deg_pad)
+    rho = radius_km / EARTH_RADIUS_KM
+    lat_pad = max(math.degrees(rho) * _PAD_SLACK, _PAD_FLOOR_DEG)
+    phi = math.radians(min(max(abs(min_lat), abs(max_lat)), 90.0))
+    if math.cos(phi) <= math.sin(rho) or max(abs(min_lat), abs(max_lat)) + lat_pad >= 90.0:
+        return (-180.0, max(min_lat - lat_pad, -90.0), 180.0, min(max_lat + lat_pad, 90.0))
+    lon_pad = max(math.degrees(math.asin(math.sin(rho) / math.cos(phi))) * _PAD_SLACK, _PAD_FLOOR_DEG)
+    return (min_lon - lon_pad, min_lat - lat_pad, max_lon + lon_pad, max_lat + lat_pad)
 
 
 def _exact_proposal_candidates(db: Session, bbox: Bbox) -> list[_Candidate]:
@@ -1602,6 +1884,12 @@ def get_nearby_grid(public_id: str, request: Request, db: Annotated[Session, Dep
       within `radius_km` (the `nearby-proposals` candidate set), each with how many of those
       proposals name it and the nearest one's distance. A point has no coordinates of its own
       (docs/25 §1.1), so this is "queue requests near here connect at", never a located substation.
+    * `substations` (lane grid-osm, 2026-10-22): `substation` assets (OpenStreetMap) within
+      `radius_km` of the point, nearest first, with their voltage and subtype; the asset itself is
+      left out when it is one.
+
+    Lines follow the map's source preference (`MAP_LINE_SOURCE_PREFERENCE`): where OpenStreetMap
+    covers a state, LBNL's copy of the same line is not listed twice.
 
     Empty, with the geometry redaction, when the asset's geometry is withheld or absent."""
     check_allowed(request, {"radius_km"})
@@ -1610,7 +1898,12 @@ def get_nearby_grid(public_id: str, request: Request, db: Annotated[Session, Dep
         raise not_found(request.url.path)
     radius_km = _radius_km_param(request)
     meta = build_meta(lag_days=0, tier="public")
-    data: dict[str, Any] = {"radius_km": radius_km, "transmission_lines": [], "interconnection_points": []}
+    data: dict[str, Any] = {
+        "radius_km": radius_km,
+        "transmission_lines": [],
+        "substations": [],
+        "interconnection_points": [],
+    }
     point = asset.geom if asset_geometry_visible(asset) and asset.geom_line is None else None
     if point is None or not isinstance(point, (list, tuple)):
         return build_envelope(
@@ -1624,10 +1917,11 @@ def get_nearby_grid(public_id: str, request: Request, db: Annotated[Session, Dep
     bbox = _padded_bbox(parts, radius_km)
     licence_rows: list[dict[str, Any]] = []
 
-    cache = _get_line_index(db, _asset_index_cache_key(db))
+    key = _asset_index_cache_key(db)
+    cache = _get_line_index(db, key)
     near_lines: list[tuple[float, LineIndexRow]] = []
     for row in cache.rows:
-        if row.asset_type != "transmission_line" or not bbox_overlaps(row.bbox, bbox):
+        if row.asset_type != "transmission_line" or row.superseded or not bbox_overlaps(row.bbox, bbox):
             continue
         distance = point_to_parts_km(lon, lat, row.parts)
         if distance <= radius_km:
@@ -1665,6 +1959,8 @@ def get_nearby_grid(public_id: str, request: Request, db: Annotated[Session, Dep
                 )
             )
 
+    licence_rows.extend(_nearby_substations(db, key, asset, lon, lat, bbox, radius_km, data["substations"]))
+
     within = _within_radius(parts, _exact_proposal_candidates(db, bbox), radius_km)
     by_point: dict[Any, list[float]] = defaultdict(list)
     for distance, proposal in within:
@@ -1693,6 +1989,52 @@ def get_nearby_grid(public_id: str, request: Request, db: Annotated[Session, Dep
             )
             licence_rows.append(licence_summary_row(p.source, p.licence, p.retrieved_at))
     return build_envelope(data, meta=meta, licence_summary=build_licence_summary(licence_rows))
+
+
+def _nearby_substations(
+    db: Session,
+    key: _CacheKey,
+    asset: Asset,
+    lon: float,
+    lat: float,
+    bbox: Bbox,
+    radius_km: float,
+    out: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Fill `out` with the `NEARBY_GRID_LIMIT` nearest visible substations within `radius_km` of
+    `(lon, lat)`, from the cached point index; return their licence rows."""
+    own_id = str(asset.id)
+    near: list[tuple[float, AssetIndexRow]] = []
+    for row in _get_asset_index(db, key):
+        if row.asset_type != "substation" or row.id == own_id:
+            continue
+        if not (bbox[0] <= row.lon <= bbox[2] and bbox[1] <= row.lat <= bbox[3]):
+            continue
+        distance = _haversine_km(lon, lat, row.lon, row.lat)
+        if distance <= radius_km:
+            near.append((distance, row))
+    near.sort(key=lambda pair: (pair[0], pair[1].id))
+    shown = near[:NEARBY_GRID_LIMIT]
+    details = _fetch_asset_details(db, [r.id for _, r in shown])
+    licence_rows: list[dict[str, Any]] = []
+    for distance, row in shown:
+        sub = details.get(row.id)
+        if sub is None:
+            continue
+        attrs = sub.attributes or {}
+        out.append(
+            {
+                "public_id": sub.public_id,
+                "slug": sub.slug,
+                "url": f"{WEB_HOST}/assets/{sub.slug}",
+                "name": sub.name,
+                "substation_type": attrs.get("substation_type"),
+                **_voltage_feature_properties(attrs),
+                "distance_km": round(distance, 3),
+            }
+        )
+        licence_rows.append(licence_summary_row(sub.source, sub.licence, sub.retrieved_at))
+    return licence_rows
 
 
 # ---------------------------------------------------------------------- organization -> assets

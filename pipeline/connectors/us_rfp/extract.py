@@ -4,7 +4,7 @@ Each registry row names one extractor in `connector.extractor`:
 
 - `aep_energy_rfps` (PSO, APCo, SWEPCO, I&M; one AEP page template): fetch the Energy Provider RFPs
   page, then the per-RFP page of each current generation item on the same host; one item per bold
-  title line.
+  title line, except year and section headings (`aep_heading_rule`).
 - `news_release_index` (CT DEEP): fetch the year's news-release listing, paged back to the run's
   look-back, then each candidate release; one item per release whose title names a generation RFP.
 - `notice_table_pdf` (NJ BPU): fetch the public-notice table, then each candidate notice PDF, read
@@ -239,10 +239,45 @@ class AepItem:
     link: str | None = None
 
 
+#: A bold line that only names a year ("2024", "2024 RFPs", "2025-26 Requests for Proposals",
+#: "2024 Archive"): a heading over the RFPs of that year, unless it has a page of its own (I&M's
+#: "2024 RFPs" links its own per-RFP page, which names its four RFPs, so it is an item).
+_YEAR_LABEL = re.compile(
+    r"^(?:archived?\s+)?(?:19|20)\d{2}(?:\s*[-\u2013/]\s*(?:19|20)?\d{2})?"
+    r"(?:\s+(?:archived?\s+)?(?:rfps?|requests?\s+for\s+proposals?|solicitations?|archive))?\s*:?$",
+    re.I,
+)
+#: A bold "Archive" line ("Archive", "Archived RFPs"): the same section break as an `Archive` heading.
+_ARCHIVE_LINE = re.compile(
+    r"^archived?s?(?:\s+(?:rfps?|requests?\s+for\s+proposals?|solicitations?))?\s*:?$", re.I
+)
+
+
+def aep_heading_rule(item: AepItem) -> str | None:
+    """Why a bold line is a heading rather than an item, as the rule `meta.left_out` counts it
+    under, or `None` for an item (lane rfp-view, 2026-10-23). An item, in this template, is a bold
+    title with a description, a page of its own, or both. `heading.year`: a year label with no page
+    of its own, even with an introductory paragraph under it (read as an item, that paragraph would
+    lend the heading the words of the RFPs below and load it as one, status unknown).
+    `heading.section`: any other bold line with neither a description nor a page (a section name
+    such as "Current RFPs", or a bold "Archive" line). Headings are never items, so they are left out
+    before classification."""
+    if item.link is not None:
+        return None
+    title = htmltree.clean_text(aep_clean_title(item.title_line))
+    if _YEAR_LABEL.match(title):
+        return "heading.year"
+    if not item.description:
+        return "heading.section"
+    return None
+
+
 def aep_items(region: str | None, base_url: str) -> list[AepItem]:
     """The listing's items in page order: a bold paragraph starts one, the paragraphs after it are
-    its description, the first link after it is its page. An `Archive` heading starts the archive
-    section. Raises `ParseError` when the content column is missing (a template change)."""
+    its description, the first link after it is its page. An `Archive` heading, or a bold `Archive`
+    line, starts the archive section. Headings come back too, for `aep_records` to count them
+    (`aep_heading_rule`). Raises `ParseError` when the content column is missing (a template
+    change)."""
     if not region:
         raise ParseError(f"{base_url}: the AEP content column (id=main) is not on the page")
     root = htmltree.parse(region)
@@ -255,7 +290,12 @@ def aep_items(region: str | None, base_url: str) -> list[AepItem]:
             current = None
         elif node.tag == "p" and "text-bold" in node.classes:
             line = node.text()
-            if line:
+            if line and _ARCHIVE_LINE.match(htmltree.clean_text(line)):
+                # A section break, not an item: nothing after it is its description or its page.
+                section = "archive"
+                items.append(AepItem(title_line=line, section=section))
+                current = None
+            elif line:
                 current = AepItem(title_line=line, section=section)
                 items.append(current)
         elif node.tag == "p" and current is not None and current.link is None:
@@ -333,12 +373,24 @@ def aep_records(bundle: dict[str, Any], row: IssuerRow) -> tuple[list[dict[str, 
     seen: set[str] = set()
     for item in items:
         description = " ".join(item.description)
-        verdict = clf.classify(
-            item.title_line, description, ignore=tuple(row.connector.get("classify_ignore") or ())
-        )
         title = aep_clean_title(item.title_line)
         key = _aep_key(item, title)
         record = _blank_record(row, key, item.link or row.listing_url, title)
+        heading = aep_heading_rule(item)
+        if heading is not None:
+            # A year or section heading: never an item, counted under its own rule (lane rfp-view).
+            record.update(
+                title_line=item.title_line,
+                section=item.section,
+                description=description,
+                classification="heading",
+                classification_rule=heading,
+            )
+            left_out.append(record)
+            continue
+        verdict = clf.classify(
+            item.title_line, description, ignore=tuple(row.connector.get("classify_ignore") or ())
+        )
         record.update(
             title_line=item.title_line,
             section=item.section,

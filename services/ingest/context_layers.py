@@ -8,7 +8,8 @@ Two callers, one path: `web/dev_up.py` when it builds a local store, and the sch
 the worker image carries `services` and `pipeline` but not `web`.
 
 Order (`load_context_layers`): the EIA-860M plants first, with their operator edges, then the
-retirements onto them, then the asset files with their operator edges, the ethanol plants (merged
+retirements onto them, then the asset files with their operator edges, the OpenStreetMap power
+layers (`services/ingest/osm_power.py`: lines and substations, withdrawals), the ethanol plants (merged
 across two registries), the EIA-860 owner shares, the GHGRP shares, the derived features, the
 curated parents and last the organisation graph, because each step reads what the steps before it
 created. Every input is optional: a file that is absent is one log line, never a failure of the
@@ -34,6 +35,7 @@ from services.ingest.enrich import apply_context_features
 from services.ingest.ghgrp import load_ghgrp_parquet
 from services.ingest.loader import GateRefused, load_from_files
 from services.ingest.midstream import load_operator_edges, load_operator_edges_parquet, load_parents
+from services.ingest.osm_power import load_osm_power
 from services.ingest.ownership import load_owner_shares_parquet
 from services.ingest.plants import load_plants_parquet
 from services.ingest.retirements import SOURCE_ID as RETIREMENTS_SOURCE_ID
@@ -74,7 +76,12 @@ def context_dir(data_dir: pathlib.Path) -> pathlib.Path:
 
 def expected_files() -> list[str]:
     """Every `normalized/context/` file a load reads directly, for the job's report. The feature
-    inputs (`services.ingest.enrich`) are read and reported by that step itself."""
+    inputs (`services.ingest.enrich`) are read and reported by that step itself.
+
+    The OpenStreetMap power frames (`OSM_POWER_FILES`) are loaded when present but not listed yet:
+    no `context_build` builder writes them until `("pipeline.context.osm_power", "pull")` joins
+    `infra/scheduler/jobs.py::CONTEXT_BUILDERS` (docs/25 §2.7, limit 1). That wiring adds them here
+    and to `infra/scheduler/test_context_and_match.py`'s builder map in the same change."""
     return [
         PLANTS_FILE,
         *(name for name, _ in CONTEXT_ASSET_FILES),
@@ -314,6 +321,11 @@ def load_asset_layers(session: Session, data_dir: pathlib.Path) -> None:
         log.info("context asset layers: loaded %s rows from %s (%s)", asset_type, file_name, report)
         edges = load_operator_edges_parquet(session, parquet_path, asset_type)
         log.info("context asset layers: operator edges from %s (%s)", file_name, edges)
+    # Lane grid-osm, 2026-10-22: the OpenStreetMap lines and substations (`services/ingest/osm_power.py`):
+    # upserted, then what a covered region's new extract no longer has is withdrawn. No edge step: the
+    # operator is free text and rides in `attributes` (pipeline/context/osm_power.py docstring).
+    if load_osm_power(session, directory):
+        loaded += 1
     if _load_ethanol_plants(session, data_dir):
         loaded += 1
     load_ownership(session, data_dir)

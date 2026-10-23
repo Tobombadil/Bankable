@@ -85,6 +85,8 @@ HEALTH: dict[str, Any] = {
     "data_as_of": "2026-09-01",
     "live_as_of": "2026-09-15T00:00:00Z",
     "lag_days_default": {"supply": 0, "opportunities": 0},
+    # A finished site-finder run, so the primary navigation lists it (`site_finder_listed`).
+    "site_finder": {"computed": True, "segments": 120699},
 }
 VOCAB: dict[str, Any] = {
     "data": {
@@ -204,8 +206,9 @@ def test_an_empty_opportunity_list_names_the_filter(transport: FakeTransport) ->
     with TestClient(web_app) as client:
         html = client.get("/opportunities?jurisdiction=US-ZZ").text
     text = _text(html)
-    # The page opens on energy-related notices (docs/16 U-7), and the sentence says so.
-    assert "No open energy-related opportunities match these filters." in text
+    # The page opens on open and announced energy-related notices (docs/16 U-7; lane rfp-view),
+    # and the sentence says so.
+    assert "No open or announced energy-related notices match these filters right now." in text
     assert "Jurisdiction: “US-ZZ” · without it, 7 opportunities match." in text
 
 
@@ -719,6 +722,7 @@ def test_font_files_are_served_with_a_long_lived_cache() -> None:
 #: The primary links in order (docs/16 §3.1), as the page prints them.
 PRIMARY = [
     ("/", "Map"),
+    ("/site-finder", "Site finder"),
     ("/proposals", "Projects"),
     ("/organizations", "Companies"),
     ("/opportunities", "RFPs &amp; funding"),
@@ -765,16 +769,34 @@ def _h1(html: str) -> str:
         ("/alerts", {"/alerts": "page"}),
     ],
 )
-def test_the_primary_nav_is_six_sections_in_order_and_marks_where_the_reader_is(
+def test_the_primary_nav_is_seven_sections_in_order_and_marks_where_the_reader_is(
     lists: FakeTransport, path: str, current: dict[str, str]
 ) -> None:
     with TestClient(web_app) as client:
         html = client.get(path).text
     links = _links(_primary_nav(html))
-    assert [(href, text) for href, _, text in links[:6]] == PRIMARY, path
-    assert {href: mark for href, mark, _ in links[:6] if mark} == current, path
-    # After the six: Pricing where the posture offers it, then Sign in. Nothing else.
-    assert [href for href, _, _ in links[6:]] in (["/login"], ["/pricing", "/login"]), path
+    assert [(href, text) for href, _, text in links[:7]] == PRIMARY, path
+    assert {href: mark for href, mark, _ in links[:7] if mark} == current, path
+    # After the seven: Pricing where the posture offers it, then Sign in. Nothing else.
+    assert [href for href, _, _ in links[7:]] in (["/login"], ["/pricing", "/login"]), path
+
+
+@pytest.mark.parametrize("finder", [None, {"computed": False, "segments": 0}])
+def test_the_site_finder_is_not_listed_until_it_has_a_run_to_show(
+    lists: FakeTransport, finder: dict[str, Any] | None
+) -> None:
+    """Owner, 2026-10-22: no empty sections. Without a finished run with segments (`GET /v1/health`
+    `site_finder`, or an API that does not report it), the bar shows the six other sections and the
+    page still answers by URL."""
+    health = {k: v for k, v in HEALTH.items() if k != "site_finder"}
+    if finder is not None:
+        health["site_finder"] = finder
+    lists.responses["/v1/health"] = (200, health)
+    with TestClient(web_app) as client:
+        html = client.get("/proposals").text
+    links = _links(_primary_nav(html))
+    assert [(href, text) for href, _, text in links[:6]] == [p for p in PRIMARY if p[0] != "/site-finder"]
+    assert all(href != "/site-finder" for href, _, _ in links)
 
 
 @pytest.mark.parametrize(

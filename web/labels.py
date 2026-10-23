@@ -599,6 +599,9 @@ def install(env: Any) -> None:
 #: API and the data model keep `proposal`, `opportunity`, `asset` and `interconnection point`.
 SECTION_LABELS: dict[str, str] = {
     "map": "Map",
+    # docs/25 "Site finder" (2026-10-23): land beside high-voltage lines, near a substation and out
+    # of the floodplain; after Map in the primary links.
+    "site_finder": "Site finder",
     "projects": "Projects",
     "companies": "Companies",
     "rfps": "RFPs & funding",

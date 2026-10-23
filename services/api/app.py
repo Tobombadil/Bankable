@@ -22,6 +22,7 @@ from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
@@ -108,6 +109,7 @@ from services.environment import is_dev_environment
 from services.ids import public_id
 from services.ingest.lag import RECORD_LAG_DAYS
 from services.posture import platform_posture, posture_statement
+from services.site_finder.compute import current_run as current_site_finder_run
 from services.sor.ports import BillingPort
 from services.sor.wiring import get_billing_port
 
@@ -287,6 +289,19 @@ app.include_router(sites_router)
 from services.api.prices import router as prices_router  # noqa: E402
 
 app.include_router(prices_router)
+
+# Prospecting layers at a point (owner decision 2026-10-22; docs/25 "Prospecting layers"): resource,
+# subsurface, incentive, constraint and hazard values, screening grade, from the compact files the
+# prospect build writes; no database.
+from services.api.context_sample import router as context_sample_router  # noqa: E402
+
+app.include_router(context_sample_router)
+
+# The powered-land site finder (owner decision 2026-10-22): corridor bands along 69 kV-and-up lines near
+# a substation and outside the floodplain, from the segments `services/site_finder` precomputes.
+from services.api.site_finder import router as site_finder_router  # noqa: E402
+
+app.include_router(site_finder_router)
 
 # Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
 # metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
@@ -1011,6 +1026,20 @@ def _health_vintage(db: Session) -> dict[str, Any]:
     }
 
 
+def _health_site_finder(db: Session) -> dict[str, Any] | None:
+    """Whether the site finder has a run to serve (docs/25 §7): the public navigation lists it only
+    then, so a fresh deploy whose grid and flood layers are not built yet shows no empty section
+    (owner, 2026-10-22: no empty sections). One indexed read of `site_finder_run`; `None` when the
+    table is not there yet (a database behind migration 0039), so the probe never fails on it."""
+    try:
+        run = current_site_finder_run(db)
+    except SQLAlchemyError:
+        db.rollback()  # the last read of the probe: nothing after it needs this transaction
+        return None
+    segments = int(run.segments or 0) if run is not None else 0
+    return {"computed": run is not None and segments > 0, "segments": segments}
+
+
 #: The table whose presence means Procrastinate's job-queue schema is installed. Kept equal to
 #: `infra/scheduler/queue_schema.py`'s `SENTINEL_TABLE` (services/api/test_routes.py pins the two);
 #: not imported from there, because the API has no reason to import the scheduler package.
@@ -1157,6 +1186,9 @@ def get_health(
         # hold free email alerts, the cap and the cadences, from the constant the saved-search
         # routes enforce. The public site reads this to say so; it cannot read the API's setting.
         "free_alerts": free_alerts_summary(),
+        # Whether the site finder has a finished run with segments (docs/25 §7); the public
+        # navigation lists it only then. Null when the database check failed.
+        "site_finder": _health_site_finder(db) if database_ok else None,
     }
     return data
 

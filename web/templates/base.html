@@ -122,11 +122,15 @@
         links stay open, as before. -#}
     <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-nav-panel">Menu</button>
     <div class="site-nav-panel" id="site-nav-panel">
-    {#- Six destinations (docs/16 §3.1, U-6). The current one carries `aria-current` and, as its
-        visible echo, weight and an underline (styles.css). -#}
+    {#- Seven destinations (docs/16 §3.1, U-6; the site finder after Map, docs/25). The current one
+        carries `aria-current` and, as its visible echo, weight and an underline (styles.css). -#}
     <nav class="primary-nav" aria-label="Primary">
       {%- for key in sections.primary %}
+      {#- The site finder is listed once it has a run to show (`site_finder_listed`, web/page.py):
+          until then its page answers by URL and says so, and the bar shows no empty section. -#}
+      {%- if key != "site_finder" or site_finder_listed(request) %}
       <a href="{{ sections.href[key] }}"{{ sections.current(key, request.url.path) }}>{{ sections.label[key] }}</a>
+      {%- endif %}
       {%- endfor %}
       {#- Owner, 2026-10-10: paid tiers stay off and must not distract the private beta. Under the
           noncommercial posture the link is left out; /pricing still answers by URL and says why

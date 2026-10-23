@@ -1,4 +1,11 @@
 {% import "_macros.html" as m %}
+{#- Lane rfp-view (2026-10-23): an announced notice is not open. Beside its "Announced" chip the row
+    says so in words, with the opening date the notice states when that is still ahead
+    (`viewmodels.announced_opens_on`). Outlined and quiet like the deadline note: an annotation on
+    the chip, never a second status. -#}
+{%- macro announced_note(r) -%}
+{%- if r.status == 'announced' %}<span class="slip-note slip-note--quiet announced-note">Not open yet{% if r.announced_opens_on %}: opens {{ r.announced_opens_on | display_date }}{% endif %}</span>{% endif -%}
+{%- endmacro %}
 {#- docs/16 U-7 (decision 2026-10-22): the list opens on energy-related notices; "All notices" is one
     click away and kept in the URL (`relevance=all`). Each link carries the view's other filters and
     its own count, so the reader sees what the default leaves out before choosing. -#}
@@ -51,7 +58,7 @@
   <tbody>
     {% for r in records %}
     <tr>
-      <td data-label="Status" class="cell-lead">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }}{{ m.deadline_note(r) }}</td>
+      <td data-label="Status" class="cell-lead">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }}{{ m.deadline_note(r) }}{{ announced_note(r) }}</td>
       <td data-label="Title" class="cell-title"><a class="row-link" href="/opportunities/{{ r.slug }}">
         {%- if r.title and r.title | length > 110 %}<span class="cell-text-full">{{ r.title }}</span><span class="cell-text-short">{{ r.title | truncate(100, end='…', leeway=0) }}</span>
         {%- else %}{{ r.title }}{% endif %}</a></td>
@@ -72,6 +79,41 @@
 </div>
 {{ m.pager(prev_cursor, next_cursor, querystring, "/opportunities") }}
 {{ m.credits_line(credits) }}
+{% elif not status_chosen and not request.query_params.get('cursor') %}
+{#- Lane rfp-view: the default view (open and announced) with nothing in it. It says why in plain
+    words, then the way on: the closed list, the issuers read, an alert for the next one. When
+    closed notices of the last 12 months exist they follow in their own section, which links the
+    closed list itself. -#}
+{%- set energy = rs and rs.current == 'energy' %}
+<div class="empty-state rfp-empty">
+  {%- if reader_filters %}
+  <p class="rfp-empty__lead">No open or announced {{ 'energy-related ' if energy }}notices match these filters right now.</p>
+  {%- elif energy and rs.all.count %}
+  <p class="rfp-empty__lead">No open or announced energy-related notices right now.</p>
+  {%- else %}
+  <p class="rfp-empty__lead">No open RFPs from the issuers we read right now.</p>
+  {%- endif %}
+  {%- if not reader_filters %}
+  <p>Utility RFPs are rare and stay open for a few weeks, so on many days none is open. We read each utility&rsquo;s RFP page daily.</p>
+  {%- endif %}
+  {#- The default scope can be what emptied the list: say how many notices it left out. -#}
+  {%- if energy and rs.all.count %}
+  <p>{{ rs.all.count | thousands }} notice{{ 's' if rs.all.count != 1 }} match{{ 'es' if rs.all.count == 1 }} these filters among all notices. <a href="{{ rs.all.href }}">Show all notices</a></p>
+  {%- endif %}
+  {{ m.empty_facets(empty_facets, "opportunity", "opportunities") }}
+  <ul class="rfp-empty__links">
+    {%- if not recently_closed %}
+    <li><a href="{{ closed_href }}">Closed notices</a></li>
+    {%- endif %}
+    <li><a href="/about#sources">The issuers we read</a></li>
+    {%- if save_alert_href %}
+    <li><a href="{{ save_alert_href }}">Get an alert when one opens</a></li>
+    {%- endif %}
+  </ul>
+  {%- if reader_filters %}
+  <p><a href="/opportunities">Clear all filters</a></p>
+  {%- endif %}
+</div>
 {% else %}
 <div class="empty-state">
   <p>No {{ 'open ' if filters and filters.get('status') == 'open' }}{{ 'energy-related ' if rs and rs.current == 'energy' }}opportunities match these filters.</p>
@@ -83,3 +125,33 @@
   <p><a href="/opportunities">Clear all filters</a></p>
 </div>
 {% endif %}
+{#- Lane rfp-view: "Recently closed (last 12 months)", shown only while the reader has not chosen a
+    status (web/app.py::_recently_closed). Its own heading, its own compact rows and its own credit
+    line, after the main list and never in it; every row carries the "Closed" chip and its deadline
+    as a past date. The full closed list is one link away. -#}
+{%- set rc = recently_closed %}
+{%- if rc %}
+<section class="recent-closed" aria-labelledby="recent-closed-title">
+  <h2 id="recent-closed-title" class="recent-closed__title">Recently closed <span class="recent-closed__window">(last 12 months)</span></h2>
+  <p class="recent-closed__note">Notices whose deadline fell in the last 12 months, newest first. They are closed: none is taking bids.</p>
+  <ol class="recent-closed__list">
+    {%- for r in rc.records %}
+    <li class="recent-closed__row">
+      <span class="recent-closed__lead">{{ m.status_chip(r.status, r.lifecycle_family, r.status_raw) }} <a class="recent-closed__link" href="/opportunities/{{ r.slug }}">
+        {%- if r.title and r.title | length > 110 %}<span class="cell-text-full">{{ r.title }}</span><span class="cell-text-short">{{ r.title | truncate(100, end='…', leeway=0) }}</span>
+        {%- else %}{{ r.title }}{% endif %}</a></span>
+      <span class="recent-closed__meta">
+        {%- if r.issuer_org and r.issuer_org.href %}<a href="{{ r.issuer_org.href }}"{% if r.issuer_org.personal_data %} rel="nofollow"{% endif %}>{{ r.issuer_org.name | readable_name }}</a><span class="recent-closed__sep" aria-hidden="true"> &middot; </span><span class="visually-hidden">, </span>
+        {%- elif r.issuer %}{{ r.issuer | readable_name }}<span class="recent-closed__sep" aria-hidden="true"> &middot; </span><span class="visually-hidden">, </span>
+        {%- endif %}
+        {%- if r.due_at %}<span class="nowrap">Deadline {{ r.due_at | display_date }}</span><span class="recent-closed__sep" aria-hidden="true"> &middot; </span><span class="visually-hidden">, </span>{% endif -%}
+        <a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_id }}</a></span>
+    </li>
+    {%- endfor %}
+  </ol>
+  <p class="recent-closed__more">
+    {%- if rc.total > rc.records | length %}<span class="tnum">{{ rc.records | length }}</span> of <span class="tnum">{{ rc.total | thousands }}</span> closed in the last 12 months. {% endif -%}
+    <a href="{{ rc.href }}">All closed notices &rarr;</a></p>
+  {{ m.credits_line(rc.credits) }}
+</section>
+{%- endif %}

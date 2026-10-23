@@ -28,6 +28,7 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
     tick_context (monthly) -> context_build           rebuild normalized/context/ (builder CLIs)
                               -> context_load         plants, retirements, asset layers, owners,
                                                      then the companies index's figures
+                                 -> site_finder_refresh   the site finder's candidate segments
     tick_org_stats (5 min) -> org_stats_tick          those figures again, only if their gate key moved
     tick_org_enrich (monthly) -> org_enrich_fetch     company facts from Wikidata and SEC (network only)
                               -> org_enrich_apply     write profiles and websites (store-wide lock)
@@ -699,8 +700,41 @@ def context_load() -> dict[str, Any]:
     (`services/ingest/context_layers.py`, the same path `web.dev_up` uses). Under the store-wide
     lock, because it writes organisations a resolve pass may be merging; retried on the same
     database conflicts with a concurrent load as `load_source` (`LOAD_RETRY`): every step is
-    idempotent. Body in `infra/scheduler/jobs.py`."""
-    return _store_pass("context_load", jobs.context_load_job, timeout_s=CONTEXT_LOAD_TIMEOUT_S)
+    idempotent. Body in `infra/scheduler/jobs.py`. Chains to `site_finder_refresh`, which reads what
+    this load wrote."""
+    report = _store_pass("context_load", jobs.context_load_job, timeout_s=CONTEXT_LOAD_TIMEOUT_S)
+    if report.get("skipped") == jobs.STORE_WIDE_BUSY:  # the next load re-chains
+        return report
+    try:
+        site_finder_refresh.defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: site_finder_refresh already queued")
+    return report
+
+
+#: Ceiling for one site-finder run (services/site_finder), `SITE_FINDER_TIMEOUT_S` to override. Texas,
+#: the beta's one state, took 33 minutes for 120,699 segments on 2026-10-23 (about 16 ms a segment,
+#: most of it the prospecting layers); the cost grows with the segments, not the states, since lines
+#: are measured grouped by the flood states they need. Three hours holds about five Texases; a national
+#: run (an estimate, not measured: roughly ten times Texas's line miles) needs the job split by state
+#: before `GRID_LAYERS_REGIONS` goes past that.
+SITE_FINDER_TIMEOUT_S = int(os.environ.get("SITE_FINDER_TIMEOUT_S") or 3 * 3600)
+
+
+@app.task(
+    name="site_finder_refresh",
+    queue="resolve",
+    retry=0,
+    queueing_lock="site_finder_refresh",
+    lock="site_finder",
+)
+def site_finder_refresh() -> dict[str, Any]:
+    """Recompute the powered-land site finder's candidate segments after a context load
+    (`services/site_finder/compute.py`). Its own lock, not the store-wide one: it reads the store and
+    writes only its own two tables, as a new run swapped in at the end, so a resolve or match pass may
+    run beside it; a line withdrawn mid-run fails the run and the previous one keeps serving.
+    `retry=0`: the next context load is the retry. Body in `infra/scheduler/jobs.py`."""
+    return _run_with_timeout(jobs.site_finder_refresh_job, timeout_s=SITE_FINDER_TIMEOUT_S)
 
 
 #: The 3rd of the month, 02:43 UTC: after the monthly bucket's EIA-860M fetch (the 1st) and the

@@ -1,0 +1,95 @@
+{
+ "_note": "What pipeline.context.osm_power.build keeps from osm_power_texas_sample.osm (lane grid-osm, 2026-10-22). One element per rule: see the fixture's header comment.",
+ "lines": [
+  "way/1343869767",
+  "way/1344685162",
+  "way/1490401455",
+  "way/1535302130",
+  "way/318896180"
+ ],
+ "substations": [
+  "node/11922386120",
+  "relation/21433644",
+  "way/100671606",
+  "way/1426037084",
+  "way/451971745",
+  "way/915732550"
+ ],
+ "dropped": {
+  "line_below_69kv": 2,
+  "line_busbar_or_bay": 2,
+  "substation_minor_distribution": 1
+ },
+ "line_checks": {
+  "way/1535302130": {
+   "voltage_kv": 138.0,
+   "voltages_kv": [138.0, 69.0],
+   "voltage_raw": "138000;69000",
+   "operator": "CenterPoint Energy",
+   "circuits": "2",
+   "underground": false
+  },
+  "way/1490401455": {
+   "voltage_kv": 345.0,
+   "name": "Zorn - Hutto / Clear Springs - Gilleland Creek",
+   "operator": "Lower Colorado River Authority",
+   "circuits": "1"
+  },
+  "way/1343869767": {
+   "voltage_kv": null,
+   "voltage_unknown": true,
+   "voltage_raw": null
+  },
+  "way/1344685162": {
+   "voltage_kv": null,
+   "voltage_unknown": true,
+   "voltage_raw": "0"
+  },
+  "way/318896180": {
+   "power": "cable",
+   "underground": true,
+   "location": "underground",
+   "voltage_kv": 138.0,
+   "region": "US-TX",
+   "scope_regions": ["US-TX"]
+  }
+ },
+ "substation_checks": {
+  "node/11922386120": {
+   "name": "Peck Substation",
+   "substation": "distribution",
+   "operator": "Oncor",
+   "voltage_kv": 69.0,
+   "voltages_kv": [69.0, 12.5],
+   "outline_type": null
+  },
+  "relation/21433644": {
+   "name": "Durazno Substation",
+   "substation": null,
+   "voltage_kv": 115.0,
+   "outline_type": "Polygon"
+  },
+  "way/451971745": {
+   "name": "Molina Substation",
+   "substation": "transmission",
+   "operator": "American Electric Power",
+   "outline_type": "Polygon"
+  },
+  "way/1426037084": {
+   "substation": null,
+   "voltage_kv": 69.0,
+   "outline_type": "Polygon"
+  },
+  "way/100671606": {
+   "substation": "generation",
+   "outline_type": "Polygon"
+  },
+  "way/915732550": {
+   "substation": "distribution",
+   "outline_type": null,
+   "region": "US-AR",
+   "extract_regions": ["US-TX"],
+   "scope_regions": ["US-AR", "US-TX"]
+  }
+ }
+}

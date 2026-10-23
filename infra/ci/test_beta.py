@@ -415,6 +415,37 @@ def test_site_access_accepts_only_basic_or_open() -> None:
     expect([r.name for r in problems] == ["SITE_ACCESS"], problems)
 
 
+def test_my_pipeline_reaches_the_env_file_off_by_default_and_on_only_for_on() -> None:
+    """Lane tracker (2026-10-23): the owner opens the private Tracker with one Environment variable,
+    MY_PIPELINE=on, and a rerun of deploy. The rendered file always carries the key (every deploy
+    rewrites the host's file, so a hand edit would not survive): `off` unless the variable is `on`."""
+    env = GOOD_ENV | {"PRODUCT_NAME": "Example Product"}
+    keys = [k for k, _ in beta.render_env(env, outputs(), site_hash="aGFzaA==")]
+    expect(keys.index("CSP_MODE") + 1 == keys.index("MY_PIPELINE"), f"the example file's order: {keys}")
+    for value, rendered in (
+        (None, "off"),
+        ("", "off"),
+        ("off", "off"),
+        ("on", "on"),
+        (" On ", "on"),
+        ("true", "off"),
+        ("yes", "off"),
+        ("1", "off"),
+    ):
+        source = env if value is None else env | {"MY_PIPELINE": value}
+        pairs = dict(beta.render_env(source, outputs(), site_hash="aGFzaA=="))
+        expect(pairs["MY_PIPELINE"] == rendered, f"{value!r} rendered {pairs['MY_PIPELINE']!r}")
+
+
+def test_my_pipeline_accepts_only_off_or_on() -> None:
+    expect(not check(GOOD_ENV), "unset is fine")
+    expect(not check(GOOD_ENV | {"MY_PIPELINE": "on"}), "on is valid")
+    expect(not check(GOOD_ENV | {"MY_PIPELINE": "OFF"}), "off is valid, any case")
+    problems = check(GOOD_ENV | {"MY_PIPELINE": "true"})
+    expect([r.name for r in problems] == ["MY_PIPELINE"], problems)
+    expect("not one of off, on" in str(problems[0].problem), problems)
+
+
 def test_no_domain_or_product_name_is_hard_coded() -> None:
     """The domain comes from the DOMAIN variable and the product name from the code (coordinator,
     2026-10-15): neither may be written into the workflow, its scripts or its backend."""

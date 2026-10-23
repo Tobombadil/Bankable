@@ -92,6 +92,8 @@ jobs:
           PRODUCT_CONTACT_EMAIL: ${{ vars.PRODUCT_CONTACT_EMAIL }}
           PRODUCT_NAME: ${{ vars.PRODUCT_NAME }}
           SITE_ACCESS: ${{ vars.SITE_ACCESS }}
+          # Optional: `on` opens My pipeline, the private Tracker (docs/19 §11); unset or `off` keeps it 404.
+          MY_PIPELINE: ${{ vars.MY_PIPELINE }}
           # Optional: the ERCOT Public API account (docs/29 §2.1), all three or none.
           ERCOT_API_SUBSCRIPTION_KEY: ${{ secrets.ERCOT_API_SUBSCRIPTION_KEY }}
           ERCOT_API_USERNAME: ${{ secrets.ERCOT_API_USERNAME }}
@@ -219,6 +221,7 @@ jobs:
           PRODUCT_CONTACT_EMAIL: ${{ vars.PRODUCT_CONTACT_EMAIL }}
           PRODUCT_NAME: ${{ needs.inputs.outputs.product_name }}
           SITE_ACCESS: ${{ vars.SITE_ACCESS }}
+          MY_PIPELINE: ${{ vars.MY_PIPELINE }}
           ERCOT_API_SUBSCRIPTION_KEY: ${{ secrets.ERCOT_API_SUBSCRIPTION_KEY }}
           ERCOT_API_USERNAME: ${{ secrets.ERCOT_API_USERNAME }}
           ERCOT_API_PASSWORD: ${{ secrets.ERCOT_API_PASSWORD }}

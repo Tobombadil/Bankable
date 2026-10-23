@@ -1,0 +1,83 @@
+{#- The checklist (docs/19 §2.3, §2.4, §6.2): folders with "N of M done", a four-way status per item,
+    suggested public-record evidence as a muted chip that is never "verified". One form saves every
+    status that changed; Accept and Dismiss post the evidence decision alone. Primary action: mark an
+    item. A bid's checklist is the bid pack; projects and investments have the bankability pack. -#}
+<section aria-labelledby="checklist-heading">
+  <h2 id="checklist-heading" class="visually-hidden">Checklist</h2>
+  <p class="my-muted">{{ checklist.status_disclaimer }}</p>
+  <form method="post" action="/my/items/{{ item.public_id }}/checklist" class="my-checklist">
+    {%- for folder in checklist.folders if folder['items'] %}
+    <details class="my-folder" open>
+      <summary><span class="my-folder__name">{{ folder.label }}</span> <span class="my-muted tnum">{{ folder.done }} of {{ folder.total }} done</span></summary>
+      <ul class="my-items">
+        {%- for entry in folder['items'] %}
+        <li class="my-item">
+          <div class="my-item__row">
+            <label class="my-item__name" for="status-{{ entry.item_id }}">{{ entry.name }}</label>
+            {%- if can_edit %}
+            <input type="hidden" name="was" value="{{ entry.item_id }}:{{ entry.status }}">
+            <select id="status-{{ entry.item_id }}" name="status">
+              {%- for value, label in status_choices %}
+              <option value="{{ entry.item_id }}:{{ value }}"{% if value == entry.status %} selected{% endif %}>{{ label }}</option>
+              {%- endfor %}
+            </select>
+            {%- else %}
+            <span id="status-{{ entry.item_id }}">{{ entry.status_label }}</span>
+            {%- endif %}
+          </div>
+          {%- if entry.guidance %}
+          <details class="my-guidance"><summary>What this is</summary><p>{{ entry.guidance }}</p></details>
+          {%- endif %}
+          {%- for suggestion in entry.suggestions %}
+          <div class="my-suggestion">
+            <p class="my-suggestion__label">{{ suggestion.label }}{% if suggestion.state == 'accepted' %} &middot; accepted{% endif %}</p>
+            <p class="my-suggestion__text">{{ suggestion.text }} <a href="{{ suggestion.record.url }}">{{ suggestion.record.name }}</a></p>
+            {%- if suggestion.source %}<p class="my-credit">Source: {{ suggestion.source.source_name or suggestion.source.source_id }} ({{ suggestion.source.reuse_class }}{% if suggestion.retrieved_at %}, retrieved {{ suggestion.retrieved_at | display_date }}{% endif %})</p>{% endif %}
+            {%- if can_edit and suggestion.evidence_id %}
+            <div class="my-suggestion__actions">
+              {%- if suggestion.state != 'accepted' %}<button type="submit" class="button-secondary" formaction="/my/items/{{ item.public_id }}/checklist/{{ entry.item_id }}/evidence/{{ suggestion.evidence_id }}/accept">Accept<span class="visually-hidden"> this suggestion</span></button>{% endif %}
+              <button type="submit" class="button-secondary" formaction="/my/items/{{ item.public_id }}/checklist/{{ entry.item_id }}/evidence/{{ suggestion.evidence_id }}/dismiss">Dismiss<span class="visually-hidden"> this suggestion</span></button>
+            </div>
+            {%- endif %}
+          </div>
+          {%- endfor %}
+        </li>
+        {%- endfor %}
+      </ul>
+    </details>
+    {%- endfor %}
+    {%- if can_edit %}
+    <div class="form-actions my-sticky-actions"><button type="submit">Save checklist</button></div>
+    <p class="field-hint">Accept or Dismiss saves that decision only; save your statuses first.</p>
+    {%- endif %}
+  </form>
+
+  <section class="my-card" aria-labelledby="readiness-tab-heading">
+    <h3 id="readiness-tab-heading" class="my-card__title">Readiness by pillar</h3>
+    <p class="my-muted">Your status, not verified. No single score until documents and a reviewer exist.</p>
+    <ul class="my-list">
+      {%- for row in checklist.readiness %}
+      <li>{{ row.label }}: {{ row.text }}</li>
+      {%- endfor %}
+    </ul>
+  </section>
+
+  {%- if can_edit %}
+  <form class="auth-form my-form" method="post" action="/my/items/{{ item.public_id }}/checklist/items">
+    <h3 class="my-card__title">Add your own item</h3>
+    <div class="field">
+      <label for="custom-name">Name</label>
+      <input id="custom-name" name="name" type="text" maxlength="200" required>
+    </div>
+    <div class="field">
+      <label for="custom-folder">Folder</label>
+      <select id="custom-folder" name="folder">
+        {%- for folder in checklist.folders %}
+        <option value="{{ folder.folder }}">{{ folder.label }}</option>
+        {%- endfor %}
+      </select>
+    </div>
+    <div class="form-actions"><button type="submit" class="button-secondary">Add item</button></div>
+  </form>
+  {%- endif %}
+</section>

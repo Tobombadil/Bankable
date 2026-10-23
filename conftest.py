@@ -207,6 +207,8 @@ BROWSER_TESTS = (
     "web/test_e2e.py",
     "web/test_e2e_alerts.py",
     "web/test_e2e_companies.py",
+    "web/test_e2e_rfps.py",
+    "web/test_e2e_site_finder.py",
     "web/test_csp_browser.py",
 )
 

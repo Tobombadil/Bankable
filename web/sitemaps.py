@@ -22,6 +22,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from web.api_client import ApiClient, ApiError
+from web.my_projects import pipeline_on
 from web.page import ALL_OPPORTUNITY_STATUSES_CSV, get_api
 from web.viewmodels import ALL_PROPOSAL_LIFECYCLE_STATES
 
@@ -285,6 +286,10 @@ ROBOTS_DISALLOW = (
     "/search?",
     "/report",
 )
+#: My pipeline (docs/19 §5.2 item 6): the tracker itself and every private page under it, named only
+#: while `MY_PIPELINE=on`. While it is off the pages answer an unknown address's 404, and naming them
+#: here would say they exist.
+MY_PIPELINE_DISALLOW = ("/my", "/my/")
 
 
 @router.get("/robots.txt")
@@ -295,6 +300,7 @@ def robots(request: Request) -> Response:
     file is not a static asset."""
     base = str(request.base_url).rstrip("/")
     lines = ["User-agent: *", "Allow: /"]
-    lines += [f"Disallow: {path}" for path in ROBOTS_DISALLOW]
+    disallowed = ROBOTS_DISALLOW + (MY_PIPELINE_DISALLOW if pipeline_on() else ())
+    lines += [f"Disallow: {path}" for path in disallowed]
     lines += ["", f"Sitemap: {base}/sitemap.xml", ""]
     return Response(content="\n".join(lines), media_type="text/plain")

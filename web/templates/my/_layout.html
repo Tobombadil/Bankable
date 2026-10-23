@@ -1,0 +1,8 @@
+{#- Every My pipeline page (web/my_projects.py). Private: never indexed, never cached, and the
+    `<title>` names the page, never an item, so the head's social tags and a browser's history carry
+    nothing private (docs/19 §5.2). -#}
+{% extends "base.html" %}
+{% block title %}{% block my_title %}My pipeline{% endblock %} — My pipeline — Inframation{% endblock %}
+{% block robots %}noindex, nofollow{% endblock %}
+{% block meta_description %}Your private tracker on Inframation.{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/my.css?v={{ my_css_version }}">{% endblock %}

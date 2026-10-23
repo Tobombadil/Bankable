@@ -1,0 +1,181 @@
+{#- Overview (docs/30 §11.5): stage, next deadline, what changed since your last visit, the readiness
+    card by pillar and the map point. Primary action: set the stage. -#}
+<div class="my-overview">
+  <section class="my-card" aria-labelledby="stage-heading">
+    <h2 id="stage-heading" class="my-card__title">Stage</h2>
+    {%- if can_edit %}
+    <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/stage">
+      <label class="visually-hidden" for="stage-select">Stage</label>
+      <select id="stage-select" name="stage">
+        {%- for option in item.stages %}
+        <option value="{{ option.stage }}"{% if option.stage == item.stage %} selected{% endif %}>{{ option.label }}</option>
+        {%- endfor %}
+      </select>
+      <div class="form-actions"><button type="submit">Set stage</button></div>
+    </form>
+    {%- else %}
+    <p>{{ item.stage_label }}</p>
+    {%- endif %}
+    <p class="field-hint">Stages are yours: never inferred, never shown publicly.</p>
+  </section>
+
+  <section class="my-card" aria-labelledby="deadline-heading">
+    <h2 id="deadline-heading" class="my-card__title">Next deadline</h2>
+    {%- if deadline %}
+    <p class="my-deadline"><time datetime="{{ deadline.iso }}">{{ deadline.date }}</time> &middot; {{ deadline.when }}</p>
+    <p class="my-muted">{% if deadline.via_bid %}Via its bid <a href="{{ '/my/items/' ~ deadline.via_bid.public_id }}">{{ deadline.via_bid.title }}</a>, from {% else %}From {% endif %}<a href="{{ deadline.record.url }}">{{ deadline.record.name or 'the linked notice' }}</a>, read live: a date the issuer moves moves here.</p>
+    {%- elif item.closed %}
+    <p class="my-muted">None: this {{ item.kind_label | lower }} is {{ item.stage_label | lower }}.</p>
+    {%- else %}
+    <p class="my-muted">None yet. Link an RFP or funding notice and its due date shows here.</p>
+    {%- endif %}
+  </section>
+
+  <section class="my-card my-card--wide" aria-labelledby="changes-heading">
+    <h2 id="changes-heading" class="my-card__title">Changed since your last visit</h2>
+    <p class="my-muted">{% if item.last_viewed_at %}Since you last opened this item, {{ item.last_viewed_at | display_date }}.{% else %}Since you added or joined this item.{% endif %} From the public change history of its linked records.</p>
+    {%- if changes %}
+    <ul class="my-changes">
+      {%- for change in changes %}
+      <li>
+        <span class="my-changed my-changed--{{ change.reason }}">{{ change.text }}</span>
+        <a href="{{ change.record.url }}">{{ change.record.name or record_type_labels.get(change.record.record_type, 'Record') }}</a>{% if change.date %}, {{ change.date }}{% endif %}
+        {%- if change.source %}<span class="my-credit">Source: {{ change.source.source_name or change.source.source_id }} &middot; {{ change.source.reuse_class }}{% if change.source.attribution_text %} &middot; {{ change.source.attribution_text }}{% endif %}</span>{% endif %}
+      </li>
+      {%- endfor %}
+    </ul>
+    {%- else %}
+    <p>Nothing has changed on its linked records.</p>
+    {%- endif %}
+  </section>
+
+  {%- if item.kind == 'project' %}
+  <section class="my-card my-card--wide" aria-labelledby="bids-heading">
+    <h2 id="bids-heading" class="my-card__title">Its bids</h2>
+    {%- if bids %}
+    <ul class="my-list">
+      {%- for bid in bids %}
+      <li><a href="{{ '/my/items/' ~ bid.public_id }}">{{ bid.title }}</a> &middot; {{ bid.stage_label }}{% if bid.archived %} &middot; <span class="my-shared">Archived</span>{% elif bid.deadline %} &middot; due <time datetime="{{ bid.deadline.iso }}">{{ bid.deadline.date }}</time>{% endif %}</li>
+      {%- endfor %}
+    </ul>
+    {%- else %}
+    <p class="my-muted">None. Track an RFP or a funding notice and attach the bid to this project.</p>
+    {%- endif %}
+    {%- if bids | selectattr('archived') | list %}
+    <p class="field-hint">An archived bid is off your tracker, and its deadline is not this project's.</p>
+    {%- endif %}
+  </section>
+  {%- elif item.kind == 'bid' %}
+  <section class="my-card" aria-labelledby="bid-heading">
+    <h2 id="bid-heading" class="my-card__title">The bid</h2>
+    <dl class="field-grid my-grid">
+      <div><dt>For project</dt><dd>{% if item.parent %}<a href="{{ '/my/items/' ~ item.parent.public_id }}">{{ item.parent.title }}</a>{% if item.parent.archived %} <span class="my-shared">Archived</span>{% endif %}{% else %}None of your projects{% endif %}</dd></div>
+      <div><dt>Submitted</dt><dd>{{ item.submitted_on | display_date if item.submitted_on else 'Not yet' }}</dd></div>
+    </dl>
+    {%- if can_edit %}
+    <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/parent">
+      <label for="bid-parent">Attach to</label>
+      <select id="bid-parent" name="parent_project_id">
+        {#- An unchanged form writes nothing (web/my_projects.py::set_parent): a bid may name a project
+            another member attached that this viewer cannot see, and saving must not detach it; nor
+            re-send a project since archived, which the API would refuse. #}
+        {%- if item.parent %}
+        <option value="" selected>{{ item.parent.title }}</option>
+        {%- else %}
+        <option value="" selected>Leave it as it is</option>
+        {%- endif %}
+        <option value="none">None: it stands alone</option>
+        {%- for project in projects if not item.parent or project.public_id != item.parent.public_id %}
+        <option value="{{ project.public_id }}">{{ project.title }}</option>
+        {%- endfor %}
+      </select>
+      <div class="form-actions"><button type="submit" class="button-secondary">Attach</button></div>
+    </form>
+    <p class="field-hint">One of your projects you can edit. A project may have many bids; its next deadline follows theirs.</p>
+    {%- endif %}
+  </section>
+  {%- endif %}
+
+  <section class="my-card" aria-labelledby="readiness-heading">
+    <h2 id="readiness-heading" class="my-card__title">Readiness by pillar</h2>
+    <p class="my-muted">Your status, not verified.</p>
+    <dl class="field-grid my-grid">
+      {%- for row in item.readiness %}
+      <div><dt>{{ row.label }}</dt><dd class="tnum">{{ row.done }} of {{ row.total }}</dd></div>
+      {%- endfor %}
+    </dl>
+    <p class="field-hint">{{ item.status_disclaimer }} No single score until documents and a reviewer exist. <a href="/my/items/{{ item.public_id }}/checklist">Open the checklist</a>.</p>
+  </section>
+
+  <section class="my-card" aria-labelledby="point-heading">
+    <h2 id="point-heading" class="my-card__title">Details</h2>
+    <dl class="field-grid my-grid">
+      <div><dt>Technology</dt><dd>{% if item.technology %}{% for value, label in technologies if value == item.technology %}{{ label }}{% else %}{{ item.technology | replace('_', ' ') }}{% endfor %}{% else %}—{% endif %}</dd></div>
+      <div><dt>Capacity</dt><dd class="tnum">{{ (item.capacity_mw | mw) ~ ' MW' if item.capacity_mw is not none else '—' }}</dd></div>
+      <div><dt>Map point</dt><dd class="tnum">{% if item.lat is not none %}{{ item.lat }}, {{ item.lon }} <span class="field-grid__source-value">{{ (item.point_precision or '') | replace('_', ' ') }}</span>{% else %}Not set{% endif %}</dd></div>
+    </dl>
+    {%- if can_edit %}
+    <details class="my-details">
+      <summary>Edit details</summary>
+      <form class="auth-form my-form" method="post" action="/my/items/{{ item.public_id }}/edit">
+        <input type="hidden" name="kind" value="{{ item.kind }}">
+        <div class="field">
+          <label for="edit-title">Title</label>
+          <input id="edit-title" name="title" type="text" maxlength="200" required value="{{ item.title }}">
+        </div>
+        <div class="field">
+          <label for="edit-technology">Technology</label>
+          <select id="edit-technology" name="technology">
+            <option value="">Not set</option>
+            {%- for value, label in technologies %}
+            <option value="{{ value }}"{% if value == item.technology %} selected{% endif %}>{{ label }}</option>
+            {%- endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="edit-capacity">Capacity, MW</label>
+          <input id="edit-capacity" name="capacity_mw" type="text" inputmode="decimal" value="{{ item.capacity_mw if item.capacity_mw is not none else '' }}">
+        </div>
+        {%- if item.kind == 'bid' %}
+        <div class="field">
+          <label for="edit-submitted">Submitted on</label>
+          <input id="edit-submitted" name="submitted_on" type="date" value="{{ item.submitted_on or '' }}">
+        </div>
+        {%- endif %}
+        <div class="field">
+          <label for="edit-lat">Latitude</label>
+          <input id="edit-lat" name="lat" type="text" inputmode="decimal" value="{{ item.lat if item.lat is not none else '' }}">
+        </div>
+        <div class="field">
+          <label for="edit-lon">Longitude</label>
+          <input id="edit-lon" name="lon" type="text" inputmode="decimal" value="{{ item.lon if item.lon is not none else '' }}">
+        </div>
+        <div class="form-actions"><button type="submit">Save details</button></div>
+      </form>
+    </details>
+    {%- endif %}
+  </section>
+
+  <section class="my-card" aria-labelledby="email-heading">
+    <h2 id="email-heading" class="my-card__title">Email me changes</h2>
+    <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/email-changes">
+      <label for="email-changes"><input id="email-changes" type="checkbox" name="email_changes" value="on"{% if item.email_changes %} checked{% endif %}> Email me when a linked record changes</label>
+      <div class="form-actions"><button type="submit" class="button-secondary">Save</button></div>
+    </form>
+    <p class="field-hint">Coming soon: no email is sent yet. Only your choice for this item is stored, and only you see it.</p>
+  </section>
+
+  {%- if is_owner %}
+  <section class="my-card my-card--wide" aria-labelledby="manage-heading">
+    <h2 id="manage-heading" class="my-card__title">Manage</h2>
+    <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/archive">
+      <input type="hidden" name="archived" value="{{ '0' if item.archived else '1' }}">
+      <button type="submit" class="button-secondary">{{ 'Unarchive' if item.archived else 'Archive' }}</button>
+    </form>
+    <form class="my-inline-form" method="post" action="/my/items/{{ item.public_id }}/delete">
+      <label for="delete-confirm"><input id="delete-confirm" type="checkbox" name="confirm" value="delete"> Delete it, with its notes, checklist and members</label>
+      <button type="submit" class="button-secondary button-secondary--danger">Delete</button>
+    </form>
+  </section>
+  {%- endif %}
+</div>

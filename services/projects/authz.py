@@ -22,6 +22,18 @@ The membership mutations (create, edit, archive, delete, role change, removal, l
 live here too, so the one-owner invariant and the role table have a single home. Each takes the
 `ProjectAccess` that `authorize` returned for the matching action; none takes a project id from
 a request body.
+
+**The tracker's kinds** (`services.projects.kinds`; decision row 2026-10-23). An item is a
+project, a bid or an investment, set when it is created; its stage must be one of its kind's. A
+bid may name the project it is for (`parent_project_id`): one of the caller's own projects they can
+edit, checked here through the same gate (`_member_access`), refused with one `400` whatever the
+reason, so the field is no oracle for someone else's ids. A bid's project is shown only to a
+viewer who can read that project too (`readable_parent`).
+
+**The member's own view.** `mark_viewed` stamps when the member last opened the item (what
+"changed since your last visit" counts from) and `set_email_changes` stores their opt-in to be
+emailed its changes. Both are the member's own row, so a viewer may set them; neither is recorded
+in the project's history, which the other members read.
 """
 
 from __future__ import annotations
@@ -42,6 +54,7 @@ from services.api.auth import AuthContext, get_auth_context
 from services.api.deps import get_db
 from services.api.errors import ProblemError
 from services.db.models import User
+from services.projects.kinds import DEFAULT_KIND, DEFAULT_STAGES, ITEM_KINDS, KIND_STAGES, is_stage_of
 from services.projects.models import (
     LINK_RECORD_TYPES,
     MAX_ACTIVE_PROJECTS_PER_USER,
@@ -49,7 +62,6 @@ from services.projects.models import (
     POINT_PRECISIONS,
     PROJECT_FIELDS,
     PROJECT_ID_PREFIX,
-    PROJECT_STAGES,
     PROJECT_TECHNOLOGIES,
     TITLE_MAX_CHARS,
     PrivateProject,
@@ -164,7 +176,15 @@ def authorize(db: Session, ctx: AuthContext, project_public_id: str, action: Act
     if action not in ACTIONS:
         raise ValueError(f"unknown action {action!r}")
     user = workspace_user(ctx)
-    if user is None or not is_private_public_id(PROJECT_ID_PREFIX, project_public_id):
+    if user is None:
+        raise project_not_found()
+    return _member_access(db, user, project_public_id, action)
+
+
+def _member_access(db: Session, user: User, project_public_id: str, action: Action) -> ProjectAccess:
+    """`authorize` once the caller is known to be a workspace user: the same one query, the same
+    `404` for anything not theirs, `RoleForbidden` for a role too low."""
+    if not is_private_public_id(PROJECT_ID_PREFIX, project_public_id):
         raise project_not_found()
     row = db.execute(
         select(PrivateProject, PrivateProjectMember)
@@ -216,10 +236,17 @@ def project_access(action: Action) -> ProjectAccessDependency:
     return ProjectAccessDependency(action)
 
 
-def member_projects(db: Session, ctx: AuthContext, *, include_archived: bool = False) -> list[ProjectAccess]:
-    """The caller's projects, owned and shared, newest change first: the list form of the same
-    rule (a member may read), for `GET /v1/my/projects` and the map pins. Each is a `read` access,
-    as `authorize(…, "read")` would return it. Empty for anyone `authorize` would refuse."""
+def member_projects(
+    db: Session,
+    ctx: AuthContext,
+    *,
+    include_archived: bool = False,
+    kinds: Sequence[str] | None = None,
+) -> list[ProjectAccess]:
+    """The caller's items, owned and shared, newest change first: the list form of the same rule (a
+    member may read), for `GET /v1/my/projects` and the map pins. Each is a `read` access, as
+    `authorize(…, "read")` would return it. Empty for anyone `authorize` would refuse. `kinds`
+    narrows the list to those item kinds."""
     user = workspace_user(ctx)
     if user is None:
         return []
@@ -232,6 +259,11 @@ def member_projects(db: Session, ctx: AuthContext, *, include_archived: bool = F
     )
     if not include_archived:
         query = query.where(PrivateProject.archived_at.is_(None))
+    if kinds is not None:
+        unknown = sorted(set(kinds) - set(ITEM_KINDS))
+        if unknown:
+            raise ValueError(f"unknown item kind {unknown[0]!r}")
+        query = query.where(PrivateProject.kind.in_(list(kinds)))
     return [
         ProjectAccess(project=project, member=member, user=user, action="read")
         for project, member in db.execute(query).all()
@@ -268,8 +300,15 @@ def lock_project(db: Session, project: PrivateProject) -> None:
 
 
 # ------------------------------------------------------------------------------------ the fields
-#: The fields a user sets (docs/19 §2.1). `archived` is separate (`set_archived`).
-EDITABLE_FIELDS: Final = PROJECT_FIELDS
+#: The fields a user sets at creation (docs/19 §2.1; the tracker's kinds). `archived` is separate
+#: (`set_archived`).
+CREATE_FIELDS: Final = PROJECT_FIELDS
+#: The fields an edit may change: all but `kind`, which is set when the item is created (a bid's
+#: checklist is another pack, and only a project may have bids attached; `services.projects.kinds`).
+EDITABLE_FIELDS: Final = tuple(name for name in PROJECT_FIELDS if name != "kind")
+#: The fields only a bid carries.
+BID_FIELDS: Final = ("parent_project_id", "submitted_on")
+PARENT_REFUSED: Final = "parent_project_id is not one of your projects that you can edit"
 
 
 def _invalid(field: str, message: str) -> ProblemError:
@@ -294,11 +333,33 @@ def _decimal(field: str, value: object, *, places: int, low: Decimal, high: Deci
     return number.quantize(Decimal(1).scaleb(-places))
 
 
-def _clean_fields(values: Mapping[str, object]) -> dict[str, Any]:
-    """Validates and normalises the user-set fields present in `values`. Unknown keys are refused,
-    so a body can never set an owner, an id, a timestamp or an origin through here."""
-    unknown = sorted(set(values) - set(EDITABLE_FIELDS))
+def _date(field: str, value: object) -> dt.date | None:
+    if value is None:
+        return None
+    if isinstance(value, dt.datetime):
+        raise _invalid(field, f"{field} is a date, YYYY-MM-DD")
+    if isinstance(value, dt.date):
+        return value
+    if isinstance(value, str) and len(value) == 10:
+        try:
+            return dt.date.fromisoformat(value)
+        except ValueError:
+            pass
+    raise _invalid(field, f"{field} is a date, YYYY-MM-DD")
+
+
+def _clean_fields(
+    values: Mapping[str, object], *, kind: str, allowed: Sequence[str] = EDITABLE_FIELDS
+) -> dict[str, Any]:
+    """Validates and normalises the user-set fields present in `values` for an item of `kind`.
+    Unknown keys are refused, so a body can never set an owner, an id, a timestamp or an origin
+    through here; `kind` is taken only where `allowed` names it (at creation). A stage must be one of
+    the kind's; the bid fields belong to bids. `parent_project_id` stays a public id here: the
+    caller resolves it through `_parent_for` once the item's own checks have passed."""
+    unknown = sorted(set(values) - set(allowed))
     if unknown:
+        if unknown[0] == "kind":
+            raise _invalid("kind", "kind is set when an item is created; create a new item for another type")
         raise _invalid(unknown[0], f"{unknown[0]} cannot be set")
     clean: dict[str, Any] = {}
     if "title" in values:
@@ -317,9 +378,19 @@ def _clean_fields(values: Mapping[str, object]) -> dict[str, Any]:
             raise _invalid("technology", "technology is not one of Inframation's classes")
         clean["technology"] = technology
     if "stage" in values:
-        if values["stage"] not in PROJECT_STAGES:
-            raise _invalid("stage", "stage is not one of " + ", ".join(PROJECT_STAGES))
+        if not is_stage_of(kind, values["stage"]):
+            raise _invalid("stage", f"a {kind}'s stage is one of " + ", ".join(KIND_STAGES[kind]))
         clean["stage"] = values["stage"]
+    for name in BID_FIELDS:
+        if values.get(name) is not None and kind != "bid":
+            raise _invalid(name, f"{name} belongs to a bid")
+    if "parent_project_id" in values:
+        parent = values["parent_project_id"]
+        if parent is not None and not is_private_public_id(PROJECT_ID_PREFIX, parent):
+            raise _invalid("parent_project_id", PARENT_REFUSED)
+        clean["parent_project_id"] = parent
+    if "submitted_on" in values:
+        clean["submitted_on"] = _date("submitted_on", values["submitted_on"])
     big = Decimal("999999999.999")
     if "capacity_mw" in values:
         clean["capacity_mw"] = _decimal(
@@ -339,6 +410,31 @@ def _clean_fields(values: Mapping[str, object]) -> dict[str, Any]:
             raise _invalid("point_precision", "point_precision is not one of " + ", ".join(POINT_PRECISIONS))
         clean["point_precision"] = precision
     return clean
+
+
+def _kind_of(values: Mapping[str, object]) -> str:
+    kind = values.get("kind", DEFAULT_KIND)
+    if kind not in ITEM_KINDS:
+        raise _invalid("kind", "kind is one of " + ", ".join(ITEM_KINDS))
+    return str(kind)
+
+
+def _parent_for(
+    db: Session, user: User, parent_public_id: object, item: PrivateProject | None
+) -> _uuid.UUID | None:
+    """The row id of the project a bid names, or `None` for a bid that stands alone. It must be a
+    project (not a bid or an investment) that `user` may edit now, through the one gate. Every
+    refusal of the id is the same `400`, whether it is unknown, someone else's, read-only or
+    archived."""
+    if parent_public_id is None:
+        return None
+    try:
+        access = _member_access(db, user, str(parent_public_id), "edit")
+    except ProblemError:
+        raise _invalid("parent_project_id", PARENT_REFUSED) from None
+    if access.project.kind != "project" or (item is not None and access.project.id == item.id):
+        raise _invalid("parent_project_id", "a bid attaches to a project, not to a bid or an investment")
+    return access.project.id
 
 
 def _with_point(project: PrivateProject, clean: dict[str, Any]) -> dict[str, Any]:
@@ -370,10 +466,11 @@ def create_project(
     origin_public_id: str | None = None,
     now: dt.datetime | None = None,
 ) -> ProjectAccess:
-    """A new project, its owner membership, its checklist and a `created` activity row, in the
-    caller's transaction. `fields` takes `EDITABLE_FIELDS` only (title required). `origin_*` names
-    the record it was started from, already checked by the caller to be visible (docs/19 §1).
-    At most `MAX_ACTIVE_PROJECTS_PER_USER` active owned projects per user."""
+    """A new item (a project unless `fields` names another kind), its owner membership, its
+    kind's checklist and a `created` activity row, in the caller's transaction. `fields` takes
+    `CREATE_FIELDS` only (title required); the stage defaults to the kind's first. `origin_*`
+    names the record it was started from, already checked by the caller to be visible (docs/19 §1).
+    At most `MAX_ACTIVE_PROJECTS_PER_USER` active owned items per user."""
     from services.projects.checklist import instantiate_items
 
     user = require_workspace_user(ctx)
@@ -386,7 +483,11 @@ def create_project(
     if origin_type is not None and not is_record_public_id(origin_type, origin_public_id):
         raise _invalid("from.public_id", "public_id is not an id of that record type")
     # Every check on the body before the first statement that takes a lock.
-    clean = _clean_fields(fields)
+    kind = _kind_of(fields)
+    clean = _clean_fields(fields, kind=kind, allowed=CREATE_FIELDS)
+    clean["kind"] = kind
+    clean.setdefault("stage", DEFAULT_STAGES[kind])
+    parent_id = _parent_for(db, user, clean.pop("parent_project_id", None), None)
     lock_user(db, user)
     active_owned = db.scalar(
         select(func.count())
@@ -406,7 +507,11 @@ def create_project(
         )
     now = now or utcnow()
     project = PrivateProject(
-        origin_type=origin_type, origin_public_id=origin_public_id, created_at=now, updated_at=now
+        origin_type=origin_type,
+        origin_public_id=origin_public_id,
+        parent_project_id=parent_id,
+        created_at=now,
+        updated_at=now,
     )
     for name, value in _with_point(project, clean).items():
         setattr(project, name, value)
@@ -418,7 +523,9 @@ def create_project(
     db.add(member)
     db.flush()
     instantiate_items(db, project, now=now)
-    detail = {"origin_type": origin_type, "origin_public_id": origin_public_id} if origin_type else None
+    detail: dict[str, object] = {"kind": kind}
+    if origin_type:
+        detail.update(origin_type=origin_type, origin_public_id=origin_public_id)
     add_activity(db, project_id=project.id, actor_user_id=user.id, action="created", detail=detail, now=now)
     db.flush()
     return ProjectAccess(project=project, member=member, user=user, action="edit")
@@ -441,7 +548,9 @@ def update_project(
     Records one `field_changed` row with the field names, never the values."""
     require_action(access, "edit")
     project = access.project
-    clean = _clean_fields(changes)
+    clean = _clean_fields(changes, kind=project.kind)
+    if "parent_project_id" in clean:
+        clean["parent_project_id"] = _parent_for(db, access.user, clean["parent_project_id"], project)
     target = _with_point(project, clean) if {"lat", "lon", "point_precision"} & set(clean) else clean
     changed = [name for name, value in target.items() if getattr(project, name) != value]
     if not changed:
@@ -479,8 +588,66 @@ def set_archived(
     return True
 
 
+def mark_viewed(db: Session, access: ProjectAccess, *, now: dt.datetime | None = None) -> dt.datetime:
+    """The member opened the item: what "changed since your last visit" counts from next time.
+    Their own row only, readable by no one else; returns the time stamped."""
+    require_action(access, "read")
+    stamped = now or utcnow()
+    access.member.last_viewed_at = stamped
+    db.flush()
+    return stamped
+
+
+def set_email_changes(db: Session, access: ProjectAccess, wanted: object) -> bool:
+    """The member's "email me changes" for this one item: an explicit opt-in, off by default
+    (`CLAUDE.md`'s consent guardrail). Stored only; nothing is sent yet. Their own row, so any
+    member may set it, on an archived item too."""
+    require_action(access, "read")
+    if not isinstance(wanted, bool):
+        raise _invalid("email_changes", "email_changes is true or false")
+    access.member.email_changes = wanted
+    db.flush()
+    return wanted
+
+
+def _own_rows(db: Session, user: User, *where: Any) -> list[ProjectAccess]:
+    rows = db.execute(
+        select(PrivateProject, PrivateProjectMember)
+        .join(
+            PrivateProjectMember,
+            and_(
+                PrivateProjectMember.project_id == PrivateProject.id, PrivateProjectMember.user_id == user.id
+            ),
+        )
+        .where(*where)
+        .order_by(PrivateProject.updated_at.desc(), PrivateProject.id.desc())
+        .execution_options(populate_existing=True)
+    ).all()
+    return [ProjectAccess(project=p, member=m, user=user, action="read") for p, m in rows]
+
+
+def readable_parent(db: Session, access: ProjectAccess) -> ProjectAccess | None:
+    """The project a bid is for, as a `read` access, when the viewer is a member of that project
+    too; `None` otherwise (no project, or one the viewer cannot see, which they are not told)."""
+    require_action(access, "read")
+    if access.project.parent_project_id is None:
+        return None
+    rows = _own_rows(db, access.user, PrivateProject.id == access.project.parent_project_id)
+    return rows[0] if rows else None
+
+
+def readable_bids(db: Session, access: ProjectAccess) -> list[ProjectAccess]:
+    """The bids attached to a project that the viewer is a member of, newest change first. A bid
+    someone else attached and did not share with the viewer is neither counted nor named."""
+    require_action(access, "read")
+    return _own_rows(
+        db, access.user, PrivateProject.parent_project_id == access.project.id, PrivateProject.kind == "bid"
+    )
+
+
 def delete_project(db: Session, access: ProjectAccess) -> None:
-    """Permanent (owner). Every child row goes by `ON DELETE CASCADE`."""
+    """Permanent (owner). Every child row goes by `ON DELETE CASCADE`; a bid attached to it stays,
+    standing alone (`parent_project_id` `ON DELETE SET NULL`)."""
     require_action(access, "delete")
     project_id = access.project.id
     db.flush()

@@ -245,6 +245,7 @@ def test_the_task_bodies_call_their_jobs_and_an_already_queued_successor_is_not_
     monkeypatch.setattr(jobs, "context_load_job", lambda: {"files_loaded": 12})
     monkeypatch.setattr(jobs, "enrich_tick_job", lambda: {"ok": True})
     monkeypatch.setattr(jobs, "context_build_job", lambda: {"ok": 13})
+    monkeypatch.setattr(scheduler_app, "site_finder_refresh", _FakeTask("site_finder_refresh", []))
     assert scheduler_app.match_tick.func() == {"mode": "incremental"}
     assert scheduler_app.context_load.func() == {"files_loaded": 12}
 
@@ -264,3 +265,87 @@ def test_the_task_bodies_call_their_jobs_and_an_already_queued_successor_is_not_
     assert real_build.func() == {"ok": 13}
     assert real_enrich.func() == {"ok": True}
     assert deferred == ["context_build"]
+
+
+def test_a_context_load_chains_to_the_site_finder_unless_the_store_was_busy(
+    monkeypatch: pytest.MonkeyPatch, scheduler_app: Any
+) -> None:
+    """The site finder reads what the load wrote, so it runs after it; a load skipped because another
+    store-wide pass held the lock wrote nothing new, and the next load re-chains."""
+    import procrastinate
+
+    deferred: list[str] = []
+    monkeypatch.setattr(scheduler_app, "site_finder_refresh", _FakeTask("site_finder_refresh", deferred))
+    monkeypatch.setattr(jobs, "context_load_job", lambda: {"files_loaded": 12})
+    scheduler_app.context_load.func()
+    assert deferred == ["site_finder_refresh"]
+    monkeypatch.setattr(jobs, "run_store_pass", lambda name, work: {"skipped": jobs.STORE_WIDE_BUSY})
+    scheduler_app.context_load.func()
+    assert deferred == ["site_finder_refresh"]
+
+    class _Queued(_FakeTask):
+        def defer(self, **kwargs: Any) -> int:
+            raise procrastinate.exceptions.AlreadyEnqueued("queued")
+
+    monkeypatch.setattr(jobs, "run_store_pass", lambda name, work: work())
+    monkeypatch.setattr(scheduler_app, "site_finder_refresh", _Queued("site_finder_refresh", deferred))
+    assert scheduler_app.context_load.func() == {"files_loaded": 12}
+
+
+def test_the_site_finder_runs_on_a_consumed_queue_under_its_own_lock(scheduler_app: Any) -> None:
+    import yaml
+
+    task = scheduler_app.app.tasks["site_finder_refresh"]
+    assert (task.queue, task.lock, task.queueing_lock) == ("resolve", "site_finder", "site_finder_refresh")
+    worker = yaml.safe_load((ROOT / "infra" / "compose" / "docker-compose.yml").read_text())["services"][
+        "worker"
+    ]
+    assert task.queue in set(worker["command"][worker["command"].index("--queues") + 1].split(","))
+
+
+def test_the_site_finder_job_runs_a_refresh_over_the_connector_data_root(tmp_path: pathlib.Path) -> None:
+    seen: list[Any] = []
+
+    def run(factory: Any, data_root: pathlib.Path) -> dict[str, Any]:
+        seen.append((factory, data_root))
+        return {"status": "ok", "segments": 5}
+
+    factory = _Factory()
+    counties: list[pathlib.Path] = []
+
+    def fetch_counties(root: pathlib.Path) -> dict[str, Any]:
+        counties.append(root)
+        return {"fetched": False}
+
+    assert jobs.site_finder_refresh_job(
+        run, _session_factory=factory, _data_root=tmp_path, _counties=fetch_counties
+    ) == {"status": "ok", "segments": 5, "counties_file": {"fetched": False}}
+    assert seen == [(factory, tmp_path)] and counties == [tmp_path]
+
+
+def test_the_site_finder_brings_the_counties_file_up_to_date_and_runs_on_without_it(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Before each run the TIGER counties file is checked (one HEAD request when unchanged) for the
+    states the server loads; a failed fetch is reported and the run goes on with what it has."""
+    calls: list[tuple[pathlib.Path, Any]] = []
+
+    def build(root: pathlib.Path, *, states: Any = None) -> dict[str, Any]:
+        calls.append((root, states))
+        return {"fetched": True, "counties": 254, "retrieved_at": "2026-10-23T07:00:00Z", "out_bytes": 1}
+
+    monkeypatch.setenv("GRID_LAYERS_REGIONS", "US-TX, US-OK")
+    assert jobs.site_finder_counties(tmp_path, build) == {
+        "fetched": True,
+        "counties": 254,
+        "retrieved_at": "2026-10-23T07:00:00Z",
+    }
+    monkeypatch.setenv("GRID_LAYERS_REGIONS", "all")
+    jobs.site_finder_counties(tmp_path, build)
+    assert calls == [(tmp_path, ["TX", "OK"]), (tmp_path, None)]
+
+    def offline(root: pathlib.Path, *, states: Any = None) -> dict[str, Any]:
+        raise OSError("census.gov unreachable")
+
+    failed = jobs.site_finder_counties(tmp_path, offline)
+    assert failed["fetched"] is False and "unreachable" in failed["error"]

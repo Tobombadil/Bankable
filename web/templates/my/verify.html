@@ -1,0 +1,11 @@
+{#- A signed-in user without a verified address (the API's `403`). The resend form lives on the account
+    page: a form posted from here would carry `Origin: null` under this page's `no-referrer`. -#}
+{% extends "my/_layout.html" %}
+{% block my_title %}Verify your email{% endblock %}
+{% block content %}
+<div class="my-head"><h1>Verify your email address first</h1></div>
+<div class="notice" role="status">
+  <p class="notice__title">{{ problem.title if problem else 'Verify your email address first' }}</p>
+  <p>Your tracker is tied to a confirmed address, so invitations can find you. Follow the link in the verification email, or send a new one from <a href="/account">your account</a>.</p>
+</div>
+{% endblock %}

@@ -1,10 +1,16 @@
-"""The private-project tables (docs/19 §4.1; migration `0040_private_projects`).
+"""The private-project tables (docs/19 §4.1; migrations `0040_private_projects`, `0042_tracker_kinds`).
 
 Nine tables, all named `private_*` except the checklist template, which is public content:
 
-- `private_project`: the deal. **No owner column**: ownership is a `private_project_member` row with
-  role `owner`, so one table answers every access question (`services.projects.authz`).
+- `private_project`: one item of the user's tracker: a project, a bid or an investment (`kind`, with
+  its own stage vocabulary, `services.projects.kinds`; migration 0042). A bid may name the project it
+  is for (`parent_project_id`, set to NULL when that project is deleted). **No owner column**:
+  ownership is a `private_project_member` row with role `owner`, so one table answers every access
+  question (`services.projects.authz`).
 - `private_project_member`: one row per user per project; a partial unique index allows one owner.
+  It also holds the member's own view of the item: when they last opened it (`last_viewed_at`, the
+  "changed since your last visit" mark) and whether they asked to be emailed its changes
+  (`email_changes`, an explicit opt-in per item; stored only, nothing is sent yet).
 - `private_project_link`: a reference to a public record by type and public id. **No foreign key
   into a public table**, on purpose: a link is resolved live through the public read path, so a
   merge, takedown or licence change never cascades into private rows (docs/19 §2.2, §4.2).
@@ -50,24 +56,23 @@ import services.db.models  # noqa: F401 -- registers `user`, which every private
 from services.db.base import Base
 from services.db.types import GUID, JSONVariant, TextArray, uuid7
 from services.ids import public_id
+from services.projects.kinds import ITEM_KINDS as ITEM_KINDS  # re-exported: models names every vocabulary
+from services.projects.kinds import PROJECT_STAGES as PROJECT_STAGES
+from services.projects.kinds import kind_condition, stage_for_kind_condition
 
 # ----------------------------------------------------------------------------------- vocabularies
-#: docs/19 §2.1. User-set, never inferred, never shown publicly.
-PROJECT_STAGES: Final = (
-    "prospecting",
-    "site_control",
-    "development",
-    "ready_to_build",
-    "construction",
-    "operating",
-)
-#: The project fields a user sets (docs/19 §2.1), in form order. `archived` is separate.
+#: The item fields a user sets (docs/19 §2.1; the tracker's kinds, migration 0042), in form order.
+#: `kind` is set at creation only; `parent_project_id` and `submitted_on` belong to bids;
+#: `archived` is separate.
 PROJECT_FIELDS: Final = (
     "title",
+    "kind",
     "technology",
     "capacity_mw",
     "storage_mwh",
     "stage",
+    "parent_project_id",
+    "submitted_on",
     "lat",
     "lon",
     "point_precision",
@@ -292,9 +297,20 @@ class PrivateProject(Base):
     technology: Mapped[str | None] = mapped_column(sa.Text)
     capacity_mw: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 3))
     storage_mwh: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 3))
+    #: `project`, `bid` or `investment` (`services.projects.kinds`); every row before 0042 is a project.
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False, default="project", server_default="project")
+    #: The kind's first stage unless given (`kinds.DEFAULT_STAGES`); `stage_for_kind` ties the two.
     stage: Mapped[str] = mapped_column(
         sa.Text, nullable=False, default="prospecting", server_default="prospecting"
     )
+    #: A bid's project: one of the user's own projects they can edit when it was set (checked in
+    #: `services.projects.authz`, not here). NULL for a bid that stands alone, and set to NULL when
+    #: that project is deleted.
+    parent_project_id: Mapped[_uuid.UUID | None] = mapped_column(
+        GUID(), sa.ForeignKey("private_project.id", ondelete="SET NULL")
+    )
+    #: The day the user says the bid went in. Bids only.
+    submitted_on: Mapped[dt.date | None] = mapped_column(sa.Date)
     lat: Mapped[Decimal | None] = mapped_column(sa.Numeric(9, 6))
     lon: Mapped[Decimal | None] = mapped_column(sa.Numeric(9, 6))
     point_precision: Mapped[str | None] = mapped_column(sa.Text)
@@ -315,7 +331,11 @@ class PrivateProject(Base):
         sa.CheckConstraint(_in("technology", PROJECT_TECHNOLOGIES), name="technology_vocab"),
         sa.CheckConstraint("capacity_mw >= 0", name="capacity_mw_non_negative"),
         sa.CheckConstraint("storage_mwh >= 0", name="storage_mwh_non_negative"),
-        sa.CheckConstraint(_in("stage", PROJECT_STAGES), name="stage_vocab"),
+        sa.CheckConstraint(kind_condition(), name="kind_vocab"),
+        sa.CheckConstraint(stage_for_kind_condition(), name="stage_for_kind"),
+        sa.CheckConstraint("parent_project_id IS NULL OR kind = 'bid'", name="parent_bid_only"),
+        sa.CheckConstraint("parent_project_id IS NULL OR parent_project_id <> id", name="parent_not_self"),
+        sa.CheckConstraint("submitted_on IS NULL OR kind = 'bid'", name="submitted_bid_only"),
         sa.CheckConstraint("(lat IS NULL) = (lon IS NULL)", name="point_pair"),
         sa.CheckConstraint("lat BETWEEN -90 AND 90", name="lat_range"),
         sa.CheckConstraint("lon BETWEEN -180 AND 180", name="lon_range"),
@@ -323,6 +343,7 @@ class PrivateProject(Base):
         sa.CheckConstraint("(lat IS NULL) = (point_precision IS NULL)", name="point_precision_pair"),
         sa.CheckConstraint(_in("origin_type", LINK_RECORD_TYPES), name="origin_type_vocab"),
         sa.CheckConstraint("(origin_type IS NULL) = (origin_public_id IS NULL)", name="origin_pair"),
+        sa.Index("ix_private_project_parent_project_id", "parent_project_id"),
     )
 
 
@@ -337,6 +358,15 @@ class PrivateProjectMember(Base):
     role: Mapped[str] = mapped_column(sa.Text, nullable=False)
     added_by_user_id: Mapped[_uuid.UUID | None] = _fk_user(nullable=True)
     added_at: Mapped[dt.datetime] = _timestamp()
+    #: When this member last opened the item's page: what "changed since your last visit" counts
+    #: from (`added_at` before the first visit). This member's own; never shown to anyone else,
+    #: never in analytics, and erased with the membership.
+    last_viewed_at: Mapped[dt.datetime | None] = _timestamp(nullable=True)
+    #: "Email me changes": this member's explicit opt-in for this one item (the `CLAUDE.md` consent
+    #: guardrail). Stored only: no email is sent until a named automated channel is enabled.
+    email_changes: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default=sa.false()
+    )
 
     __table_args__ = (
         sa.UniqueConstraint("project_id", "user_id"),
@@ -633,6 +663,7 @@ ACTIVITY_DETAIL_SHAPES: Final[Mapping[str, DetailShape]] = {
     "user_id": _shaped(_USER_ID),
     "from_user_id": _shaped(_USER_ID),
     "to_user_id": _shaped(_USER_ID),
+    "kind": _one_of(ITEM_KINDS),
     "record_type": _one_of(LINK_RECORD_TYPES),
     "origin_type": _one_of(LINK_RECORD_TYPES),
     "record_public_id": _record_id,

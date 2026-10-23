@@ -52,13 +52,22 @@ VARIABLES = (
     "SITE_ACCESS_USER",
     "SENDER_POSTAL_ADDRESS",
 )
-OPTIONAL_VARIABLES = ("SENDER_LEGAL_NAME", "PRODUCT_CONTACT_EMAIL", "PRODUCT_NAME", "SITE_ACCESS")
+OPTIONAL_VARIABLES = (
+    "SENDER_LEGAL_NAME",
+    "PRODUCT_CONTACT_EMAIL",
+    "PRODUCT_NAME",
+    "SITE_ACCESS",
+    "MY_PIPELINE",
+)
 #: The ERCOT Public API account (docs/29 §2.1; owner, 2026-10-22: a person registers it). All three
 #: or none: without them the ERCOT price connector works from the public MIS downloads and display
 #: pages, and with them it may also use api.ercot.com (pipeline/connectors/prices/ercot_api.py).
 OPTIONAL_SECRETS = ("ERCOT_API_SUBSCRIPTION_KEY", "ERCOT_API_USERNAME", "ERCOT_API_PASSWORD")
 #: `SITE_ACCESS`: `basic` (the shared login, the default) or `open` (public; owner, 2026-10-20).
 SITE_ACCESS_VALUES = ("basic", "open")
+#: `MY_PIPELINE`: `off` (the default: /my and /v1/my answer 404) or `on` (My pipeline, the private
+#: Tracker, docs/19 §11). Read by api and web from the env file; anything but `on` keeps it off.
+MY_PIPELINE_VALUES = ("off", "on")
 #: docs/00-PLAN.md decisions log, 2026-09-18.
 DEFAULT_SENDER_LEGAL_NAME = "Compass International Trading Group LLC"
 #: Cost of the gate's bcrypt hash: `caddy hash-password`'s default, which docs/64 documents.
@@ -207,6 +216,17 @@ def check_inputs(
             if access and access not in SITE_ACCESS_VALUES
             else None,
             access if access else "default: basic (the shared login)",
+        )
+    )
+    pipeline = env.get("MY_PIPELINE", "").strip().lower()
+    rows.append(
+        row(
+            "MY_PIPELINE",
+            "variable, optional",
+            f"{pipeline!r} is not one of {', '.join(MY_PIPELINE_VALUES)}"
+            if pipeline and pipeline not in MY_PIPELINE_VALUES
+            else None,
+            pipeline if pipeline else "default: off (My pipeline answers 404)",
         )
     )
     ercot_set = [name for name in OPTIONAL_SECRETS if env.get(name, "")]
@@ -505,6 +525,12 @@ def site_access_pairs(env: Mapping[str, str], site_hash: str) -> list[tuple[str,
     ]
 
 
+def my_pipeline(env: Mapping[str, str]) -> str:
+    """`on` only when the Environment variable MY_PIPELINE says exactly that (any case); otherwise
+    `off`, so a typo or an unset variable keeps the private Tracker answering 404 (fails closed)."""
+    return "on" if env.get("MY_PIPELINE", "").strip().lower() == "on" else "off"
+
+
 def render_env(
     env: Mapping[str, str], outputs: Mapping[str, Any], *, site_hash: str
 ) -> list[tuple[str, str]]:
@@ -536,6 +562,7 @@ def render_env(
         ("SENDER_POSTAL_ADDRESS", env["SENDER_POSTAL_ADDRESS"].strip()),
         *site_access_pairs(env, site_hash),
         ("CSP_MODE", "report"),
+        ("MY_PIPELINE", my_pipeline(env)),
         ("SESSION_SECRET", generated["SESSION_SECRET"]),
         ("API_INTERNAL_TOKEN", generated["API_INTERNAL_TOKEN"]),
         ("AUDIT_HASH_PEPPER", generated["AUDIT_HASH_PEPPER"]),

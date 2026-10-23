@@ -1279,6 +1279,116 @@ def test_a_sell_side_item_on_a_listing_is_left_out_end_to_end() -> None:
     assert "2026 REC Sale RFP" not in titles and "2026 All-Source RFP" in titles
 
 
+def test_a_year_heading_is_not_an_item_and_is_counted_as_one() -> None:
+    """Lane rfp-view (2026-10-23): a bold year line over a year's RFPs ("2026 RFPs", with the
+    sentence an archive kept by year prints under it) was read as an item. The sentence lent it the
+    words of the RFPs below, so it was classified generation and loaded, with no deadline of its own
+    and so status unknown. A year heading, and any bold line with neither a description nor a page
+    of its own, is a heading: left out before classification and counted under `heading.*`. The
+    recorded PSO page, with the two headings inserted, is the fixture; the old parser kept three
+    records here and counted the section line as a non-generation RFP."""
+    status, body, headers = page("pso_energy_rfps.html")
+    headings = (
+        b'<p class="text-bold mb-0">Current RFPs</p>'
+        b'<p class="text-bold mb-0">2026 RFPs</p>'
+        b'<p class="mb-30">PSO is seeking proposals for new wind, solar and battery storage generation '
+        b"resources to serve customers in Oklahoma.</p>"
+    )
+    marker = b'<p class="text-bold mb-0">2025 SPP Capacity RFP</p>'
+    assert marker in body
+    c, _session = make(
+        "us.rfp.pso", _pso_routes(**{PSO_LISTING: (status, body.replace(marker, headings + marker), headers)})
+    )
+    # Read as an item, the year line would be a publishable generation RFP: that is the old defect.
+    assert clf.classify(
+        "2026 RFPs", "PSO is seeking proposals for new wind, solar and battery storage generation resources"
+    ).publishable
+    snap = c.fetch()
+    assert snap.meta["left_out"] == {"heading.section": 1, "heading.year": 1}
+    assert snap.meta["items_kept"] == 2
+    records = c.parse(snap)
+    assert sorted(r["title"] for r in records) == ["2025 SPP Capacity RFP", "2026 All-Source RFP"]
+
+
+def test_year_headings_in_the_archive_are_counted_not_read() -> None:
+    """The APCo listing with its two archived RFPs grouped under bare year headings: the same six
+    records, and the headings counted as `heading.year` (the old parser counted them as
+    `non_generation.no_resource`, as if they were RFPs for something other than generation)."""
+    sid = "us.rfp.appalachian_power"
+    row = registry_rows()[sid]
+    region = region_of("appalachian_power_energy_rfps.html", sid, "listing")
+    assert region is not None
+    for year in ("2025", "2024"):
+        first = f'<p class="text-bold mb-10">{year} APCo PSA, PPA, and REC RFPs'
+        assert region.count(first) == 1, year
+        region = region.replace(first, f'<p class="text-bold mb-10">{year} RFPs</p>' + first)
+    listing = {"role": "listing", "url": row.listing_url, "status": 200, "region": region}
+    kept, left_out = extract.records({"pages": [listing]}, row, NOW.date())
+    assert len(kept) == 6 and all(r["classification"] == "generation" for r in kept)
+    archived = [r["title"] for r in kept if r["section"] == "archive"]
+    assert archived == ["2025 APCo PSA, PPA, and REC RFPs", "2024 APCo PSA, PPA, and REC RFPs"]
+    assert [(r["title"], r["classification_rule"]) for r in left_out] == [
+        ("2025 RFPs", "heading.year"),
+        ("2024 RFPs", "heading.year"),
+    ]
+
+
+def test_a_bold_archive_line_starts_the_archive_and_is_not_an_item() -> None:
+    sid = "us.rfp.appalachian_power"
+    row = registry_rows()[sid]
+    region = region_of("appalachian_power_energy_rfps.html", sid, "listing")
+    assert region is not None and region.count("<h2>Archive</h2>") == 1
+    region = region.replace("<h2>Archive</h2>", '<p class="text-bold mb-10">Archived RFPs</p>')
+    items = extract.aep_items(region, row.listing_url)
+    assert [i.section for i in items] == ["current"] * 4 + ["archive"] * 3
+    kept, left_out = extract.records(
+        {"pages": [{"role": "listing", "url": row.listing_url, "status": 200, "region": region}]},
+        row,
+        NOW.date(),
+    )
+    assert [r["key"] for r in kept if r["section"] == "archive"] == [
+        "/business/b2b/energy-rfps/2025-rfps",
+        "/business/b2b/energy-rfps/2024-rfps",
+    ]
+    assert [(r["title"], r["classification_rule"]) for r in left_out] == [
+        ("Archived RFPs", "heading.section")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("title_line", "description", "link", "rule"),
+    [
+        ("2024 RFPs", [], None, "heading.year"),
+        ("2024", [], None, "heading.year"),
+        ("2025-26 Requests for Proposals", ["The RFPs issued in 2025 and 2026."], None, "heading.year"),
+        ("2023 Archive", [], None, "heading.year"),
+        ("Current RFPs", [], None, "heading.section"),
+        ("2024 RFPs", ["I&M has issued Requests for Proposals"], "https://x/2024-RFPS", None),
+        ("2026 All-Source RFP", [], None, "heading.section"),
+        ("2026 All-Source RFP", ["PSO seeks up to 4,000 MW."], None, None),
+        ("2026 All-Source RFP", [], "https://x/AllSource2026", None),
+    ],
+)
+def test_the_heading_rule(
+    title_line: str, description: list[str], link: str | None, rule: str | None
+) -> None:
+    item = extract.AepItem(title_line=title_line, section="current", description=description, link=link)
+    assert extract.aep_heading_rule(item) == rule
+
+
+def test_a_year_titled_rfp_with_a_page_of_its_own_is_an_item() -> None:
+    """I&M's "2024 RFPs" (live run 2026-10-21) is titled by its year but is an RFP, not a heading:
+    its own description ("I&M has issued Requests for Proposals ("2024 RFPs") which seeks to secure
+    up to 4,000 MW of generation resources") and its own page, which names its four RFPs. It stays
+    an item, and its status stays unknown: neither page states a deadline (the schedule is on
+    Charles River Associates' RFP site, a host this connector does not read), and none is guessed."""
+    kept, left_out = extract.records(
+        bundle("us.rfp.indiana_michigan_power"), registry_rows()["us.rfp.indiana_michigan_power"], NOW.date()
+    )
+    assert [(r["title"], r["status_raw"], r["due_at"]) for r in kept] == [("2024 RFPs", "listed", None)]
+    assert [r["classification_rule"] for r in left_out] == ["non_generation.fuel_infrastructure"]
+
+
 def test_contact_details_are_redacted_before_storage() -> None:
     reg = Registry()
     c = reg.connector_class("us.rfp.pso")(reg.get("us.rfp.pso"))

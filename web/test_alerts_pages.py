@@ -288,7 +288,11 @@ def test_saved_search_query_mirrors_the_list() -> None:
     assert not {"cursor", "sort", "updated_since", "layers"} & set(query)
     with_withdrawn = saved_search_query("proposal", {"include_withdrawn": "1"})
     assert "withdrawn" in with_withdrawn["lifecycle_state"]
-    assert saved_search_query("opportunity", {"kind": "grant"}) == {"kind": "grant", "status": "open"}
+    # The RFPs page's own default, open and announced (lane rfp-view), not the API's `open`.
+    assert saved_search_query("opportunity", {"kind": "grant"}) == {
+        "kind": "grant",
+        "status": "open,announced",
+    }
 
 
 def test_save_alert_href_drops_the_page_cursor() -> None:
