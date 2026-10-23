@@ -149,7 +149,7 @@ SENTINEL = "SENTINEL-private-5e1f"
 #: An invitee's address.
 SENTINEL_EMAIL = "invitee.sentinel@example.test"
 #: An invitation token: the shape `secrets.token_urlsafe(32)` gives (43 URL-safe characters).
-SENTINEL_TOKEN = "SENTINELtok_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P"  # noqa: S105 -- a test sentinel, asserted absent from the logs
+SENTINEL_TOKEN = "SENTINELtok_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P"  # noqa: S105 -- a test sentinel, asserted absent from the logs  # gitleaks:allow
 SENTINELS = (SENTINEL, SENTINEL_EMAIL, SENTINEL_TOKEN)
 #: docs/19 §5.3's list, written out: the filter's contract, not a copy of its constant.
 SPEC_FIELDS = ("body", "note", "title", "email", "lat", "lon", "token")

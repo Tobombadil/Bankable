@@ -421,7 +421,7 @@ TOKEN_FIELDS = (
 )
 TOKEN_REPLACEMENT = "${1}${2}REDACTED"  # noqa: S105 -- a regexp replacement, not a credential
 #: `secrets.token_urlsafe(32)`'s shape (docs/19 §2.6 rule 2), recognisable in a log.
-TOKEN = "SENTINELtok_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P"  # noqa: S105 -- a test sentinel, asserted absent from the logs
+TOKEN = "SENTINELtok_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P"  # noqa: S105 -- a test sentinel, asserted absent from the logs  # gitleaks:allow
 
 
 def _token_filter(tree: list[Block]) -> list[list[str]]:
