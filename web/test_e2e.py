@@ -1604,7 +1604,10 @@ def test_map_key_starts_closed_below_720px_and_opens_from_the_keyboard(server: o
     with sync_playwright() as p:
         browser = p.chromium.launch(**_launch_kwargs())
         try:
-            page = browser.new_page(viewport=narrow)
+            # Reduced motion makes the reveal one instant scroll (map.js `revealPanelBelowMap`). A smooth
+            # scroll that a slow runner cuts short is not repeated until the panel resizes, which failed
+            # CI on PR #92 while the same test passed locally; what is asserted is where the panel ends up.
+            page = browser.new_page(viewport=narrow, reduced_motion="reduce")
             _install_offline_routes(page)
             _ok_ui_events(page)
             page.goto(BASE_URL + "/")
