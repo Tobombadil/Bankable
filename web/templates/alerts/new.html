@@ -73,4 +73,12 @@
   </div>
 </form>
 {%- endif %}
+{#- Owner, 2026-10-22: the map's "RSS feed" link moved here. A feed of the same search is the second
+    way to follow it: no account, no email, and the one subscription that delivers while email is off. -#}
+{%- if feed_href %}
+<section aria-labelledby="alert-rss-heading">
+  <h2 id="alert-rss-heading" class="alert-section-heading">Or follow it by RSS</h2>
+  <p>A feed reader picks up the same {{ entity_label | lower }} as they are added or change, with no account and no email. <a href="{{ feed_href }}" type="application/rss+xml" id="alert-rss-link">RSS feed of this search</a></p>
+</section>
+{%- endif %}
 {% endblock %}

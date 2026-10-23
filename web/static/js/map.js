@@ -33,14 +33,16 @@
       why.setAttribute("aria-expanded", open ? "true" : "false");
     });
   }
-  // "Click a cluster..." says "Tap" where the primary pointer is a finger (a phone, a tablet),
-  // and follows a change of pointer (a tablet given a mouse).
-  var howTo = document.querySelector("[data-touch-words]");
+  // "Click a cluster..." (the lede and the key's rows) says "Tap" where the primary pointer is a
+  // finger (a phone, a tablet), and follows a change of pointer (a tablet given a mouse).
+  var howTos = Array.prototype.slice.call(document.querySelectorAll("[data-touch-words]"));
   var coarse = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
-  if (howTo && coarse) {
-    var clickWords = howTo.textContent;
+  if (howTos.length && coarse) {
+    var clickWords = howTos.map(function (el) { return el.textContent; });
     var syncWords = function () {
-      howTo.textContent = coarse.matches ? howTo.getAttribute("data-touch-words") : clickWords;
+      howTos.forEach(function (el, i) {
+        el.textContent = coarse.matches ? el.getAttribute("data-touch-words") : clickWords[i];
+      });
     };
     syncWords();
     if (coarse.addEventListener) coarse.addEventListener("change", syncWords);
@@ -526,24 +528,37 @@
   function sameSet(a, b) {
     return a.length === b.length && a.every(function (x) { return b.indexOf(x) !== -1; });
   }
+  // `lifecycle_state=none` (web/viewmodels.py NO_LIFECYCLE_STATE): every box unticked. It names no
+  // state, so no proposal is drawn, and a reload or a shared link keeps the choice.
+  var NO_STATUS = "none";
   function readStatuses(params) {
     var states = [];
     params.getAll("lifecycle_state").forEach(function (value) {
       csvList(value).forEach(function (s) { if (states.indexOf(s) === -1) states.push(s); });
     });
+    if (states.length === 1 && states[0] === NO_STATUS) return [];
+    states = states.filter(function (s) { return s !== NO_STATUS; });
     if (states.length) return states;
     return params.get("include_withdrawn") === "1" ? DEFAULT_STATES.concat(WITHDRAWN_STATES) : DEFAULT_STATES.slice();
   }
-  // No box checked means the default: an empty choice would otherwise ask for every state.
+  // No box checked means no proposals. It used to mean the default, so unticking the last of the
+  // three default boxes ticked all three again (owner report 2026-10-22: "anytime I do all three
+  // each repopulates as clicked"). "Clear all" is the way back to the default.
   function currentStatuses() {
     var states = [];
     statusBoxes.forEach(function (box) {
       if (box.checked) csvList(box.value).forEach(function (s) { if (states.indexOf(s) === -1) states.push(s); });
     });
-    return states.length ? states : DEFAULT_STATES.slice();
+    return states;
   }
+  function noStatusChosen() { return !(filters.statuses && filters.statuses.length); }
   function appendStatuses(params, states) {
-    if (!states || !states.length || sameSet(states, DEFAULT_STATES)) return;
+    if (!states) return;
+    if (!states.length) {
+      params.set("lifecycle_state", NO_STATUS);
+      return;
+    }
+    if (sameSet(states, DEFAULT_STATES)) return;
     if (sameSet(states, DEFAULT_STATES.concat(WITHDRAWN_STATES))) {
       params.set("include_withdrawn", "1");
       return;
@@ -566,7 +581,8 @@
     statusBoxes.forEach(function (b) {
       if (b.checked && !(defaultsOn && b.hasAttribute("data-default"))) words.push(b.getAttribute("data-status-short") || b.value);
     });
-    if (!words.length) words.push("active");
+    // No box ticked: nothing is shown, as the server's summary says (`proposal_status_choices`).
+    if (!words.length) words.push("none");
     if (unlistedBox && unlistedBox.checked) words.push("no longer listed");
     summary.textContent = words.join(", ");
   }
@@ -656,33 +672,24 @@
     var qs = params.toString();
     var url = window.location.pathname + (qs ? "?" + qs : "");
     window.history.replaceState(null, "", url);
-    // "View as: List" (designer D-8) carries the filters and the viewport, so the list's own
-    // "View as: Map" link can bring the reader back to this place.
-    // The map's default placement is a drawing choice, not a filter: the list shows unplaced
-    // proposals too, which is where the unplaced note sends readers.
-    var listLink = document.getElementById("view-as-list");
-    if (listLink) {
-      var listParams = new URLSearchParams(qs);
-      if (listParams.get("placement") === DEFAULT_PLACEMENT.join(",")) listParams.delete("placement");
-      ["layers", "region", "plant_technology", "asset_type"].forEach(function (k) { listParams.delete(k); });
-      var listQs = listParams.toString();
-      listLink.href = "/proposals" + (listQs ? "?" + listQs : "");
-    }
-    // "View as: RSS feed" (UX-6): the feed twin of the same proposals. A feed has no default
-    // lifecycle view of its own, so the states are always spelt out (web/feeds.py feed_href).
-    var feedLink = document.getElementById("view-as-feed");
-    if (feedLink) {
-      var feedParams = new URLSearchParams();
-      appendProposalFilters(feedParams, filters);
-      feedParams.delete("include_withdrawn");
-      feedParams.delete("unlisted");
-      feedParams.set("lifecycle_state", (filters.statuses && filters.statuses.length ? filters.statuses : DEFAULT_STATES).join(","));
-      feedLink.href = "/feeds/proposals.rss?" + feedParams.toString();
-    }
+    // "Open these in the list" (it replaced "View as: List", designer D-8; owner 2026-10-22) carries
+    // the filters and the viewport, so the list's own "View as: Map" link can bring the reader back
+    // to this place. The list cannot narrow to the map's bounds, so it lists every proposal the
+    // filters match. The map's default placement is a drawing choice, not a filter: the list shows
+    // unplaced proposals too, which is where the unplaced note sends readers.
+    var listHrefNow = listHref(qs);
+    Array.prototype.forEach.call(document.querySelectorAll("#map-list-link, [data-list-link]"), function (a) {
+      a.href = listHrefNow;
+    });
     // "Save this search as an alert" carries the current filters (web/alerts.py drops the map's
-    // own default placement and the layer/asset keys, which are not proposal filters).
+    // own default placement and the layer/asset keys, which are not proposal filters). The page it
+    // opens also offers the same search as an RSS feed (owner, 2026-10-22: the map's "RSS feed"
+    // link moved there).
     var alertLink = document.getElementById("mf-save-alert");
     if (alertLink) alertLink.href = "/alerts/new?entity=proposal&origin=map" + (filterQs ? "&" + filterQs : "");
+    // With no status ticked there is nothing to list or to watch, so both links wait.
+    var viewActions = document.getElementById("map-status-actions");
+    if (viewActions) viewActions.hidden = noStatusChosen();
     // The collapsed "Filters" button names how many are set (site.js); filters that arrived in
     // the link with no control here count too.
     var form = document.getElementById("map-filters");
@@ -698,6 +705,15 @@
       var here = window.location.pathname + (qs ? "?" + qs : "");
       signInLink.href = "/login?next=" + encodeURIComponent(here);
     }
+  }
+
+  // `/proposals` with the map's query (`qs`), less what only the map reads.
+  function listHref(qs) {
+    var listParams = new URLSearchParams(qs);
+    if (listParams.get("placement") === DEFAULT_PLACEMENT.join(",")) listParams.delete("placement");
+    ["layers", "region", "plant_technology", "asset_type"].forEach(function (k) { listParams.delete(k); });
+    var listQs = listParams.toString();
+    return "/proposals" + (listQs ? "?" + listQs : "");
   }
 
   function geoUrl(filters, bbox, zoom) {
@@ -906,19 +922,35 @@
   var coarsePointer = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
   function isCoarsePointer() { return !!(coarsePointer && coarsePointer.matches); }
 
-  // M-7: the padding the national view keeps. 16px all round, and on a wide screen, where the open
-  // key lies over the canvas (top left, docs/31 §5.17), its width as well, so the key never covers
-  // the West Coast of the view it opened on. A key that is closed, or not over the canvas, adds nothing.
+  // M-7: the padding a fitted view keeps. 16px all round and, from 720px, where the panel lies over
+  // the canvas (top right, docs/31 §5.19), its box as well: the open panel's width on the right, so
+  // it never covers the East Coast of the view it opened on; the collapsed panel's header height at
+  // the top, so it never covers Maine. Only while at least half the canvas is left beside it; a panel
+  // under the map (below 720px) adds nothing. The drawer, which opens in the panel's place, counts as
+  // the open panel. `fitPadding` is the same for a jump to a region or a place.
   function homePadding() {
     var pad = { top: HOME_PADDING_PX, right: HOME_PADDING_PX, bottom: HOME_PADDING_PX, left: HOME_PADDING_PX };
-    var keyPanel = document.querySelector("#map-key:not([hidden]) .map-key__panel");
-    if (!keyPanel) return pad;
+    var cover = document.getElementById("map-drawer");
+    if (!cover || cover.hidden) cover = document.getElementById("map-panel");
+    if (!cover) return pad;
     var m = mapEl.getBoundingClientRect();
-    var k = keyPanel.getBoundingClientRect();
+    var k = cover.getBoundingClientRect();
     var overCanvas = k.width > 0 && k.height > 0 && k.left < m.right && k.right > m.left && k.top < m.bottom && k.bottom > m.top;
-    var left = Math.round(k.right - m.left) + HOME_PADDING_PX;
-    if (overCanvas && m.width - left - HOME_PADDING_PX >= m.width / 2) pad.left = left;
+    if (!overCanvas) return pad;
+    var collapsed = cover.classList.contains("is-collapsed");
+    if (collapsed) {
+      var top = Math.round(k.bottom - m.top) + HOME_PADDING_PX;
+      if (m.height - top - HOME_PADDING_PX >= m.height / 2) pad.top = top;
+    } else {
+      var right = Math.round(m.right - k.left) + HOME_PADDING_PX;
+      if (m.width - right - HOME_PADDING_PX >= m.width / 2) pad.right = right;
+    }
     return pad;
+  }
+  function fitPadding(extra) {
+    var pad = homePadding();
+    var more = extra || 0;
+    return { top: pad.top + more, right: pad.right + more, bottom: pad.bottom + more, left: pad.left + more };
   }
 
   // With no view in the link the camera here is a placeholder: the fit to the lower 48 replaces it
@@ -1010,7 +1042,7 @@
     btn.addEventListener("click", function () {
       var bbox = btn.getAttribute("data-bbox").split(",").map(Number);
       var code = btn.getAttribute("data-region");
-      map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { duration: motionMs(600), padding: 24 });
+      map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { duration: motionMs(600), padding: fitPadding(8) });
       filters.region = code;
       writeFilters(filters);
       sendUiEvent("map.region_jumped", { region: code });
@@ -1019,15 +1051,15 @@
   });
   // Restore a `region=` view from a shared/reloaded URL on load, instantly (this is page setup,
   // not a user-initiated jump, so it does not re-emit `map.region_jumped`). A `center`/`zoom` in
-  // the link is more precise than the region it started from, so it wins.
+  // the link is more precise than the region it started from, so it wins. Fitted once the panel is
+  // open or closed for this width (below, beside the first home view), clear of it as a jump is.
   var viewRestored = !!filters.view;
+  var restoreBbox = null;
   if (filters.region && !filters.view) {
     var restoreBtn = document.querySelector('.region-btn[data-region="' + filters.region + '"]');
     if (restoreBtn) {
       viewRestored = true;
-      var restoreBbox = restoreBtn.getAttribute("data-bbox").split(",").map(Number);
-      map.jumpTo({ center: [(restoreBbox[0] + restoreBbox[2]) / 2, (restoreBbox[1] + restoreBbox[3]) / 2] });
-      map.fitBounds([[restoreBbox[0], restoreBbox[1]], [restoreBbox[2], restoreBbox[3]]], { duration: 0, padding: 24 });
+      restoreBbox = restoreBtn.getAttribute("data-bbox").split(",").map(Number);
     }
   }
 
@@ -1048,6 +1080,7 @@
   function currentZoom() { return Math.round(map.getZoom()); }
 
   var countEl = document.getElementById("map-result-count");
+  var panelCountEl = document.getElementById("map-panel-count");
   var listEl = document.getElementById("in-view-items");
   var liveRegion = document.getElementById("map-live-region");
   var template = document.getElementById("in-view-item-template");
@@ -1067,6 +1100,15 @@
   // (`region_grade` "broad"), since one record placed "somewhere in Indiana" says nothing about
   // where in it. The legend row (`#region-legend`) names both.
   var REGION_BROAD_OPACITY = 0.04;
+  // `fam_<family>`: how many of a cluster's or a region's projects are in each status family, flat on
+  // the feature so a key row's hover can light the marks holding that family (`highlightMatch`).
+  function addFamilyCounts(props, counts) {
+    var obj = propObj(counts) || {};
+    Object.keys(obj).forEach(function (state) {
+      var key = "fam_" + familyOf(state);
+      props[key] = (props[key] || 0) + (Number(obj[state]) || 0);
+    });
+  }
   function regionOpacity(level, count) {
     if (level !== "county") return REGION_BROAD_OPACITY;
     var n = Number(count) || 0;
@@ -1084,6 +1126,7 @@
         // For the summary a tap opens (docs/17 M-2/M-5): the region's statuses and stated capacity.
         lifecycle_state_counts: f.properties.lifecycle_state_counts, capacity_mw_sum: f.properties.capacity_mw_sum
       };
+      addFamilyCounts(props, f.properties.lifecycle_state_counts);
       out.push({ type: "Feature", geometry: f.geometry, properties: props });
       var polygon = regionPolygonCache[key];
       if (polygon) out.push({ type: "Feature", geometry: polygon, properties: props });
@@ -1102,10 +1145,12 @@
   function showMapError(err) {
     var problem = (err && err.problem) || {};
     var title = problem.title || (err && err.status ? "The server answered " + err.status : "The request did not complete");
-    var listHref = (document.getElementById("view-as-list") || {}).href || "/proposals";
+    var listLink = document.getElementById("map-list-link");
+    var listTarget = (listLink && listLink.getAttribute("href")) || "/proposals";
     if (!hasLoadedOnce) {
       countEl.textContent = "Proposals could not be loaded.";
       countEl.removeAttribute("aria-hidden");
+      if (panelCountEl) panelCountEl.textContent = "Projects could not be loaded";
     }
     if (!mapErrorEl) return;
     mapErrorEl.innerHTML =
@@ -1113,7 +1158,7 @@
       (problem.request_id ? " (request <span class=\"mono\">" + esc(problem.request_id) + "</span>)" : "") + ". " +
       (hasLoadedOnce ? "The map still shows the last view that loaded. " : "") +
       "<button type=\"button\" class=\"map-error__retry\">Retry</button> " +
-      "<a href=\"" + esc(safeUrl(listHref) || "/proposals") + "\">Try the list view</a></p>";
+      "<a href=\"" + esc(safeUrl(listTarget) || "/proposals") + "\">Try the list view</a></p>";
     mapErrorEl.hidden = false;
     mapErrorEl.querySelector(".map-error__retry").addEventListener("click", function () { refetch(); });
   }
@@ -1198,6 +1243,7 @@
           }
           if (f.properties.feature_kind === "cluster") {
             f.properties.family = familyOf(f.properties.dominant_lifecycle_state);
+            addFamilyCounts(f.properties, f.properties.lifecycle_state_counts);
           } else {
             f.properties.family = familyOf(f.properties.lifecycle_state);
             f.properties.tech_label = techLabel(f.properties.technology);
@@ -1291,6 +1337,8 @@
     var kind = p.feature_kind;
     if (kind === "asset_cluster" || kind === "plant_cluster") {
       p.color = clusterColor(p);
+      // A key row's hover highlights the clusters whose most common plant is of its family.
+      if (!ASSET_TYPES[p.dominant_asset_type] || p.dominant_asset_type === "power_plant") p.plant_family = plantFamilyOf(p.dominant_technology);
       return;
     }
     var type = assetTypeOf(p);
@@ -1362,8 +1410,9 @@
         // it does not narrow to the bbox (measured 2026-09-19: 1536 for a viewport holding one
         // asset), unlike the proposals geo endpoint's. "In view" must mean in view, so the count
         // beside the list is computed from what actually came back: a cluster contributes its own
-        // `count`, every other feature one. Unplaced rows (state-grade ethanol capacity, county-
-        // grade AgSTAR digesters) are in neither, which is correct -- they are not in the view.
+        // `count`, every other feature one (and while the open panel covers part of the canvas,
+        // only what lies left of it, `inViewNow`). Unplaced rows (state-grade ethanol capacity,
+        // county-grade AgSTAR digesters) are in neither, which is correct -- they are not in the view.
         latestPlantsTotal = assetsInView(features);
         latestAssetsClustered = clustered;
         if (map.getSource("plants")) map.getSource("plants").setData({ type: "FeatureCollection", features: features });
@@ -1410,7 +1459,7 @@
       var g = groups[key];
       var mw = Number(p.capacity_mw);
       if (!g) {
-        g = { properties: p, unit_count: 1, capacity_mw: isFinite(mw) && p.capacity_mw != null ? mw : null };
+        g = { properties: p, geometry: f.geometry, unit_count: 1, capacity_mw: isFinite(mw) && p.capacity_mw != null ? mw : null };
         groups[key] = g;
         out.push(g);
         return;
@@ -1421,94 +1470,212 @@
     return out;
   }
 
-  // The key sits on the map (review 2026-10-10): "Key" hides it and shows it again. Without this
-  // script the button stays hidden and the key stays shown.
-  // UX review 2026-10-20 (docs/16 M-2): below 720px the open key covered about half of the 464px
-  // map at 400px, so there it starts closed, as the filter bar does; from 720px it starts open, as
-  // before. Until the reader presses "Key" the default follows the width (a turned phone, a
-  // resized window); after that their choice stands.
+  // ---- the panel: what is in view, and the key (owner, 2026-10-22; docs/31 §5.19) ----
+  // One panel over the map's top right from 720px, translucent (styles.css `.map-panel`), holding
+  // the in-view overview or list and the key as two tabs under a header that says what the view
+  // holds. One click on the header collapses it to the header and back; it is open by default from
+  // 1080px and collapsed from 720px to 1079px, and the reader's choice is remembered in this
+  // browser. Below 720px it does not float: it is a bar under the map that opens in the page, as
+  // the key used to (docs/17 M-1), and the rail's "Key" opens its Key tab. Without this script the
+  // panel shows its key, open, and the header says nothing has loaded.
+  var panel = document.getElementById("map-panel");
+  var panelToggle = document.getElementById("map-panel-toggle");
+  var panelKeyBtn = document.getElementById("map-panel-keybtn");
+  var panelBody = document.getElementById("map-panel-body");
+  var panelScroll = document.getElementById("map-panel-scroll");
+  var tabInView = document.getElementById("map-tab-inview");
+  var tabKey = document.getElementById("map-tab-key");
+  var tabpanelInView = document.getElementById("map-tabpanel-inview");
+  var tabpanelKey = document.getElementById("map-tabpanel-key");
   var mapKey = document.getElementById("map-key");
   var mapKeyToggle = document.getElementById("map-key-toggle");
   var narrowKey = window.matchMedia ? window.matchMedia("(max-width: 719px)") : null;
-  var mapKeyChosen = false;
-  // M-7: while the map still shows the national view, opening or closing the key fits it again, so
-  // the open key never lies over the West Coast and a closed one leaves no empty band. A view the
-  // reader has moved stays where it is.
-  function setMapKeyOpen(open) {
-    var refit = isAtHome();
-    mapKeyToggle.setAttribute("aria-expanded", open ? "true" : "false");
-    mapKey.hidden = !open;
-    if (open && typeof syncKeyFocusable === "function") syncKeyFocusable();
-    if (refit) goHome(motionMs(300));
-  }
-  // docs/17 M-1 (c): below 720px the key opens under the map, in the page, so "Key" brings it into
-  // view when it opened below the screen (on a 390x844 phone it starts about 300px down); otherwise
-  // the press would seem to do nothing. Only as far as needed, and instantly under reduced motion.
-  function revealKeyBelowMap() {
-    if (!narrowKey || !narrowKey.matches || !mapKeyPanel) return;
-    if (mapKeyPanel.getBoundingClientRect().bottom <= window.innerHeight) return;
-    mapKeyPanel.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
-  }
-  // The key can still grow, or move down, after the press: the status families and the region row
-  // arrive with the data (the region row only once its outlines load), and the count above the map
-  // can wrap. At 400x800 that left the key's foot about 20px below the screen. So for a while after
-  // "Key" opens it, each change of size brings its foot back into view, until the reader scrolls,
-  // touches or types, or closes the key. The key's ResizeObserver (below) calls `keepKeyInView`.
-  var KEY_REVEAL_MS = 10000;
-  var keyRevealUntil = 0;
-  function armKeyReveal() { keyRevealUntil = Date.now() + KEY_REVEAL_MS; }
-  function disarmKeyReveal() { keyRevealUntil = 0; }
-  function keepKeyInView() {
-    if (!keyRevealUntil) return;
-    if (Date.now() > keyRevealUntil || !mapKey || mapKey.hidden) { disarmKeyReveal(); return; }
-    revealKeyBelowMap();
-  }
-  // Capture, so a handler that stops propagation cannot hide the reader's input. Each fires before
-  // the "click" a press makes, so the press that opens the key arms it after these have run.
-  ["wheel", "touchstart", "pointerdown", "keydown"].forEach(function (type) {
-    window.addEventListener(type, disarmKeyReveal, { capture: true, passive: true });
-  });
-  // docs/17 M-1 (d): below 720px each layer's key section starts closed, so the status strip shows
-  // first; from 720px they start open, as before. Like the key, the default follows the width until
-  // the reader opens or closes a section; after that their choice stands.
-  var keySections = mapKey ? Array.prototype.slice.call(mapKey.querySelectorAll("details.map-key__section")) : [];
-  var keySectionsChosen = false;
-  function syncKeySections(narrow) {
-    if (keySectionsChosen) return;
-    keySections.forEach(function (section) { section.open = !narrow; });
-  }
-  keySections.forEach(function (section) {
-    var summary = section.querySelector("summary");
-    if (summary) summary.addEventListener("click", function () { keySectionsChosen = true; });
-  });
-  if (mapKey && mapKeyToggle) {
-    mapKeyToggle.hidden = false;
-    syncKeySections(!!(narrowKey && narrowKey.matches));
-    setMapKeyOpen(!(narrowKey && narrowKey.matches));
-    mapKey.setAttribute("data-ready", "");
-    mapKeyToggle.addEventListener("click", function () {
-      mapKeyChosen = true;
-      var open = mapKeyToggle.getAttribute("aria-expanded") !== "true";
-      setMapKeyOpen(open);
-      if (open) {
-        revealKeyBelowMap();
-        armKeyReveal();
-      } else {
-        disarmKeyReveal();
-      }
-    });
-    if (narrowKey && narrowKey.addEventListener) {
-      narrowKey.addEventListener("change", function (e) {
-        syncKeySections(e.matches);
-        if (!mapKeyChosen) setMapKeyOpen(!e.matches);
-      });
+  var widePanel = window.matchMedia ? window.matchMedia("(min-width: 1080px)") : null;
+  function isPhone() { return !!(narrowKey && narrowKey.matches); }
+  // The reader's own choice, from 720px only: a phone's bar always starts closed (docs/17 M-1).
+  var PANEL_STORE = "inframation.mapPanel";
+  function storedPanelChoice() {
+    try {
+      var value = window.localStorage.getItem(PANEL_STORE);
+      return value === "open" || value === "closed" ? value : null;
+    } catch (e) {
+      return null; // storage blocked (a private window, a sandbox): the width decides
     }
   }
-  // M-7: the first view, once the key is open or closed for this width (its width is part of the
+  function storePanelChoice(open) {
+    try { window.localStorage.setItem(PANEL_STORE, open ? "open" : "closed"); } catch (e) { /* not kept */ }
+  }
+  function panelDefaultOpen() {
+    if (isPhone()) return false;
+    var stored = storedPanelChoice();
+    if (stored) return stored === "open";
+    return !!(widePanel && widePanel.matches);
+  }
+  function panelIsOpen() { return !!panel && !panel.classList.contains("is-collapsed"); }
+  var panelTab = "inview";
+  // The scroll of each tab, so a tab switch or a drawer opening in the panel's place loses neither.
+  var tabScroll = { inview: 0, key: 0 };
+  function syncKeyToggle() {
+    if (mapKeyToggle) mapKeyToggle.setAttribute("aria-expanded", panelIsOpen() && panelTab === "key" ? "true" : "false");
+  }
+  function selectTab(name, focus) {
+    if (!tabInView || !tabKey) return;
+    // A collapsed body has no box, so its scroll reads 0: the place kept on collapsing stands.
+    if (panelScroll && panelIsOpen()) tabScroll[panelTab] = panelScroll.scrollTop;
+    panelTab = name === "key" ? "key" : "inview";
+    var key = panelTab === "key";
+    tabInView.setAttribute("aria-selected", key ? "false" : "true");
+    tabKey.setAttribute("aria-selected", key ? "true" : "false");
+    tabInView.tabIndex = key ? -1 : 0;
+    tabKey.tabIndex = key ? 0 : -1;
+    tabpanelInView.hidden = key;
+    tabpanelKey.hidden = !key;
+    if (panelScroll) panelScroll.scrollTop = tabScroll[panelTab] || 0;
+    if (focus) (key ? tabKey : tabInView).focus();
+    syncKeyToggle();
+    if (!key) requestAreas();
+  }
+  // `remember`: the reader chose (from 720px, kept in this browser). While the map still shows the
+  // national view, opening or closing fits it again for the canvas the panel now leaves (M-7, as
+  // the key did), so an open panel never lies over the East Coast. What is in view changes with it
+  // (from 720px the open panel covers the canvas's right side, `inViewNow`), so it is counted again
+  // from the answers in hand, before the tab's scroll is put back.
+  function setPanelOpen(open, remember) {
+    if (!panel) return;
+    var refit = isAtHome();
+    // Collapsing hides the body, which loses its scroll: keep the tab's place and put it back on opening.
+    if (!open && panelIsOpen() && panelScroll) tabScroll[panelTab] = panelScroll.scrollTop;
+    panel.classList.toggle("is-collapsed", !open);
+    panelToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    panelBody.hidden = !open;
+    if (hasLoadedOnce) render();
+    if (open && panelScroll) panelScroll.scrollTop = tabScroll[panelTab] || 0;
+    if (panelKeyBtn) panelKeyBtn.hidden = open;
+    if (remember && !isPhone()) storePanelChoice(open);
+    syncKeyToggle();
+    if (refit) goHome(motionMs(300));
+    if (open) requestAreas();
+  }
+  // Below 720px the panel opens under the map, in the page, so opening it brings it into view
+  // (on a 390x844 phone it starts about 300px down); otherwise the press would seem to do nothing.
+  // Only as far as needed, and instantly under reduced motion. A panel taller than the screen (the
+  // Key tab with the layers on is about 1,200px at 400px wide; a long list) brings in its first part
+  // only, the projects' key or the first rows, with as much of the map above it as fits, and never
+  // scrolls its own top off the screen.
+  function revealPanelBelowMap() {
+    if (!isPhone() || !panel) return;
+    var vh = window.innerHeight;
+    var box = panel.getBoundingClientRect();
+    var foot = box.bottom;
+    if (box.height > vh) {
+      var lead = panelTab === "key" ? document.getElementById("lifecycle-legend") : null;
+      foot = lead && !lead.hidden ? lead.getBoundingClientRect().bottom : box.top + vh * 0.6;
+    }
+    var by = Math.min(foot - vh, box.top);
+    if (by <= 1) return;
+    window.scrollBy({ top: by, behavior: reduceMotion ? "auto" : "smooth" });
+  }
+  // The panel can still grow, or move down, after the press: the status families and the region row
+  // arrive with the data, and the count above the map can wrap. So for a while after a press opens
+  // it on a phone, each change of size brings its foot back into view, until the reader scrolls,
+  // touches or types, or closes it. The panel's ResizeObserver (below) calls `keepPanelInView`.
+  var PANEL_REVEAL_MS = 10000;
+  var panelRevealUntil = 0;
+  function armPanelReveal() { panelRevealUntil = Date.now() + PANEL_REVEAL_MS; }
+  function disarmPanelReveal() { panelRevealUntil = 0; }
+  function keepPanelInView() {
+    if (!panelRevealUntil) return;
+    if (Date.now() > panelRevealUntil || !panelIsOpen()) { disarmPanelReveal(); return; }
+    revealPanelBelowMap();
+  }
+  // Capture, so a handler that stops propagation cannot hide the reader's input. Each fires before
+  // the "click" a press makes, so the press that opens the panel arms it after these have run.
+  ["wheel", "touchstart", "pointerdown", "keydown"].forEach(function (type) {
+    window.addEventListener(type, disarmPanelReveal, { capture: true, passive: true });
+  });
+  // The Key tab, from the rail's "Key" (below 720px) or the collapsed header's "Key": a press on an
+  // open Key tab closes the panel again.
+  function toggleKey() {
+    if (panelIsOpen() && panelTab === "key") {
+      setPanelOpen(false, true);
+      disarmPanelReveal();
+      return;
+    }
+    selectTab("key");
+    setPanelOpen(true, true);
+    revealPanelBelowMap();
+    armPanelReveal();
+  }
+  var panelChosen = false;
+  if (panel && panelToggle) {
+    panel.setAttribute("data-ready", "");
+    selectTab("inview");
+    setPanelOpen(panelDefaultOpen(), false);
+    panelToggle.addEventListener("click", function () {
+      panelChosen = true;
+      var open = !panelIsOpen();
+      // The header's button says what is in view, so opening the panel from it shows "In view"
+      // (a phone's bar reopened on the Key tab after the rail's "Key" had closed it). The Key tab
+      // has its own button beside it while the panel is collapsed.
+      if (open) selectTab("inview");
+      setPanelOpen(open, true);
+      if (open) { revealPanelBelowMap(); armPanelReveal(); } else { disarmPanelReveal(); }
+    });
+    if (panelKeyBtn) panelKeyBtn.addEventListener("click", function () { panelChosen = true; toggleKey(); });
+    if (mapKeyToggle) {
+      mapKeyToggle.hidden = false;
+      mapKeyToggle.addEventListener("click", function () { panelChosen = true; toggleKey(); });
+    }
+    [tabInView, tabKey].forEach(function (tab) {
+      tab.addEventListener("click", function () { selectTab(tab === tabKey ? "key" : "inview"); });
+      // The tab pattern's arrows: one tab stop, Left and Right move between the two.
+      tab.addEventListener("keydown", function (e) {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End") return;
+        e.preventDefault();
+        selectTab(panelTab === "key" ? "inview" : "key", true);
+      });
+    });
+    // The skip link to the results opens the panel on "In view" first.
+    Array.prototype.forEach.call(document.querySelectorAll('a[href="#in-view-list"]'), function (link) {
+      link.addEventListener("click", function () {
+        selectTab("inview");
+        if (!panelIsOpen()) setPanelOpen(true, false);
+      });
+    });
+    // Until the reader chooses, the default follows the width (a turned phone, a resized window);
+    // a phone's bar always starts closed, and from 720px a stored choice stands.
+    var followWidth = function () {
+      if (isPhone()) { if (!panelChosen) setPanelOpen(false, false); return; }
+      if (!panelChosen) setPanelOpen(panelDefaultOpen(), false);
+    };
+    if (narrowKey && narrowKey.addEventListener) narrowKey.addEventListener("change", followWidth);
+    if (widePanel && widePanel.addEventListener) widePanel.addEventListener("change", followWidth);
+    // From 720px a collapsed header lies over the canvas's top, and the national view is fitted
+    // under it. Should it change height while nobody has moved the map (its words wrap to a third
+    // line), the view is fitted again, so the header never ends over the East Coast.
+    var collapsedHeadAtHome = 0;
+    var refitUnderHeader = function () {
+      if (isPhone() || panelIsOpen() || !isAtHome()) return;
+      var h = panel.getBoundingClientRect().height;
+      if (collapsedHeadAtHome && Math.abs(h - collapsedHeadAtHome) > 1) goHome(motionMs(300));
+      collapsedHeadAtHome = h;
+    };
+    if (typeof ResizeObserver === "function") {
+      var panelRevealObserver = new ResizeObserver(function () { keepPanelInView(); refitUnderHeader(); });
+      panelRevealObserver.observe(panel);
+      var mapStatusBlock = document.querySelector(".map-status");
+      if (mapStatusBlock) panelRevealObserver.observe(mapStatusBlock);
+    }
+  }
+  // M-7: the first view, once the panel is open or closed for this width (its box is part of the
   // padding where it lies over the canvas). A view or region in the link wins, as before; the home
   // camera is still worked out, so moving back to it clears `center`/`zoom` from the URL.
   var firstHome = homeCamera();
   if (!viewRestored && firstHome) map.jumpTo({ center: firstHome.center, zoom: firstHome.zoom });
+  if (restoreBbox) {
+    map.jumpTo({ center: [(restoreBbox[0] + restoreBbox[2]) / 2, (restoreBbox[1] + restoreBbox[3]) / 2] });
+    map.fitBounds([[restoreBbox[0], restoreBbox[1]], [restoreBbox[2], restoreBbox[3]]], { duration: 0, padding: fitPadding(8) });
+  }
   // A canvas with no size yet has no fit (`cameraForBounds` gives none), and without one every move
   // would write `center`/`zoom` to the URL. Fit once it has a size.
   if (!firstHome) {
@@ -1519,72 +1686,42 @@
       if (!viewRestored) map.jumpTo({ center: cam.center, zoom: cam.zoom });
     });
   }
-  // With the existing-asset or retired-plant layer on, the key is compact, so it no longer grows
-  // over the West Coast (it reached the map's foot at 1440x900): the status key becomes the strip of
-  // short words the narrow layout uses, each layer's key is a section that closes, and the panel
-  // stops at 15rem and scrolls inside (styles.css `.map-key--compact`). The panel (a group named
-  // "Map key" in home_map.html) is then a tab stop, so a keyboard can scroll it (axe
-  // `scrollable-region-focusable` failed on it with a layer on). Without a layer the key is as before.
-  var mapKeyPanel = mapKey ? mapKey.querySelector(".map-key__panel") : null;
-  function syncKeyCompact() {
-    if (!mapKey || !mapKeyPanel) return;
-    var compact = !plantsLegend.hidden || !retiredLegend.hidden;
-    mapKey.classList.toggle("map-key--compact", compact);
-    syncKeyFocusable();
-  }
-  // A panel that scrolls is a tab stop, so a keyboard can scroll it (axe
-  // `scrollable-region-focusable`): always the compact key, and the plain key whenever its content is
-  // taller than its max-height, as in a short window (axe's CI browser is 800x600). A panel that does
-  // not scroll adds no tab stop. Run at load, on resize, when the key opens and when its rows change.
-  // Below 720px the key is in the page with no height cap (docs/17 M-1), so it never scrolls and is
-  // never a tab stop, compact or not.
-  function syncKeyFocusable() {
-    if (!mapKey || !mapKeyPanel) return;
-    var scrolls = mapKeyPanel.scrollHeight > mapKeyPanel.clientHeight + 1;
-    var capped = window.getComputedStyle(mapKeyPanel).maxHeight !== "none";
-    // That is: a panel that scrolls, or a compact one with a height cap (from 720px).
-    if ((mapKey.classList.contains("map-key--compact") || scrolls) && (capped || scrolls)) {
-      mapKeyPanel.setAttribute("tabindex", "0");
-    } else {
-      mapKeyPanel.removeAttribute("tabindex");
-    }
-  }
-  // A ResizeObserver reports once after the first layout (fonts and styles in place) and again
-  // whenever the panel or a section in it changes size; resize and load are the fallbacks.
-  if (mapKeyPanel && typeof ResizeObserver === "function") {
-    var keyObserver = new ResizeObserver(function () { syncKeyFocusable(); });
-    keyObserver.observe(mapKeyPanel);
-    Array.prototype.forEach.call(mapKeyPanel.children, function (child) { keyObserver.observe(child); });
-    // `keepKeyInView` after a press: the key growing, or the status block above the map growing
-    // (which moves the key down below 720px).
-    var keyRevealObserver = new ResizeObserver(function () { keepKeyInView(); });
-    keyRevealObserver.observe(mapKeyPanel);
-    var mapStatusBlock = document.querySelector(".map-status");
-    if (mapStatusBlock) keyRevealObserver.observe(mapStatusBlock);
-  }
-  syncKeyFocusable();
-  window.addEventListener("resize", syncKeyFocusable);
-  window.addEventListener("load", syncKeyFocusable);
-
   // Designer D-2: the status key lists only the families the filters can draw.
   var lifecycleLegendItems = Array.prototype.slice.call(document.querySelectorAll("[data-legend-family]"));
   function updateLifecycleLegend(counts) {
     var present = {};
     Object.keys(counts).forEach(function (state) { if (Number(counts[state]) > 0) present[familyOf(state)] = true; });
     lifecycleLegendItems.forEach(function (item) { item.hidden = !present[item.getAttribute("data-legend-family")]; });
-    syncKeyFocusable();
   }
   function plural(n, noun) { return fmtCount(n) + " " + noun + (n === 1 || /more$/.test(noun) ? "" : "s"); }
   function fmtCount(n) { return Number(n || 0).toLocaleString("en-US"); }
 
   // docs/17 M-5: a cluster's status breakdown and capacity sum were on a hover card only, which a
-  // touch screen never shows (D-10). The in-view header and a region's summary say them in words:
-  // one part per lifecycle family, most first, in the key's words and with its glyph, then the
-  // stated capacity. GW from 1,000 MW, through the one MW formatter.
-  var FAMILY_WORDS = {
-    neutral: "announced or unknown", progress: "in process", committed: "contracted",
-    success: "built", danger: "withdrawn or cancelled"
-  };
+  // touch screen never shows (D-10). The panel's header and a region's summary say them in words:
+  // one part per lifecycle family, with the key's glyph, then the stated capacity. GW from 1,000 MW,
+  // through the one MW formatter.
+  // The words are the Status filter's own names, as the key's rows and the overview's use them
+  // (review 2026-10-22: the header said "built" and "announced or unknown" in words of its own): a
+  // family's part names the filter's groups its states fall in, "Announced", "Status unknown" or
+  // "Announced or Status unknown". The key's own words for the family stand in should none be found.
+  var KEY_WORDS = {};
+  Array.prototype.forEach.call(document.querySelectorAll("#lifecycle-legend [data-legend-family]"), function (row) {
+    var words = row.querySelector(".legend__words");
+    if (!words) return;
+    var copy = words.cloneNode(true);
+    Array.prototype.forEach.call(copy.querySelectorAll(".legend__detail"), function (n) { n.remove(); });
+    KEY_WORDS[row.getAttribute("data-legend-family")] = copy.textContent.replace(/\s+/g, " ").trim();
+  });
+  function familyWords(family, stateCounts) {
+    var present = {};
+    Object.keys(stateCounts).forEach(function (state) {
+      if ((Number(stateCounts[state]) || 0) > 0 && familyOf(state) === family) present[statusGroupOf(state)] = true;
+    });
+    var names = STATUS_GROUP_ORDER.filter(function (g) { return present[g]; })
+      .map(function (g) { return STATUS_GROUP_LABEL[g]; })
+      .filter(Boolean);
+    return names.length ? names.join(" or ") : (KEY_WORDS[family] || family);
+  }
   var REGION_PLACED_BY = { county: "by county", state: "by state", country: "by country" };
   function fmtCapacity(mw) { return mw >= 1000 ? fmtMWNumber(mw / 1000) + " GW" : fmtMW(mw); }
   function breakdownParts(stateCounts, capacityMw) {
@@ -1598,40 +1735,314 @@
       .map(function (f) {
         return "<span class=\"in-view-summary__family in-view-summary__family--" + f + "\">" +
           "<svg class=\"legend__icon\" width=\"12\" height=\"12\" aria-hidden=\"true\"><use href=\"#icon-" + f + "\"></use></svg>" +
-          "<span class=\"tnum\">" + fmtCount(byFamily[f]) + "</span> " + FAMILY_WORDS[f] + "</span>";
+          "<span class=\"tnum\">" + fmtCount(byFamily[f]) + "</span> " + esc(familyWords(f, stateCounts)) + "</span>";
       });
     if (capacityMw > 0) parts.push("<span class=\"tnum\">" + esc(fmtCapacity(capacityMw)) + "</span>");
     return parts;
   }
-  var inViewSummary = document.getElementById("in-view-summary");
-  // The header line: how many proposals the drawn markers stand for (a cluster for its `count`, a
-  // point for one), their families and capacity, and any more placed only by area.
-  function renderInViewSummary(regionPlaced) {
-    if (!inViewSummary || !hasLoadedOnce) return;
-    var total = 0;
-    var states = {};
-    var capacity = 0;
-    function add(state, n) { states[state || "unknown"] = (states[state || "unknown"] || 0) + n; }
-    latestCollection.features.forEach(function (f) {
+  // ---- what "in view" means while the panel floats over the map (review 2026-10-22) ----
+  // From 720px the open panel covers the canvas's right side (340px of 1,400 at 1440x900), so what
+  // lies under it is not in view: the marks are still drawn there (a pan brings them out without a
+  // wait), but the header, the overview, the list and the busiest areas count only what the reader
+  // sees, left of the panel. A collapsed panel is its header over the top right corner, and a
+  // phone's panel lies under the map: both leave the whole canvas in view. The drawer, which opens
+  // in the panel's place, covers the same box, so opening it changes nothing.
+  // `coveredFromX`: the canvas x where the open panel starts, or null when nothing covers the canvas.
+  function coveredFromX() {
+    if (!panel || isPhone() || !panelIsOpen()) return null;
+    var m = mapEl.getBoundingClientRect();
+    var k = panel.getBoundingClientRect();
+    if (!(k.width > 0 && k.height > 0) || k.left >= m.right || k.right <= m.left || k.top >= m.bottom || k.bottom <= m.top) return null;
+    return Math.max(0, k.left - m.left);
+  }
+  // A point is in view left of `edge`; a line or an area while any of its vertices is.
+  function leftOf(geometry, edge) {
+    if (edge == null) return true;
+    if (!geometry || !geometry.coordinates) return false;
+    if (geometry.type === "Point") return map.project(geometry.coordinates).x < edge;
+    var found = false;
+    (function walk(c) {
+      if (found || !c || !c.length) return;
+      if (typeof c[0] === "number") { found = map.project(c).x < edge; return; }
+      for (var i = 0; i < c.length && !found; i++) walk(c[i]);
+    })(geometry.coordinates);
+    return found;
+  }
+  // The latest answers, cut to what the reader sees. Everything that says what is in view reads this.
+  function inViewNow() {
+    var edge = coveredFromX();
+    var keep = function (f) { return leftOf(f.geometry, edge); };
+    var assets = plantsToggle.checked ? latestAssets.features.filter(keep) : [];
+    var retired = retiredToggle.checked ? latestRetired.features.filter(keep) : [];
+    return {
+      features: latestCollection.features.filter(keep),
+      regions: latestRegionFeatures.filter(keep),
+      assets: assets,
+      retired: retired,
+      plantsTotal: edge == null ? latestPlantsTotal : assetsInView(assets),
+      retiredTotal: edge == null ? latestRetiredTotal : assetsInView(retired)
+    };
+  }
+  // The same cut as a box, for `/api/map/areas`: the map's bounds left of the open panel.
+  function inViewBbox() {
+    var edge = coveredFromX();
+    if (edge == null) return currentBbox();
+    var sw = map.unproject([0, mapEl.clientHeight]);
+    var ne = map.unproject([edge, 0]);
+    return [sw.lng, sw.lat, ne.lng, ne.lat];
+  }
+
+  // ---- the panel's header and its "In view" overview (owner, 2026-10-22; docs/31 §5.19) ----
+  // What the view holds is counted from what is drawn and not under the panel (`inViewNow`; audit
+  // 2026-09-30 F4: `totals.records` counts every match anywhere and stays on the count line above
+  // the map): a cluster stands for its `count`, a point for one, a shaded county or a state outline
+  // for the projects the source places there. A touch screen never sees a cluster's hover card, so
+  // the header carries its breakdown (docs/17 M-5, D-10).
+  var panelBar = document.getElementById("map-panel-bar");
+  var panelFamilies = document.getElementById("map-panel-families");
+  var overviewEl = document.getElementById("map-overview");
+  var overviewStatus = document.getElementById("map-overview-status");
+  var overviewTech = document.getElementById("map-overview-tech");
+  var overviewAreas = document.getElementById("map-overview-areas");
+  var overviewAlso = document.getElementById("map-overview-also");
+  var NO_STATUS_WORDS = "No status chosen: projects are hidden.";
+  // The Status filter's own groups and words (`_macros.html` status_filter, from the server's
+  // PROPOSAL_STATUS_GROUPS), read from its boxes, so the overview names each status as it does.
+  var STATUS_GROUP_ORDER = [];
+  var STATUS_GROUP_LABEL = {};
+  statusBoxes.forEach(function (box) {
+    var key = box.getAttribute("data-status-group") || box.value;
+    var label = box.parentNode ? box.parentNode.cloneNode(true) : null;
+    if (label) Array.prototype.forEach.call(label.querySelectorAll("input, .filter-field__note"), function (n) { n.remove(); });
+    STATUS_GROUP_ORDER.push(key);
+    STATUS_GROUP_LABEL[key] = label ? label.textContent.replace(/\s+/g, " ").trim() : key;
+  });
+  var GROUP_OF_STATE = { announced: "announced", contracted: "contracted", built: "built", unknown: "unknown" };
+  function statusGroupOf(state) {
+    if (GROUP_OF_STATE[state]) return GROUP_OF_STATE[state];
+    if (WITHDRAWN_STATES.indexOf(state) !== -1) return "withdrawn";
+    if (DEFAULT_STATES.indexOf(state) !== -1) return "in_process";
+    return "unknown";
+  }
+  var GROUP_FAMILY = { announced: "neutral", in_process: "progress", contracted: "committed", built: "success", withdrawn: "danger", unknown: "neutral" };
+
+  // Everything the header and the overview say, for what is in view (`inViewNow`).
+  function viewTotals(shown) {
+    var t = { total: 0, capacity: 0, states: {}, techs: {}, families: {}, regionPlaced: 0 };
+    function add(table, key, n) { if (n > 0) table[key] = (table[key] || 0) + n; }
+    function addCounts(table, counts, fallback, n) {
+      var obj = propObj(counts);
+      if (obj && Object.keys(obj).length) Object.keys(obj).forEach(function (k) { add(table, k, Number(obj[k]) || 0); });
+      else if (fallback != null) add(table, fallback, n);
+    }
+    shown.features.forEach(function (f) {
       var p = f.properties;
       if (p.feature_kind === "cluster") {
         var n = Number(p.count) || 0;
-        var counts = propObj(p.lifecycle_state_counts);
-        total += n;
-        if (counts && Object.keys(counts).length) Object.keys(counts).forEach(function (s) { add(s, Number(counts[s]) || 0); });
-        else add(p.dominant_lifecycle_state, n);
-        capacity += Number(p.capacity_mw_sum) || 0;
+        t.total += n;
+        addCounts(t.states, p.lifecycle_state_counts, p.dominant_lifecycle_state || "unknown", n);
+        addCounts(t.techs, p.technology_counts, null, n);
+        t.capacity += Number(p.capacity_mw_sum) || 0;
       } else if (p.feature_kind === "proposal") {
-        total += 1;
-        add(p.lifecycle_state, 1);
-        capacity += Number(p.capacity_mw) || 0;
+        t.total += 1;
+        add(t.states, p.lifecycle_state || "unknown", 1);
+        add(t.techs, p.technology || "", 1);
+        t.capacity += Number(p.capacity_mw) || 0;
       }
     });
-    var parts = ["<strong class=\"in-view-summary__count\">" + esc(plural(total, "proposal")) + " in view</strong>"]
-      .concat(breakdownParts(states, capacity));
-    if (regionPlaced) parts.push(esc(plural(regionPlaced, "more")) + " placed by county or region");
-    inViewSummary.innerHTML = parts.join(" &middot; ");
-    inViewSummary.hidden = false;
+    shown.regions.forEach(function (f) {
+      var p = f.properties;
+      var n = Number(p.count) || 0;
+      t.total += n;
+      t.regionPlaced += n;
+      addCounts(t.states, p.lifecycle_state_counts, "unknown", n);
+      addCounts(t.techs, p.technology_counts, null, n);
+      t.capacity += Number(p.capacity_mw_sum) || 0;
+    });
+    Object.keys(t.states).forEach(function (s) { add(t.families, familyOf(s), t.states[s]); });
+    return t;
+  }
+
+  function familyGlyph(family, size) {
+    return "<svg class=\"legend__icon\" width=\"" + size + "\" height=\"" + size + "\" aria-hidden=\"true\"><use href=\"#icon-" + family + "\"></use></svg>";
+  }
+  // The header: "N projects in view · X GW", a thin bar by status family in the map's colours (in the
+  // key's order, so it reads the same way every time), and the same counts in words with each
+  // family's glyph, so the bar is never colour alone (D-5).
+  function renderPanelHeader(t) {
+    if (!panelCountEl) return;
+    if (noStatusChosen()) {
+      panelCountEl.textContent = NO_STATUS_WORDS;
+      if (panelBar) { panelBar.textContent = ""; panelBar.hidden = true; }
+      if (panelFamilies) { panelFamilies.textContent = ""; panelFamilies.hidden = true; }
+      return;
+    }
+    if (!hasLoadedOnce) return;
+    panelCountEl.textContent = fmtCount(t.total) + (t.total === 1 ? " project" : " projects") + " in view" +
+      (t.capacity > 0 ? " · " + fmtCapacity(t.capacity) : "");
+    if (panelBar) {
+      panelBar.textContent = "";
+      FAMILIES.forEach(function (f) {
+        if (!t.families[f]) return;
+        var seg = document.createElement("span");
+        seg.className = "map-panel__seg map-panel__seg--" + f;
+        seg.style.flexGrow = String(t.families[f]);
+        panelBar.appendChild(seg);
+      });
+      // An empty view keeps the bar's box (an empty track), so the header keeps its height.
+      panelBar.hidden = false;
+    }
+    if (panelFamilies) {
+      panelFamilies.hidden = false;
+      panelFamilies.innerHTML = FAMILIES.filter(function (f) { return t.families[f]; }).map(function (f) {
+        return "<span class=\"in-view-summary__family in-view-summary__family--" + f + "\">" + familyGlyph(f, 12) +
+          "<span class=\"tnum\">" + fmtCount(t.families[f]) + "</span> " + esc(familyWords(f, t.states)) + "</span>";
+      }).join(" ");
+    }
+  }
+
+  // "In view" follows the zoom (owner: the panel was "confusing while zoomed all the way out"). At a
+  // national or multi-state view, below zoom 5 or with more than 300 projects in view, it is an
+  // overview; zoomed in, the list. A view of 25 projects or fewer (one page of the list) is listed at
+  // any zoom: the list is then shorter than the overview and says more. A clustered answer (more
+  // than 500 placed at a site in view, services/api/geo.py SPLIT_THRESHOLD) cannot be listed.
+  var OVERVIEW_BELOW_ZOOM = 5;
+  var OVERVIEW_OVER = 300;
+  var LIST_UP_TO = 25;
+  var inViewMode = "list";
+  function chooseInViewMode(t) {
+    if (noStatusChosen() || !hasLoadedOnce || t.total <= LIST_UP_TO) return "list";
+    if (map.getZoom() < OVERVIEW_BELOW_ZOOM || t.total > OVERVIEW_OVER) return "overview";
+    return (latestCollection.totals || {}).clustered ? "overview" : "list";
+  }
+  function setInViewMode(mode) {
+    inViewMode = mode;
+    if (overviewEl) overviewEl.hidden = mode !== "overview";
+    listEl.hidden = mode === "overview";
+    if (panel) panel.setAttribute("data-mode", mode);
+  }
+
+  // One row of the overview: a name (with a glyph where the row is a status), its count, and a
+  // meter of its share (decorative: the count says it).
+  function overviewRow(nameHtml, count, share, family) {
+    var li = document.createElement("li");
+    li.className = "map-overview__row";
+    var name = document.createElement("span");
+    name.className = "map-overview__name";
+    name.innerHTML = nameHtml;
+    var num = document.createElement("span");
+    num.className = "map-overview__count tnum";
+    num.textContent = fmtCount(count);
+    var meter = document.createElement("span");
+    meter.className = "map-overview__meter";
+    meter.setAttribute("aria-hidden", "true");
+    var fill = document.createElement("span");
+    fill.className = "map-overview__fill" + (family ? " map-panel__seg--" + family : "");
+    fill.style.width = Math.max(2, Math.round(share * 100)) + "%";
+    meter.appendChild(fill);
+    li.appendChild(name);
+    li.appendChild(num);
+    li.appendChild(meter);
+    return li;
+  }
+  function renderOverview(t, shown) {
+    if (!overviewEl) return;
+    var groups = {};
+    Object.keys(t.states).forEach(function (s) {
+      var g = statusGroupOf(s);
+      groups[g] = (groups[g] || 0) + t.states[s];
+    });
+    overviewStatus.textContent = "";
+    STATUS_GROUP_ORDER.forEach(function (key) {
+      if (!groups[key]) return;
+      var family = GROUP_FAMILY[key] || "neutral";
+      overviewStatus.appendChild(overviewRow(
+        "<span class=\"in-view-summary__family--" + family + "\">" + familyGlyph(family, 12) + "</span> " + esc(STATUS_GROUP_LABEL[key] || key),
+        groups[key], groups[key] / (t.total || 1), family
+      ));
+    });
+    overviewTech.textContent = "";
+    Object.keys(t.techs).filter(function (k) { return t.techs[k] > 0; })
+      .sort(function (a, b) { return t.techs[b] - t.techs[a] || (a < b ? -1 : 1); })
+      .slice(0, 4)
+      .forEach(function (k) {
+        overviewTech.appendChild(overviewRow(esc(k ? technologyName(k) : "Technology not stated"), t.techs[k], t.techs[k] / (t.total || 1), null));
+      });
+    var also = [];
+    if (t.regionPlaced) also.push(fmtCount(t.regionPlaced) + " of them are placed only by county or state, not at a site.");
+    var layers = [];
+    if (plantsToggle.checked && shown.plantsTotal) layers.push(plural(shown.plantsTotal, "existing asset"));
+    if (retiredToggle.checked && shown.retiredTotal) layers.push(plural(shown.retiredTotal, "retired or retiring plant"));
+    if (layers.length) also.push("Also in view: " + layers.join(" and ") + ".");
+    overviewAlso.textContent = also.join(" ");
+    overviewAlso.hidden = !also.length;
+    requestAreas();
+  }
+
+  // "Busiest areas": the five states or countries holding the most projects in view, each a button
+  // that flies there, from `/api/map/areas` (web/map_search.py `busiest_areas`). Asked only while
+  // the overview shows; the newest answer wins, and the rows of the last one stay until it lands.
+  var areasSeq = 0;
+  var areasAbort = null;
+  var areasAskedFor = "";
+  function areasUrl() {
+    var params = new URLSearchParams();
+    params.set("bbox", inViewBbox().map(function (v) { return v.toFixed(4); }).join(","));
+    appendProposalFilters(params, filters);
+    params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
+    return "/api/map/areas?" + params.toString();
+  }
+  function requestAreas() {
+    if (!hasLoadedOnce || !overviewAreas || inViewMode !== "overview" || !panelIsOpen() || panelTab !== "inview") return;
+    var url = areasUrl();
+    if (url === areasAskedFor) return;
+    areasAskedFor = url;
+    var seq = ++areasSeq;
+    if (areasAbort) areasAbort.abort();
+    areasAbort = typeof AbortController === "function" ? new AbortController() : null;
+    overviewAreas.setAttribute("aria-busy", "true");
+    fetch(url, areasAbort ? { signal: areasAbort.signal } : undefined)
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("areas " + r.status)); })
+      .then(function (body) { if (seq === areasSeq) renderAreas((body && body.areas) || []); })
+      .catch(function (err) {
+        if ((err && err.name === "AbortError") || seq !== areasSeq) return;
+        areasAskedFor = ""; // asked again on the next move
+        renderAreas(null);
+      });
+  }
+  function renderAreas(areas) {
+    overviewAreas.removeAttribute("aria-busy");
+    overviewAreas.textContent = "";
+    if (!areas || !areas.length) {
+      var note = document.createElement("li");
+      note.className = "map-overview__empty";
+      note.textContent = areas ? "No state or country holds these projects." : "The busiest areas could not be loaded.";
+      overviewAreas.appendChild(note);
+      return;
+    }
+    areas.forEach(function (a) {
+      var li = document.createElement("li");
+      li.className = "map-overview__row map-overview__row--area";
+      var go = document.createElement("button");
+      go.type = "button";
+      go.className = "map-overview__area";
+      go.textContent = a.label;
+      var box = a.bbox;
+      if (box && box.length === 4) {
+        go.addEventListener("click", function () {
+          map.fitBounds([[box[0], box[1]], [box[2], box[3]]], { padding: fitPadding(8), duration: motionMs(600) });
+        });
+      } else {
+        go.disabled = true;
+      }
+      var meta = document.createElement("span");
+      meta.className = "map-overview__count tnum";
+      meta.textContent = fmtCount(a.count) + (a.count === 1 ? " project" : " projects") +
+        (a.capacity_mw > 0 ? " · " + fmtCapacity(a.capacity_mw) : "");
+      li.appendChild(go);
+      li.appendChild(meta);
+      overviewAreas.appendChild(li);
+    });
   }
   // US state postal codes by FIPS prefix, so a county reads "Douglas County, GA" rather than
   // "Douglas (county)": there are 30 Douglas counties (designer D-14).
@@ -1669,36 +2080,27 @@
     listEl.appendChild(li);
   }
 
-  function render() {
-    var totals = latestCollection.totals || {};
-    // The in-view list says when the view is clustered; this line stays one short sentence. Only
-    // once proposals have loaded: an asset layer (on by default since 2026-10-20) that arrives
-    // first, or after a failed proposals fetch, would otherwise say "0 proposals match" over
-    // "Loading proposals..." or "Proposals could not be loaded."
-    if (hasLoadedOnce) {
-      countEl.textContent =
-        (totals.records || 0) + " proposal" + (totals.records === 1 ? "" : "s") + " match these filters.";
-      countEl.removeAttribute("aria-hidden");
-    }
-
-    var individual = latestCollection.features.filter(function (f) {
+  // The list, zoomed in (it is the old "In view" panel's, kept: owner 2026-10-22): projects first,
+  // then region records, existing assets and retired plants as their own labelled groups, a page of
+  // each. Hovering a row rings its mark on the map (`bindRowHover`).
+  function renderList(totals, shown) {
+    var individual = shown.features.filter(function (f) {
       return f.properties.feature_kind !== "cluster" && f.properties.feature_kind !== "region";
     });
-    listEl.innerHTML = "";
     if (totals.clustered) {
       var li = document.createElement("li");
       li.textContent = "Zoom in or narrow the filters to list proposals individually; " +
-        (totals.records || 0) + " match in clustered form above.";
+        fmtCount(totals.records) + " match in clustered form above.";
       listEl.appendChild(li);
     } else {
       var groups = groupProposalFeatures(individual).slice(0, IN_VIEW_LIMIT);
       if (!groups.length) {
         var none = document.createElement("li");
         none.className = "in-view-list__empty";
-        none.textContent = (totals.records || 0) === 0
+        none.textContent = noStatusChosen() ? NO_STATUS_WORDS : (totals.records || 0) === 0
           ? "No proposals match these filters. The note above names each one; Clear all removes them."
           : "No proposals in this part of the map. Zoom out or move the map to see the " + fmtCount(totals.records) + " that match.";
-        if (!latestRegionFeatures.length) listEl.appendChild(none);
+        if (!shown.regions.length) listEl.appendChild(none);
       }
       var shownProposals = Math.min(inViewShown.proposals, groups.length);
       groups.slice(0, shownProposals).forEach(function (g, index) {
@@ -1726,6 +2128,7 @@
           details.setAttribute("aria-label", "Details for " + (p.name || "this proposal"));
           details.addEventListener("click", function () { openDrawer(p); });
         }
+        bindRowHover(node.querySelector("li"), g.geometry);
         listEl.appendChild(node);
       });
       appendShowMore("proposals", shownProposals, groups.length, "proposals");
@@ -1733,9 +2136,9 @@
 
     // Region records (ADR 0008 placement grade "region") in the list as well as on the map, so a
     // keyboard or screen-reader user reaches them without a pointer (web audit 2026-09-18).
-    if (latestRegionFeatures.length) {
-      appendGroupName("Regions (" + latestRegionFeatures.length + ")");
-      var regionRows = latestRegionFeatures.slice(0, IN_VIEW_LIMIT);
+    if (shown.regions.length) {
+      appendGroupName("Regions (" + fmtCount(shown.regions.length) + ")");
+      var regionRows = shown.regions.slice(0, IN_VIEW_LIMIT);
       var shownRegions = Math.min(inViewShown.regions, regionRows.length);
       regionRows.slice(0, shownRegions).forEach(function (f, index) {
         var p = f.properties;
@@ -1755,8 +2158,9 @@
         item.appendChild(btn);
         var meta = document.createElement("span");
         meta.className = "meta";
-        meta.textContent = Number(p.count || 0) + " proposal" + (Number(p.count) === 1 ? "" : "s") + " placed at this region";
+        meta.textContent = plural(Number(p.count) || 0, "proposal") + " placed at this region";
         item.appendChild(meta);
+        bindRowHover(item, regionPolygonCache[p.region_level + ":" + p.region_id] || f.geometry);
         listEl.appendChild(item);
       });
       appendShowMore("regions", shownRegions, regionRows.length, "regions");
@@ -1766,15 +2170,15 @@
     // feature carries one, a Details button that opens the same drawer a map click does.
     var assetsIndividual = [];
     if (plantsToggle.checked) {
-      assetsIndividual = latestAssets.features.filter(function (f) {
+      assetsIndividual = shown.assets.filter(function (f) {
         return f.properties.feature_kind === "asset" || f.properties.feature_kind === "asset_line";
       });
       if (latestAssetsClustered || assetsIndividual.length) {
-        appendGroupName("Existing assets (" + latestPlantsTotal + ")");
+        appendGroupName("Existing assets (" + fmtCount(shown.plantsTotal) + ")");
       }
       if (latestAssetsClustered) {
         var cl = document.createElement("li");
-        cl.textContent = "Zoom in to list existing assets individually; " + latestPlantsTotal + " are grouped in clusters above.";
+        cl.textContent = "Zoom in to list existing assets individually; " + fmtCount(shown.plantsTotal) + " are grouped in clusters above.";
         listEl.appendChild(cl);
       }
       var assetRows = assetsIndividual.slice(0, IN_VIEW_ASSET_LIMIT);
@@ -1810,6 +2214,7 @@
         meta.className = "meta";
         meta.textContent = assetMeta(p);
         item.appendChild(meta);
+        bindRowHover(item, f.geometry);
         listEl.appendChild(item);
       });
       appendShowMore("assets", shownAssets, assetRows.length, "assets");
@@ -1817,13 +2222,13 @@
 
     // Lane R1: retired and retiring plants in view, one row each, the status in words.
     if (retiredToggle.checked) {
-      var retiredIndividual = latestRetired.features.filter(function (f) { return f.properties.feature_kind === "asset"; });
+      var retiredIndividual = shown.retired.filter(function (f) { return f.properties.feature_kind === "asset"; });
       if (latestRetiredClustered || retiredIndividual.length) {
-        appendGroupName("Retired & retiring plants (" + latestRetiredTotal + ")");
+        appendGroupName("Retired & retiring plants (" + fmtCount(shown.retiredTotal) + ")");
       }
       if (latestRetiredClustered) {
         var rcl = document.createElement("li");
-        rcl.textContent = "Zoom in to list retired and retiring plants individually; " + latestRetiredTotal + " are grouped in clusters above.";
+        rcl.textContent = "Zoom in to list retired and retiring plants individually; " + fmtCount(shown.retiredTotal) + " are grouped in clusters above.";
         listEl.appendChild(rcl);
       }
       var retiredRows = retiredIndividual.slice(0, IN_VIEW_ASSET_LIMIT);
@@ -1857,6 +2262,7 @@
           p.state_code || null
         ].filter(Boolean).join(" · ");
         item.appendChild(meta);
+        bindRowHover(item, f.geometry);
         listEl.appendChild(item);
       });
       appendShowMore("retired", shownRetired, retiredRows.length, "plants");
@@ -1867,27 +2273,73 @@
       if (focusable) focusable.focus();
       focusAfterRender = null;
     }
+  }
+
+  // ADR 0008: "none" grade (no usable location) is counted only in `meta.unplaced_count`, never
+  // drawn -- checking the "None" placement checkbox has no effect on what is fetched or drawn (a
+  // none-grade proposal has no geometry either way).
+  function unplacedNow() {
+    if (noStatusChosen()) return 0;
+    return Number(latestMeta.unplaced_count || (latestCollection.totals || {}).unplaced || 0);
+  }
+  // The count line says how the two numbers a first-time reader sees relate (review 2026-10-22: "6009
+  // proposals match these filters" above the map and "4,138 projects in view" on the panel, with the
+  // 1,000 that are not on the map named only at the foot of the overview): every match anywhere, in
+  // the panel's noun, then how many of them no map can place, on a line of its own from 720px.
+  // Below 720px the count shares one row with the notice's short form (docs/17 M-6), so the second
+  // sentence is not drawn there and the panel's "In view" tab opens with it instead
+  // (`#unplaced-note`, styles.css 8.3).
+  function renderCountLine(records, unplaced) {
+    countEl.textContent = fmtCount(records) + (records === 1 ? " project matches" : " projects match") + " these filters.";
+    if (unplaced > 0) {
+      var part = document.createElement("span");
+      part.className = "map-status__unplaced";
+      part.textContent = " " + fmtCount(unplaced) + " of them can\u2019t be placed on the map (the Projects list has " +
+        (unplaced === 1 ? "it" : "them") + ").";
+      countEl.appendChild(part);
+    }
+    countEl.removeAttribute("aria-hidden");
+  }
+
+  function render() {
+    var totals = latestCollection.totals || {};
+    var unplacedCount = unplacedNow();
+    // Only once proposals have loaded: an asset layer (on by default since 2026-10-20) that arrives
+    // first, or after a failed proposals fetch, would otherwise say "0 projects match" over
+    // "Loading projects..." or "Proposals could not be loaded."
+    if (hasLoadedOnce) renderCountLine(Number(totals.records) || 0, unplacedCount);
+    // The panel: its header, then "In view" as an overview or a list for this view (owner,
+    // 2026-10-22). Both are built from the answers in hand, so the switch costs no request; both
+    // count only what the open panel leaves in sight (`inViewNow`).
+    var shown = inViewNow();
+    var view = viewTotals(shown);
+    renderPanelHeader(view);
+    setInViewMode(chooseInViewMode(view));
+    listEl.innerHTML = "";
+    showHoverRing(null);
+    if (inViewMode === "list") renderList(totals, shown);
+    else renderOverview(view, shown);
 
     // What the live region says is what the view holds (audit 2026-09-30 F4). `totals.records`
     // counts every proposal matching the filters anywhere, so it stays on the count line above
-    // ("match these filters"); "in view" is counted from the features drawn: a cluster stands
-    // for its `count`, a point for one, and region-placed proposals are named separately.
+    // ("match these filters"); "in view" is counted from the features drawn and not under the
+    // panel: a cluster stands for its `count`, a point for one, and region-placed proposals are
+    // named separately.
     var proposalsInView = 0;
-    latestCollection.features.forEach(function (f) {
+    shown.features.forEach(function (f) {
       var kind = f.properties.feature_kind;
       if (kind === "cluster") proposalsInView += Number(f.properties.count) || 0;
       else if (kind === "proposal") proposalsInView += 1;
     });
     var regionPlaced = 0;
-    latestRegionFeatures.forEach(function (f) { regionPlaced += Number(f.properties.count) || 0; });
-    renderInViewSummary(regionPlaced);
+    shown.regions.forEach(function (f) { regionPlaced += Number(f.properties.count) || 0; });
     var liveText = plural(proposalsInView, "proposal") + " in view";
     if (regionPlaced) liveText += ", and " + plural(regionPlaced, "more") + " placed by county or region";
     liveText += ".";
     var linesNoteText = "";
     if (plantsToggle.checked) {
       var linesByType = {};
-      latestAssets.features.forEach(function (f) {
+      shown.assets.forEach(function (f) {
         if (f.properties.feature_kind !== "asset_line") return;
         var type = assetTypeOf(f.properties);
         linesByType[type] = (linesByType[type] || 0) + 1;
@@ -1895,9 +2347,9 @@
       // Each line type by its own name: a transmission line is not a pipeline.
       var lineParts = Object.keys(linesByType).map(function (type) {
         var n = linesByType[type];
-        return n + " " + (n === 1 ? ASSET_TYPES[type].label.toLowerCase() : ASSET_TYPES[type].plural);
+        return fmtCount(n) + " " + (n === 1 ? ASSET_TYPES[type].label.toLowerCase() : ASSET_TYPES[type].plural);
       });
-      liveText += " " + plural(latestPlantsTotal, "existing asset") + " in view" + (lineParts.length ? " (" + lineParts.join(", ") + ")" : "") + ".";
+      liveText += " " + plural(shown.plantsTotal, "existing asset") + " in view" + (lineParts.length ? " (" + lineParts.join(", ") + ")" : "") + ".";
       var lt = latestAssets.totals || {};
       if (lt.line_count && lt.lines_shown != null && lt.lines_shown < lt.line_count) {
         linesNoteText = "Showing the longest " + fmtCount(lt.lines_shown) + " of " + fmtCount(lt.line_count) +
@@ -1909,18 +2361,15 @@
       linesNote.hidden = !linesNoteText;
       linesNote.textContent = linesNoteText;
     }
-    if (retiredToggle.checked) liveText += " " + plural(latestRetiredTotal, "retired or retiring plant") + " in view.";
+    if (retiredToggle.checked) liveText += " " + plural(shown.retiredTotal, "retired or retiring plant") + " in view.";
     liveRegion.textContent = liveText;
 
-    // ADR 0008: "none" grade (no usable location) is counted only in `totals.unplaced`, never
-    // drawn -- checking the "None" placement checkbox has no effect on what is fetched or drawn
-    // (a none-grade proposal has no geometry either way); its only visible effect is whether this
-    // total is requested from the API at all, which is exactly the "count text" the task brief
-    // says it is limited to.
-    var unplacedCount = Number(latestMeta.unplaced_count || (latestCollection.totals || {}).unplaced || 0);
-    if (unplacedCount > 0) {
+    // Below 720px the count line has no room for what is not on the map, so "In view" opens with it
+    // (drawn only there: from 720px the count line says it).
+    if (unplacedCount > 0 && hasLoadedOnce) {
       unplacedNote.hidden = false;
-      unplacedNote.textContent = "Unplaced (" + unplacedCount + "): no usable county or state on these sources' records; view them in the list instead of on the map.";
+      unplacedNote.textContent = fmtCount(unplacedCount) + " of the " + fmtCount(totals.records) +
+        " that match these filters can\u2019t be placed on the map (the Projects list has " + (unplacedCount === 1 ? "it" : "them") + ").";
     } else {
       unplacedNote.hidden = true;
     }
@@ -1981,11 +2430,12 @@
   }
 
   function showRegionTooltip(e) {
+    if (!hoverAllowed()) return;
     var p = mostSpecificRegion(e.point, e.features, 0).properties; // the region a click here opens
     hideTooltip();
     tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
       .setLngLat(e.lngLat)
-      .setHTML("<strong>" + esc(p.name || p.region_id) + "</strong><br>" + Number(p.count || 0) + " proposals")
+      .setHTML("<strong>" + esc(p.name || p.region_id) + "</strong><br>" + esc(plural(Number(p.count) || 0, "proposal")))
       .addTo(map);
   }
 
@@ -2287,6 +2737,7 @@
 
   // Says what a dashed ring is without a click, as a proposals cluster's tooltip does (D-10).
   function showRetiredClusterTooltip(e) {
+    if (!hoverAllowed()) return;
     var f = e.features[0];
     var p = f.properties;
     var mw = Number(p.capacity_mw_sum) || 0;
@@ -2307,7 +2758,6 @@
     });
     retiredLegend.hidden = !on;
     retiredLegend.setAttribute("aria-hidden", on ? "false" : "true");
-    syncKeyCompact();
   }
 
   function setPlantsLayerVisible(on) {
@@ -2321,7 +2771,6 @@
     Array.prototype.forEach.call(plantsLegend.querySelectorAll("[data-legend-type]"), function (group) {
       group.hidden = picked.indexOf(group.getAttribute("data-legend-type")) === -1;
     });
-    syncKeyCompact();
   }
 
   // ---- one tap, one action (docs/17 M-2) ----
@@ -2365,8 +2814,14 @@
     return level[0];
   }
   function isClusterKind(kind) { return kind === "cluster" || kind === "asset_cluster" || kind === "plant_cluster"; }
+  // The cluster lands in the middle of the canvas the panel leaves (`fitPadding`), not under it: an
+  // offset, not `padding`, which MapLibre would keep for every later move.
   function zoomIntoCluster(f) {
-    map.easeTo({ center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2), duration: motionMs(600) });
+    var pad = fitPadding(0);
+    map.easeTo({
+      center: f.geometry.coordinates, zoom: f.properties.expands_to_zoom || (map.getZoom() + 2),
+      offset: [(pad.left - pad.right) / 2, (pad.top - pad.bottom) / 2], duration: motionMs(600)
+    });
   }
   function openAssetOrZoom(f) {
     if (isClusterKind(f.properties.feature_kind)) zoomIntoCluster(f);
@@ -2410,6 +2865,139 @@
         return;
       }
     }
+  }
+
+  // ---- hover highlights (owner, 2026-10-22: "easier to understand") ----
+  // Hovering a row of the key lights the marks it names and dims the rest; hovering a row of the
+  // in-view list rings its mark. Mouse only: a touch never hovers, and the key's words and the
+  // drawer say the same. The dimmed opacities are the drawn ones times HIGHLIGHT_DIM.
+  // A tap on a phone is followed by the browser's emulated mouse events, so `mouseenter` lit a key
+  // row's marks (or ringed a list row's) on a tap and, with no mouse to leave the row, left the map
+  // dimmed (review 2026-10-22). Pointer events name their device: only a mouse's pointer lights
+  // anything, and not within a moment of a touch (`hoverAllowed`, below).
+  function mouseHover(e) { return !!e && e.pointerType === "mouse" && hoverAllowed(); }
+  var HIGHLIGHT_DIM = 0.15;
+  var HIGHLIGHT_PAINT = [
+    ["clusters", "circle-stroke-opacity"], ["clusters", "circle-opacity"],
+    ["cluster-count", "text-opacity"], ["cluster-count", "icon-opacity"],
+    ["points", "icon-opacity"], ["points-precision", "circle-stroke-opacity"], ["point-labels", "text-opacity"],
+    ["region-fill", "fill-opacity"], ["region-outline", "line-opacity"], ["region-outline-broad", "line-opacity"],
+    ["region-labels", "text-opacity"],
+    ["plant-clusters", "circle-stroke-opacity"], ["plant-cluster-count", "text-opacity"],
+    ["asset-lines", "line-opacity"], ["asset-lines-intrastate", "line-opacity"], ["asset-lines-transmission", "line-opacity"],
+    ["asset-line-labels", "text-opacity"], ["plant-points", "icon-opacity"], ["plant-labels", "text-opacity"],
+    ["retired-clusters", "icon-opacity"], ["retired-cluster-count", "text-opacity"],
+    ["retired-points", "icon-opacity"], ["retired-labels", "text-opacity"]
+  ];
+  var PROPOSAL_POINT_LAYERS = ["points", "points-precision", "point-labels"];
+  var PROPOSAL_CLUSTER_LAYERS = ["clusters", "cluster-count"];
+  var REGION_LAYERS = ["region-fill", "region-outline", "region-outline-broad", "region-labels"];
+  var highlightBase = null;
+  var highlightOn = "";
+  // What a key row (`data-highlight="kind:value"`) lights on one layer: true (all of it), false (none)
+  // or an expression picking its features.
+  function highlightMatch(id, spec) {
+    var cut = spec.indexOf(":");
+    var kind = cut === -1 ? spec : spec.slice(0, cut);
+    var value = cut === -1 ? "" : spec.slice(cut + 1);
+    var has = function (key) { return [">", ["coalesce", ["get", key], 0], 0]; };
+    var is = function (key, v) { return ["==", ["get", key], v]; };
+    if (kind === "family") {
+      if (PROPOSAL_POINT_LAYERS.indexOf(id) !== -1) return is("family", value);
+      if (PROPOSAL_CLUSTER_LAYERS.indexOf(id) !== -1 || REGION_LAYERS.indexOf(id) !== -1) return has("fam_" + value);
+      return false;
+    }
+    if (kind === "clusters") return PROPOSAL_CLUSTER_LAYERS.indexOf(id) !== -1;
+    if (kind === "precision") return id === "points-precision" || (id === "points" ? is("precision_reason", "licence") : false);
+    if (kind === "regions") return REGION_LAYERS.indexOf(id) !== -1;
+    if (kind === "plant") {
+      if (id === "plant-points" || id === "plant-labels") return ["all", is("asset_type", "power_plant"), is("plant_family", value)];
+      if (id === "plant-clusters" || id === "plant-cluster-count") return is("plant_family", value);
+      return false;
+    }
+    if (kind === "pipeline") {
+      var intrastate = value === "intrastate";
+      if (id === (intrastate ? "asset-lines-intrastate" : "asset-lines")) return is("asset_type", "gas_pipeline");
+      if (id === "asset-line-labels") return ["all", is("asset_type", "gas_pipeline"), intrastate ? is("line_class", "intrastate") : ["!=", ["get", "line_class"], "intrastate"]];
+      return false;
+    }
+    if (kind === "asset") {
+      if (/^asset-lines|^asset-line-labels$|^plant-points$|^plant-labels$/.test(id)) return is("asset_type", value);
+      if (id === "plant-clusters" || id === "plant-cluster-count") return is("dominant_asset_type", value);
+      return false;
+    }
+    if (kind === "retired") {
+      if (value === "cluster") return id === "retired-clusters" || id === "retired-cluster-count";
+      if (id === "retired-points" || id === "retired-labels") return is("status", value);
+      return false;
+    }
+    return true;
+  }
+  function dimmed(base) {
+    if (typeof base === "number") return base * HIGHLIGHT_DIM;
+    if (Array.isArray(base)) return ["*", base, HIGHLIGHT_DIM];
+    return HIGHLIGHT_DIM;
+  }
+  // `spec` null restores every layer as drawn.
+  function setHighlight(spec) {
+    if (!map.getLayer("points")) return;
+    if (!highlightBase) {
+      highlightBase = {};
+      HIGHLIGHT_PAINT.forEach(function (lp) {
+        if (map.getLayer(lp[0])) highlightBase[lp[0] + "|" + lp[1]] = map.getPaintProperty(lp[0], lp[1]);
+      });
+    }
+    if ((spec || "") === highlightOn) return;
+    highlightOn = spec || "";
+    HIGHLIGHT_PAINT.forEach(function (lp) {
+      var id = lp[0];
+      if (!map.getLayer(id)) return;
+      var base = highlightBase[id + "|" + lp[1]];
+      var value = base;
+      if (spec) {
+        var full = base == null ? 1 : base;
+        var match = highlightMatch(id, spec);
+        value = match === true ? full : match === false ? dimmed(full) : ["case", match, full, dimmed(full)];
+      }
+      map.setPaintProperty(id, lp[1], value);
+    });
+  }
+  if (mapKey) {
+    Array.prototype.forEach.call(mapKey.querySelectorAll("[data-highlight]"), function (row) {
+      row.addEventListener("pointerenter", function (e) { if (mouseHover(e)) setHighlight(row.getAttribute("data-highlight")); });
+      row.addEventListener("pointerleave", function () { setHighlight(null); });
+    });
+    mapKey.addEventListener("pointerleave", function () { setHighlight(null); });
+  }
+  // The ring round a list row's mark (a point's ring, a line's or a region's outline drawn over it).
+  function showHoverRing(geometry) {
+    var source = map.getSource && map.getSource("hover-ring");
+    if (!source) return;
+    source.setData({
+      type: "FeatureCollection",
+      features: geometry ? [{ type: "Feature", geometry: geometry, properties: {} }] : []
+    });
+  }
+  function bindRowHover(row, geometry) {
+    if (!row || !geometry) return;
+    row.addEventListener("pointerenter", function (e) { if (mouseHover(e)) showHoverRing(geometry); });
+    row.addEventListener("pointerleave", function () { showHoverRing(null); });
+  }
+  function addHoverRingLayers() {
+    var accent = cssVar("--link") || "#8a4614";
+    map.addSource("hover-ring", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: "hover-ring-halo", type: "circle", source: "hover-ring", filter: ["==", ["geometry-type"], "Point"],
+      paint: { "circle-radius": 15, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 6, "circle-stroke-color": mapColors.land, "circle-stroke-opacity": 0.9 }
+    });
+    map.addLayer({
+      id: "hover-ring", type: "circle", source: "hover-ring", filter: ["==", ["geometry-type"], "Point"],
+      paint: { "circle-radius": 15, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 2.5, "circle-stroke-color": accent }
+    });
+    map.addLayer({
+      id: "hover-outline", type: "line", source: "hover-ring", filter: ["!=", ["geometry-type"], "Point"],
+      paint: { "line-color": accent, "line-width": 3, "line-opacity": 0.9 }
+    });
   }
 
   map.on("load", function () {
@@ -2488,6 +3076,9 @@
       paint: { "text-color": cssVar("--text") || "#16324f", "text-halo-color": mapColors.land, "text-halo-width": 1.4 }
     });
 
+    // Over everything, never a click target (`onMapClick` does not ask for it).
+    addHoverRingLayers();
+
     map.on("mouseenter", "clusters", function (e) { map.getCanvas().style.cursor = "pointer"; showClusterTooltip(e); });
     map.on("mouseleave", "clusters", function () { map.getCanvas().style.cursor = ""; hideTooltip(); });
     map.on("click", onMapClick);
@@ -2512,16 +3103,31 @@
   });
 
   var tooltip = null;
+  // Hover cards are for a mouse. A tap on a phone is followed by the browser's emulated mouse
+  // events, so a tap on a transmission line opened its card, and with no mouse to leave the line it
+  // stayed on screen over the map (owner report 2026-10-22). No card opens within a moment of a
+  // touch, and the next touch anywhere on the page, or the map moving, closes the one that shows.
+  // The drawer a tap opens carries the same words.
+  var TOUCH_GHOST_MS = 800;
+  var lastTouchAt = 0;
+  function hoverAllowed() { return Date.now() - lastTouchAt > TOUCH_GHOST_MS; }
+  document.addEventListener("touchstart", function () {
+    lastTouchAt = Date.now();
+    hideTooltip();
+  }, { passive: true, capture: true });
+  document.addEventListener("touchend", function () { lastTouchAt = Date.now(); }, { passive: true, capture: true });
+  map.on("movestart", function () { hideTooltip(); });
   function showClusterTooltip(e) {
+    if (!hoverAllowed()) return;
     var f = e.features[0];
     var p = f.properties;
     var counts = propObj(p.lifecycle_state_counts) || {};
-    var lines = Object.keys(counts).sort().map(function (k) { return esc(lifecycleName(k)) + " " + Number(counts[k] || 0); });
+    var lines = Object.keys(counts).sort().map(function (k) { return esc(lifecycleName(k)) + " " + fmtCount(counts[k]); });
     hideTooltip();
     tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false })
       .setLngLat(f.geometry.coordinates)
       .setHTML(
-        "<strong>" + Number(p.count || 0) + " proposals</strong><br>" + lines.join(" &middot; ") +
+        "<strong>" + esc(plural(Number(p.count) || 0, "proposal")) + "</strong><br>" + lines.join(" &middot; ") +
         (p.capacity_mw_sum ? "<br>Capacity sum: " + fmtMW(p.capacity_mw_sum) : "")
       )
       .addTo(map);
@@ -2529,6 +3135,7 @@
   // Hover on any existing asset: name, type (with the RNG technology family) and operator
   // (task: "hover shows name and operator").
   function showAssetTooltip(e, lngLat) {
+    if (!hoverAllowed()) return;
     var p = e.features[0].properties;
     var family = p.asset_type === "rng_project" ? rngTechLabel(p.technology) : null;
     var retirement = p.status === "retired" || p.status === "retiring" ? retirementPhrase(p) || statusName(p.status) : null;
@@ -2626,6 +3233,13 @@
         e.preventDefault();
         unlistedBox.checked = true;
         applyFilters();
+        return;
+      }
+      // "No status chosen ... Clear all" runs "Clear all" in place (owner, 2026-10-22).
+      var clear = target ? target.closest("a[data-clear-all]") : null;
+      if (clear) {
+        e.preventDefault();
+        document.querySelector("#mf-clear").click();
       }
     });
   }
@@ -2635,7 +3249,7 @@
     writeFilters(filters);
     syncAssetControls();
     if (map.getLayer("plant-points")) setPlantsLayerVisible(on);
-    else { plantsLegend.hidden = !on; plantsLegend.setAttribute("aria-hidden", on ? "false" : "true"); syncKeyCompact(); }
+    else { plantsLegend.hidden = !on; plantsLegend.setAttribute("aria-hidden", on ? "false" : "true"); }
     sendUiEvent("map.layer_toggled", { layer: "plants", on: on });
     if (on) refetchAssets();
     render();
@@ -2645,7 +3259,7 @@
     setLayerOn("retired", on);
     writeFilters(filters);
     if (map.getLayer("retired-points")) setRetiredLayerVisible(on);
-    else { retiredLegend.hidden = !on; retiredLegend.setAttribute("aria-hidden", on ? "false" : "true"); syncKeyCompact(); }
+    else { retiredLegend.hidden = !on; retiredLegend.setAttribute("aria-hidden", on ? "false" : "true"); }
     sendUiEvent("map.layer_toggled", { layer: "retired", on: on });
     if (on) refetchRetired();
     render();
@@ -2770,17 +3384,22 @@
     // so a screen reader never meets a modal dialog that is not on screen.
     el.hidden = true;
     // docs/17 M-4: below 720px the drawer is a bottom sheet (styles.css 8.3) and "Expand" takes it
-    // to the full height and back; from 720px "Expand" is not drawn and the bar is the Close button,
-    // as before. Close stays where focus lands on open.
+    // to the full height and back. From 720px it opens in the panel's place over the map (owner,
+    // 2026-10-22: the drawer and the panel never overlap), "Expand" is not drawn, and "Back to what's
+    // in view" closes it as Close does; the panel is then as the reader left it (tab, scroll, open or
+    // collapsed). Close stays where focus lands on open.
     el.innerHTML = '<div class="map-drawer__bar">' +
+      '<button type="button" id="drawer-back" class="map-drawer__back">&larr; Back to what&rsquo;s in view</button>' +
       '<button type="button" id="drawer-expand" class="map-drawer__expand" aria-controls="map-drawer" aria-expanded="false">Expand</button>' +
       '<button type="button" id="drawer-close" class="map-drawer__close" aria-label="Close">&times; Close</button>' +
       '</div><div id="drawer-body"></div>';
-    document.body.appendChild(el);
+    (document.getElementById("map-frame") || document.body).appendChild(el);
     var body = el.querySelector("#drawer-body");
     var closeBtn = el.querySelector("#drawer-close");
     var expandBtn = el.querySelector("#drawer-expand");
+    var backBtn = el.querySelector("#drawer-back");
     closeBtn.addEventListener("click", close);
+    backBtn.addEventListener("click", close);
     // Its state is `aria-expanded` as well as its words (review 2026-10-22).
     function setExpanded(on) {
       el.classList.toggle("is-expanded", on);
@@ -2822,6 +3441,9 @@
       el.removeAttribute("inert");
       el.setAttribute("aria-modal", "true");
       el.scrollTop = 0;
+      // From 720px the drawer takes the panel's place (styles.css hides a covered panel there).
+      if (panel) panel.classList.add("is-covered");
+      setHighlight(null);
       void el.offsetWidth; // start the slide-in from the closed position, not from `hidden`
       el.classList.add("is-open");
       syncExpand();
@@ -2846,7 +3468,9 @@
       // close transition has run; instant under reduced motion.
       el.setAttribute("inert", "");
       hideTimer = window.setTimeout(function () { el.hidden = true; }, motionMs(160));
-      if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
+      if (panel) panel.classList.remove("is-covered");
+      // Without scrolling: the panel comes back scrolled as the reader left it.
+      if (lastFocused && document.contains(lastFocused)) lastFocused.focus({ preventScroll: true });
       else map.getCanvas().focus();
     }
     function row(label, valueHtml, numeric) {
@@ -2954,5 +3578,352 @@
       el: el, open: open, close: close, refit: refit,
       render: render, renderAsset: renderAsset, renderPlant: renderAsset, renderRegion: renderRegion
     };
+  }
+
+  // ---- the search field (owner, 2026-10-22; web/map_search.py) ----
+  // One box on the map finds a project, a company or a place and moves the map to it. Suggestions
+  // come as the reader types, after two characters and a 250ms pause, from `/api/map/search` (the
+  // site's own search API, and the state and county outlines the map already shades: never a
+  // third-party geocoder) and from the page's own region quick views. A tap, a click or Enter picks
+  // one. A project opens its drawer and the map flies to it, with a ring round it whether or not
+  // the current filters draw it; a company's projects that the filters draw are fitted, or its page
+  // opens when none is; a place is fitted. Escape or the clear button empties the box and lifts the
+  // ring. Without scripts the box is the site search (`/search`).
+  var searchForm = document.getElementById("map-search");
+  var searchInput = document.getElementById("map-search-input");
+  var searchList = document.getElementById("map-search-list");
+  var searchClear = document.getElementById("map-search-clear");
+  var searchEmpty = document.getElementById("map-search-empty");
+  var SEARCH_MIN = 2;
+  var SEARCH_PAUSE_MS = 250;
+  var searchTimer = null;
+  var searchSeq = 0;
+  var searchAbort = null;
+  var searchOptions = [];
+  var searchActive = -1;
+  var searchShownFor = "";
+  var searchPendingPick = false;
+  var pendingPin = null;
+  function searchWords(text) {
+    return String(text || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").match(/[a-z0-9]+/g) || [];
+  }
+  // The quick views the page offers ("United States", "United Kingdom", "Europe"), by name or code.
+  var REGION_ALIASES = { us: ["usa", "america"], gb: ["uk", "britain"] };
+  var searchRegions = Array.prototype.map.call(document.querySelectorAll(".region-btn"), function (btn) {
+    var code = btn.getAttribute("data-region") || "";
+    return {
+      kind: "region", label: btn.textContent.trim(), detail: "Region", button: btn,
+      words: searchWords(btn.textContent).concat([code], REGION_ALIASES[code] || [])
+    };
+  });
+  function regionMatches(query) {
+    var tokens = searchWords(query);
+    if (!tokens.length) return [];
+    return searchRegions.filter(function (r) {
+      return tokens.every(function (t) { return r.words.some(function (w) { return w.indexOf(t) === 0; }); });
+    });
+  }
+
+  function closeList() {
+    if (!searchList) return;
+    searchList.hidden = true;
+    searchInput.setAttribute("aria-expanded", "false");
+    searchInput.removeAttribute("aria-activedescendant");
+    searchActive = -1;
+  }
+  function openList() {
+    if (!searchOptions.length) return;
+    searchList.hidden = false;
+    searchInput.setAttribute("aria-expanded", "true");
+  }
+  function hideEmpty() { if (searchEmpty) { searchEmpty.hidden = true; searchEmpty.textContent = ""; } }
+  function showEmpty(query, failed) {
+    if (!searchEmpty) return;
+    searchEmpty.innerHTML = "";
+    searchEmpty.appendChild(document.createTextNode(failed
+      ? "Search is not answering just now. "
+      : "Nothing on the map matches “" + query + "”. "));
+    var a = document.createElement("a");
+    a.href = "/search?q=" + encodeURIComponent(query);
+    a.textContent = "Search the whole site";
+    searchEmpty.appendChild(a);
+    searchEmpty.hidden = false;
+  }
+  function syncClear() { if (searchClear) searchClear.hidden = !searchInput.value; }
+  function setActive(index) {
+    var nodes = searchList.querySelectorAll("[role='option']");
+    Array.prototype.forEach.call(nodes, function (node, i) {
+      node.setAttribute("aria-selected", i === index ? "true" : "false");
+      node.classList.toggle("is-active", i === index);
+    });
+    searchActive = index;
+    if (index >= 0 && nodes[index]) {
+      searchInput.setAttribute("aria-activedescendant", nodes[index].id);
+      nodes[index].scrollIntoView({ block: "nearest" });
+    } else {
+      searchInput.removeAttribute("aria-activedescendant");
+    }
+  }
+  function optionNode(opt, index) {
+    var node = document.createElement("div");
+    node.className = "map-search__option";
+    node.id = "map-search-option-" + index;
+    node.setAttribute("role", "option");
+    node.setAttribute("aria-selected", "false");
+    node.setAttribute("data-index", String(index));
+    var label = document.createElement("span");
+    label.className = "map-search__label";
+    label.textContent = opt.label;
+    node.appendChild(label);
+    var detail = document.createElement("span");
+    detail.className = "map-search__detail";
+    // A project's status, as the chips everywhere else print it (glyph and words, never hue alone).
+    if (opt.kind === "project" && opt.item.feature) detail.innerHTML = chipHtml(opt.item.family || familyOf(opt.item.feature.lifecycle_state), opt.item.feature.lifecycle_state) + " ";
+    detail.appendChild(document.createTextNode(opt.detail || ""));
+    node.appendChild(detail);
+    return node;
+  }
+  function renderSuggestions(groups) {
+    searchList.innerHTML = "";
+    searchOptions = [];
+    groups.forEach(function (g) {
+      if (!g.options.length) return;
+      var group = document.createElement("div");
+      group.className = "map-search__group";
+      group.setAttribute("role", "group");
+      var name = document.createElement("div");
+      name.className = "map-search__group-name";
+      name.id = "map-search-group-" + g.key;
+      name.textContent = g.name;
+      group.setAttribute("aria-labelledby", name.id);
+      group.appendChild(name);
+      g.options.forEach(function (opt) {
+        group.appendChild(optionNode(opt, searchOptions.length));
+        searchOptions.push(opt);
+      });
+      searchList.appendChild(group);
+    });
+    setActive(-1);
+    if (searchOptions.length) openList(); else closeList();
+  }
+  function showResults(query, body, failed) {
+    var places = regionMatches(query).concat((body.places || []).map(function (p) {
+      return { kind: p.kind, label: p.label, detail: p.detail, item: p };
+    }));
+    var companies = (body.companies || []).map(function (c) { return { kind: "company", label: c.label, detail: c.detail, item: c }; });
+    var projects = (body.projects || []).map(function (p) { return { kind: "project", label: p.label, detail: p.detail, item: p }; });
+    renderSuggestions([
+      { key: "places", name: "Places", options: places },
+      { key: "companies", name: "Companies", options: companies },
+      { key: "projects", name: "Projects", options: projects }
+    ]);
+    searchShownFor = query;
+    if (searchOptions.length) hideEmpty(); else showEmpty(query, failed);
+    if (searchPendingPick) {
+      searchPendingPick = false;
+      if (searchOptions.length) pick(searchOptions[0]);
+    }
+  }
+  function runSearch() {
+    window.clearTimeout(searchTimer);
+    var query = searchInput.value.trim();
+    var seq = ++searchSeq;
+    if (searchAbort) searchAbort.abort();
+    searchAbort = typeof AbortController === "function" ? new AbortController() : null;
+    fetch("/api/map/search?q=" + encodeURIComponent(query), searchAbort ? { signal: searchAbort.signal } : undefined)
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("search " + r.status)); })
+      .then(function (body) { if (seq === searchSeq) showResults(query, body || {}, false); })
+      .catch(function (err) {
+        if ((err && err.name === "AbortError") || seq !== searchSeq) return;
+        showResults(query, {}, true); // the quick views still match
+      });
+  }
+  function clearSearch() {
+    window.clearTimeout(searchTimer);
+    if (searchAbort) searchAbort.abort();
+    searchSeq++;
+    searchPendingPick = false;
+    searchInput.value = "";
+    searchOptions = [];
+    searchShownFor = "";
+    closeList();
+    hideEmpty();
+    setSearchPin(null);
+    syncClear();
+  }
+
+  // What to keep clear of: from 720px the panel, or the drawer that opens in its place
+  // (`fitPadding`); below 720px the bottom sheet, by its laid-out height, not its box on screen,
+  // which is still sliding in.
+  function drawerCover() {
+    if (!isPhone()) return fitPadding(8);
+    var pad = { top: 24, right: 24, bottom: 24, left: 24 };
+    if (drawer.el.hidden || !drawer.el.classList.contains("is-open")) return pad;
+    var r = mapEl.getBoundingClientRect();
+    var coveredY = Math.max(0, r.bottom - (window.innerHeight - drawer.el.offsetHeight));
+    if (r.height - coveredY > 120) pad.bottom += coveredY;
+    return pad;
+  }
+  function fitTo(bbox, maxZoom) {
+    if (!bbox || bbox.length !== 4 || bbox.some(function (n) { return !isFinite(n); })) return;
+    map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: drawerCover(), maxZoom: maxZoom, duration: motionMs(600) });
+  }
+  // The point lands in the middle of what the drawer leaves showing: an offset, not `padding`,
+  // which MapLibre would keep for every later move.
+  function flyToPoint(lnglat, minZoom) {
+    var pad = drawerCover();
+    map.flyTo({
+      center: lnglat, zoom: Math.max(map.getZoom(), minZoom),
+      offset: [(pad.left - pad.right) / 2, (pad.top - pad.bottom) / 2], duration: motionMs(600)
+    });
+  }
+  function setSearchPin(lnglat) {
+    pendingPin = lnglat;
+    var source = map.getSource("search-pin");
+    if (!source) return;
+    source.setData({
+      type: "FeatureCollection",
+      features: lnglat ? [{ type: "Feature", geometry: { type: "Point", coordinates: lnglat }, properties: {} }] : []
+    });
+  }
+  map.on("load", function () {
+    // Drawn over every other layer, and never a click target (`onMapClick` does not ask for it).
+    map.addSource("search-pin", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: "search-pin-halo", type: "circle", source: "search-pin",
+      paint: { "circle-radius": 16, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 6, "circle-stroke-color": mapColors.land, "circle-stroke-opacity": 0.9 }
+    });
+    map.addLayer({
+      id: "search-pin", type: "circle", source: "search-pin",
+      paint: { "circle-radius": 16, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 2.5, "circle-stroke-color": cssVar("--link") || "#a3480a" }
+    });
+    if (pendingPin) setSearchPin(pendingPin);
+  });
+
+  function goToProject(item) {
+    drawerAnchor = null;
+    openDrawer(item.feature || { name: item.label, url: item.url, lifecycle_state: null });
+    if (item.lnglat) {
+      setSearchPin(item.lnglat);
+      flyToPoint(item.lnglat, 11);
+    } else {
+      setSearchPin(null);
+      fitTo(item.bbox, 10);
+    }
+  }
+  // A company's projects under the current filters, from the map's own geo route at a zoom that
+  // draws them apart; their extent is the view. None drawn: the company's page.
+  var companySeq = 0;
+  function goToCompany(item) {
+    var seq = ++companySeq;
+    var params = new URLSearchParams();
+    appendProposalFilters(params, filters);
+    params.set("sponsor_id", item.public_id || "");
+    params.set("sponsor_scope", "all");
+    params.set("bbox", WORLD_BBOX.join(","));
+    params.set("zoom", "7");
+    params.set("placement", (filters.placement && filters.placement.length ? filters.placement : DEFAULT_PLACEMENT).join(","));
+    function openPage() { if (seq === companySeq && item.url) window.location.assign(item.url); }
+    fetch("/api/proposals/geo?" + params.toString())
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("geo " + r.status)); })
+      .then(function (envelope) {
+        if (seq !== companySeq) return;
+        var w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+        (((envelope || {}).data || {}).features || []).forEach(function (f) {
+          if (!f.geometry || f.geometry.type !== "Point") return;
+          var c = f.geometry.coordinates;
+          w = Math.min(w, c[0]); e = Math.max(e, c[0]); s = Math.min(s, c[1]); n = Math.max(n, c[1]);
+        });
+        if (!isFinite(w)) { openPage(); return; }
+        if (e - w < 0.05 && n - s < 0.05) flyToPoint([(w + e) / 2, (s + n) / 2], 9);
+        else fitTo([w, s, e, n], 9);
+      })
+      .catch(openPage);
+  }
+  function pick(opt) {
+    closeList();
+    hideEmpty();
+    searchInput.value = opt.label;
+    searchOptions = [];
+    searchShownFor = "";
+    syncClear();
+    // On a phone the keyboard goes, so the map and the sheet have the screen.
+    if (isCoarsePointer()) searchInput.blur();
+    // Below 720px the bar goes to the top of the screen, so the map under it is what shows above a
+    // record's sheet (at 390x844 the sheet left 65px of map when the page stayed where it was). At
+    // once, not smoothly: the fit below is worked out for where the map then is.
+    if (isPhone()) {
+      var barTop = searchForm.getBoundingClientRect().top;
+      if (Math.abs(barTop - 8) > 2) window.scrollTo(0, Math.max(0, window.scrollY + barTop - 8));
+    }
+    if (opt.kind === "project") { goToProject(opt.item); return; }
+    setSearchPin(null);
+    drawer.close();
+    if (opt.kind === "region") opt.button.click();
+    else if (opt.kind === "company") goToCompany(opt.item);
+    else fitTo(opt.item.bbox, opt.kind === "county" ? 10 : 7);
+  }
+  function pickActiveOrFirst() {
+    var query = searchInput.value.trim();
+    if (query.length < SEARCH_MIN) return;
+    if (searchActive >= 0 && searchOptions[searchActive]) { pick(searchOptions[searchActive]); return; }
+    if (searchOptions.length && searchShownFor === query) { pick(searchOptions[0]); return; }
+    // Typed faster than the pause: ask now and take the first answer.
+    searchPendingPick = true;
+    runSearch();
+  }
+
+  if (searchForm && searchInput && searchList) {
+    searchForm.addEventListener("submit", function (e) { e.preventDefault(); pickActiveOrFirst(); });
+    searchInput.addEventListener("input", function () {
+      syncClear();
+      searchPendingPick = false;
+      window.clearTimeout(searchTimer);
+      if (searchInput.value.trim().length < SEARCH_MIN) {
+        searchSeq++;
+        if (searchAbort) searchAbort.abort();
+        searchOptions = [];
+        searchShownFor = "";
+        closeList();
+        hideEmpty();
+        return;
+      }
+      searchTimer = window.setTimeout(runSearch, SEARCH_PAUSE_MS);
+    });
+    searchInput.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (!searchOptions.length) return;
+        e.preventDefault();
+        openList();
+        var step = e.key === "ArrowDown" ? 1 : -1;
+        var next = searchActive + step;
+        if (next < 0) next = searchOptions.length - 1;
+        if (next >= searchOptions.length) next = 0;
+        setActive(next);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        clearSearch();
+      }
+    });
+    searchInput.addEventListener("focus", function () {
+      if (searchOptions.length && searchShownFor === searchInput.value.trim()) openList();
+    });
+    // A press on a suggestion keeps the focus in the box (no blur before the click lands).
+    searchList.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    searchList.addEventListener("click", function (e) {
+      var node = e.target && e.target.closest ? e.target.closest("[role='option']") : null;
+      if (!node) return;
+      var opt = searchOptions[Number(node.getAttribute("data-index"))];
+      if (opt) pick(opt);
+    });
+    if (searchClear) {
+      searchClear.addEventListener("click", function () { clearSearch(); searchInput.focus(); });
+    }
+    document.addEventListener("click", function (e) {
+      if (!searchForm.contains(e.target)) { closeList(); hideEmpty(); }
+    });
+    searchForm.addEventListener("focusout", function (e) {
+      if (e.relatedTarget && !searchForm.contains(e.relatedTarget)) closeList();
+    });
   }
 })();

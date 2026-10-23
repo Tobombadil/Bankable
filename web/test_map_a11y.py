@@ -15,6 +15,7 @@ behaviour itself is driven in `web/test_e2e.py`):
 
 from __future__ import annotations
 
+import itertools
 import re
 from pathlib import Path
 
@@ -91,14 +92,17 @@ def test_points_and_clusters_carry_the_family_glyph() -> None:
 
 
 def test_the_legend_is_exposed_names_states_and_tracks_what_is_drawn() -> None:
+    """The key's status rows, in the panel's Key tab since 2026-10-22, name each status as the Status
+    filter does (owner: "easier to understand")."""
     legend = HOME.split('id="lifecycle-legend"')[1].split("</div>")[0]
     assert 'aria-hidden="true">' not in legend.split(">")[0]
-    assert 'role="group" aria-label="Proposal status key"' in legend
+    assert 'role="group" aria-label="Project status key"' in legend
     for words in (
-        "Announced",
-        "In process: filed, studied, permitted, under construction",
+        "Announced, or Status unknown",
+        'In process <span class="legend__detail">(filed, studied, permitted or under construction)',
         "Contracted",
-        "Built",
+        "Built or operating",
+        "Withdrawn or cancelled",
     ):
         assert words in legend
     for family in FAMILIES:
@@ -244,7 +248,9 @@ def test_the_in_view_list_only_ever_holds_plain_list_items() -> None:
     top_level = re.findall(r"^  <(/?)(\w+)([^>]*)>", template, re.M)
     assert [(close, tag) for close, tag, _ in top_level] == [("", "li"), ("/", "li")]
     assert "role=" not in top_level[0][2]
-    assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog"}
+    # The drawer is a dialog; the search field's suggestions (owner, 2026-10-22) are a listbox of
+    # named groups of options (`renderSuggestions`), none of them in this list.
+    assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog", "group", "option"}
     assert ".role =" not in MAP_JS
 
 
@@ -290,3 +296,110 @@ def test_a_coverage_note_is_never_behind_why() -> None:
     assert "map-notice__why" not in alone and "map-notice__detail" not in alone
     # Nothing to say: nothing drawn.
     assert _map_notice(lifecycle_explicit=True).strip() == ""
+
+
+def test_no_status_chosen_is_said_at_every_width_with_the_way_back() -> None:
+    """Every Status box unticked (`lifecycle_state=none`, owner 2026-10-22): the notice says nothing
+    is shown and why, outside "Why?", with "Clear all" (map.js runs it in place)."""
+    html = _map_notice(lifecycle_explicit=True, no_status=True)
+    assert "No status chosen: projects are hidden." in html
+    assert '<a href="/" data-clear-all>Clear all</a>' in html
+    assert "map-notice__why" not in html and "map-notice__detail" not in html
+    assert 'target.closest("a[data-clear-all]")' in MAP_JS
+
+
+def _resolve(tokens: dict[str, str], block: str, name: str) -> str:
+    """A token's hex, following one `var(--x)` reference into `tokens`."""
+    if name in tokens:
+        return tokens[name]
+    ref = re.search(rf"{name}:\s*var\((--[a-z0-9-]+)\)", block)
+    assert ref, name
+    return tokens[ref.group(1)]
+
+
+def _mix(over: str, under: str, share: float) -> str:
+    """`color-mix(in srgb, over share, under)` as one opaque colour, as the browser composites it."""
+    a = [int(over[i : i + 2], 16) for i in (1, 3, 5)]
+    b = [int(under[i : i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(share * x + (1 - share) * y):02x}" for x, y in zip(a, b, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("theme", "block"),
+    [
+        ("light", ":root {"),
+        ("dark (media)", ':root:not([data-theme="light"]) {'),
+        ("dark (toggle)", ':root[data-theme="dark"] {'),
+    ],
+)
+def test_the_panel_keeps_its_words_readable_over_any_basemap(theme: str, block: str) -> None:
+    """Owner, 2026-10-22: the panel over the map is translucent, --surface at 88% (styles.css
+    `.map-panel`). Whatever the map draws behind it, the ground under its words lies between the
+    surface mixed with black and the surface mixed with white, so every colour its words take keeps
+    4.5:1 against both: the text, its muted words (the neutral family's grey inside the panel),
+    links and the status families' words. `web/test_e2e.py` measures the same on the page."""
+    panel = CSS.split("\n.map-panel {\n", 1)[1].split("\n}\n", 1)[0]
+    found = re.search(r"color-mix\(in srgb, var\(--surface\) (\d+)%, transparent\)", panel)
+    assert found is not None
+    share = int(found.group(1)) / 100
+    assert "--text-muted: var(--family-neutral-text);" in panel
+    tokens = THEMES[theme]
+    declared = _block(block) + _block(":root {")
+    words = {
+        "text": _resolve(tokens, declared, "--text"),
+        "muted": tokens["--family-neutral-text"],
+        "link": _resolve(tokens, declared, "--link"),
+        **{family: tokens[f"--family-{family}-text"] for family in FAMILIES},
+    }
+    surface = _resolve(tokens, declared, "--surface")
+    for backdrop in ("#000000", "#ffffff"):
+        ground = _mix(surface, backdrop, share)
+        for name, colour in words.items():
+            ratio = _contrast(colour, ground)
+            assert ratio >= 4.5, (theme, backdrop, name, round(ratio, 2))
+
+
+@pytest.mark.parametrize(
+    ("theme", "block"),
+    [
+        ("light", ":root {"),
+        ("dark (media)", ':root:not([data-theme="light"]) {'),
+        ("dark (toggle)", ':root[data-theme="dark"] {'),
+    ],
+)
+def test_the_keys_plant_squares_are_marks_beside_words_and_keep_3_to_1(theme: str, block: str) -> None:
+    """On the translucent panel the plant hues fall under 4.5:1 (3.86:1 at worst), so in the Key tab a
+    hue colours only the square before each fuel: `aria-hidden`, a non-text mark held to SC 1.4.11's
+    3:1 over any basemap, with the fuel's name beside it in --text."""
+    group = HOME.split('data-legend-type="power_plant"', 1)[1].split("</div>", 1)[0]
+    swatch = '<span class="legend__swatch" aria-hidden="true">&#9632;</span>'
+    assert f'{swatch} <span class="legend__words">{{{{ label }}}}' in group
+    assert ".map-panel .legend__words { color: var(--text); }" in CSS
+    panel = CSS.split("\n.map-panel {\n", 1)[1].split("\n}\n", 1)[0]
+    found = re.search(r"color-mix\(in srgb, var\(--surface\) (\d+)%, transparent\)", panel)
+    assert found is not None
+    share = int(found.group(1)) / 100
+    tokens = THEMES[theme]
+    surface = _resolve(tokens, _block(block) + _block(":root {"), "--surface")
+    hues = {name: hex_ for name, hex_ in tokens.items() if name.startswith("--plant-")}
+    assert len(hues) >= 11, sorted(hues)
+    for backdrop in ("#000000", "#ffffff"):
+        ground = _mix(surface, backdrop, share)
+        for name, colour in hues.items():
+            ratio = _contrast(colour, ground)
+            assert ratio >= 3.0, (theme, backdrop, name, round(ratio, 2))
+
+
+def test_the_panel_title_is_an_h2_so_the_headings_keep_their_order() -> None:
+    """axe `heading-order` on `/` (review 2026-10-22): the panel's h3s ("By status", "Projects")
+    followed the page's h1 with no h2 between them. The panel's title, the count in its header, is
+    an h2 holding the disclosure button (the accordion pattern), so no heading on the map page is
+    more than one level below the one before it."""
+    content = HOME.split("{% block content %}", 1)[1].split("{% endblock %}", 1)[0]
+    levels = [int(n) for n in re.findall(r"<h([1-6])\b", content)]
+    assert levels[:2] == [1, 2], levels
+    assert all(b <= a + 1 for a, b in itertools.pairwise(levels)), levels
+    assert re.search(r'<h2 class="map-panel__title">\s*<button[^>]*id="map-panel-toggle"', HOME)
+    # It reads as the header's button, not as a heading's face.
+    title = CSS.split("\n.map-panel__title {\n", 1)[1].split("\n}\n", 1)[0]
+    assert "margin: 0;" in title and "font: inherit;" in title

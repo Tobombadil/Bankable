@@ -171,6 +171,25 @@ def test_the_map_offers_no_alert_for_a_view_an_alert_cannot_watch(
     assert 'id="mf-save-alert"' in web_client.get("/?sponsor_id=org_x&sponsor_scope=self").text
 
 
+def test_the_alert_page_offers_the_same_search_by_rss(web_client: TestClient, noncommercial: None) -> None:
+    """Owner, 2026-10-22: the map's "RSS feed" link moved to the page "Save this search as an alert"
+    opens. A feed needs no account, so a reader who is signed out sees it beside the sign-in, and a
+    signed-in reader under the form; both for the same search."""
+
+    def feed(html: str) -> dict[str, list[str]]:
+        assert "Or follow it by RSS" in html
+        href = html.split('id="alert-rss-link"')[0].rsplit('href="', 1)[1].split('"')[0].replace("&amp;", "&")
+        assert urlsplit(href).path == "/feeds/proposals.rss"
+        return parse_qs(urlsplit(href).query)
+
+    query = "entity=proposal&origin=map&kind=load&jurisdiction=US-TX"
+    signed_out = feed(web_client.get(f"/alerts/new?{query}").text)
+    assert signed_out["kind"] == ["load"] and signed_out["jurisdiction"] == ["US-TX"]
+    assert "origin" not in signed_out and "entity" not in signed_out
+    _register(web_client)
+    assert feed(web_client.get(f"/alerts/new?{query}").text) == signed_out
+
+
 def test_save_list_pause_resume_and_delete(web_client: TestClient, noncommercial: None) -> None:
     _register(web_client)
     empty = web_client.get("/alerts")

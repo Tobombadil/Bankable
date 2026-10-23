@@ -105,8 +105,11 @@ def test_map_and_opportunity_list_link_their_feeds(transport: FakeTransport) -> 
     with TestClient(web_app) as client:
         home = client.get("/?kind=load").text
         opps = client.get("/opportunities?kind=rfp").text
+    # The map keeps its feed discoverable for feed readers, but has no "View as" row since
+    # 2026-10-22 (owner): its feed is offered on the page "Save this search as an alert" opens
+    # (web/test_alerts_pages.py), and the proposal list keeps its own link (above).
     assert urlsplit(_alternate(home)).path == "/feeds/proposals.rss"
-    assert 'id="view-as-feed"' in home
+    assert 'id="view-as-feed"' not in home and 'class="view-switch"' not in home
     opp_href = _alternate(opps)
     assert urlsplit(opp_href).path == "/feeds/opportunities.rss"
     assert parse_qs(urlsplit(opp_href).query) == {"kind": ["rfp"], "status": ["open"]}

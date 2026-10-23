@@ -257,13 +257,38 @@ def test_the_map_view_link_drops_a_malformed_viewport() -> None:
 
 
 def test_the_map_links_to_the_list_with_its_filters(transport: FakeTransport) -> None:
+    """Owner, 2026-10-22: the map's "View as" row is gone; "Open these in the list" beside "Save this
+    search as an alert" links the list with the same filters (map.js rewrites it with every change)."""
     with TestClient(web_app) as client:
         html = client.get("/?kind=load&placement=exact,region&layers=plants").text
-    href = re.search(r'id="view-as-list" href="([^"]+)"', html)
+    href = re.search(r'id="map-list-link" href="([^"]+)"', html)
     assert href is not None
     # The map's default placement is a drawing choice and layers are not proposal filters.
     assert href.group(1) == "/proposals?kind=load"
-    assert re.search(r'id="view-as-map" href="/" aria-current="page"', html)
+    assert 'id="view-as-map"' not in html and 'id="view-as-list"' not in html
+
+
+def test_no_status_chosen_shows_nothing_from_first_paint(transport: FakeTransport) -> None:
+    """Owner report 2026-10-22: unticking all three default Status boxes ticked them all again. Every
+    box unticked is now `lifecycle_state=none`: the count line, the notice and the Status summary
+    say so from first paint, the list and save links wait, and the map's geo route answers an empty
+    view without asking the API."""
+    with TestClient(web_app) as client:
+        html = client.get("/?lifecycle_state=none").text
+        notice = client.get("/api/proposals/notice?lifecycle_state=none").text
+        geo = client.get("/api/proposals/geo?lifecycle_state=none&bbox=-179,-85,179,85&zoom=3").json()
+    count = re.search(r'<p class="result-count" id="map-result-count"([^>]*)>([^<]*)</p>', html)
+    assert count is not None and count.group(2) == "0 projects match these filters."
+    assert "aria-hidden" not in count.group(1)
+    for page in (html, notice):
+        assert "No status chosen: projects are hidden." in page
+    summary = re.search(r"<span data-status-summary>([^<]*)</span>", html)
+    assert summary is not None and summary.group(1) == "none"
+    assert not re.search(r'id="mf-status-\w+"[^>]*\schecked[\s>]', html)  # no box ticked
+    actions = re.search(r'<p class="map-status__actions" id="map-status-actions"([^>]*)>', html)
+    assert actions is not None and "hidden" in actions.group(1)
+    assert geo["data"]["features"] == [] and geo["data"]["totals"]["records"] == 0
+    assert not [p for p in transport.params_for("/v1/proposals/geo") if p.get("lifecycle_state") == "none"]
 
 
 # ---- D-4: the 400px disclosures are in the markup, and inert without scripts ----
@@ -422,112 +447,134 @@ def test_the_dev_preview_label_survives_without_the_tier_notice(transport: FakeT
     assert 'class="preview-banner"' in html and 'class="delayed-notice"' not in html
 
 
-def test_the_map_key_is_drawn_on_the_map_not_under_it(transport: FakeTransport) -> None:
-    """The key sat under the canvas, below the fold at 1440x900 and 400x800. It is now in the map
-    frame's overlay, under the zoom controls, with every legend inside it and a "Key" toggle."""
-    with TestClient(web_app) as client:
-        html = client.get("/").text
-    frame = html.split('<div class="map-frame">', 1)[1].split('<div id="map"', 1)[0]
-    assert '<div class="map-key" id="map-key">' in frame
-    for legend in ('id="lifecycle-legend"', 'id="plants-legend"', 'id="retired-legend"'):
-        assert legend in frame, legend
-    assert html.index('id="zoom-in"') < html.index('id="map-key"') < html.index('id="map"')
-    toggle = re.search(r'<button type="button" id="map-key-toggle"[^>]*>', frame)
-    assert toggle is not None
-    assert 'aria-expanded="true"' in toggle.group(0) and 'aria-controls="map-key"' in toggle.group(0)
-    assert "hidden" in toggle.group(0)  # map.js shows it; without scripts the key just stays open
-    # Nothing between the canvas and the attribution line any more.
-    after = html.split('<div id="map"', 1)[1].split('<p class="map-attribution">', 1)[0]
-    assert "legend" not in after
-    # The narrow strip prints short words; the full ones stay in the accessible name.
-    progress = frame.split('data-legend-family="progress"', 1)[1].split("</span></span>", 1)[0]
-    assert "In process: filed, studied, permitted, under construction" in _text(progress)
-    assert '<span class="legend__short" aria-hidden="true">In process' in progress
-
-
-def test_the_map_key_styles_and_toggle_are_in_place() -> None:
-    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
-    map_js = (WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
-    wide = css.split("@media (min-width: 720px) {\n  .map-key__panel {", 1)
-    assert len(wide) == 2 and "width: 17rem;" in wide[1].split("}", 1)[0]
-    narrow = css.split("@media (max-width: 719px) {\n  .map-key__panel {", 1)
-    assert len(narrow) == 2 and "max-height: 9rem;" in narrow[1].split("}", 1)[0]
-    panel = css.split(".map-key__panel {", 1)[1].split("}", 1)[0]
-    # The page ground behind the words: every legend hue's contrast is measured on --bg.
-    assert "background: var(--bg);" in panel and "pointer-events: auto;" in panel
-    assert 'document.getElementById("map-key-toggle")' in map_js
-    assert "mapKey.hidden = !open;" in map_js
-
-
-# ---- Lane F (2026-10-10): the compact key with a layer on; the map's Filters at 720-1079px ----
-
-
 def _media_block(css: str, query: str) -> str:
     """The body of the first `@media <query> {` block, up to its closing brace at column 0."""
     start = css.index(f"@media {query} {{\n")
     return css[start : css.index("\n}\n", start)]
 
 
-def test_with_a_layer_on_each_layer_key_is_a_section_that_closes(transport: FakeTransport) -> None:
-    """With the existing-asset or retired layer on, the key grew to the map's foot at 1440x900
-    (272x554px, 23% of the canvas, Seattle to San Diego under it) and scrolled with nothing in it a
-    keyboard could reach (axe `scrollable-region-focusable`, serious, at every size and theme).
-    Each layer's key is now a native disclosure, open on arrival; the status key has none, so the
-    no-layer key is unchanged."""
+# ---- Owner, 2026-10-22: one panel over the map holds what is in view and the key ----
+
+
+def test_the_key_is_a_tab_of_the_panel_floating_over_the_map(transport: FakeTransport) -> None:
+    """Owner, 2026-10-22: the map takes the full width, and one panel over its top right holds what
+    is in view and the key, as two tabs under one header; the separate floating key and its toggle
+    are gone. The rail's "Key" (drawn below 720px) opens the panel's Key tab."""
     with TestClient(web_app) as client:
-        html = client.get("/?layers=plants,retired").text
-    plants = html.split('id="plants-legend"', 1)[1].split('id="retired-legend"', 1)[0]
-    retired = html.split('id="retired-legend"', 1)[1].split('<div id="map"', 1)[0]
-    for legend, name in ((plants, "Existing assets"), (retired, "Retired &amp; retiring plants")):
-        assert '<details class="map-key__section" open>' in legend, name
-        assert f'<summary class="map-key__section-name">{name}</summary>' in legend
-    # The section names its key once: the retired group no longer repeats it as a group name.
-    assert '<span class="legend__group-name">Retired' not in retired
-    lifecycle = html.split('id="lifecycle-legend"', 1)[1].split('id="plants-legend"', 1)[0]
-    assert "map-key__section" not in lifecycle and "<summary" not in lifecycle
-    # The panel is a group named "Map key" in every state; map.js only adds the tab stop.
-    assert '<div class="map-key__panel" role="group" aria-label="Map key">' in html
-
-
-def test_the_compact_key_is_smaller_than_the_no_layer_key_and_a_named_tab_stop() -> None:
-    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
-    map_js = (WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
-    # The no-layer panel is as lane H built it: 17rem wide, as tall as its words.
-    wide = css.split("@media (min-width: 720px) {\n  .map-key__panel {", 1)[1].split("}", 1)[0]
-    assert "width: 17rem;" in wide and "max-height: calc(70vh - 2.25rem - var(--space-8));" in wide
-    # Compact: 15rem at most from 720px (the no-layer panel is 276px at 1440x900), later in the
-    # sheet and more specific, so it wins; the status key is the narrow strip of short words.
-    compact = ".map-key--compact .map-key__panel { max-height: 15rem; }"
-    no_layer = "@media (min-width: 720px) {\n  .map-key__panel {"
-    assert compact in css and css.index(compact) > css.index(no_layer)
-    assert ".map-key--compact .legend__short { display: inline; }" in css
-    assert ".map-key--compact .legend--lifecycle > .legend__note {" in css
-    assert ".map-key--compact .map-key__panel { clip-path: inset(" in css
-    summary = css.split(".map-key__section > summary {", 1)[1].split("}", 1)[0]
-    assert "min-height: 1.5rem;" in summary and "display:" not in summary  # keeps its triangle
-    # map.js: compact, and a named tab stop, only while a layer key shows; both layer setters and
-    # both before-load branches keep `aria-hidden` and the compact state in step.
-    sync = map_js.split("function syncKeyCompact() {", 1)[1].split("\n  }\n", 1)[0]
-    assert "var compact = !plantsLegend.hidden || !retiredLegend.hidden;" in sync
-    assert 'mapKey.classList.toggle("map-key--compact", compact);' in sync
-    assert "syncKeyFocusable();" in sync
-    # The panel is a tab stop whenever it scrolls: the compact key, or the plain key in a short window
-    # (axe `scrollable-region-focusable` on CI's 800x600 browser, 2026-10-11).
-    focusable = map_js.split("function syncKeyFocusable() {", 1)[1].split("\n  }\n", 1)[0]
-    assert "mapKeyPanel.scrollHeight > mapKeyPanel.clientHeight + 1" in focusable
-    assert 'mapKey.classList.contains("map-key--compact") || scrolls' in focusable
-    assert 'mapKeyPanel.setAttribute("tabindex", "0")' in focusable
-    assert 'mapKeyPanel.removeAttribute("tabindex")' in focusable
-    assert 'window.addEventListener("resize", syncKeyFocusable);' in map_js
-    assert "new ResizeObserver(function () { syncKeyFocusable(); })" in map_js
-    for setter in ("function setRetiredLayerVisible(on) {", "function setPlantsLayerVisible(on) {"):
-        assert "syncKeyCompact();" in map_js.split(setter, 1)[1].split("\n  }\n", 1)[0], setter
-    for legend in ("plantsLegend", "retiredLegend"):
-        before_load = (
-            f"else {{ {legend}.hidden = !on; "
-            f'{legend}.setAttribute("aria-hidden", on ? "false" : "true"); syncKeyCompact(); }}'
+        html = client.get("/").text
+    assert 'class="map-layout"' not in html and 'class="map-side"' not in html
+    frame = html.split('<div class="map-frame" id="map-frame">', 1)[1].split(
+        '<p class="map-attribution">', 1
+    )[0]
+    panel = frame.split('<section class="map-panel" id="map-panel"', 1)[1]
+    assert frame.index('<div id="map"') < frame.index('id="map-panel"')  # after the canvas: a phone's bar
+    for tab, controls in (("map-tab-inview", "map-tabpanel-inview"), ("map-tab-key", "map-tabpanel-key")):
+        button = re.search(
+            rf'<button type="button" role="tab" class="map-panel__tab" id="{tab}"[^>]*>', panel
         )
-        assert before_load in map_js, legend
+        assert button is not None and f'aria-controls="{controls}"' in button.group(0), tab
+    key = panel.split('id="map-tabpanel-key"', 1)[1]
+    for legend in (
+        'id="lifecycle-legend"',
+        'id="plants-legend"',
+        'id="retired-legend"',
+        'id="region-legend"',
+    ):
+        assert legend in key, legend
+    assert "map-key__panel" not in html and "map-key--compact" not in html
+    assert 'id="in-view-items"' in panel.split('id="map-tabpanel-key"', 1)[0]
+    toggle = re.search(r'<button type="button" class="map-panel__toggle" id="map-panel-toggle"[^>]*>', panel)
+    assert toggle is not None and 'aria-controls="map-panel-body"' in toggle.group(0)
+    rail_key = re.search(r'<button type="button" id="map-key-toggle"[^>]*>', frame)
+    assert rail_key is not None and 'aria-controls="map-panel-body"' in rail_key.group(0)
+    assert "hidden" in rail_key.group(0)  # map.js shows it; without scripts the panel shows its key
+
+
+def test_the_key_names_each_status_as_the_status_filter_does(transport: FakeTransport) -> None:
+    """Owner, 2026-10-22: the key in plain words for a first-time visitor. Each status row names its
+    states exactly as the Status filter's boxes do; the key says what a ring with a number is and
+    that clicking it zooms in, and what the existing-infrastructure and retired layers draw."""
+    with TestClient(web_app) as client:
+        html = client.get("/").text
+    filter_labels = [
+        _text(label)
+        for label in re.findall(r'<label for="mf-status-\w+">\s*<input[^>]*>(.*?)</label>', html, re.S)
+    ]
+    assert filter_labels[:6] == [
+        "Announced",
+        "In process",
+        "Contracted",
+        "Built or operating",
+        "Withdrawn or cancelled",
+        "Status unknown",
+    ], filter_labels
+    lifecycle = html.split('id="lifecycle-legend"', 1)[1].split('id="plants-legend"', 1)[0]
+    rows = {
+        family: _text(re.sub(r"<span class=\"legend__detail\">.*", "", row, flags=re.S))
+        for family, row in re.findall(r'data-legend-family="(\w+)"[^>]*>(.*?)</span></span>', lifecycle, re.S)
+    }
+    assert rows == {
+        "neutral": "Announced, or Status unknown",
+        "progress": "In process",
+        "committed": "Contracted",
+        "success": "Built or operating",
+        "danger": "Withdrawn or cancelled",
+    }, rows
+    words = _text(lifecycle)
+    assert "Each dot is one project." in words
+    assert "A ring with a number is a group of nearby projects" in words and "Click it to zoom in." in words
+    plants = _text(html.split('id="plants-legend"', 1)[1].split('id="retired-legend"', 1)[0])
+    assert "Power plants: small squares, coloured by fuel" in plants and "Transmission lines" in plants
+    retired = _text(html.split('id="retired-legend"', 1)[1].split("</section>", 1)[0])
+    assert "Plants that have closed or are scheduled to." in retired
+    # Every row a reader can hover lights its marks on the map (map.js `setHighlight`).
+    assert lifecycle.count("data-highlight=") >= 7
+
+
+def test_the_panel_floats_translucent_and_is_a_bar_below_720px() -> None:
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    panel = css.split("\n.map-panel {\n", 1)[1].split("\n}\n", 1)[0]
+    for rule in (
+        "position: absolute;",
+        "top: var(--map-panel-inset); right: var(--map-panel-inset);",
+        "height: calc(var(--map-height) - 2 * var(--map-panel-inset)); width: var(--map-panel-width);",
+        "background: color-mix(in srgb, var(--surface) 88%, transparent);",
+        "backdrop-filter: blur(6px);",
+        # Muted words take the neutral family's darker grey, so they keep 4.5:1 over any basemap.
+        "--text-muted: var(--family-neutral-text);",
+    ):
+        assert rule in panel, rule
+    assert (
+        ".map-frame { --map-panel-inset: var(--space-3); --map-panel-width: 18.75rem;"
+        " --map-height: max(70vh, 24rem); }" in css
+    )
+    assert "@media (min-width: 1080px) { .map-frame { --map-panel-width: 21.25rem; } }" in css
+    assert ".map-panel.is-collapsed { height: auto; }" in css
+    assert "@media (prefers-reduced-transparency: reduce) {" in css
+    phone = _media_block(css, "(max-width: 719px)")
+    phone_83 = css.split("/* ---------- 8.3 The map page below 720px", 1)[1]
+    phone_83 = phone_83[phone_83.index("@media (max-width: 719px) {") :]
+    bar = phone_83.split("  .map-panel, .map-panel.is-collapsed {\n", 1)[1].split("}", 1)[0]
+    assert "position: static; order: 1;" in bar and "backdrop-filter: none;" in bar
+    assert ".js .map-panel:not([data-ready]) .map-panel__body { display: none; }" in phone_83
+    assert phone  # the generic phone block still exists
+    # From 720px the drawer opens in the panel's place, and covers it.
+    assert ".map-frame > .map-drawer {" in css and ".map-panel.is-covered { visibility: hidden; }" in css
+
+
+def test_map_js_keeps_the_panel_choice_per_browser_and_follows_the_width() -> None:
+    map_js = (WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
+    default = map_js.split("function panelDefaultOpen() {", 1)[1].split("\n  }\n", 1)[0]
+    assert "if (isPhone()) return false;" in default
+    assert "return !!(widePanel && widePanel.matches);" in default
+    assert 'window.matchMedia("(min-width: 1080px)")' in map_js
+    stored = map_js.split("function storedPanelChoice() {", 1)[1].split("\n  }\n", 1)[0]
+    assert (
+        "try {" in stored and "window.localStorage.getItem(PANEL_STORE)" in stored and "catch (e)" in stored
+    )
+    store = map_js.split("function storePanelChoice(open) {", 1)[1].split("\n  }\n", 1)[0]
+    assert "try {" in store and "catch (e)" in store
+    assert "if (remember && !isPhone()) storePanelChoice(open);" in map_js
 
 
 def test_the_map_filter_bar_is_a_disclosure_from_720_to_1079_px(transport: FakeTransport) -> None:

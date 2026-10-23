@@ -15,4 +15,12 @@
   <a class="button-link" href="{{ login_href }}">Sign in</a>
   <a class="button-link button-link--secondary" href="{{ register_href }}">Create an account</a>
 </div>
+{#- Reached from "Save this search as an alert" (owner, 2026-10-22): the same search as an RSS feed,
+    which needs no account and is the one subscription that delivers while email is off. -#}
+{%- if feed_href %}
+<section aria-labelledby="alert-rss-heading">
+  <h2 id="alert-rss-heading" class="alert-section-heading">Or follow it by RSS</h2>
+  <p>A feed reader picks up the same records as they are added or change, with no account and no email. <a href="{{ feed_href }}" type="application/rss+xml" id="alert-rss-link">RSS feed of this search</a></p>
+</section>
+{%- endif %}
 {% endblock %}

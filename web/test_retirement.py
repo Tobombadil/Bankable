@@ -414,9 +414,11 @@ def test_the_retired_key_shows_the_cluster_mark_and_follows_the_layer(web_client
     )
     assert cluster is not None and "stroke-dasharray" in cluster.group(1)
     assert "Dashed ring with a number" in cluster.group(1)
-    assert "Retiring (most capacity scheduled to retire)" in legend and "> Retired</span>" in legend
+    assert "Retiring (most capacity scheduled to retire)" in legend
+    assert '<span class="legend__words">Retired</span>' in legend
+    # A project cluster is a solid ring (the key's words, in the panel since 2026-10-22).
     lifecycle = body.split('id="lifecycle-legend"')[1].split("</div>")[0]
-    assert "A solid ring with a number is a cluster of proposals" in lifecycle
+    assert "A ring with a number is a group of nearby projects" in lifecycle
     # Shown whenever the layer is on, including from `?layers=retired` on load.
     assert 'retiredToggle.checked = filters.layers.indexOf("retired") !== -1;' in _MAP_JS
     assert "setRetiredLayerVisible(retiredToggle.checked);" in _MAP_JS

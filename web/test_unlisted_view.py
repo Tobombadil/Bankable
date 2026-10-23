@@ -504,8 +504,9 @@ def test_the_view_switch_links_carry_the_toggle_both_ways(transport: FakeTranspo
     assert "unlisted" not in list_view_href(QueryParams("kind=generation"))
     list_page = _parse(_get("/proposals", {"unlisted": "include", "kind": "generation"}).text)
     assert _query(list_page.links["view-as-map"]) == {"kind": ["generation"], "unlisted": ["include"]}
+    # The map's "Open these in the list" (owner, 2026-10-22: it replaced the map's view switch).
     map_page = _parse(_get("/", {"unlisted": "include"}).text)
-    assert _query(map_page.links["view-as-list"]) == {"unlisted": ["include"]}
+    assert _query(map_page.links["map-list-link"]) == {"unlisted": ["include"]}
 
 
 def test_map_js_keeps_the_toggle_in_the_url_and_the_list_link_but_not_the_feed() -> None:
@@ -514,7 +515,9 @@ def test_map_js_keeps_the_toggle_in_the_url_and_the_list_link_but_not_the_feed()
     # appendProposalFilters feeds the URL, the list link, the geo read and the notice fragment.
     append = MAP_JS.split("function appendProposalFilters", 1)[1].split("\n  }\n", 1)[0]
     assert "filters.unlisted" in append
-    assert 'feedParams.delete("unlisted");' in MAP_JS
+    # The map builds no feed link of its own any more: the alert page offers the feed (owner,
+    # 2026-10-22), through web/feeds.py `feed_href`, which leaves the toggle out.
+    assert "view-as-feed" not in MAP_JS
     assert "unlisted: unlistedBox ? unlistedBox.checked : false" in MAP_JS
     assert 'unlistedBox.addEventListener("change", applyFilters)' in MAP_JS
     clear = MAP_JS.split('getElementById("mf-clear")', 1)[1].split("applyFilters();", 1)[0]

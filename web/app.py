@@ -96,6 +96,7 @@ from web.viewmodels import (
     map_description,
     map_heading,
     map_labels_json,
+    no_status_chosen,
     opportunity_kind_label,
     opportunity_status_param,
     page_credits,
@@ -214,6 +215,13 @@ app.include_router(pricing_router)
 from web.alerts import router as alerts_router  # noqa: E402
 
 app.include_router(alerts_router)
+# Owner decision 2026-10-22: the home map's search field, `/api/map/search`, which finds a project,
+# a company or a place for map.js to move the map to (own router in web/map_search.py), and the
+# panel's busiest areas (`busiest_areas`, served by `map_areas` below beside the geo proxy).
+from web.map_search import busiest_areas  # noqa: E402
+from web.map_search import router as map_search_router  # noqa: E402
+
+app.include_router(map_search_router)
 # docs/42-backend-review-2026-09-26.md lane L2: `/organizations` and `/organizations/{ident}`,
 # moved out of this module into their own router. `web/page.py` holds the `templates` instance (and
 # the other page plumbing) both this module and `web/organizations.py` import, since a page router
@@ -504,6 +512,7 @@ def home_map(request: Request) -> HTMLResponse:
     api = get_api(request)
     qp = request.query_params
     _lifecycle_csv, explicit, include_withdrawn = resolve_proposal_lifecycle_param(qp)
+    no_status = no_status_chosen(qp)
     vocab = api.get("/v1/meta/vocabularies")["data"]
     breakdown = lifecycle_counts(api, qp, surface="map")
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
@@ -532,7 +541,7 @@ def home_map(request: Request) -> HTMLResponse:
             # names (2026-09-29: it knew four by hand and `/?kind=load` drew 5,853 proposals under
             # a notice counting 46). One list, rendered from here, so the two cannot drift.
             "passthrough_filters": PROPOSAL_PASSTHROUGH_FILTERS,
-            # The words map.js prints for a token (in-view list, drawer): the server's own maps,
+            # The words map.js prints for a token (in-view panel, drawer): the server's own maps,
             # rendered into `#map-labels`, so the browser never keeps a copy of them.
             "map_labels_json": map_labels_json(),
             "include_withdrawn": include_withdrawn,
@@ -543,14 +552,19 @@ def home_map(request: Request) -> HTMLResponse:
             "unlisted_toggle": unlisted_toggle(qp),
             "unlisted_notice": unlisted_notice(api, qp, BREAKDOWN_FILTERS, path="/", surface="map"),
             "built_href": with_built_href("/", qp),
-            "feed_href": feed_href("proposal", qp),
+            # Owner, 2026-10-22: the map has no view switch. Its feed is offered on the page "Save
+            # this search as an alert" opens (web/alerts.py) and stays discoverable here.
             "feed_alternate": {"title": "Proposals (RSS)", "href": feed_href("proposal", qp)},
             "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
             "filters": dict(qp),
+            # Every Status box unticked (`lifecycle_state=none`): no proposal is drawn, the count, the
+            # notice and the panel say so from first paint, and the list and save links wait for a
+            # status (map.js).
+            "no_status": no_status,
             "save_alert_href": None
             if _alert_cannot_watch(qp)
             else save_alert_href("proposal", qp, origin="map"),
-            # The view switch's List link before map.js runs (it rewrites it with every change).
+            # "Open these in the list" before map.js runs (it rewrites it with every change).
             "list_href": list_view_href(qp),
             "breakdown": breakdown,
             "empty_facets": map_empty_facets(api, qp, breakdown),
@@ -590,8 +604,20 @@ def proposals_notice_fragment(request: Request) -> HTMLResponse:
             "unlisted_notice": unlisted_notice(api, qp, BREAKDOWN_FILTERS, path="/", surface="map"),
             "iso_gap_notes": uncovered_iso_notes(qp.get("iso"), coverage_data(request, api)),
             "empty_facets": map_empty_facets(api, qp, breakdown),
+            "no_status": no_status_chosen(qp),
         },
     )
+
+
+#: `/api/proposals/geo`'s answer to `lifecycle_state=none` (`proposals_geo_proxy`).
+NO_STATUS_GEO: dict[str, Any] = {
+    "data": {
+        "type": "FeatureCollection",
+        "features": [],
+        "totals": {"records": 0, "clustered": False, "lifecycle_state_counts": {}},
+    },
+    "meta": {},
+}
 
 
 @app.get("/map")
@@ -609,6 +635,10 @@ def proposals_geo_proxy(request: Request) -> JSONResponse:
     all (in-process mode). The client renders exactly what comes back; it does not cluster."""
     api = get_api(request)
     qp = request.query_params
+    if no_status_chosen(qp):
+        # Every Status box unticked: nothing to draw and nothing to ask the API (owner report
+        # 2026-10-22). The empty answer keeps the API's shape, so map.js draws and counts it as any.
+        return JSONResponse(NO_STATUS_GEO)
     lifecycle_csv, _explicit, _include = resolve_proposal_lifecycle_param(qp)
     params = _proposal_params(qp, lifecycle_csv=lifecycle_csv)
     params["bbox"] = qp.get("bbox") or WORLD_BBOX
@@ -619,6 +649,20 @@ def proposals_geo_proxy(request: Request) -> JSONResponse:
         return JSONResponse(exc.body, status_code=exc.status_code)
     envelope["data"] = relativize_geo_feature_urls(envelope["data"])
     return JSONResponse(envelope)
+
+
+@app.get("/api/map/areas")
+def map_areas(request: Request) -> JSONResponse:
+    """The busiest states (or countries) in a view, for the "In view" panel's overview at national and
+    multi-state zoom (owner, 2026-10-22; `web/map_search.py::busiest_areas`). The same query as
+    `proposals_geo_proxy`, so the projects counted are the ones the map draws."""
+    qp = request.query_params
+    if no_status_chosen(qp):
+        return JSONResponse({"areas": [], "total": 0})
+    lifecycle_csv, _explicit, _include = resolve_proposal_lifecycle_param(qp)
+    params = _proposal_params(qp, lifecycle_csv=lifecycle_csv)
+    params["bbox"] = qp.get("bbox") or WORLD_BBOX
+    return JSONResponse(busiest_areas(get_api(request), params))
 
 
 @app.get("/api/context/plants/geo")

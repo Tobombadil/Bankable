@@ -98,7 +98,8 @@ unknown-state proposals are also outside this default view)."* Those three lifec
 sum to the full 10,409-proposal load (5837 + 3215 + 1357 = 10,409). Separately, of the proposals
 matching the *default* (active-only) filter, 1825 have no usable county or state on their source
 record to plot at all — the map's own "In view" panel reports them as Unplaced and points to the
-list instead. `built` is deliberately outside both the default and the toggle — the task's own wording bounded
+list instead (since 2026-10-22 the panel's note "Not on the map: N proposals whose sources give no
+usable county or state. The list has them.", "Home map" below). `built` is deliberately outside both the default and the toggle — the task's own wording bounded
 the default range at `under_construction`; a future "show completed" control is a fair follow-up
 but wasn't asked for here.
 
@@ -391,6 +392,13 @@ rewrite); item 6 remains open, unrelated to this task.
    issuer names render as plain text (`serialize_organization_summary`'s `url` field is unused);
    an `/organizations/{slug}` page is in `docs/30-design-ia.md`'s page inventory but remains out of
    this task's explicit scope. (`services/README.md` notes the API route itself already exists.)
+7. **Capacity by status and by technology on clustered features (open, 2026-10-22).** A cluster or
+   region feature of `GET /v1/proposals/geo` carries `lifecycle_state_counts`, `technology_counts`
+   and one `capacity_mw_sum`, so the home map's overview gives GW for the whole view and for each
+   busiest area but only counts per status and per technology: splitting the sum would be a guess
+   (612 of the dev store's 2,229 sited projects share a finest-grid cell with another technology).
+   Adding `capacity_mw_by_lifecycle_state` and `capacity_mw_by_technology` to those features
+   (`services/api/geo.py`) lets the overview show both with no request of its own.
 
 ## Simplifications carried over or newly made, and why
 
@@ -740,7 +748,8 @@ technology filter applies to plants too; jurisdiction/`include_withdrawn` do not
 lifecycle state; this layer is US-only today).
 
 The map's `technologies` legend gets a second row (`#plants-legend`, `hidden` until the checkbox is
-checked). Clicking a plant opens the same drawer component as a proposal, rendering a different
+checked; since 2026-10-22 it is a group of the panel's Key tab, its words in `--text` beside a swatch in
+the plant's hue, because over the translucent panel the hues fall to 3.9:1 at worst, "Home map" below). Clicking a plant opens the same drawer component as a proposal, rendering a different
 body (`drawer.renderPlant`): name, operator, a technology-split table (from the feature's
 `technologies` map), capacity, first operating year, and the source line (name, retrieved date,
 licence) — no "Open full record" link, since a context-layer plant has no record page on this
@@ -973,3 +982,62 @@ proposals; at `children` and `all` (identical, because its tree is one level dee
 default relevance filter — the same 18 of 67 the relevance lane measured, so PR #8 is intact at
 group scope. `trailblazer-pipeline-co` 1 asset, 8 of 12 nearby, ancestor Tallgrass Energy with no
 date recorded.
+
+## Home map: the panel, the search field and the status filter (2026-10-22, lane home-map)
+
+Owner, 2026-10-22: "could we keep the big map view but add a floating transparent box for what is in
+view? Further layering in the key and making UI improvements so its easier to understand?" docs/31 §3,
+§5.18 and §5.19 are the specification; this is where the code is.
+
+- **Layout.** The map takes the full content width (`.map-layout` and `.map-side` are gone). One panel,
+  `section#map-panel` in `home_map.html`, floats over its top right from 720px: 340px wide from 1080px,
+  300px below, inset 12px, as tall as the map less the insets (`--map-height` on `.map-frame`), and it
+  scrolls inside. Open by default from 1080px, collapsed to its header from 720 to 1079px; the reader's
+  choice is kept in `localStorage` "inframation.mapPanel", read and written in `try`/`catch` (map.js
+  `storedPanelChoice`, `storePanelChoice`). Below 720px it is a bar under the map that opens in the page
+  and is never remembered; the rail's "Key" opens it on the Key tab. The separate `.map-key` panel and its
+  toggle from 720px are gone.
+- **Header.** "N projects in view · X GW", a thin bar by status family (segments sized with CSSOM
+  `flexGrow`, which the `style-src 'self'` CSP allows) and the same counts in words with each family's
+  glyph (map.js `renderPanelHeader`). Tabs "In view" and "Key". Opening the panel from the count shows
+  "In view"; the "Key" beside it while collapsed opens the Key tab. Each tab keeps its scroll
+  (`tabScroll`) across a tab switch, a collapse and a drawer.
+- **In view follows the zoom** (map.js `chooseInViewMode`): an overview below zoom 5, above 300 projects
+  in view, or when the answer is clustered; 25 or fewer are always listed. The overview gives counts by
+  the Status filter's groups, the top four technologies by projects, and "Busiest areas" from
+  `GET /api/map/areas` (`web/map_search.py` `busiest_areas`): the route asks `/v1/proposals/geo` for the
+  same view at zoom 12, its finest grid, and puts each cell in the state or country whose outline holds
+  it (point in polygon over the vendored outlines `GET /v1/geo/regions` serves), region-placed projects by
+  their own region. Answers are cached for two minutes per query (64 entries). First call after start
+  2.2s (it reads the outlines), 0.13 to 0.19s per new view, 3ms cached. Each area is a button that fits
+  the map to it. The list is the side list's renderer (`renderList`), unchanged in what it shows.
+- **Hover.** A key row with `data-highlight` lights its marks and dims the rest to 15% (map.js
+  `setHighlight`, `HIGHLIGHT_PAINT`; clusters and regions carry `fam_<family>` counts from
+  `addFamilyCounts`). A list row rings its mark (`showHoverRing`, the `hover-ring` source).
+- **Drawer.** From 720px it opens in the panel's box with "Back to what's in view"
+  (`#drawer-back`); the panel is `visibility: hidden` meanwhile (`.is-covered`) and comes back as it
+  was. Below 720px it is still the bottom sheet.
+- **Search.** `form#map-search` (combobox and listbox), `GET /api/map/search` in `web/map_search.py`:
+  states and counties from the vendored Census outlines and the region quick views, companies from
+  `GET /v1/organizations?q=` (no natural persons), projects from `GET /v1/proposals?q=` in every
+  lifecycle state. No third-party geocoder. A newer query aborts the older one and only the newest
+  answer is drawn (a sequence number in map.js).
+- **No status chosen.** Unticking every Status box writes `lifecycle_state=none`
+  (`web/viewmodels.py` `NO_LIFECYCLE_STATE`, `no_status_chosen`): the geo proxy answers an empty
+  collection without calling the API (`NO_STATUS_GEO` in `web/app.py`), the count says "0 proposals
+  match these filters.", `_map_notice.html` and the panel say "No status chosen: projects are hidden."
+  with a "Clear all" link, and a reload keeps it.
+- **Links.** The home map's "View as Map / List / RSS feed" row is gone: "Open these in the list"
+  (`#map-list-link`) sits beside "Save this search as an alert", and the alert page offers the same search
+  as RSS ("Or follow it by RSS", `#alert-rss-link`, `web/alerts.py`). The proposals list keeps its switch.
+- **Touch.** A transmission line's hover card closes on the next touch anywhere and on any map move
+  (map.js `hoverAllowed`, `TOUCH_GHOST_MS`), so the ghost mouse events a tap makes cannot leave it open.
+- **Contrast.** The panel's ground lies between `--surface` at 88% over black and over white, whatever the
+  basemap. Muted words take `--family-neutral-text` inside the panel and the key's words `--text`; the
+  lowest worst case is 4.54:1 (light, `--family-success-text`). `web/test_map_a11y.py` checks it from the
+  tokens and `web/test_e2e.py` on the page, both themes.
+- **Tests.** `web/test_map_search.py` (busiest areas, the cache, the route, search words);
+  `web/test_layout_states.py` and `web/test_map_a11y.py` (markup, CSS, contrast, untick-all);
+  `web/test_alerts_pages.py` (the RSS offer); `web/test_e2e.py` (the panel at three widths, overview and
+  list, drawer in place, phone coverage, untick-all round trip, search for a county, a project and a
+  company with a stale answer held back, the line card on touch).

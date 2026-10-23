@@ -6,8 +6,8 @@
 {% block extra_head %}
 {{ m.cdn_style("maplibre_css") }}
 {% endblock %}
-{#- D-13 / docs/30 D-14: the in-view list is the map's keyboard and screen-reader equivalent, so a
-    second skip link goes straight to it past the filters and the canvas. -#}
+{#- D-13: a second skip link goes straight to what is in view, past the filters and the canvas (the
+    panel's "In view" tab, which map.js opens if the panel is collapsed). -#}
 {% block skip_links %}<a class="skip-link" href="#in-view-list">Skip to results in view</a>{% endblock %}
 {% block content %}
 {#- Designer D-3 / frontend F6: the map is the landing surface, so the page opens with what is on
@@ -120,33 +120,50 @@
   <button type="button" class="filter-bar__done" data-filter-done>Show the map</button>
 </form>
 
-{#- One status row: how many match, the lifecycle notice, saving the search and the view switch.
-    The save link sits with the result it saves (as on the list page), so it is in view at 400px
-    while the filters are collapsed, and the filter bar stays one row at 1440px. Below 720px
-    (docs/17 M-6) the count and the notice's short form share one line, the notice itself opens
-    from "Why?" (`_map_notice.html`), and the save link and the view switch share the next. -#}
+{#- One status row: how many match and the lifecycle notice, then what to do with the search: the
+    Projects list with the same filters and saving it as an alert (whose page also offers it as an
+    RSS feed). Owner, 2026-10-22: the "View as Map / List / RSS feed" row is gone from the map; the
+    proposals list keeps its own switch. Below 720px (docs/17 M-6) the count and the notice's short
+    form share one line and the notice itself opens from "Why?" (`_map_notice.html`). Every Status
+    box unticked (`lifecycle_state=none`) says so from first paint, and there is nothing to list or
+    to save. -#}
 <div class="map-status">
-  <p class="result-count" id="map-result-count" aria-hidden="true">Loading proposals&hellip;</p>
+  {#- Every match anywhere, and from 720px how many of them no map can place (map.js
+      `renderCountLine`), in the panel's noun, so its "N projects in view" reads against it. -#}
+  <p class="result-count" id="map-result-count"{% if not no_status %} aria-hidden="true"{% endif %}>{% if no_status %}0 projects match these filters.{% else %}Loading projects&hellip;{% endif %}</p>
   {#- docs/31 §6 error state: the RFC 9457 title and request id, a retry, and the list as a way on
       (map.js fills it; designer D-11 found the map stuck on "Loading proposals…" for good). -#}
   <div class="map-error" id="map-error" role="alert" hidden></div>
   <div id="map-notice">{% include "_map_notice.html" %}</div>
-  <div class="map-status__actions">
-  {% if save_alert_href %}<a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>{% endif %}
-  {{ m.view_switch("map", "/", list_href, feed_href) }}
-  </div>
+  <p class="map-status__actions" id="map-status-actions"{% if no_status %} hidden{% endif %}>
+    <a class="map-status__list" id="map-list-link" href="{{ list_href }}">Open these in the list</a>
+    {%- if save_alert_href %}<span class="map-status__sep" aria-hidden="true"> &middot; </span><a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>{% endif %}
+  </p>
 </div>
 
-<div class="map-layout">
-  <div>
-    <div class="map-frame">
+{#- Owner, 2026-10-22 (docs/00-PLAN.md): the map takes the full width, and one panel floating over
+    its top right holds what is in view and the key (docs/31 §5.19). Below 720px the panel does not
+    float: it is a bar under the map that opens in the page, as the key used to (docs/17 M-1). -#}
+<div class="map-frame" id="map-frame">
     {#- Zoom and region jumps sit on the map, top left, as map controls do, so nothing stands
         between the filters and the canvas (D-3). Below 720px (docs/17 M-1) the controls are one
         column of 44px buttons on the map's right edge (`.map-overlay__rail`): zoom in, zoom out,
-        "Jump to" (the region jumps and "Whole map", which stands in for Reset) and "Key"; the key
-        itself opens under the map, in the page, not over it. From 720px the rail and the "Jump to"
-        wrapper lay out as if absent (`display: contents`) and the controls are as before. -#}
+        "Jump to" (the region jumps and "Whole map", which stands in for Reset) and "Key", which
+        opens the panel's Key tab under the map. From 720px the rail and the "Jump to" wrapper lay
+        out as if absent (`display: contents`) and "Key" is not drawn: the key is a tab of the panel. -#}
     <div class="map-overlay">
+    {#- Owner, 2026-10-22: a search field that finds a project, a company or a place and moves the
+        map to it (map.js, over `/api/map/search`, web/map_search.py; no third-party geocoder). On
+        the map, top left, from 720px; below 720px a full-width bar above the canvas, so nothing
+        covers the map on a phone. Without scripts it is the site search (`/search`). -#}
+    <form class="map-search" id="map-search" action="/search" method="get" role="search" aria-label="Find on the map">
+      <label class="visually-hidden" for="map-search-input">Find a project, company or place</label>
+      <svg class="map-search__icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 14.2 14.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <input class="map-search__input" id="map-search-input" type="search" name="q" placeholder="Find a project, company or place" autocomplete="off" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="map-search-list">
+      <button type="button" class="map-search__clear" id="map-search-clear" aria-label="Clear the search" hidden><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2 10 10M10 2 2 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      <div class="map-search__list" id="map-search-list" role="listbox" aria-label="Suggestions" hidden></div>
+      <p class="map-search__empty" id="map-search-empty" role="status" hidden></p>
+    </form>
     <div class="map-overlay__rail">
     <div class="map-controls map-controls--zoom" role="group" aria-label="Map zoom">
       <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
@@ -165,112 +182,146 @@
     </div>
     {% endif %}
     <div class="map-controls map-controls--key">
-      <button type="button" id="map-key-toggle" aria-expanded="true" aria-controls="map-key" hidden>Key</button>
+      <button type="button" id="map-key-toggle" aria-expanded="false" aria-controls="map-panel-body" hidden>Key</button>
     </div>
     </div>
-    {#- The map key (review 2026-10-10 §2.6 item 2: it sat under the map, below the fold at 1440x900
-        and 400x800). From 720px it is drawn on the map under the zoom controls, top left, where the
-        default view has ocean rather than the dense Northeast. Below 720px it opens under the map
-        frame, in the page (docs/17 M-1: over the canvas it covered 28% of the map), as a strip of
-        short labels whose layer sections start closed. The page ground behind the words keeps every
-        hue at the contrast measured for it on --bg. "Key" (map.js) hides and shows it. -#}
-    <div class="map-key" id="map-key">
-    <div class="map-key__panel" role="group" aria-label="Map key">
-        {#- Designer D-2: the legend names only marks the map draws -- each proposal and each cluster
-            carries its family's glyph (map.js `addFamilyImages`), the same glyph as the status chips --
-            in reader words for the states in each family, and it is no longer hidden from assistive
-            technology. map.js hides a row whose family has no proposal under the current filters. -#}
-        <div class="legend legend--lifecycle" id="lifecycle-legend" role="group" aria-label="Proposal status key">
-          <span class="legend__group-name">Proposal status</span>
-          <span class="legend__item" data-legend-family="neutral"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-neutral"></use></svg> Announced, or status unknown</span>
-          <span class="legend__item" data-legend-family="progress"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-progress"></use></svg> <span class="legend__long">In process: filed, studied, permitted, under construction</span><span class="legend__short" aria-hidden="true">In process</span></span>
-          <span class="legend__item" data-legend-family="committed"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-committed"></use></svg> Contracted</span>
-          <span class="legend__item" data-legend-family="success"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-success"></use></svg> Built</span>
-          <span class="legend__item" data-legend-family="danger"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-danger"></use></svg> Withdrawn or cancelled</span>
-          <span class="legend__note">A solid ring with a number is a cluster of proposals, showing its most common status.</span>
-          {#- UX-5: the grey areas were unexplained. map.js shows this row while any region is drawn. -#}
-          <span class="legend__item legend__item--region" id="region-legend" hidden><svg class="legend__sample" width="28" height="12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" fill="currentColor" fill-opacity="0.3" stroke="currentColor" stroke-width="1"/><rect x="15" y="1" width="12" height="10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/></svg> <span>Proposals the source places only by area<span class="legend__detail">: a shaded county (darker holds more) or a dashed state or country outline; the number is how many</span></span></span>
+    </div>
+    {#- The map's text equivalent is the in-view list once zoomed in, and the Projects list for every
+        match (keyboard-only and screen-reader optimisation stays deferred, owner 2026-10-22). -#}
+    <div id="map" role="application" aria-label="Map of project locations. The panel beside it lists the projects in view once the map is zoomed in; the Projects list, linked above the map, has every match." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
+    {#- What is in view and the key: one panel (owner, 2026-10-22). Its header says how many projects
+        the view holds and their capacity, with a bar by status family in the map's own colours;
+        one click on it collapses the panel to that header. "In view" follows the zoom: an overview
+        at national and multi-state views, the list once zoomed in (map.js `inViewMode`). "Key" says
+        what every mark means in plain words; hovering a row of it highlights those marks on the map.
+        A record's drawer opens in the panel's place from 720px. Without scripts the panel shows its
+        key and says nothing is loaded. -#}
+    <section class="map-panel" id="map-panel" aria-label="What is in view, and the map key">
+      <div class="map-panel__head">
+        {#- The panel's title is its count, an h2 holding the disclosure button (the accordion
+            pattern), so the h3s inside follow the page's h1 in order (axe heading-order). -#}
+        <h2 class="map-panel__title">
+        <button type="button" class="map-panel__toggle" id="map-panel-toggle" aria-expanded="true" aria-controls="map-panel-body">
+          <span class="map-panel__count" id="map-panel-count">Loading projects&hellip;</span>
+          <span class="map-panel__chevron" aria-hidden="true"></span>
+        </button>
+        </h2>
+        <button type="button" class="map-panel__keybtn" id="map-panel-keybtn" aria-controls="map-panel-body" hidden>Key</button>
+        {#- The bar's parts are drawn by map.js in the status families' own colours; its words say
+            the same counts, each with the key's glyph, so the bar is never colour alone (D-5). -#}
+        <div class="map-panel__bar" id="map-panel-bar" aria-hidden="true"></div>
+        <p class="map-panel__families" id="map-panel-families"></p>
+      </div>
+      <div class="map-panel__body" id="map-panel-body">
+        <div class="map-panel__tabs" role="tablist" aria-label="Panel">
+          <button type="button" role="tab" class="map-panel__tab" id="map-tab-inview" aria-selected="true" aria-controls="map-tabpanel-inview">In view</button>
+          <button type="button" role="tab" class="map-panel__tab" id="map-tab-key" aria-selected="false" aria-controls="map-tabpanel-key" tabindex="-1">Key</button>
         </div>
-        {# One legend group per existing-asset type; map.js hides the groups whose type is not
-           checked, so the legend only ever names what is drawn (docs/31 §1.6). Shape + label carry
-           the type, hue is secondary (D-5). #}
-        <div class="legend legend--plants legend--assets" id="plants-legend" aria-hidden="true" hidden>
-          {#- With a layer on the key is compact (map.js `syncKeyCompact`): each layer's key is a
-              section that closes, so the panel can be made smaller still. Open on arrival from
-              720px; below it map.js closes them, so the status strip shows first (docs/17 M-1). -#}
-          <details class="map-key__section" open>
-          <summary class="map-key__section-name">Existing assets</summary>
-          <div class="map-key__section-body">
-          <div class="legend__group" data-legend-type="power_plant">
-            <span class="legend__group-name">Power plants</span>
-            {% for value, label in plant_families %}<span class="legend__item legend__item--plant-{{ value }}">&#9632; {{ label }}</span>{% endfor %}
+        <div class="map-panel__scroll" id="map-panel-scroll">
+        <div class="map-panel__tabpanel" role="tabpanel" id="map-tabpanel-inview" aria-labelledby="map-tab-inview">
+          <a id="in-view-list" tabindex="-1"></a>
+          <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
+          {#- Below 720px the count line above the map has no room to say how many matches no map can
+              place, so "In view" opens with it; from 720px the count line says it, and this is not drawn. -#}
+          <p id="unplaced-note" class="map-panel__unplaced" hidden></p>
+          {#- National and multi-state views: what the view holds in a few lines, not a list. Its first
+              line says why there is no list and how to get one, where it reads without a scroll. -#}
+          <div class="map-overview" id="map-overview" hidden>
+            <p class="map-overview__hint" id="map-overview-hint">Zoom in or search to list projects.</p>
+            <h3 class="map-panel__heading">By status</h3>
+            <ul class="map-overview__rows" id="map-overview-status"></ul>
+            <h3 class="map-panel__heading">Technology <span class="map-panel__aside">(top four, by projects)</span></h3>
+            <ul class="map-overview__rows" id="map-overview-tech"></ul>
+            <h3 class="map-panel__heading">Busiest areas</h3>
+            <ol class="map-overview__rows map-overview__areas" id="map-overview-areas"></ol>
+            <p class="map-overview__also" id="map-overview-also" hidden></p>
           </div>
-          <div class="legend__group" data-legend-type="gas_pipeline">
-            <span class="legend__group-name">Gas pipelines</span>
-            <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg> Interstate</span>
-            <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="6 4"/></svg> Intrastate</span>
-          </div>
-          <div class="legend__group" data-legend-type="gas_processing_plant">
-            <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.5 6 6 11.5 0.5 6Z" fill="currentColor"/></svg> Gas processing plants</span>
-          </div>
-          <div class="legend__group" data-legend-type="gas_storage">
-            <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" stroke-width="2.4"/></svg> Gas storage</span>
-          </div>
-          <div class="legend__group" data-legend-type="lng_terminal">
-            <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.8 11.4 10.6 0.6 10.6Z" fill="currentColor"/></svg> LNG terminals</span>
-          </div>
-          <div class="legend__group" data-legend-type="ethanol_plant">
-            <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M11.5 6 8.75 10.76 3.25 10.76 0.5 6 3.25 1.24 8.75 1.24Z" fill="currentColor"/></svg> Ethanol plants</span>
-            <span class="legend__note">exact sites only; capacity-table plants at state grade are on the lists</span>
-          </div>
-          <div class="legend__group" data-legend-type="rng_project">
-            <span class="legend__item"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.23 4.3 9.23 10.45 2.77 10.45 0.77 4.3Z" fill="currentColor"/></svg> RNG projects</span>
-            <span class="legend__note">landfill gas (electricity, direct use, RNG); farm digesters at county grade are on the lists</span>
-          </div>
-          <div class="legend__group" data-legend-type="transmission_line">
-            <span class="legend__group-name">Transmission lines</span>
-            <span class="legend__item"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 3 2 3"/></svg> 70&ndash;765 kV</span>
-            <span class="legend__note">lines FERC Form 1 filers own (LBNL); not the whole grid</span>
-          </div>
-          </div>
-          </details>
+          {#- Zoomed in: the projects, then the regions, existing assets and retired plants in view. -#}
+          <ul class="in-view-list" id="in-view-items"></ul>
+          <p id="lines-note" class="in-view-list__unplaced" hidden></p>
         </div>
-        {#- Retired clusters are dashed rings and proposal clusters solid ones, so the two never differ by
-            hue alone (D-5; docs/31 §1.6). map.js shows this key whenever the layer is on. -#}
-        <div class="legend legend--retired" id="retired-legend" role="group" aria-label="Retired and retiring plants key" aria-hidden="true" hidden>
-          <details class="map-key__section" open>
-          <summary class="map-key__section-name">Retired &amp; retiring plants</summary>
-          <div class="legend__group">
-            <span class="legend__item" data-legend-mark="retired-cluster"><svg class="legend__sample" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 1.7"/></svg> Dashed ring with a number: a group of retired and retiring plants (zoom in to separate)</span>
-            <span class="legend__item legend__item--retiring"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg> Retiring (most capacity scheduled to retire)</span>
-            <span class="legend__item legend__item--retired"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.3 3.3 8.7 8.7M8.7 3.3 3.3 8.7" stroke="currentColor" stroke-width="1.6"/></svg> Retired</span>
-            <span class="legend__note">EIA-860M; larger rings are larger plants. A retired site may keep its grid connection.</span>
+        <div class="map-panel__tabpanel" role="tabpanel" id="map-tabpanel-key" aria-labelledby="map-tab-key">
+        {#- The key, in words a first visitor reads (owner, 2026-10-22: "easier to understand"). Each
+            status is named exactly as the Status filter names it (web/viewmodels.py
+            PROPOSAL_STATUS_GROUPS). Every row names only a mark the map draws; map.js hides a status
+            row with nothing drawn and a layer's section while the layer is off. Hovering a row
+            highlights those marks on the map (`data-highlight`). The words are --text on the panel;
+            the glyph or swatch beside each carries the hue (D-5: never colour alone). -#}
+        <div class="map-key" id="map-key">
+          <div class="legend legend--lifecycle" id="lifecycle-legend" role="group" aria-label="Project status key">
+            <h3 class="map-panel__heading">Projects</h3>
+            <p class="map-key__intro">Each dot is one project. Its colour and mark show its status:</p>
+            <span class="legend__item" data-legend-family="neutral" data-highlight="family:neutral"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-neutral"></use></svg> <span class="legend__words">Announced, or Status unknown</span></span>
+            <span class="legend__item" data-legend-family="progress" data-highlight="family:progress"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-progress"></use></svg> <span class="legend__words">In process <span class="legend__detail">(filed, studied, permitted or under construction)</span></span></span>
+            <span class="legend__item" data-legend-family="committed" data-highlight="family:committed"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-committed"></use></svg> <span class="legend__words">Contracted</span></span>
+            <span class="legend__item" data-legend-family="success" data-highlight="family:success"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-success"></use></svg> <span class="legend__words">Built or operating</span></span>
+            <span class="legend__item" data-legend-family="danger" data-highlight="family:danger"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-danger"></use></svg> <span class="legend__words">Withdrawn or cancelled</span></span>
+            <span class="legend__item legend__item--mark" data-legend-mark="cluster" data-highlight="clusters"><svg class="legend__sample" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="9.5" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="11" y="14.5" text-anchor="middle" font-size="9" fill="currentColor">12</text></svg> <span class="legend__words">A ring with a number is a group of nearby projects: the number is how many, the ring&rsquo;s colour the status most of them share. <span data-touch-words="Tap it to zoom in.">Click it to zoom in.</span></span></span>
+            <span class="legend__item legend__item--mark" data-legend-mark="precision" data-highlight="precision"><svg class="legend__sample" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="11" cy="11" r="10" fill="none" stroke="currentColor" stroke-width="1"/></svg> <span class="legend__words">A second, thinner ring: the source&rsquo;s licence lets the map show the project only near its site, not at it.</span></span>
+            {#- UX-5: the grey areas were unexplained. map.js shows this row while any region is drawn. -#}
+            <span class="legend__item legend__item--region" id="region-legend" data-highlight="regions" hidden><svg class="legend__sample" width="28" height="12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" fill="currentColor" fill-opacity="0.3" stroke="currentColor" stroke-width="1"/><rect x="15" y="1" width="12" height="10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/></svg> <span class="legend__words">A shaded county, or a dashed state or country outline, holds projects the source places only by area, not at a site<span class="legend__detail">: darker shading holds more, and the number is how many</span>. <span data-touch-words="Tap it for a summary.">Click it for a summary.</span></span></span>
           </div>
-          </details>
+          {# One group per existing-asset type; map.js hides the groups whose type is not checked, so
+             the key only ever names what is drawn (docs/31 §1.6). Shape and words carry the type, hue
+             is secondary (D-5). #}
+          <div class="legend legend--plants legend--assets" id="plants-legend" role="group" aria-label="Existing infrastructure key" aria-hidden="true" hidden>
+            <h3 class="map-panel__heading">Existing infrastructure</h3>
+            <p class="map-key__intro">What is already built, drawn fainter than the projects. Hover one for its name; <span data-touch-words="tap">click</span> it for its record.</p>
+            <div class="legend__group" data-legend-type="power_plant">
+              <span class="legend__group-name">Power plants: small squares, coloured by fuel</span>
+              {#- The square is the mark's hue (a swatch, SC 1.4.11's 3:1); the fuel's name beside it is --text. -#}
+              {% for value, label in plant_families %}<span class="legend__item legend__item--plant-{{ value }}" data-highlight="plant:{{ value }}"><span class="legend__swatch" aria-hidden="true">&#9632;</span> <span class="legend__words">{{ label }}</span></span>{% endfor %}
+            </div>
+            <div class="legend__group" data-legend-type="gas_pipeline">
+              <span class="legend__group-name">Gas pipelines</span>
+              <span class="legend__item" data-highlight="pipeline:interstate"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg> <span class="legend__words">Solid: interstate (crosses state lines)</span></span>
+              <span class="legend__item" data-highlight="pipeline:intrastate"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="6 4"/></svg> <span class="legend__words">Dashed: intrastate (within one state)</span></span>
+            </div>
+            <div class="legend__group" data-legend-type="gas_processing_plant">
+              <span class="legend__item" data-highlight="asset:gas_processing_plant"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.5 6 6 11.5 0.5 6Z" fill="currentColor"/></svg> <span class="legend__words">Gas processing plants</span></span>
+            </div>
+            <div class="legend__group" data-legend-type="gas_storage">
+              <span class="legend__item" data-highlight="asset:gas_storage"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" stroke-width="2.4"/></svg> <span class="legend__words">Gas storage</span></span>
+            </div>
+            <div class="legend__group" data-legend-type="lng_terminal">
+              <span class="legend__item" data-highlight="asset:lng_terminal"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.8 11.4 10.6 0.6 10.6Z" fill="currentColor"/></svg> <span class="legend__words">LNG terminals</span></span>
+            </div>
+            <div class="legend__group" data-legend-type="ethanol_plant">
+              <span class="legend__item" data-highlight="asset:ethanol_plant"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M11.5 6 8.75 10.76 3.25 10.76 0.5 6 3.25 1.24 8.75 1.24Z" fill="currentColor"/></svg> <span class="legend__words">Ethanol plants</span></span>
+              <span class="legend__note">exact sites only; capacity-table plants at state grade are on the lists</span>
+            </div>
+            <div class="legend__group" data-legend-type="rng_project">
+              <span class="legend__item" data-highlight="asset:rng_project"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><path d="M6 0.5 11.23 4.3 9.23 10.45 2.77 10.45 0.77 4.3Z" fill="currentColor"/></svg> <span class="legend__words">RNG projects</span></span>
+              <span class="legend__note">landfill gas (electricity, direct use, RNG); farm digesters at county grade are on the lists</span>
+            </div>
+            <div class="legend__group" data-legend-type="transmission_line">
+              <span class="legend__group-name">Transmission lines</span>
+              <span class="legend__item" data-highlight="asset:transmission_line"><svg class="legend__sample" width="28" height="8" aria-hidden="true"><line x1="1" y1="4" x2="27" y2="4" stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 3 2 3"/></svg> <span class="legend__words">Dash-dot lines, 70&ndash;765 kV</span></span>
+              <span class="legend__note">only the lines FERC Form 1 filers own (LBNL), not the whole grid</span>
+            </div>
+          </div>
+          {#- Retired clusters are dashed rings and project clusters solid ones, so the two never differ
+              by hue alone (D-5; docs/31 §1.6). map.js shows this key whenever the layer is on. -#}
+          <div class="legend legend--retired" id="retired-legend" role="group" aria-label="Retired and retiring plants key" aria-hidden="true" hidden>
+            <h3 class="map-panel__heading">Retired and retiring plants</h3>
+            <p class="map-key__intro">Plants that have closed or are scheduled to. A retired site may keep its grid connection.</p>
+            <div class="legend__group">
+              <span class="legend__item" data-legend-mark="retired-cluster" data-highlight="retired:cluster"><svg class="legend__sample" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.6 1.7"/></svg> <span class="legend__words">Dashed ring with a number: a group of them (zoom in to separate)</span></span>
+              <span class="legend__item legend__item--retiring" data-highlight="retired:retiring"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="6" r="1.6" fill="currentColor"/></svg> <span class="legend__words">Retiring (most capacity scheduled to retire)</span></span>
+              <span class="legend__item legend__item--retired" data-highlight="retired:retired"><svg class="legend__sample" width="12" height="12" aria-hidden="true"><circle cx="6" cy="6" r="4.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.3 3.3 8.7 8.7M8.7 3.3 3.3 8.7" stroke="currentColor" stroke-width="1.6"/></svg> <span class="legend__words">Retired</span></span>
+              <span class="legend__note">EIA-860M; larger rings are larger plants.</span>
+            </div>
+          </div>
         </div>
-    </div>
-    </div>
-    </div>
-    <div id="map" role="application" aria-label="Map of proposal locations. Use the in-view list for a keyboard- and screen-reader-accessible equivalent." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
-    </div>
-    <p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposals: {{ sources_phrase }} (<a href="/about#sources">About &amp; sources</a>). Full credits: <a href="/attribution">Attribution</a>.</p>
-  </div>
-  <aside class="map-side" aria-label="Proposals, regions and existing assets in view">
-    <a id="in-view-list" tabindex="-1"></a>
-    <h2>In view</h2>
-    {#- docs/17 M-5: what the proposals in view are, by status family and stated capacity, so a touch
-        screen, which never shows a cluster's hover card, has the same information (D-10). map.js
-        fills it once proposals load; it is not live (the region below announces each move). -#}
-    <p class="in-view-summary" id="in-view-summary" hidden></p>
-    <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
-    <ul class="in-view-list" id="in-view-items"></ul>
-    <p id="lines-note" class="in-view-list__unplaced" hidden></p>
-    <p id="unplaced-note" class="in-view-list__unplaced" hidden></p>
-  </aside>
+        </div>
+        </div>
+      </div>
+    </section>
 </div>
+<p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposals: {{ sources_phrase }} (<a href="/about#sources">About &amp; sources</a>). Full credits: <a href="/attribution">Attribution</a>.</p>
 
 {# The server's label maps (`web/viewmodels.py::map_labels_json`): map.js names a technology
-   token in the in-view list and the drawer from these, exactly as the proposal list does. #}
+   token in the in-view list, the overview and the drawer from these, exactly as the proposal list does. #}
 <script type="application/json" id="map-labels">{{ map_labels_json | safe }}</script>
 {# The proposal field rows each kind cannot carry (`web/viewmodels.py::proposal_fields_json`), so
    the drawer leaves out the rows the record page leaves out. #}

@@ -34,6 +34,7 @@ from starlette.datastructures import QueryParams
 
 from web.api_client import ApiClient, ApiError, ApiResult
 from web.auth import _csrf_rejection, _is_same_origin
+from web.feeds import feed_href
 from web.page import (
     OPPORTUNITY_PASSTHROUGH_FILTERS,
     PROPOSAL_PASSTHROUGH_FILTERS,
@@ -223,12 +224,19 @@ def _this_url(request: Request) -> str:
     return request.url.path + (f"?{request.url.query}" if request.url.query else "")
 
 
-def _signin(request: Request, *, next_url: str) -> HTMLResponse:
+def _signin(request: Request, *, next_url: str, feed: str | None = None) -> HTMLResponse:
+    """`feed`: the RSS twin of the search being saved, offered beside the sign-in (owner,
+    2026-10-22: a feed needs no account, and it is the only subscription that delivers while email
+    is off)."""
     encoded = quote(next_url, safe="")
     return templates.TemplateResponse(
         request,
         "alerts/signin.html",
-        {"login_href": f"/login?next={encoded}", "register_href": f"/register?next={encoded}"},
+        {
+            "login_href": f"/login?next={encoded}",
+            "register_href": f"/register?next={encoded}",
+            "feed_href": feed,
+        },
     )
 
 
@@ -321,6 +329,8 @@ def _render_new(
             "delivery_mode": delivery_mode,
             "error": error,
             "back_href": results_href(entity, query),
+            # The same search as an RSS feed, the second way to follow it (owner, 2026-10-22).
+            "feed_href": feed_href(entity, query),
         }
     )
     return templates.TemplateResponse(request, "alerts/new.html", context, status_code=status_code)
@@ -331,9 +341,9 @@ def alerts_new(request: Request) -> Response:
     api = get_api(request)
     cookies = _cookie(request)
     me = _me(api, cookies)
-    if me is None:
-        return _signin(request, next_url=_this_url(request))
     qp: QueryParams = request.query_params
+    if me is None:
+        return _signin(request, next_url=_this_url(request), feed=feed_href(_entity(qp.get("entity")), qp))
     entity = _entity(qp.get("entity"))
     query = resolve_org_references(api, saved_search_query(entity, qp, origin=qp.get("origin")))
     # A page that knows a better name than the filters suggest passes it (the company page's
