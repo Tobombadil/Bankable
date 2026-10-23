@@ -607,6 +607,10 @@ def test_caddy_serves_exactly_the_dns_host_names(tmp_path: pathlib.Path, environ
     expect(server["trusted_proxies"]["ranges"] == CLOUDFLARE_RANGES, server["trusted_proxies"])
 
 
+#: How long Caddy may take to issue every host's local certificate once it listens.
+CERTIFICATE_WAIT_S = 60
+
+
 class LiveCaddy:
     def __init__(self, port: int, log: pathlib.Path) -> None:
         self.port = port
@@ -688,15 +692,23 @@ def _running_caddy(
         caddy = LiveCaddy(https_port, log)
         # Listening is not ready: Caddy issues each host's local certificate after it binds, and a
         # handshake before that fails with an internal-error alert (seen 2026-10-10 as a flaky first
-        # request). Wait until every host completes a TLS handshake; any HTTP status will do.
+        # request). Wait until every host completes a TLS handshake; any HTTP status will do. The
+        # certificates get their own budget: on a loaded CI runner (PR #94, 2026-10-23: the core job
+        # took 23 min, not 13) four issuances outlasted the 20 s that binding had left them.
+        deadline = time.monotonic() + CERTIFICATE_WAIT_S
         for host in HOSTS["production"]:
             while True:
                 try:
                     caddy.request(host, "/health")
                     break
                 except httpx.ConnectError:
-                    expect(time.monotonic() < deadline, f"no certificate for {host} within 20 s")
-                    time.sleep(0.1)
+                    if process.poll() is not None:
+                        raise AssertionError(f"caddy exited: {log.read_text()[-2000:]}") from None
+                    expect(
+                        time.monotonic() < deadline,
+                        f"no certificate for {host} within {CERTIFICATE_WAIT_S} s: {log.read_text()[-2000:]}",
+                    )
+                    time.sleep(0.2)
         yield caddy
     finally:
         process.terminate()
