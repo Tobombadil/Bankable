@@ -786,3 +786,17 @@ def test_counties_are_listed_for_one_state_and_asked_for_across_many(
     assert [c["county_fips"] for c in ok["counties"]] == ["40109"] and ok["counties_need_state"] is False
     tx = _get(client, **every, state="TX")["meta"]["site_finder"]["summary"]["facets"]
     assert {c["state_code"] for c in tx["counties"]} == {"US-TX"}
+
+
+def test_health_says_whether_the_site_finder_has_a_run_to_show(
+    factory: sessionmaker[Session], client: TestClient
+) -> None:
+    """`GET /v1/health` `site_finder` (the public navigation lists the finder only when `computed`):
+    true with a finished run that has segments, false once there is none."""
+    finder = client.get("/v1/health").json()["site_finder"]
+    assert finder["computed"] is True and finder["segments"] > 0
+    with factory() as db:
+        db.execute(sa.delete(SiteCandidate))
+        db.execute(sa.delete(SiteFinderRun))
+        db.commit()
+    assert client.get("/v1/health").json()["site_finder"] == {"computed": False, "segments": 0}

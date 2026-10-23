@@ -52,7 +52,7 @@ from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.beta import feedback_href
-from web.page import get_lag_days, paid_tiers_offered
+from web.page import get_lag_days, paid_tiers_offered, site_finder_listed
 from web.viewmodels import footer_build as vm_footer_build
 from web.viewmodels import source_freshness as vm_source_freshness
 from web.viewmodels import web_relative_url
@@ -86,6 +86,7 @@ templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 # The navigation leaves "Pricing" out under the noncommercial posture (`web/page.py`).
 templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
+templates.env.globals["site_finder_listed"] = site_finder_listed
 templates.env.globals["beta_feedback_href"] = feedback_href  # web/beta.py, as in web/page.py
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 # The header, tier notice and footer state how current the sources are (web/viewmodels.py).

@@ -115,12 +115,12 @@ def test_noncommercial_leaves_pricing_out_of_the_navigation(
     nav = resp.text.split('aria-label="Primary"', 1)[1].split("</nav>", 1)[0]
     assert 'href="/pricing"' not in nav, path
     assert NAV_LINK not in resp.text, path
-    # The rest of the navigation is unchanged: the seven section links (docs/16 §3.1; docs/25), with About &
-    # sources beside the freshness line rather than among them.
+    # The rest of the navigation is unchanged: the section links (docs/16 §3.1; docs/25), with About &
+    # sources beside the freshness line rather than among them. This store has no site-finder run, so
+    # the site finder is not listed (`site_finder_listed`, web/page.py).
     hrefs = re.findall(r'<a href="([^"]+)"(?: aria-current="(?:page|true)")?>', nav)
-    assert hrefs[:7] == [
+    assert hrefs[:6] == [
         "/",
-        "/site-finder",
         "/proposals",
         "/organizations",
         "/opportunities",

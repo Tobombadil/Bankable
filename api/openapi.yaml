@@ -16411,6 +16411,19 @@ components:
               items:
                 type: string
                 enum: [daily, weekly]
+        site_finder:
+          type: [object, 'null']
+          description: >-
+            Whether the site finder (`GET /v1/site-finder`, docs/25 §7) has a finished run with
+            segments to serve: `computed` is true only then, and the public navigation lists the
+            site finder only then. Null when the database check failed, or before migration 0039.
+          required: [computed, segments]
+          properties:
+            computed:
+              type: boolean
+            segments:
+              type: integer
+              minimum: 0
     IntakeContact:
       type: object
       description: Submitted personal data — stored on the task and in the CRM, never on `organization`; deletable (docs/21 C-7).

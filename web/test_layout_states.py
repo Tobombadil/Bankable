@@ -85,6 +85,8 @@ HEALTH: dict[str, Any] = {
     "data_as_of": "2026-09-01",
     "live_as_of": "2026-09-15T00:00:00Z",
     "lag_days_default": {"supply": 0, "opportunities": 0},
+    # A finished site-finder run, so the primary navigation lists it (`site_finder_listed`).
+    "site_finder": {"computed": True, "segments": 120699},
 }
 VOCAB: dict[str, Any] = {
     "data": {
@@ -776,6 +778,24 @@ def test_the_primary_nav_is_seven_sections_in_order_and_marks_where_the_reader_i
     assert {href: mark for href, mark, _ in links[:7] if mark} == current, path
     # After the seven: Pricing where the posture offers it, then Sign in. Nothing else.
     assert [href for href, _, _ in links[7:]] in (["/login"], ["/pricing", "/login"]), path
+
+
+@pytest.mark.parametrize("finder", [None, {"computed": False, "segments": 0}])
+def test_the_site_finder_is_not_listed_until_it_has_a_run_to_show(
+    lists: FakeTransport, finder: dict[str, Any] | None
+) -> None:
+    """Owner, 2026-10-22: no empty sections. Without a finished run with segments (`GET /v1/health`
+    `site_finder`, or an API that does not report it), the bar shows the six other sections and the
+    page still answers by URL."""
+    health = {k: v for k, v in HEALTH.items() if k != "site_finder"}
+    if finder is not None:
+        health["site_finder"] = finder
+    lists.responses["/v1/health"] = (200, health)
+    with TestClient(web_app) as client:
+        html = client.get("/proposals").text
+    links = _links(_primary_nav(html))
+    assert [(href, text) for href, _, text in links[:6]] == [p for p in PRIMARY if p[0] != "/site-finder"]
+    assert all(href != "/site-finder" for href, _, _ in links)
 
 
 @pytest.mark.parametrize(
