@@ -1266,7 +1266,10 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             assert tablet.locator("#filters").is_visible()
             assert tablet.locator("[data-filter-toggle]").is_hidden()
 
-            page = browser.new_page(viewport={"width": 400, "height": 800})
+            # Reduced motion makes the Key's reveal one instant scroll (map.js `revealPanelBelowMap`), as in
+            # the key test below: a smooth scroll a slow runner cuts short is not repeated, which timed out
+            # `_KEY_IN_VIEW` on PR #97's CI (2026-10-23) while the same test passed locally and on PR #96.
+            page = browser.new_page(viewport={"width": 400, "height": 800}, reduced_motion="reduce")
             _install_offline_routes(page)
             _ok_ui_events(page)
             page.route(
