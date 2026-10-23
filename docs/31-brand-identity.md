@@ -185,10 +185,14 @@ zoom^-0.8.
   paths, not live text, so the dot cannot drift with font loading. Variant B (mation in slate) is the one-token
   alternative; C (mation in evergreen) was rejected because green is the data colour; D (mation bold) was tried
   and flipped back.
-- **Mark (app icon and favicon).** The information i: a navy rounded square (radius 20% of the side) with a white
-  i stem and the orange round dot, legible at 16px where the old needle-over-stem faded. In the product UI the
-  "information" control is labelled in words ("About this map"), never with an i glyph, so the logo and a control are
-  never confused.
+- **Mark (app icon, favicon, social avatar).** The information sign: a circle with the i knocked out of it and the
+  orange round dot (owner, 2026-10-23: "do the circle around the i for the logos, for information"). Light: a navy
+  `#0b1023` circle, white stem, orange `#e68023` dot. Dark: a `#eef1f5` circle, `#0e0f11` stem, the same orange dot.
+  Geometry on a 16-unit grid: circle radius 8; dot centre (8, 4.55), radius 1.75; stem 2.8 wide from y 7.35 to 13.25,
+  corner radius 0.5. Legible at 16px. Where it appears: favicon, app icon, social profile images, and the share card
+  beside the wordmark. Not in the top bar: there the wordmark's own orange dot already carries the i, and a second
+  orange dot beside it doubles the accent. Never inside the word (a circled i in the wordmark reads as an "info"
+  button and breaks the word). In the product UI an information control is labelled in words, never with an i glyph.
 - **Lockup.** The wordmark, then "a Compass company" in Geist 500, `--text-muted`, at 0.58 of the wordmark's size. It
   sits on the wordmark's baseline, 14px after it. The accessible name is "Inframation, a Compass company".
 - **Endorsement.** The footer and About carry "Inframation is a Compass company. Compass International Trading
