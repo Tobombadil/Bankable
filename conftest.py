@@ -203,7 +203,12 @@ LATENCY_TESTS = (
 #: Under `pytest -n N --dist loadgroup` they share one worker, so two browsers and two app servers
 #: never compete for the same CPUs (or ports: the PMTiles proof server and the alerts e2e server
 #: both default to 8798).
-BROWSER_TESTS = ("web/test_e2e.py", "web/test_e2e_alerts.py", "web/test_csp_browser.py")
+BROWSER_TESTS = (
+    "web/test_e2e.py",
+    "web/test_e2e_alerts.py",
+    "web/test_e2e_companies.py",
+    "web/test_csp_browser.py",
+)
 
 
 @pytest.hookimpl(tryfirst=True)
