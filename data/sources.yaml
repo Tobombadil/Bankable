@@ -3166,12 +3166,12 @@ sources:
   cadence: semi-annual/quarterly
   license: 'GEM Download Data page, retrieved 2026-09-12 — "When the data set is being shared or adapted and our Creative Commons CC BY 4.0 International license applies, please read the license for attribution requirements"; records carrying a TZ ID are "Distributed under a Creative Commons Attribution-Non-Commercial 4.0 International License (CC BY-NC 4.0)"'
   reuse: attribution
-  publication: raw_ok
+  publication: none
   licence_url: "https://creativecommons.org/licenses/by/4.0/"
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-12, result: ok}
+  verified: {date: 2026-10-23, result: ok, note: 'terms re-read (docs/06 §1); publication none until an in-file notice is recorded'}
   notes: >-
     Best free global backbone for announced/pre-construction projects outside the US. Lags months; use as
     spine, not feed. Use the recommended citation per tracker and release. DROP at ingest any row whose Other
@@ -3192,6 +3192,46 @@ sources:
     candidate) and rejected here: the connector does not currently retain those rows in any form the
     posture could publish, so creating the class assignment would record a reuse right this platform does
     not exercise.
+    2026-10-23 (docs/06 §1): of the nine power-tracker pages only Solar states CC BY 4.0 in prose, and conditionally
+    ('When … license applies … Necessary attribution elements are included in our data download files'); the 'unless
+    otherwise noted' and 'commercial exemption' wording is gone and /commercial-exemption/ redirects to the CC BY
+    4.0 text. Nothing from this row is loaded until an in-file notice of the release being loaded is recorded; then
+    raw_ok returns. TransitionZero rows are excluded from every use, internal and the owner's deals included
+    (docs/06 §1.5).
+- id: global.gem.gipt
+  name: Global Energy Monitor — Global Integrated Power Tracker (unit-level power plants, eight technologies, all statuses)
+  jurisdiction: global
+  category: registry
+  operator: Global Energy Monitor (non-profit)
+  url: https://globalenergymonitor.org/projects/global-integrated-power-tracker
+  access: bulk_file
+  auth: 'download form (name, email, organisation, sector, use, licence acknowledgement); submitted by a person, never by an agent or a connector (docs/06 §1.7)'
+  format: xlsx (zip)
+  cadence: rolling, after each underlying tracker release (September 2026 release on 2026-10-23)
+  license: 'No licence prose on the dataset page (retrieved 2026-10-23); the page gives only "The recommended citation is "Global Integrated Power Tracker, Global Energy Monitor, September 2026 release."" GEM''s download form requires "I have reviewed and understand Global Energy Monitor''s Creative Commons Public License" and records "Creative Commons Attribution 4.0 International (CC BY 4.0) — /creative-commons-license" (https://api.globalenergymonitor.org/static/gem-download-form.bundle.js, sha256 e5ecbeab…905e5b, retrieved 2026-10-23). The Solar tracker page''s CC BY sentence is conditional ("When … our Creative Commons CC BY 4.0 International license applies … Necessary attribution elements are included in our data download files"). https://globalenergymonitor.org/commercial-exemption/ answers 301 to the CC BY 4.0 legal code. In-file notice unread.'
+  licence_url: https://creativecommons.org/licenses/by/4.0/
+  reuse: attribution
+  publication: none
+  attribution: 'Global Integrated Power Tracker, Global Energy Monitor, September 2026 release (https://globalenergymonitor.org/projects/global-integrated-power-tracker), CC BY 4.0'
+  changes_statement: "Modified by Inframation: TransitionZero-sourced rows removed; statuses and technologies mapped to Inframation's vocabulary; figures aggregated."
+  tier: 2
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-23, result: ok, note: 'terms review only (docs/06 §1); no form submitted, no file downloaded'}
+  notes: >-
+    Nothing is loaded until the in-file notice is recorded (docs/06 §1.7); then publication becomes derived_only, or
+    raw_ok if the notice confirms CC BY 4.0 for the rows. Global pipeline figures beside Ember's operating figures,
+    never mixed as one measure (2026-10-23 row). TransitionZero rows (CC BY-NC 4.0) are excluded from every use,
+    the internal tier and the owner's deals included: drop rows with "TZ" in Other IDs, or GIPT solar rows matched
+    to the Solar tracker's TZ rows; where matching is not reliable GIPT solar is left out (solar from the Solar
+    tracker with its TZ rows dropped and its own citation, or none), never derived_only (docs/06 §1.5). Never
+    ingest gem.wiki prose; drop any column named for a proprietary source. GEM's Google-Sheets summary tables are
+    not this source and are not used until GEM confirms their licence (docs/06 §1.8 question 5). attribution names
+    the release: update it with each release, and changes_statement too if solar came from the Solar tracker. Hold
+    before paid use: GEM's written answer to docs/06 §1.8 question 1 is recorded here before a paid tier or the
+    commercial posture (docs/26) uses this row (a recommendation, not a licence condition). A person downloads each
+    release; no connector replays the form.
+
 
 - id: global.gem.ownership_tracker
   name: Global Energy Monitor — Global Energy Ownership Tracker (entity, ownership-relationship and asset chains)
@@ -4069,6 +4109,136 @@ sources:
     gate (fix round 2026-10-23). Accounts drawn on one outline (a land and a mobile-home account, undivided
     interests) count once in a holding's acres; right-of-way strips, exempt and utility land are counted but left out
     of the site finder's acreage figures (docs/25-siting-parcels.md §8.3).
+- id: us.nc.nconemap.parcels
+  name: NC OneMap NC Parcels (statewide standardized parcels, 100 counties and the Eastern Band of Cherokee Indians), for the site finder's land parcels
+  jurisdiction: US-NC
+  category: land
+  operator: NC Department of Information Technology, Center for Geographic Information and Analysis (NC OneMap)
+  url: https://www.nconemap.gov/pages/parcels
+  access: bulk_file
+  auth: none
+  format: 'statewide zip, file geodatabase (nc-parcels-gdb-most-recent.zip, 2,307,182,458 bytes, 2026-08-11) or GeoPackage (3,269,152,493 bytes) at https://dit-cgia-gis-data.s3.amazonaws.com/NCOM-data/parcels/; per-county zips beside them'
+  cadence: quarterly statewide snapshot; counties upload at least quarterly
+  license: 'NC OneMap terms (https://www.nconemap.gov/pages/terms, retrieved 2026-10-23): "committed to offering access to current State geospatial information at no charge. By sharing their content, all partner organizations understand this free and unrestricted use policy." "Written release agreements to authorize use of the geospatial data, web services, and applications found on the NC OneMap website are not required and will not be issued." "Any sale of this data must not violate applicable state laws or regulations."'
+  licence_url: https://www.nconemap.gov/pages/terms
+  reuse: open
+  publication: derived_only
+  attribution: 'NC OneMap (2019). North Carolina Department of Information Technology, Government Data Analytics Center, Center for Geographic Information and Analysis. Available at www.nconemap.gov. Data from North Carolina counties and the Eastern Band of Cherokee Indians.'
+  tier: 2
+  effort: M
+  verified: {date: 2026-10-23, result: ok, note: 'terms review, schema and aggregate counts only (docs/06 §2.2): 5,938,900 parcels, 100 counties, latest transform per county 2025-03-25 to 2026-06-01; no record downloaded'}
+  notes: >-
+    Same rule as us.tx.txgio.parcels, through an explicit allowlist (docs/06 §2.2), never "every column except":
+    stored parno, nparno, altparno, cntyname, stcntyfips, parusecode, parusedesc, landval, parval, improvval,
+    parvaltype, transfdate and the geometry; ownname read in memory only to group holdings, then dropped;
+    subowntype only as a split-estate yes/no; subsurfown (the subsurface owner's name) is never read or stored; no
+    other column is read. Acres from geometry (the state does not compute gisacres). attribution is NC OneMap's
+    requested citation. N.C.G.S. 132-10 lets a county condition copies it furnishes; the state's aggregate carries
+    no such condition (docs/06 §2.2).
+
+- id: us.wi.sco.parcels
+  name: Wisconsin Statewide Parcel Map (V12, DOA WLIP and State Cartographer's Office), for the site finder's land parcels
+  jurisdiction: US-WI
+  category: land
+  operator: Wisconsin Department of Administration, Wisconsin Land Information Program; built by the State Cartographer's Office
+  url: https://www.sco.wisc.edu/parcels/data/
+  access: bulk_file
+  auth: none
+  format: statewide download from the SCO data page (format and size recorded at download; host unreachable from the agent sandbox); hosted service https://services3.arcgis.com/n6uYoouQZW75n5WI/arcgis/rest/services/Wisconsin_Statewide_Parcels_DB/FeatureServer
+  cadence: annual (V12 released 2026-06-23; V13 tentatively 2027-06-30)
+  license: 'Item licenseInfo (https://www.arcgis.com/home/item.html?id=2386813b23ea4e51a009f7d1d6b76e02, retrieved 2026-10-23): "This data free for public consumption as of: 06/30/2026"; county items add "No warranty, expressed or implied, is made regarding accuracy, completeness, or legality of the information herein." The SCO data page''s own terms are unread.'
+  licence_url: https://www.arcgis.com/home/item.html?id=2386813b23ea4e51a009f7d1d6b76e02
+  reuse: open
+  publication: derived_only
+  attribution: 'Source: Wisconsin Statewide Parcel Map Database Project (V12), Wisconsin State Cartographer''s Office and the Wisconsin Land Information Program, Department of Administration'
+  tier: 2
+  effort: M
+  verified: {date: 2026-10-23, result: partial, note: 'terms review, schema and aggregate counts only (docs/06 §2.3): 3,574,646 parcels, 72 counties; SCO download host unreachable (TLS verification failed)'}
+  notes: >-
+    Through an explicit allowlist (docs/06 §2.3): stored STATEID, PARCELID, TAXPARCELID, CONAME, PARCELFIPS,
+    PROPCLASS, AUXCLASS, GISACRES, DEEDACRES, ASSDACRES, CNTASSDVALUE, LNDVALUE, IMPVALUE, ESTFMKVALUE, TAXROLLYEAR,
+    PARCELDATE, LOADDATE and the geometry; OWNERNME1 read in memory only; "NOT AVAILABLE" and blanks are never one
+    owner; no other column is read. Kenosha withholds all names (no holdings there). Wis. Stat. 757.07(4m)
+    (judicial opt-out) concerns showing or searching names; we do neither. The SCO data page's terms were not read:
+    whoever downloads the file reads that page and any licence or readme in the download and records them here
+    before the file is used. Hold before paid use: WLIP's or SCO's written confirmation that "free for public
+    consumption" covers a paid product (docs/06 §2.8) is recorded here before Site finder Pro sells Wisconsin
+    parcels or the posture flips to commercial (docs/26).
+
+- id: us.fl.dor.parcels
+  name: Florida Department of Revenue statewide cadastral (67 county property appraisers), for the site finder's land parcels
+  jurisdiction: US-FL
+  category: land
+  operator: Florida Department of Revenue, Property Tax Oversight; published by the Florida Geographic Information Office
+  url: https://www.arcgis.com/home/item.html?id=efa909d6b1c841d298b0a649e7f71cf2
+  access: bulk_file
+  auth: none
+  format: 'zip https://publicfiles.dep.state.fl.us/otis/gis/data/Cadastral_Statewide.zip (2,768,353,501 bytes, Last-Modified 2026-10-23)'
+  cadence: annual (August), minor maintenance May and November
+  license: 'Item licenseInfo (retrieved 2026-10-23): "The Department does not generate or maintain the data used to compile this statewide parcel map. The Department does not guarantee the accuracy, or completeness, or the compliance with public records laws of this parcel GIS data. The data is owned and maintained by each Florida county''s property appraiser''s office". No licence. Microdecisions, Inc. v. Skinner (Fla. 2d DCA 2004): a property appraiser may not require a licensing agreement of commercial users of public-record GIS maps.'
+  reuse: unknown
+  publication: none
+  tier: 2
+  effort: M
+  verified: {date: 2026-10-23, result: partial, note: 'terms review, schema and a count only (docs/06 §2.4): 10,950,670 parcels; the state GIO asked UF to remove its parcel copies (reason not found)'}
+  notes: >-
+    Held until the Florida GIO answers docs/06 §2.8 question 3; then permissive / derived_only. Through an explicit
+    allowlist (docs/06 §2.4): stored PARCEL_ID, STATE_PAR_, CO_NO, ASMNT_YR, DOR_UC, PA_UC, JV, LND_VAL, LND_SQFOOT,
+    PUBLIC_LND and the geometry; OWN_NAME read in memory only; no other column is read (in particular no owner,
+    fiduciary or situs address, no S_LEGAL, no OR_BOOK/OR_PAGE/CLERK_NO deed reference, no homestead, exemption or
+    special-circumstance field). DOR asks to be told of any inadvertently released confidential record
+    (850-717-6570).
+
+- id: us.oh.ogrip.parcels
+  name: Ohio Statewide Parcels Public View (OGRIP), for the site finder's land parcels (acreage and land use; no holdings)
+  jurisdiction: US-OH
+  category: land
+  operator: Ohio Geographically Referenced Information Program, Department of Administrative Services
+  url: https://ohioparcels-geohio.hub.arcgis.com
+  access: api
+  auth: none
+  format: hosted feature service only (maxRecordCount 2,000; about 3,200 pages statewide); no prepared statewide file found
+  cadence: annual county collection (item "Updated Jan 21, 2024"; layer edited 2026-09-23)
+  license: 'Item licenseInfo (https://www.arcgis.com/home/item.html?id=26ab5fad8d5d4258a7492a14de83bc0e, retrieved 2026-10-23): "The State of Ohio''s geospatial data are available for public use at the user''s own risk and provided for informational purposes only."'
+  licence_url: https://www.arcgis.com/home/item.html?id=26ab5fad8d5d4258a7492a14de83bc0e
+  reuse: open
+  publication: derived_only
+  attribution: 'Source: Ohio Geographically Referenced Information Program (OGRIP), Ohio Statewide Parcels; data from Ohio county auditors'
+  tier: 3
+  effort: M
+  verified: {date: 2026-10-23, result: partial, note: 'terms review, schema and aggregate counts only (docs/06 §2.5): 6,313,610 parcels, 88 counties; 637,109 rows without an export date'}
+  notes: >-
+    Through an explicit allowlist (docs/06 §2.5): stored County, LocalParcelID, StateParcelID, StateLUC, CurrentTo
+    and the geometry (acres computed from it), and CAMADataSite as the link to the county's record; no other column
+    is read. No owner name in the public view (OwnerAll is withheld), and the Mail* and situs fields are never read,
+    so no same-owner holdings in Ohio. LandArea has no stated unit and is not read until OGRIP states it. ODNR's
+    parcel layers (OWNER1/OWNER2) are not used. Build only after OGRIP provides a file (docs/06 §2.8 question 4); do
+    not page the service. Hold before paid use: OGRIP's answer that the "public use" terms cover a paid product is
+    recorded here before Site finder Pro sells Ohio parcels or the posture flips to commercial (docs/26).
+
+- id: us.va.vgin.parcels
+  name: VGIN Virginia Parcels (VBMP statewide parcel geometry and local schema tables)
+  jurisdiction: US-VA
+  category: land
+  operator: Virginia Geographic Information Network, Department of Emergency Management
+  url: https://www.arcgis.com/home/item.html?id=29627d7c051a47dc8ce71b4484531ab3
+  access: bulk_file
+  auth: none
+  format: file geodatabase (991,292,611 bytes, "2026 Q3 Product") plus local schema tables (373,316,934 bytes)
+  cadence: 'quarterly product label ("2026 Q3 Product"); localities "are encouraged to submit data bi-annually"'
+  license: 'Disclaimer only on the item (retrieved 2026-10-23). Appropriation Act 2026 Sp. Sess. I, HB30 Ch. 1, Item 403 B: "Distribution of the data for commercial or private use or to users outside the Commonwealth will be the sole responsibility of VGIN or its agent(s) and shall require payment of a license fee to be determined by VGIN" (VBMP data; parcels not named).'
+  reuse: unknown
+  publication: none
+  notice: 'Any determination of topography or contours, or any depiction of physical improvements, property lines or boundaries is for general information only and shall not be used for the design, modification, or construction of improvements to real property or for flood plain determination.'
+  tier: 3
+  effort: L
+  verified: {date: 2026-10-23, result: partial, note: 'terms review, schema and aggregate counts only (docs/06 §2.6): 4,174,364 parcels; 132 of 133 localities (Rappahannock missing)'}
+  notes: >-
+    Held until VGIN answers whether Item 403 B covers parcels (docs/06 §2.8 question 5); restricted if it does. The
+    statewide layer has no owner, acreage or use. Through an explicit allowlist (docs/06 §2.6): VGIN_QPID, FIPS,
+    LOCALITY, PARCELID, PTM_ID, LASTUPDATE and the geometry; the local schema tables are not read until VGIN
+    answers, and then only through a per-locality allowlist.
+
 
 - id: us.fcc.bdc.fixed_summary
   name: FCC Broadband Data Collection — fixed broadband Summary by Geography Type (national file; county fiber-to-the-premises availability)
