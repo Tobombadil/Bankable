@@ -121,7 +121,8 @@ jobs:
   test-core:
     name: pytest (pipeline, services, tests — excludes web, see header note)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 13 min on main at c447e34, 23-24 min on two PR #94 runners (2026-10-23): a hang guard, not a budget.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -183,7 +184,9 @@ jobs:
   test-web:
     name: pytest (web) — isolated job, see header note
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # `make browsers` (Playwright's apt dependencies) took 11 min on main at c447e34 and 15 on a PR #94
+    # runner (2026-10-23), which the 20-minute limit cancelled with the tests 93 % done (6 min).
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
