@@ -398,6 +398,98 @@ def retention_tick_job(
     return data
 
 
+# ===================================================================== the daily metrics snapshot
+# Lane metrics-recorder (owner, 2026-10-23: "If we can track any of these numbers over time as well
+# then that would be compelling"; docs/24-trends.md). Each day not recorded is lost, so the job runs
+# every hour and writes at most once a day: the `daily` run measures at 05:58 UTC and replaces the
+# day's document; every other hour's `fill` run writes today's only if it is still missing once that
+# time has passed, which is the first run after a deploy that missed 05:58 (Procrastinate defers a
+# missed periodic job only within 10 minutes, `procrastinate.periodic.MAX_DELAY`), or after a failed
+# daily run. Why 05:58: after the daily fetch bucket (03:07) and its load, resolve, enrich and match
+# chain, the weekly bucket (Monday 04:13), the daily `tick_resolve` (04:37) and the visibility audit
+# (04:52); the monthly bucket's EIA-860M fetch (the 1st, 05:21) loads in under a minute (docs/64 §4:
+# a load 23.6 s), so it is in that day's figures too. Minute 58 is used by no other tick.
+
+#: When the `daily` run measures, UTC; `infra/scheduler/app.py` builds the hourly cron from the minute.
+TRENDS_DAILY_AT = dt.time(5, 58)
+TRENDS_DAILY = "daily"
+TRENDS_FILL = "fill"
+TRENDS_MODES = (TRENDS_DAILY, TRENDS_FILL)
+
+
+def trends_mode_for(timestamp: int) -> str:
+    """The mode of the hourly tick scheduled at `timestamp` (Unix seconds, as Procrastinate passes it):
+    `daily` at `TRENDS_DAILY_AT`'s hour, `fill` at every other."""
+    hour = dt.datetime.fromtimestamp(timestamp, tz=dt.UTC).hour
+    return TRENDS_DAILY if hour == TRENDS_DAILY_AT.hour else TRENDS_FILL
+
+
+def trends_tick_job(
+    mode: str = TRENDS_DAILY,
+    *,
+    _session_factory: Any = None,
+    now: dt.datetime | None = None,
+    data_root: Path | None = None,
+    env: Mapping[str, str] | None = None,
+    _mirror: Any = None,
+) -> dict[str, Any]:
+    """Body of the `trends_tick` task: today's document (`services.trends.snapshot.compute_snapshot`,
+    the store as the public tier serves it), written under the connector data root
+    (`services.trends.store.TrendStore`), then every document the private bucket lacks uploaded
+    (`sync_uploads`). `daily` always writes; `fill` writes only when today's document is missing and
+    `TRENDS_DAILY_AT` has passed (section comment). The upload never fails the job: an unreachable or
+    unconfigured object store leaves the local file, and the next run retries it. A failed
+    computation does raise, so the job shows as failed, and the next hour's `fill` is its retry. The
+    job result and the log line carry counts and paths only, never the document. `_mirror` (a
+    `services.trends.store.MirrorConfig`) is the test seam for the object store."""
+    import time
+
+    from services.trends.snapshot import compute_snapshot
+    from services.trends.store import TrendStore, document_bytes, mirror_from_env, sync_uploads
+
+    if mode not in TRENDS_MODES:
+        raise ValueError(f"trends_tick mode {mode!r}: expected one of {', '.join(TRENDS_MODES)}")
+    at = (now or _utcnow()).astimezone(dt.UTC)
+    store = TrendStore(data_root or connector_data_root())
+    day = at.date()
+    data: dict[str, Any] = {"mode": mode, "as_of": day.isoformat(), "written": False}
+    if mode == TRENDS_FILL and store.exists(day):
+        data["skipped"] = "today's document exists"
+    elif mode == TRENDS_FILL and at.time() < TRENDS_DAILY_AT:
+        data["skipped"] = f"before the daily run ({TRENDS_DAILY_AT.isoformat(timespec='minutes')} UTC)"
+    else:
+        factory = _session_factory if _session_factory is not None else build_session_factory()
+        started = time.perf_counter()
+        try:
+            with factory() as session:
+                document = compute_snapshot(session, now=at)
+            path = store.write(document)
+        except Exception:
+            # The documents already written still reach the bucket; then the job fails loudly.
+            sync_uploads(store, _mirror if _mirror is not None else mirror_from_env(env))
+            raise
+        data.update(
+            written=True,
+            path=str(path),
+            bytes=len(document_bytes(document)),
+            seconds=round(time.perf_counter() - started, 3),
+            proposals_active=document["metrics"]["proposals"]["active"]["total"]["records"],
+            events_counted=document["metrics"]["activity"]["counted"]["events"],
+            sources=len(document["sources"]),
+        )
+    upload = sync_uploads(store, _mirror if _mirror is not None else mirror_from_env(env))
+    data["upload"] = upload
+    _log_report(
+        "trends_tick",
+        {
+            **{k: v for k, v in data.items() if k not in ("upload", "path")},
+            "upload_status": upload.get("status"),
+            "uploaded": upload.get("uploaded"),
+        },
+    )
+    return data
+
+
 # ============================================================================ the closed loop
 # Audit 2026-09-18 §3.1 "the always-on loop is not a loop" / §4 item 2: until this landed the
 # scheduled path ended at `python -m pipeline.connectors run <id>` — a JSON file under
