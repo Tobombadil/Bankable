@@ -224,6 +224,74 @@ def test_logout_clears_cookie_and_account_then_redirects_to_login(web_client: Te
     assert account_resp.headers["location"] == "/login?next=/account"
 
 
+#: How Chromium posts a form from a page served with `Referrer-Policy: no-referrer` (the My pipeline
+#: pages, `web/my_projects.py`): `Origin: null`, no `Referer`, and its own `Sec-Fetch-Site`.
+NO_REFERRER_FORM = {"origin": "null", "sec-fetch-site": "same-origin"}
+
+
+def test_sign_out_from_a_no_referrer_page_signs_out(web_client: TestClient) -> None:
+    """Review of lane nav-shell (2026-10-23): the header's Sign out on /my posted with `Origin: null`
+    and was refused (403, session cookie kept). The browser's own `Sec-Fetch-Site: same-origin` now
+    passes, as it does for the My pipeline forms; a cross-site or unlabelled post still fails closed."""
+    web_client.post(
+        "/register",
+        data={"email": "nora@example.com", "password": "correct horse battery"},
+        headers=ORIGIN,
+    )
+    assert web_client.cookies.get("session")
+    for headers in (
+        {"origin": "null"},
+        {"origin": "null", "sec-fetch-site": "cross-site"},
+        {"origin": "null", "sec-fetch-site": "same-site"},
+        {"origin": "https://elsewhere.example", "sec-fetch-site": "same-origin"},
+        {"sec-fetch-site": "none"},
+        {},
+    ):
+        refused = web_client.post("/logout", headers=headers, follow_redirects=False)
+        assert refused.status_code == 403, headers
+        assert web_client.get("/account", follow_redirects=False).status_code == 200, headers
+
+    resp = web_client.post("/logout", headers=NO_REFERRER_FORM, follow_redirects=False)
+    assert resp.status_code == 303 and resp.headers["location"] == "/"
+    assert not web_client.cookies.get("session")
+    assert web_client.get("/account", follow_redirects=False).status_code == 303
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"origin": "http://testserver"},
+        {"referer": "http://testserver/my"},
+        NO_REFERRER_FORM,
+        {"sec-fetch-site": "same-origin"},
+        {"origin": "null"},
+        {"origin": "null", "sec-fetch-site": "cross-site"},
+        {"origin": "https://elsewhere.example", "sec-fetch-site": "same-origin"},
+        {"referer": "https://elsewhere.example/"},
+        {},
+    ],
+)
+def test_sign_out_accepts_exactly_what_the_my_pipeline_forms_accept(headers: dict[str, str]) -> None:
+    """`web/auth.py::_is_same_origin_form` (Sign out) and `web/my_projects.py::same_origin_form` (every
+    My pipeline form) cannot import each other, so this pins them to the same answer."""
+    from starlette.requests import Request
+
+    from web.auth import _is_same_origin_form
+    from web.my_projects import same_origin_form
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "scheme": "http",
+        "server": ("testserver", 80),
+        "path": "/logout",
+        "query_string": b"",
+        "headers": [(k.encode(), v.encode()) for k, v in {"host": "testserver", **headers}.items()],
+    }
+    request = Request(scope)
+    assert _is_same_origin_form(request) == same_origin_form(request)
+
+
 # -------------------------------------------------------------------------- auth.registered event
 def test_register_posts_auth_registered_event_with_layers_from_next(
     web_client: TestClient, db_sessionmaker: sessionmaker[Session]

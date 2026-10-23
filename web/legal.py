@@ -45,7 +45,7 @@ from web import labels
 from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.beta import feedback_href
-from web.page import get_lag_days, paid_tiers_offered, site_finder_listed
+from web.page import get_lag_days, nav_state, paid_tiers_offered, site_finder_listed
 from web.viewmodels import footer_build as vm_footer_build
 from web.viewmodels import source_freshness as vm_source_freshness
 
@@ -56,6 +56,7 @@ templates = Jinja2Templates(directory=str(_WEB_ROOT / "templates"))
 labels.install(templates.env)
 templates.env.globals["asset_version"] = ASSET_VERSION
 templates.env.globals["section_labels"] = labels.SECTION_LABELS
+templates.env.globals["section_titles"] = labels.SECTION_TITLES
 
 #: docs/40-launch-runbook.md §4 row 5 names this as the privacy-notice contact route; US-910 AC1
 #: is the deletion process it points to.
@@ -101,6 +102,8 @@ templates.env.globals["footer_lag_days"] = get_lag_days
 # The navigation leaves "Pricing" out under the noncommercial posture (`web/page.py`).
 templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 templates.env.globals["site_finder_listed"] = site_finder_listed
+# Navigation v2 (docs/30 §11): the header's session, posture and live pages (`web/page.py`).
+templates.env.globals["nav_state"] = nav_state
 templates.env.globals["beta_feedback_href"] = feedback_href  # web/beta.py, as in web/page.py
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 # The header, tier notice and footer state how current the sources are (web/viewmodels.py).

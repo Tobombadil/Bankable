@@ -11,9 +11,15 @@ its own stages, sorted by next deadline. The pages:
 - `/my/items/new`: the type first, then a short form. "Track" on a record page posts here with the
   record in the body, and the form comes back prefilled (`POST /v1/my/prefill`); `POST /my/items`
   creates the item.
-- `/my/items/{id}` and its URL tabs Overview · Linked records · Checklist · Notes · People (docs/30
-  §11.5; Documents arrives with data rooms). Opening any tab is a visit: the API stamps it, and the
-  Overview lists what changed on the linked records since the one before.
+- `/my/items/{id}` and its URL tabs Overview · Linked records · Checklist · Notes · People · Data room
+  (docs/30 §11.5; the Data room tab only while `DATA_ROOMS=on`). Opening any tab is a visit: the API
+  stamps it, and the Overview lists what changed on the linked records since the one before.
+- The Data room (docs/19 §3, "Data rooms, as built"): `/my/items/{id}/documents` (the folders with
+  their counts, upload, what is scanned), `…/documents/folders/{folder_id}` (a folder's files: name,
+  type, size, uploader, date; download and delete), `…/documents/log` (the owner's access log).
+  An upload is relayed to the API as the browser sent it, held in memory, never parsed or written to
+  this container's disk; a download is relayed back with the API's attachment headers, and the page
+  names the file through the link's `download` attribute so no response header carries the name.
 - `/my/invitations/accept?t=…`: who invited you, to what, and Accept (docs/19 §6.2).
 
 **Through the API only.** Every read and write is a `/v1/my/` call with the visitor's own session
@@ -43,6 +49,7 @@ import datetime as dt
 import hashlib
 import os
 import re
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Final
@@ -50,15 +57,20 @@ from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from web.api_client import ApiClient, ApiError, ApiResult
 from web.auth import _csrf_rejection, _is_same_origin
+from web.head_requests import is_head_request
 from web.labels import technology_label
 from web.page import get_api, templates
 
 #: The API's launch switch (`services/api/my_projects.py::MY_PIPELINE_ENV`), read the same way.
 MY_PIPELINE_ENV: Final = "MY_PIPELINE"
+#: The data room's own switch (`services/projects/data_room_store.py::ENV_SWITCH`), read the same way:
+#: off, the Data room tab is not shown and its pages are the unknown-address 404.
+DATA_ROOMS_ENV: Final = "DATA_ROOMS"
 SESSION_COOKIE_NAME: Final = "session"
 #: docs/19 §5.2 item 6, on every `/my/` response.
 PRIVATE_HEADERS: Final[Mapping[str, str]] = {
@@ -69,12 +81,13 @@ PRIVATE_HEADERS: Final[Mapping[str, str]] = {
 }
 ITEM_KINDS: Final = ("project", "bid", "investment")
 #: The item tabs (docs/30 §11.5), as URL path segments under `/my/items/{id}`.
-TABS: Final = (
+TABS: Final[tuple[tuple[str, str, str], ...]] = (
     ("overview", "Overview", ""),
     ("linked", "Linked records", "/linked"),
     ("checklist", "Checklist", "/checklist"),
     ("notes", "Notes", "/notes"),
     ("people", "People", "/people"),
+    ("documents", "Data room", "/documents"),
 )
 TAB_PATHS: Final = {key: suffix for key, _label, suffix in TABS}
 _PROJECT_ID = re.compile(r"prj_[0-9A-HJKMNP-TV-Z]{10,26}")
@@ -158,11 +171,24 @@ _DONE_NOTICES: Final[Mapping[str, str]] = {
     "member": "Saved.",
     "left": "You left that item.",
     "joined": "You joined this item.",
+    "uploaded": "File uploaded. Only this item's members can see it.",
+    "file_deleted": "File deleted.",
+    "folder_created": "Folder added.",
+    "folder_renamed": "Folder renamed.",
+    "folder_deleted": "Folder deleted, with the files in it.",
 }
 
 
 def pipeline_on() -> bool:
     return os.environ.get(MY_PIPELINE_ENV, "").strip().lower() == "on"
+
+
+def rooms_on() -> bool:
+    return pipeline_on() and os.environ.get(DATA_ROOMS_ENV, "").strip().lower() == "on"
+
+
+def _shown_tabs() -> tuple[tuple[str, str, str], ...]:
+    return tuple(tab for tab in TABS if tab[0] != "documents" or rooms_on())
 
 
 def switched_on() -> None:
@@ -625,6 +651,8 @@ def _item_page(
     error: dict[str, Any] | None = None,
     issued_link: str | None = None,
     status_code: int = 200,
+    room_view: str = "overview",
+    folder_id: str | None = None,
 ) -> Response:
     gate = _gate(request)
     if isinstance(gate, Response):
@@ -639,7 +667,7 @@ def _item_page(
     context: dict[str, Any] = {
         "item": item,
         "tab": tab,
-        "tabs": [(key, label, _tab_href(public_id, key)) for key, label, _suffix in TABS],
+        "tabs": [(key, label, _tab_href(public_id, key)) for key, label, _suffix in _shown_tabs()],
         "error": error,
         "done": _DONE_NOTICES.get(request.query_params.get("done", "")),
         "can_edit": item["role"] in ("owner", "editor") and not item["archived"],
@@ -689,9 +717,356 @@ def _item_page(
                 pending = api.get_result(f"/v1/my/projects/{public_id}/invitations", cookies=gate)
                 if pending.status_code == 200:
                     context["invitations"] = pending.body["data"]
+        elif tab == "documents":
+            failed = _room_context(api, gate, public_id, context, room_view=room_view, folder_id=folder_id)
+            if failed is not None:
+                return _failure(request, failed)
     except ApiError as exc:
         return _failure(request, ApiResult(exc.status_code, exc.body))
     return _page(request, "my/item.html", context, status_code=status_code)
+
+
+# -------------------------------------------------------------------------------- data room
+_FOLDER_ID = _ROW_ID
+#: An upload's body is read in memory and relayed, so it is bounded before it is read: the configured
+#: cap on one file (`DATA_ROOM_MAX_FILE_MB`, read as the API reads it:
+#: `services/projects/data_room_store.py::limits_from_env`) and the form around it
+#: (`UPLOAD_FORM_OVERHEAD`, the API's own margin). A setting the API would refuse falls back to the
+#: ceiling; the API then answers `503`.
+DATA_ROOM_MAX_FILE_MB_ENV: Final = "DATA_ROOM_MAX_FILE_MB"
+DEFAULT_MAX_FILE_MB: Final = 25
+MAX_FILE_MB_CEILING: Final = 50
+UPLOAD_FORM_OVERHEAD: Final = 64 * 1024
+#: Uploads this process reads and relays at once (each holds its body in memory until the API has
+#: answered); one more is told to try again rather than queued.
+RELAYED_UPLOADS: Final = 4
+_relay_slots = threading.BoundedSemaphore(RELAYED_UPLOADS)
+
+
+def upload_body_limit() -> int:
+    """The longest upload body this site reads (the comment above)."""
+    raw = os.environ.get(DATA_ROOM_MAX_FILE_MB_ENV, "").strip()
+    megabytes = DEFAULT_MAX_FILE_MB
+    if raw:
+        valid = raw.isdigit() and 1 <= int(raw) <= MAX_FILE_MB_CEILING
+        megabytes = int(raw) if valid else MAX_FILE_MB_CEILING
+    return megabytes * 1024 * 1024 + UPLOAD_FORM_OVERHEAD
+
+
+#: What a relayed transfer may take, end to end (a scanner reading a large file included).
+TRANSFER_TIMEOUT_SECONDS: Final = 120.0
+SCAN_LABELS: Final[Mapping[str, str]] = {"not_scanned": "Not scanned", "clean": "Scanned"}
+ACTION_WORDS: Final[Mapping[str, str]] = {
+    "viewed": "opened the folder",
+    "downloaded": "downloaded",
+    "uploaded": "uploaded",
+    "deleted": "deleted",
+    "upload_refused": "tried to upload",
+    "folder_created": "added the folder",
+    "folder_renamed": "renamed a folder to",
+    "folder_deleted": "deleted the folder",
+}
+
+
+def filesize(value: object) -> str:
+    """`812 bytes`, `14 KB`, `3.2 MB`, `1.0 GB`, in units of 1,024, the units the limits are set in
+    (`DATA_ROOM_MAX_FILE_MB=25` reads "25 MB")."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return ""
+    if value < 1024:
+        return f"{value} bytes"
+    for unit, size in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if value >= size:
+            amount = value / size
+            return f"{amount:.1f} {unit}" if amount < 10 else f"{amount:.0f} {unit}"
+    return f"{value} bytes"  # pragma: no cover - the loop always returns
+
+
+def _when_text(value: object) -> str:
+    """`23 Oct 2026, 14:05 UTC` from an API timestamp."""
+    if not isinstance(value, str):
+        return ""
+    try:
+        moment = dt.datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(dt.UTC)
+    except ValueError:
+        return value
+    return f"{moment.day} {moment.strftime('%b')} {moment.year}, {moment:%H:%M} UTC"
+
+
+def _document_view(document: Mapping[str, Any], public_id: str) -> dict[str, Any]:
+    return {
+        **document,
+        "size": filesize(document.get("size_bytes")),
+        "when": _when_text(document.get("uploaded_at")),
+        "scan_label": SCAN_LABELS.get(str(document.get("scan_status")), ""),
+        "href": f"/my/items/{public_id}/documents/files/{document['document_id']}/download",
+        "uploader": "You" if document.get("mine") else (document.get("uploaded_by") or {}).get("name"),
+    }
+
+
+def _room_context(
+    api: ApiClient,
+    cookies: dict[str, str],
+    public_id: str,
+    context: dict[str, Any],
+    *,
+    room_view: str,
+    folder_id: str | None,
+) -> ApiResult | None:
+    """The Data room tab's reads into `context`; the failed read, if one failed."""
+    room = api.get_result(f"/v1/my/projects/{public_id}/documents", cookies=cookies)
+    if room.status_code != 200:
+        return room
+    data: dict[str, Any] = room.body["data"]
+    quota = data.get("quota") or {}
+    limits = data.get("limits") or {}
+    context["room"] = data
+    context["room_view"] = room_view
+    context["quota_text"] = (
+        f"{filesize(quota.get('used_bytes'))} of {filesize(quota.get('limit_bytes'))}"
+        if quota.get("limit_bytes")
+        else filesize(quota.get("used_bytes"))
+    )
+    context["max_file_text"] = filesize(limits.get("max_file_bytes"))
+    context["accepted_text"] = ", ".join(str(t["label"]) for t in limits.get("accepted_types") or [])
+    if room_view == "folder" and folder_id is not None:
+        path = f"/v1/my/projects/{public_id}/documents/folders/{folder_id}"
+        listing = api.get_result(path, cookies=cookies)
+        if listing.status_code != 200:
+            return listing
+        context["folder"] = listing.body["data"]["folder"]
+        context["documents"] = [_document_view(d, public_id) for d in listing.body["data"]["documents"]]
+    elif room_view == "log":
+        log = api.get_result(f"/v1/my/projects/{public_id}/documents/log", cookies=cookies)
+        if log.status_code != 200:
+            return log
+        context["log"] = [
+            {
+                **line,
+                "when": _when_text(line.get("occurred_at")),
+                "verb": ACTION_WORDS.get(line["action"], ""),
+                "who": "You" if line.get("mine") else (line.get("actor") or {}).get("name"),
+            }
+            for line in log.body["data"]
+        ]
+    return None
+
+
+def _rooms_gate(request: Request, public_id: str) -> Response | None:
+    if not rooms_on() or not _PROJECT_ID.fullmatch(public_id):
+        return _not_found(request)
+    return None
+
+
+@router.get("/my/items/{public_id}/documents/folders/{folder_id}", response_class=HTMLResponse)
+def room_folder(request: Request, public_id: str, folder_id: str) -> Response:
+    refused = _rooms_gate(request, public_id)
+    if refused is not None or not _FOLDER_ID.fullmatch(folder_id):
+        return refused or _not_found(request)
+    return _item_page(request, public_id, "documents", room_view="folder", folder_id=folder_id)
+
+
+@router.get("/my/items/{public_id}/documents/log", response_class=HTMLResponse)
+def room_log(request: Request, public_id: str) -> Response:
+    refused = _rooms_gate(request, public_id)
+    if refused is not None:
+        return refused
+    return _item_page(request, public_id, "documents", room_view="log")
+
+
+def _transport(api: ApiClient) -> Any:
+    """The client's own transport (an `httpx.Client`, or the in-process `TestClient`), for the two
+    calls whose bodies are not JSON: an upload relayed as the browser sent it, and a file."""
+    return api._transport
+
+
+def _json_or_empty(response: Any) -> dict[str, Any]:
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+@router.post("/my/items/{public_id}/documents/upload", response_class=HTMLResponse)
+async def room_upload(request: Request, public_id: str) -> Response:
+    """The browser's form, relayed to the API as it came: read into memory (never this container's
+    disk) after the same-origin check and a length check, then sent with its own `Content-Type`."""
+    refused = _rooms_gate(request, public_id)
+    if refused is not None:
+        return refused
+    gate = _write_gate(request)
+    if isinstance(gate, Response):
+        return gate
+    length = request.headers.get("content-length", "")
+    if not length.isdigit() or int(length) > upload_body_limit():
+        problem = {
+            "title": "File not accepted",
+            "detail": "The file is larger than the limit for one file.",
+            "request_id": None,
+            "field_errors": {"file": "Too large."},
+        }
+        return await run_in_threadpool(
+            _item_page, request, public_id, "documents", error=problem, status_code=400
+        )
+    if not _relay_slots.acquire(blocking=False):
+        busy: dict[str, Any] = {
+            "title": "Not uploaded yet",
+            "detail": "Other files are being uploaded right now; try again in a moment.",
+            "request_id": None,
+            "field_errors": {},
+        }
+        return await run_in_threadpool(
+            _item_page, request, public_id, "documents", error=busy, status_code=503
+        )
+    try:
+        return await _relay_upload(request, public_id, gate)
+    finally:
+        _relay_slots.release()
+
+
+async def _relay_upload(request: Request, public_id: str, gate: dict[str, str]) -> Response:
+    """Reads the body (bounded above) and relays it to the API as it came."""
+    body = await request.body()
+    api = get_api(request)
+    content_type = request.headers.get("content-type", "")
+
+    def relay() -> Any:
+        return _transport(api).request(
+            "POST",
+            f"/v1/my/projects/{public_id}/documents",
+            content=body,
+            headers={"Content-Type": content_type},
+            cookies=gate,
+            timeout=TRANSFER_TIMEOUT_SECONDS,
+        )
+
+    response = await run_in_threadpool(relay)
+    result = ApiResult(status_code=response.status_code, body=_json_or_empty(response))
+    if result.status_code == 201:
+        folder = str(result.body["data"]["folder_id"])
+        return _redirect(f"/my/items/{public_id}/documents/folders/{folder}?done=uploaded")
+    if result.status_code in (401, 404):
+        return _failure(request, result)
+    return await run_in_threadpool(
+        _item_page, request, public_id, "documents", error=_problem(result), status_code=result.status_code
+    )
+
+
+#: The download's headers, as the API set them (`services/api/my_projects.py::DOWNLOAD_HEADERS`).
+_RELAYED_HEADERS: Final = (
+    "content-type",
+    "content-disposition",
+    "x-content-type-options",
+    "content-security-policy",
+    "cross-origin-resource-policy",
+    "x-download-options",
+)
+
+
+@router.get("/my/items/{public_id}/documents/files/{document_id}/download")
+def room_download(request: Request, public_id: str, document_id: str) -> Response:
+    """The file, relayed from the API with its attachment headers. Another site's link to it is
+    refused before anything is read or logged."""
+    refused = _rooms_gate(request, public_id)
+    if refused is not None or not _ROW_ID.fullmatch(document_id):
+        return refused or _not_found(request)
+    if is_head_request(request):
+        # `HeadAsGetMiddleware` serves HEAD as GET, which here would read the file and write a
+        # "downloaded" line in the owner's access log for a request that downloads nothing.
+        return _private(Response(status_code=405, headers={"Allow": "GET"}))
+    if request.headers.get("sec-fetch-site", "").strip().lower() == "cross-site":
+        return _private(_csrf_rejection())
+    gate = _gate(request)
+    if isinstance(gate, Response):
+        return gate
+    response = _transport(get_api(request)).request(
+        "GET",
+        f"/v1/my/projects/{public_id}/documents/{document_id}/download",
+        headers={"Accept-Encoding": "identity"},
+        cookies=gate,
+        timeout=TRANSFER_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        return _failure(request, ApiResult(status_code=response.status_code, body=_json_or_empty(response)))
+    headers = {name: response.headers[name] for name in _RELAYED_HEADERS if name in response.headers}
+    return _private(Response(content=response.content, headers=headers))
+
+
+@router.post("/my/items/{public_id}/documents/files/{document_id}/delete")
+def room_delete_file(
+    request: Request, public_id: str, document_id: str, folder_id: Annotated[str, Form()] = ""
+) -> Response:
+    refused = _rooms_gate(request, public_id)
+    if refused is not None or not _ROW_ID.fullmatch(document_id):
+        return refused or _not_found(request)
+    then = (
+        f"/my/items/{public_id}/documents/folders/{folder_id}?done=file_deleted"
+        if _FOLDER_ID.fullmatch(folder_id)
+        else None
+    )
+    path = f"/documents/{document_id}"
+    return _send(request, public_id, "DELETE", path, None, tab="documents", done="file_deleted", then=then)
+
+
+@router.post("/my/items/{public_id}/documents/folders")
+def room_create_folder(request: Request, public_id: str, name: Annotated[str, Form()] = "") -> Response:
+    refused = _rooms_gate(request, public_id)
+    if refused is not None:
+        return refused
+    body = {"name": name}
+    return _send(
+        request, public_id, "POST", "/documents/folders", body, tab="documents", done="folder_created"
+    )
+
+
+@router.post("/my/items/{public_id}/documents/folders/{folder_id}/rename")
+def room_rename_folder(
+    request: Request, public_id: str, folder_id: str, name: Annotated[str, Form()] = ""
+) -> Response:
+    refused = _rooms_gate(request, public_id)
+    if refused is not None or not _FOLDER_ID.fullmatch(folder_id):
+        return refused or _not_found(request)
+    return _send(
+        request,
+        public_id,
+        "PATCH",
+        f"/documents/folders/{folder_id}",
+        {"name": name},
+        tab="documents",
+        done="folder_renamed",
+        then=f"/my/items/{public_id}/documents/folders/{folder_id}?done=folder_renamed",
+    )
+
+
+@router.post("/my/items/{public_id}/documents/folders/{folder_id}/delete")
+def room_delete_folder(
+    request: Request, public_id: str, folder_id: str, confirm: Annotated[str, Form()] = ""
+) -> Response:
+    refused = _rooms_gate(request, public_id)
+    if refused is not None or not _FOLDER_ID.fullmatch(folder_id):
+        return refused or _not_found(request)
+    if confirm != "delete":
+        gate = _write_gate(request)
+        if isinstance(gate, Response):
+            return gate
+        problem: dict[str, Any] = {
+            "title": "Not deleted",
+            "detail": "Tick the box to confirm: deleting a folder deletes every file in it, for everyone.",
+            "request_id": None,
+            "field_errors": {},
+        }
+        return _item_page(
+            request,
+            public_id,
+            "documents",
+            error=problem,
+            status_code=400,
+            room_view="folder",
+            folder_id=folder_id,
+        )
+    path = f"/documents/folders/{folder_id}"
+    return _send(request, public_id, "DELETE", path, None, tab="documents", done="folder_deleted")
 
 
 @router.get("/my/items/{public_id}", response_class=HTMLResponse)
@@ -701,7 +1076,7 @@ def item_overview(request: Request, public_id: str) -> Response:
 
 @router.get("/my/items/{public_id}/{tab}", response_class=HTMLResponse)
 def item_tab(request: Request, public_id: str, tab: str) -> Response:
-    if tab not in TAB_PATHS or tab == "overview":
+    if tab not in TAB_PATHS or tab == "overview" or (tab == "documents" and not rooms_on()):
         return _not_found(request)
     return _item_page(request, public_id, tab)
 

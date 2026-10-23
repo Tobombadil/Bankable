@@ -1,0 +1,29 @@
+{#- The section bar (Navigation v2, docs/30 §11.3 and §11.8): the pages of the section that holds this page,
+    directly under the top bar, quieter than it and not sticky. 40px tall, 44px below 720px. Shown on
+    every page of its section, even with one item, so the chrome is the same height in every section;
+    a record page shows its section's bar with its list marked `aria-current="true"`. Search, Alerts, the
+    account, sign-in, Pricing and the legal pages have none. Rendered by base.html with `nav_path`, `nav`,
+    `nav_here`, `fresh` and `sections` (see `partials/_top_bar.html`).
+
+    From 1280px the section's title leads in mono capitals and the source-freshness line (the masthead's
+    strings) sits at the right end; About & sources joins it there from 1080px. Below 720px the row
+    scrolls sideways inside itself, never wraps; site.js brings the current item into view and fades a
+    cut edge. -#}
+{%- if nav_here %}
+<nav class="section-bar" aria-label="{{ sections.bar_name[nav_here] }} pages">
+  <div class="section-bar__row">
+    <span class="section-bar__title">{{ sections.title[nav_here] }}</span>
+    <ul class="section-bar__items">
+      {%- for key in sections.pages[nav_here] if nav.live[key] %}
+      <li><a href="{{ sections.href[key] }}"{{ sections.current(key, nav_path) }}>{{ sections.label[key] }}</a></li>
+      {%- endfor %}
+    </ul>
+    <p class="section-bar__util">
+      {{- sections.freshness(fresh) -}}
+      {%- if nav_here != "about" %}
+      <a class="section-bar__about" href="{{ sections.href.about }}">{{ sections.label.about }}</a>
+      {%- endif -%}
+    </p>
+  </div>
+</nav>
+{%- endif %}

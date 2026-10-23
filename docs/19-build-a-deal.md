@@ -867,3 +867,262 @@ reader in the Americas can see a day's difference. The site-wide footer on these
 is public as soon as it is ingested (it means the public records; `base.html` belongs to lane V1). The private
 transaction names in `infra/observability.py` scrub this lane's new path segments to `{id}`: safe, less
 readable.
+
+## 12. Data rooms, as built (lane data-rooms, 2026-10-23)
+
+Next-wave item C of the decision row of 2026-10-23 ("Next wave"), to §3's security bar, with the deviations named
+below. Every tracked item (a project, a bid or an investment) has a **Data room** tab: folders, files in them,
+downloads and an access log. Nothing is AI-read yet (item D) and nothing is shown to funders (item E).
+
+**Two switches, both off by default.** The data room answers only while `DATA_ROOMS=on` *and* `MY_PIPELINE=on`.
+Off, every data-room API route is the `404` an unknown project gets, every page is the `404` an unknown address
+gets, and the item shows no Data room tab. That includes the upload's length check: off, an upload with no
+`Content-Length` or one longer than any file may be meets the same `404`, with the same headers, as a POST to an
+unknown project, and its body is never read (review of 2026-10-23, finding 2; before, it was a `400` that named the
+upload, which showed the route existed). On the beta neither `DATA_ROOMS` nor `DATA_ROOM_KEY` is rendered into
+the env file yet, so it stays off until the coordinator wires them (below, "Turning it on").
+
+### 12.1 What is built
+
+| Part | Where |
+|---|---|
+| Tables `private_project_folder`, `private_project_document`, `private_project_document_event` (migration `0043_data_rooms`, after 0042; downgrade refused while a document is stored) | `services/projects/models.py` (`DATA_ROOM_TABLES`), `services/db/migrations/versions/0043_data_rooms.py` |
+| The type allowlist, read from the bytes | `services/projects/data_room_files.py` |
+| Storage, sealing, deletes after the commit, transfer slots | `services/projects/data_room_store.py` |
+| The scanning hook and the clamd adapter | `services/projects/data_room_scan.py` |
+| Folders, uploads, downloads, deletes, the access log, the allowance, erasure | `services/projects/data_room.py` |
+| Roles: `download`, `upload`, `manage_files`, `audit` | `services/projects/authz.py` (`ROLE_ACTIONS`) |
+| Nine routes under `/v1/my/projects/{project_id}/documents` (the "Private projects" paths of `api/openapi.yaml`) | `services/api/my_projects.py` |
+| The Data room tab: `/my/items/{id}/documents`, `…/folders/{folder_id}`, `…/log`; upload, download, delete and folder forms | `web/my_projects.py`, `web/templates/my/_documents.html`, `web/static/css/my.css` |
+| Account erasure (data-room rows and objects) | `services/api/account_erasure.py` |
+| The retention job's orphan sweep | `services/retention/data_rooms.py`, `services/retention/run.py` |
+
+### 12.2 Folders and roles
+
+- **Folders.** The checklist's six (Contracts, Finance, Security, Permits, Feasibility, Legal & Corporate; docs/30
+  §11.9.4 "the folders are the checklist's six", Bankable's six categories in `docs/18` §1.3) and **Other** (Bankable's
+  "Reference": files outside the checklist). They are created the first time anyone opens the item's data room. Each
+  checklist folder shows its file count and the item's checklist count there ("3 files · 2 of 8 done", your status).
+  An owner or editor may add folders (1 to 80 characters, unique in the item in any case, at most 30 an item) and
+  rename the ones added; the default folders keep their names and cannot be deleted, so the gap analysis (item D)
+  can rely on them. The database holds each name case-folded (`name_key`, unique per item), so two members adding
+  one name at once get one folder and a refusal, not two folders.
+- **Roles.**
+
+  | Action | Owner | Editor | Viewer |
+  |---|---|---|---|
+  | See folders and files, download | yes | yes | yes |
+  | Upload, add or rename a folder | yes | yes | no |
+  | Delete a file | any | the ones they uploaded | no |
+  | Delete a folder they or a member added, with its files | yes | no | no |
+  | Read the access log | yes | no | no |
+
+  An archived item still lists and downloads (and its owner reads the log); nothing in it changes, and opening it
+  writes nothing: the default folders are made on first opening only while the item is not archived, so an item
+  archived before its data room was ever opened shows no folders. Views and downloads of an archived item are still
+  logged. Anyone else gets the one `404`, for a real item and a missing one alike, and a file or folder id from
+  another item is that `404` too.
+
+### 12.3 Upload checks
+
+- **Size.** One file at most `DATA_ROOM_MAX_FILE_MB` (default 25, ceiling 50); each user's allowance, across every
+  item, at most `DATA_ROOM_QUOTA_MB` (default 1,024). An upload must send `Content-Length`; a body longer than the
+  configured cap plus 64 KiB for the form (`data_room_store.upload_body_limit`) is refused before a byte is read
+  (the app-wide `Idempotency-Key` handling reads a whole body first, so the bound sits in
+  `PrivateHeadersMiddleware`); a file over the cap inside that margin is refused on the file and logged. The site's
+  relay applies the same bound before it reads anything (`web/my_projects.py::upload_body_limit`).
+- **The allowance** counts the files a user uploaded to items they are still a member of and, in the items they
+  own, the files whose uploader has left, been removed or been erased ("Former member"): a departed collaborator's
+  files count against the owner, who can delete them, not against someone who can no longer reach them. On
+  PostgreSQL the check runs under a transaction-level advisory lock on the user (`data_room.lock_allowance`), so two
+  uploads by one user in two API processes cannot both pass it and together overshoot it.
+- **Rates and concurrency.** At most 1,000 files an item; per user an hour, 60 uploads, 300 downloads, 300 file
+  deletions and 60 folder changes (adding, renaming and deleting folders together). One upload in progress per user
+  per API process (a second is a `429` with `Retry-After`). An upload takes one of the process's transfer slots
+  (`DATA_ROOM_TRANSFERS`, default 2) before its body is read, waiting up to 20 s without holding a worker thread,
+  then `503`; a download takes one the same way. The site relays at most four uploads at once per web process and
+  asks a fifth to try again.
+- **Type, from the bytes, never the name.** Accepted: PDF; Word, Excel and PowerPoint (`.docx`, `.xlsx`, `.pptx`)
+  without macros, ActiveX controls, embedded objects or links that load from outside the file; PNG, JPEG and TIFF
+  images; CSV and plain text (UTF-8, named `.csv` or `.txt`, not starting like markup, a script or RTF). Refused, each
+  with its reason in words: programs (Windows, ELF, Mach-O, Java, Android, WebAssembly), scripts (`#!`; a PDF naming
+  `/JavaScript`, `/JS`, `/Launch`, `/EmbeddedFile` or `/RichMedia`, hex escapes decoded), archives (ZIP, RAR, 7-Zip,
+  gzip, bzip2, xz, cabinet, zstd, tar, and any accepted file that is also a ZIP), older and password-protected Office
+  files (the OLE2 format), encrypted ZIP entries, SVG and HTML.
+- **Office files are read as packages** (`data_room_files._ooxml`; review of 2026-10-23, finding 1: byte patterns
+  over the raw `[Content_Types].xml` were bypassed with XML character references, part names outside the patterns,
+  and a remote template that needs no macro at all). `[Content_Types].xml` and every relationships part (`*.rels`,
+  or a part declared as one) are parsed as XML with a defused parser (stdlib `expat` with DTDs, entity and notation
+  declarations and external entities refused, as `defusedxml` does; parts at most 1 MiB, all together 16 MiB), so
+  `macro&#69;nabled` reads `macroEnabled` and a comment is not content. The format is the content type of the part
+  the package's one `officeDocument` relationship points at, which must exist and be exactly that format's main
+  type. Refused as macros or active content: any macro-enabled, VBA, ActiveX or OLE-object content type, the content
+  type of a whole document inside the package (an embedded package), parts named like a VBA project, ActiveX or
+  `embeddings/` (percent-escapes decoded), and relationships of type `oleObject`, `package`, `vbaProject` (and any
+  VBA type), `activeXControl` (and `control`), `aFChunk` and `subDocument`. Refused as loading from outside the file
+  (`external_content`): `attachedTemplate` (remote-template injection, which hands a network share the user's
+  Windows credentials when the file opens), `externalLink` (links to other workbooks, which also carry DDE and OLE
+  links), and any relationship whose target is external (`TargetMode` other than `Internal`, in any case, or a
+  target that is a URL, a drive letter or a network path), except a hyperlink, which opens only when clicked. Also
+  refused: two ZIP entries for one part (in any case), two overrides or defaults that disagree, two `Type` or
+  `ContentType` attributes on one element, and XML that is not well-formed. The eleven workbooks among the
+  repository's fixtures (EIA, EPA and ISO files) and a new openpyxl workbook with a hyperlink are all still accepted
+  (measured 2026-10-23; no real Word or PowerPoint file was at hand to try). A name is cleaned (its last path segment, no control or
+  bidirectional-override characters) and always ends in its type's extension (`report.docx` that is a PDF is kept as
+  `report.docx.pdf`).
+- **A refusal** writes its line in the access log and nothing else (no object, no row).
+
+### 12.4 Storage, sealing and downloads
+
+- **Private storage.** Objects go to the private bucket (`R2_BUCKET`: the raw-snapshot bucket, never the public
+  tiles bucket) under `data-rooms/`, each under 128 random bits (`data-rooms/<32 hex>`); no key derives from a name,
+  a title or an id. `DATA_ROOM_STORE=local` (a directory) exists for development and the tests and is refused in any
+  environment that is not a development one, so a deployment never keeps documents on a container's disk. An upload
+  is read in memory by the site and by the API (never spooled to a temporary file).
+- **Encryption at rest.** R2 encrypts every object and its metadata at rest with AES-256 in GCM mode, keys held by
+  Cloudflare (https://developers.cloudflare.com/r2/reference/data-security/, read 2026-10-23). On top of that each
+  file is sealed in the API before it leaves: AES-256-GCM under its own random key, and that key sealed under the
+  deployment's `DATA_ROOM_KEY` (32 bytes, a secret in the env file only) and kept on the document's row; both seals
+  bind the object key. What that protects, stated without overreach (review of 2026-10-23): **file contents need
+  `DATA_ROOM_KEY`**, which is in neither the bucket, the database nor its backups, so the bucket, a database dump or
+  both together still open no file without it. **A bucket credential is more than ciphertext**: the nightly backup
+  (`infra/scripts/backup.sh`) is a plain `pg_dump` in the same `R2_BUCKET`, under `postgres/`, so whoever holds a
+  credential for that bucket (the R2 keys the layer-build workflows hold, a leaked token) also gets every file's
+  name, type, size and uploader, the access logs and the wrapped keys. Deleting a row destroys its file's key in the
+  live database; a backup from before the delete keeps the wrapped key for its 35 days, which opens nothing once
+  the object is gone (it goes when the delete commits). Encrypting the backup, or moving it to its own bucket, is
+  the deploy lane's (an owner question). Without a valid key the data room answers `503`; it never stores a file
+  unsealed. Every download checks the SHA-256 taken at upload.
+- **Downloads** go only through `GET …/documents/{document_id}/download`, which authorises the caller, reads and
+  opens the object and streams it back (the site relays it). No signed URL is issued: a browser never addresses the
+  store, and the response carries headers a bucket would not: `Content-Disposition: attachment`,
+  `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'; frame-ancestors 'none'`,
+  `Cross-Origin-Resource-Policy: same-origin`, and the private `no-store`, `noindex` and `no-referrer`. The type the
+  bytes were recognised as sets `Content-Type`. **No response header names the file**: the proxy's JSON access log
+  records response headers, so the page names it through the link's `download` attribute (Chromium saves it under
+  that name: `web/test_e2e_data_room.py`). A request the browser marks `Sec-Fetch-Site: cross-site` is refused.
+
+### 12.5 Malware scanning: what is and is not scanned
+
+No antivirus engine runs on the one-server beta. With `DATA_ROOM_SCANNER` unset or `off` nothing is scanned, every
+file is stored `not_scanned`, and every Data room view says so: "Files are not scanned for viruses: no virus scanner
+runs on this server yet. Uploads are checked for type …, not for malware. Open files only from people you trust."
+With `DATA_ROOM_SCANNER=clamd` and `CLAMD_ADDRESS` (`host:port` or a Unix socket), every upload is scanned before
+anything is stored, over clamd's `INSTREAM`; a flagged file is refused and logged, and a scanner that does not
+answer is a `503` with nothing stored (fail closed). clamd's `StreamMaxLength` must be at least the file cap. Not
+scanned: files stored while no scanner was set (no rescan job yet), downloads (not rescanned), and anything a
+signature engine cannot know. **What the type checks do not read** (say so to anyone relying on them): in a PDF,
+compressed object streams, and the actions that only open something when the reader allows it (`/OpenAction` with
+`/URI`, `/AA` additional actions, `/XFA` forms, `/GoToR` remote go-to, `/SubmitForm`; `/JavaScript`, `/JS`,
+`/Launch`, `/EmbeddedFile` and `/RichMedia` *are* refused); in a CSV, formula and DDE injection (a cell starting
+`=`, `+`, `-` or `@`, such as `=cmd|' /C calc'!A0`), which a spreadsheet program runs only if the user allows it; in
+Word, field codes (`DDEAUTO`, `INCLUDETEXT`, `INCLUDEPICTURE`) inside the document text; in Excel, data connections
+(`connections.xml`, Power Query), refreshed only if the user allows it.
+This replaces §3's "a file is quarantined until a scanner worker passes it" while no scanner exists; with one, a
+file is never available before it passes.
+
+### 12.6 The access log
+
+`private_project_document_event`: who opened a folder's file list (once per member and folder in ten minutes),
+downloaded, uploaded or deleted which file (its name at the time), refused uploads with the reason, and folder
+changes, with when. The item's owner reads it on `…/documents/log`; it is kept for the life of the item. Nothing
+from it is written to `event`, the admin audit log, analytics or an application log.
+
+### 12.7 Deletion and retention
+
+- A file, a folder (with its files), an item (`data_room.forget_project` before the delete) or an account removes
+  the rows in its transaction and the objects once the **root** transaction commits (`delete_after_commit`). A
+  savepoint's release decides nothing (SQLAlchemy fires `after_commit` on it too, which before the review of
+  2026-10-23 removed objects whose rows a later rollback restored); a savepoint rolled back forgets the deletes made
+  in it and orphans the objects written in it. An upload whose row never commits (a rollback, or a session closed
+  without a commit) removes its object when the root transaction ends.
+- **Account erasure** (`erase_user`): in the items the user owns, every file, folder and log line goes; in other
+  people's items the files they uploaded stay as that item's content, shown as uploaded by "Former member", and
+  their log lines lose their author (the rule the owner set for notes, 2026-10-22). The rest of a private project's
+  erasure (the items, memberships, notes) is still lane P4's.
+- **Retention** (`data_room_orphans`, daily with the other DA-10 rules): an object no row names is deleted once 6
+  hours old; rows whose object is missing are counted, not changed. It runs only where data rooms are in use
+  (`DATA_ROOMS=on` or `DATA_ROOM_STORE` named). The report holds counts only.
+- **Backups.** The nightly database dump keeps a deleted file's row (and sealed key) for its 35 days; its object is
+  gone, so a restore brings back rows without files, which download as `503`. A restore must re-apply erasures
+  (`docs/13` §5.5.5 item 5) and should be followed by deleting rows without objects.
+
+### 12.8 Privacy
+
+File names and contents never reach a log or an error report: object keys are random, no response header names a
+file, no log line or exception message carries a name, the logging filter treats `services.projects` as private,
+and `infra/observability.py` strips a private request's body. `services/api/test_my_projects.py` pins it: an
+upload, a download, a folder view, a refusal, a delete and a forced `500` with a sentinel name and sentinel
+content leave the sentinel in no log record, and an error report built for the same request carries none of it.
+Public answers and pages are byte-identical before and after an item tracking a record gets a data room with a file
+(`services/api/test_my_projects.py`, `web/test_my_projects.py`).
+
+### 12.9 Measured
+
+- **Latency, 10 MiB** (a seeded-random PDF), through the API in process (multipart parse, type check, seal, the
+  real S3 client to a local S3 stand-in on loopback, then GET, open, hash check), five runs each, on a shared 4-core
+  Xeon at 2.1 GHz, three runs of the test: upload median 0.09 to 0.10 s (max 0.23 to 0.25 s, the first including the
+  S3 client's start), download median 0.047 to 0.048 s (max 0.052 to 0.057 s)
+  (`services/projects/test_data_room_latency.py`). After the fix round, three runs: upload median 0.09 to 0.11 s
+  (max 0.28 to 0.33 s), download median 0.050 to 0.055 s (max 0.053 to 0.066 s). The site's relay adds one
+  in-memory copy over the internal network; not measured separately.
+- **Memory, one 24 MiB upload** (tracemalloc peak through the API in process, local store): 96 MiB before the fix
+  round (the review's figure: the test client's body, the form, the ciphertext and the ciphertext again with its
+  header), 72 MiB after (the form reader keeps the file once, the seal writes header, ciphertext and tag into one
+  buffer and opening reads through a view). One of those copies is the test client's, so the API holds about two
+  copies of a file per transfer, and at most `DATA_ROOM_TRANSFERS` transfers at once (pinned:
+  `test_one_upload_holds_a_bounded_number_of_copies_of_the_file`).
+- **Phone first.** Chromium at 360 and 1440px: the Data room tab, a folder with a 64-character file name and the
+  access log scroll no wider than the screen; folder rows are at least 44px tall (`web/test_e2e_data_room.py`).
+
+### 12.10 Turning it on (coordinator and owner)
+
+1. Generate a key: `python -m services.projects.data_room_store new-key`, and store it as the GitHub Environment
+   secret `DATA_ROOM_KEY` (a SOPS deploy: `DATA_ROOM_KEY` in its secrets file).
+2. Pass `DATA_ROOMS: ${{ vars.DATA_ROOMS }}` and `DATA_ROOM_KEY: ${{ secrets.DATA_ROOM_KEY }}` to
+   `infra/ci/beta.py` in `.github/workflows/deploy-beta.yml`, render both (`DATA_ROOMS` `off` unless exactly `on`;
+   the key only when set) and add them to `infra/sops/secrets.example.plain.yaml`. Not done in this lane: those files
+   belong to the deploy lane, and their tests (`infra/test_deploy_beta_workflow.py`, `infra/ci/test_beta.py`) pin the
+   exact lists.
+3. The store needs nothing new: the beta's env file already carries `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
+   `R2_SECRET_ACCESS_KEY` and `R2_ACCOUNT_ID`.
+4. Optional: `DATA_ROOM_MAX_FILE_MB`, `DATA_ROOM_QUOTA_MB`, `DATA_ROOM_TRANSFERS` (files sealed or opened at once per
+   API process, default 2), and a scanner (`DATA_ROOM_SCANNER=clamd`, `CLAMD_ADDRESS`). A ClamAV container needs
+   about 1 GB of memory for its signatures, which the 8 GB beta host can spare only with care.
+5. Before offering it beyond the owner's own use: §3's independent security review and stated staff-access policy,
+   and the privacy notice (§7).
+
+### 12.11 Known limits
+
+- A file is sealed and opened whole in memory (about two copies at once on the API), so the file ceiling is 50 MiB
+  and two transfers run at once per API process by default. Chunked sealing would lift both.
+- **A Word or PowerPoint file with a native chart is refused**: the chart's data is an embedded workbook (an
+  `embeddings/` part with a `package` relationship), which these checks do not open. Saving as PDF works; accepting
+  charts would mean checking the embedded workbook by the same rules (an owner question).
+- **Corporate Word files attached to a template on a share** (`attachedTemplate` with an external target) are
+  refused, by design: that is the remote-template vector. The refusal says to remove the link or save as PDF.
+- One `DATA_ROOM_KEY` at a time: a document records its key's fingerprint, but there is no keyring yet, so rotating
+  the key needs a re-seal job first.
+- GIS files (KML, KMZ, shapefiles) are not accepted: they are archives or XML (an owner question).
+- `idempotency.py` reads a whole upload body when an `Idempotency-Key` is sent; while the data room is on the
+  middleware's bound keeps that to the configured cap and the form. Off, the upload path is like every other path,
+  and no path's body size is bounded before the app reads it (FastAPI reads JSON bodies before dependencies run;
+  neither Caddy nor the app sets a limit). That predates the data room and is its own task (for example Caddy's
+  `request_body max_size` on every path but uploads).
+
+### 12.12 Review of 2026-10-23: what changed
+
+1. Office files are read as packages with a defused XML parser (§12.3); the three reviewed files (an OLE object by
+   character reference, a remote template, macros by character reference with the main type in a comment) are
+   tests in `services/projects/test_data_room_files.py`, and the third, stored by the API before as
+   `x.docm.docx`, is refused through it (`services/api/test_my_projects.py`). New refusal reason
+   `external_content`.
+2. Off, the upload route's length check says nothing (§12 "Two switches").
+3. Nits: deletes act on the root transaction's commit only (§12.7); the upload bound is the configured cap; an
+   upload takes its transfer slot before its body is read, one upload in progress per user, waits hold no worker
+   thread, and the site relays at most four at once (§12.3); the allowance is locked per user on PostgreSQL and a
+   departed collaborator's files count against the owner (§12.3); file and folder deletes are rate-limited; the
+   threat statement names the backup in the bucket (§12.4); the "not checked" list names PDF actions, CSV formulas
+   and DDE, Word fields and Excel connections (§12.5); a `HEAD` on a download through the site is a `405` that reads
+   and logs nothing (it ran the download and wrote "downloaded"); opening an archived item writes nothing (§12.2);
+   folder names are unique in the schema (§12.2); one fewer copy of a file in memory per transfer (§12.9).

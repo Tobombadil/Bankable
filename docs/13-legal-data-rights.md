@@ -297,6 +297,14 @@ written SPP authorisation or a counsel opinion that normalised facts fall outsid
 `01-feasibility.md` §3.2 expectation that SPP would prove benign, and it removes SPP from the "daily cadence,
 14-day free lag" row in `11-market-and-competition.md` §3 unless resolved.
 
+**Re-read 2026-10-23** (HTTP 200, lane national-queues), because LBNL's Queued Up file (§2.1) carries SPP
+rows under its own CC BY 4.0 notice: the Copyright clause quoted above is word for word the same, and the
+indemnity sentence ("Access to or use of the information posted on this website in any manner constitutes an
+agreement to hold harmless and indemnify SPP ...") is still there. SPP rows therefore stay withheld, whether
+they come from SPP or from LBNL's compilation: a compiler's open licence cannot grant what the operator's
+terms reserve. (`us.iso.spp.prices` was moved to `noncommercial` by the owner on 2026-10-22; that decision
+covers the prices row only, `docs/29` §2.4.)
+
 ### 1.5 NYISO — retrieved, and permissive by omission
 
 Source: https://www.nyiso.com/legal-notice — "Legal Notice - Web Content", retrieved 2026-09-12 (HTTP 200).
@@ -372,6 +380,11 @@ Classification: `restricted`. Publication rule: `link-out-only` at launch; `deri
 or written ISO-NE permission. This upgrades ISO-NE from `unknown` to a known-bad posture, which is worse news
 but actionable.
 
+**Re-read 2026-10-23** at https://www.iso-ne.com/legal-privacy (HTTP 200, lane national-queues): the assent
+sentence, "Any duplication of the Content or non-personal use may violate copyright, trademark, and other
+laws", the throttling paragraph and the image-permission address are unchanged. ISO-NE rows stay withheld,
+including the 1,282 ISO-NE rows in LBNL's Queued Up file (§2.1).
+
 ### 1.7 MISO — NOT RETRIEVED
 
 - `https://www.misoenergy.org/meet-miso/legal-and-privacy/` — HTTP 403 with a Cloudflare "Just a moment…"
@@ -421,11 +434,126 @@ terms are read from a browser, a PDF is captured, and this file is updated. `CLA
 challenge bypass; that stands. Rendering the page in a real browser session (a human opening it and saving a
 PDF) is the correct next step and is item 2 in §7.
 
+**Attempted again 2026-10-23 (lane national-queues): still not retrieved.** One GET each, none bypassed:
+
+| URL | Answer |
+|---|---|
+| `https://www.misoenergy.org/robots.txt` | HTTP 403, `cf-mitigated: challenge`, "Just a moment..." (it answered 200 on 2026-09-12) |
+| `https://www.misoenergy.org/meet-miso/legal-and-privacy/` | HTTP 403, `cf-mitigated: challenge`; the fetch-and-summarise tool also got 403 |
+| `https://www.misoenergy.org/planning/resource-utilization/GI_Queue/gi-interactive-queue/` | HTTP 403, `cf-mitigated: challenge` |
+| `https://www.misoenergy.org/api/giqueue/getprojects` (the queue data) | HTTP 403, `cf-mitigated: challenge` |
+| `https://archive.org/wayback/available?url=misoenergy.org/meet-miso/legal-and-privacy/` | lists a 200 capture at `20261011115415`; the capture itself could not be read, because `web.archive.org` is unreachable from this environment (connection reset by the egress proxy) |
+
+So MISO stays `unknown` and link-out-only, with two separate blockers: (1) nobody has read the terms, and (2)
+the queue data itself sits behind the same managed challenge, so even a permissive reading would leave no
+automated route that does not pass a challenge. The 2026-09-12 robots.txt reading (Content-Signal
+`ai-train=no`) cannot be re-checked now that robots.txt is challenged too; it is kept as recorded. MISO's 5,424
+rows in LBNL's Queued Up file (§2.1) are withheld on the same ground, as is the Minnkota Power Cooperative
+queue LBNL places in the MISO region. Next steps, in order: a person opens the legal page in a browser and
+saves a PDF, or reads the 2026-10-11 Wayback capture from a network that reaches `web.archive.org`; if the terms
+permit, MISO is asked in writing for an unchallenged route (an allow-listed address or a file feed).
+
 ---
 
 ## 2. Open licences, research datasets and news sources
 
-### 2.1 LBNL "Queued Up" / GridTracker — NOT DIRECTLY RETRIEVED
+### 2.1 LBNL "Queued Up" / GridTracker — retrieved 2026-10-23: CC BY 4.0
+
+**2026-10-23 (lane national-queues): the licence is now read first-hand, and it is CC BY 4.0.** emp.lbl.gov
+still answers non-browser clients with a Cloudflare block page ("Attention Required! | Cloudflare", HTTP 403;
+not bypassed, never fetched by the connector). Berkeley Lab's publications host serves the same edition's
+page and file without a challenge: `https://eta-publications.lbl.gov/publications/queued-2026-edition-characteristics`
+(HTTP 200; robots.txt allows `/publications/` and `/sites/default/files/`). Its Notes, verbatim:
+
+> **Copyright Notice:** The Queued Up data file is licensed CC BY 4.0. You may use, share, or adapt the
+> dataset as long as you attribute it to Lawrence Berkeley National Laboratory and GridTracker.
+>
+> Queued Up Data File. Copyright (c) 2026, The Regents of the University of California, through Lawrence
+> Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy) &
+> GridTracker. CC BY 4.0. All rights reserved.
+
+Both "CC BY 4.0" strings link `https://creativecommons.org/licenses/by/4.0/deed.en`. The page's abstract:
+"In collaboration with GridTracker . Berkeley Lab compiled, aggregated, and cleaned interconnection queue data
+from >50 transmission grid operators (7 ISO/RTOs and 50 non-ISO balancing areas), which collectively represent
+~98% of currently installed U.S. electric generating capacity." The data file
+(`/sites/default/files/2026-05/lbnl_ix_queue_data_file_thru2025.xlsx`, 15,571,236 bytes, Last-Modified 7 May
+2026) carries, on its Introduction sheet, the DOE contract notice ("This dataset has been authored by an author
+at Lawrence Berkeley National Laboratory under Contract No. DE-AC02-05CH11231 with the U.S. Department of
+Energy. The U.S. Government retains ... a non-exclusive, paid-up, irrevocable, worldwide license to publish or
+reproduce the published form of this dataset, or allow others to do so, for U.S. Government purposes."), the
+standard no-warranty disclaimer, and an author list that names two Interconnection.fyi staff beside the LBNL
+authors.
+
+*Inference, three points.* (1) CC BY 4.0 permits commercial reuse, adaptation and redistribution with
+attribution, the licence link, the copyright notice and an indication of changes (§3(a)(1)); the manifest
+carries all four (`attribution`, `licence_url`, `notice`, `changes_statement`). **Confidence: high.** (2) The
+licensors can license only what they hold: their compilation. Where the operator whose queue a row restates has
+terms that withhold its rows, a compiler's open licence does not lift them, the reading §6 already applies to
+the LevelTen sheets in LBNL's solar and wind files. So the PJM rows stay unpublished whatever this licence says
+(CLAUDE.md: "PJM rows are not public until a licence exists"), and the SPP and ISO-NE rows (§1.4, §1.6,
+re-read 2026-10-23) and the MISO rows (§1.7, unread) follow their operators. **Confidence: high** that this is
+the conservative reading; counsel could narrow it for facts (*Feist*). (3) GridTracker is the company behind
+Interconnection.fyi, a private aggregator CLAUDE.md says never to scrape. Ingesting Berkeley Lab's own release,
+from Berkeley Lab's host, under the licence Berkeley Lab states, is not scraping Interconnection.fyi; the
+connector never contacts interconnection.fyi and `us.gridtracker.interconnection_fyi` stays excluded.
+**Confidence: moderate-high**; recorded as a decision for the owner, who may prefer to leave the file out.
+
+Classification: `open-attribution` (was `unknown`). The manifest row moves from `category: aggregator` to
+`generation_queue`. Every region other than LBNL's West and Southeast (non-ISO) is dropped at ingest and never
+stored as a record.
+
+**Review round, 2026-10-23: held (`reuse: unknown`, `publication: none`).** Inference (2) does not stop at
+the ISOs. The rows the connector keeps (12,431 rows, 12,401 records once twice-listed positions collapse) restate the generation
+interconnection queues that TVA, Southern, Duke, PacifiCorp, BPA and some 40 more transmission providers post on
+their OASIS sites, and §6 records that source (`us.oasis.non_iso_queues`) as `unknown (per-utility)`: "read
+per-utility terms before each connector". MISO is withheld above because its terms are `unknown`; by the same
+reasoning, LBNL's CC BY cannot license what an unread utility posting may withhold. The first draft of this
+section published those rows raw anyway, which the loader would have made public on the first monthly tick
+(`publish_state` follows the reuse class at a source's first load). So the manifest records the class of the
+rows rather than of the compilation: `reuse: unknown`, `publication: none`. The registry then refuses scheduled
+runs (a person can still run the connector into the quarantine store with `--allow-restricted`), the loader
+refuses every row, the resolver and the coverage counts never see it, and the coverage page lists it as
+withheld. The register class above stays `open-attribution`: it is LBNL's licence, and `attribution` / raw-ok
+is the ceiling once the hold is lifted. **Confidence: high** that this is the consistent reading of the register as
+it stands. What would lift it, for the owner (open question, not decided): (a) per-utility terms read and
+recorded, largest queue first, which clears both rows for that utility; or (b) an owner decision that postings a
+transmission provider makes because FERC requires them (the queue posting of the pro forma interconnection
+procedures of Order No. 2003, and Order No. 2023's queue information; neither citation was re-read for this
+note) carry no reuse restriction of their own, which would distinguish them from MISO, whose own website terms
+exist and are unread. (b) is an inference about a regulatory posting, not a reading of any utility's terms;
+counsel should confirm it. Either way a second precondition stands for the pending rows:
+
+*Double counting with EIA-860M (measured 2026-10-23).* 2,794 of the 2,914 pending requests in the kept rows have
+no project name and 2,388 no developer (after the placeholders "N/A", "Masked" and "Third Party" are read as no
+name). `pipeline/resolve.py` then has county, capacity and COD at most (evidence 0.35 < `MIN_EVIDENCE` 0.50), so
+no such pair is ever eligible. On the 2026-10-23 EIA-860M frame, 529 planned units sit in non-ISO balancing areas
+in the states the file covers; 247 of them have a pending LBNL request in the same county, with a compatible
+technology and MW within 10 % (861 pairs, 616 below the evidence floor). Within 5 % there are 62 one-to-one pairs,
+51 of which can never match (EIA "Hammond" storage, Floyd County GA, 57.5 MW against SOCO IC-1267, 57.5 MW, no
+name or developer). Published as they stand, those plants would show twice. The precondition is a resolver bridge
+for a nameless queue row with a unique same-county, same-family counterpart within 5 % MW, as a review-only
+resolution decision, owned by the resolver lane. Coverage figures quoted for this file (2,914 pending requests,
+621.5 GW) overlap EIA-860M's planned units by at least those 247 units.
+
+*Cleaning, same round.* Placeholder developers and names are no name (they had become sponsor organisations
+called "N/A", "Masked" and "Third Party", and proposal names); developers the platform's natural-person rule
+(`services/personal_names.py`) reads as people (7 rows) are removed from the stored row, sponsor and `raw` alike;
+the 30 positions LBNL lists twice with and without a location are one record each; `iso` is the operator's name,
+not LBNL's entity code; LBNL's own `unknown` status stays unknown whatever its phase. The connector fetches only
+the edition reviewed here (2026): a later edition's page answering, or any change to this page's Notes block (its
+text and links, hashed), makes the run `blocked` until a reviewer records the new text, because CC BY §3(a)(1)(A)
+asks for the notice as supplied and the manifest's credit and notice name the 2026 edition.
+
+*Two groups in the kept rows are not SPP rows,* although their operators are in SPP now. WAPA-IS (WAPA, Basin
+Electric and Heartland's Integrated System, 273 rows) joined the SPP RTO in October 2015, and every one of its
+LBNL rows has a queue date on or before 2015-09-30: its pre-SPP queue. The SPP RTO West members of April 2026 in
+the file (Tri-State 104 rows, WAPA Rocky Mountain 110, Platte River 62, Colorado Springs Utilities 8, Black Hills
+Colorado Electric 51) are listed from their own queues as they stood at the end of 2025, before the move. LBNL
+places all of them in its West region; they are held with the rest of the West, not withheld as SPP rows.
+
+*The text below is the 2026-09-12 entry, kept for the record.*
+
+### 2.1a LBNL "Queued Up" / GridTracker, 2026-09-12 — NOT DIRECTLY RETRIEVED
 
 `https://emp.lbl.gov/queues` returned HTTP 403 behind a Cloudflare block page ("Sorry, you have been blocked…
 Ray ID a3a055ef085b0fbe") on 2026-09-12, as did `https://emp.lbl.gov/publications/queued-2026-edition-characteristics`.
@@ -1366,6 +1494,92 @@ task). data.openei.org answered HTTP 429 to three of five requests minutes apart
 connector fetches at one request a minute. It is a *subset* (13,084 lines, the FERC-linked ones), and the
 coverage statement must say so. **Confidence: high.**
 
+### 2.20 Connection queues outside the US — retrieved 2026-10-23 (research only, nothing built)
+
+Lane national-queues, one GET per page with the platform's User-Agent; challenge pages were not bypassed. The
+ranking by value and the datasets themselves are in `docs/05-international-queues.md`; this section holds only
+the terms, verbatim.
+
+**IESO (Ontario), `ca.ieso.connection_status`.** Terms of Use, https://www.ieso.ca/en/Terms-of-Use (HTTP 200):
+
+> By using this website, you agree to follow and be bound by the terms and conditions of these Terms of Use.
+
+> Subject to these Terms of Use and provided that the following is included on all reproductions, “Copyright ©
+> 2004-2022 Independent Electricity System Operator, all rights reserved. This information is subject to the
+> Terms of Use set out in the IESO’s website (www.ieso.ca)”, you are granted a limited, non-exclusive,
+> non-sublicensable, non-transferrable licence to use and reproduce the Content.
+
+> The IESO’s express, prior, written permission is required for the use or reproduction of any Content that is
+> not included in the licence above, such as trade-mark rights, website code and/or the use of Content for any
+> purpose not expressly permitted above.
+
+Its Acceptable Use list bars, among others, using the Content "in a way that harms the IESO" and attempting to
+identify "any individual whose data or information may be included in or used to create the Content".
+*Inference:* an express licence to reproduce, conditional on the copyright line, but non-sublicensable: our
+pages may reproduce derived facts with the line; we can grant no onward redistribution right, so API and export
+terms must not purport to. The manifest carries the copyright line as the row's `notice`, so it renders with
+every credit once a connector exists (review round, 2026-10-23); the API and export terms do not yet say that
+IESO-derived rows come with no sublicence, an open item before that connector. Class `attribution-restricted`,
+rule derived-only with the IESO copyright line on
+every reproduction and no sublicence. **Confidence: moderate-high.**
+
+**AESO (Alberta), `ca.aeso.connection_list`.** Legal, https://www.aeso.ca/legal/ (HTTP 200):
+
+> All material on this Web site is protected by copyright. The material may be used and copied for
+> non-commercial, personal or educational purposes, provided that the material is not modified and that
+> copyright notices are not deleted. Any other use of this material without the AESO's written permission is
+> prohibited.
+
+*Inference:* normalising a project list is modifying it, and the grant is limited to non-commercial, personal or
+educational use, so even the noncommercial posture does not reach it. Class `restricted`; link-out-only until
+the AESO's written permission. **Confidence: high.**
+
+**EirGrid (Ireland), `ie.eirgrid.connections`.** Legal Statement, https://www.eirgrid.ie/legal (HTTP 200):
+
+> As content on the website is copyrighted, any unauthorised use of any materials on the website may violate
+> copyright, trademark and other laws.
+
+> Materials on this website may not be copied, modified, reproduced, republished, uploaded, posted, transmitted,
+> publicly displayed, performed, distributed or used for any public or commercial purposes except as expressly
+> provided for on this website or expressly authorised in writing by EirGrid and strictly on the condition that
+> all content is kept intact and in the same format as on this website.
+
+*Inference:* restrictive on its face. Ireland's re-use of public sector information rules (the Open Data
+Directive) may give a request route; that is a question for counsel, not an assumption. Class `restricted`.
+**Confidence: high** on the text.
+
+**AEMO (Australia), `au.aemo.connections_scorecard`.** The Copyright Permissions page
+(https://www.aemo.com.au/privacy-and-legal-notices/copyright-permissions) and the Generation Information page
+answered a Cloudflare challenge (HTTP 403) to a plain GET and to the fetch-and-summarise tool; not bypassed. A
+search engine's index of the page quotes it as:
+
+> AEMO confirms its general permission for anyone to use AEMO Material for any purpose, but only with accurate
+> and appropriate attribution of the relevant AEMO Material and AEMO as its author. You do not need to obtain
+> specific permission to use AEMO Material in this way.
+
+and excludes "confidential documents and any reports commissioned by another person or body who may own the
+copyright in them". *Inference:* if the page says this, AEMO's material is reusable for any purpose with
+attribution; the earlier record of a "non-modification" term is not borne out by this text. The quote is
+second-hand until a person reads the page in a browser, so the row keeps its earlier, stricter
+`attribution-restricted` / derived-only class. **Confidence: moderate.**
+
+**Germany, `de.bnetza.mastr`.** The Datendownload page, https://www.marktstammdatenregister.de/MaStR/Datendownload
+(HTTP 200), labels every export "Lizenz: Datenlizenz Deutschland – Namensnennung – Version 2.0". The licence
+text (https://www.govdata.de/dl-de/by-2-0, HTTP 200): "(1) Any use will be permitted provided it fulfils the
+requirements of this "Data licence Germany – attribution – Version 2.0". The data and meta-data provided may,
+for commercial and non-commercial use, in particular ..." with the attribution to carry "the annotation "Data
+licence Germany – attribution – Version 2.0" or "dl-de/by-2-0" referring to the licence text available at
+www.govdata.de/dl-de/by-2-0". **Confidence: high** (unchanged class; the row's `licence_url` can now be set).
+
+**Brazil, ANEEL SIGA** (not a manifest row). The dataset page,
+https://dadosabertos.aneel.gov.br/dataset/siga-sistema-de-informacoes-de-geracao-da-aneel (HTTP 200), states
+"Licença: Open Data Commons Open Database License (ODbL)". ODbL's share-alike on a derived database is the
+same open item `docs/13` §6 records for OpenStreetMap substations. **Confidence: high** on the text.
+
+**Spain, Red Eléctrica** (not a manifest row). The legal notice (https://www.ree.es/es/aviso-legal) answered
+HTTP 403 to a plain GET; not read. The access-capacity page (HTTP 200) links the published node capacity files
+(`2026_10_01_GRT_generacion.csv/.xlsx`); their reuse terms are unknown.
+
 ---
 
 ## 3. US scraping law
@@ -1856,17 +2070,17 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.iso.caiso.gen_queue` | attribution-restricted | derived-only + credit "California ISO" | §1.2 quoted | mod-high |
 | `us.iso.ercot.gen_queue` | permissive | raw-ok | §1.1 quoted | high |
 | `us.iso.ercot.large_load_queue` | permissive | raw-ok | §1.1 quoted | high |
-| `us.iso.spp.gen_queue` | restricted | **link-out-only** | §1.4 quoted | high |
+| `us.iso.spp.gen_queue` | restricted | **link-out-only** | §1.4 quoted; re-read 2026-10-23, unchanged (also governs the SPP rows in LBNL's Queued Up file, dropped at ingest) | high |
 | `us.iso.nyiso.gen_queue` | attribution-restricted | derived-only | §1.5 quoted | mod-high |
-| `us.iso.isone.gen_queue` | restricted | **link-out-only** | §1.6 quoted | mod-high |
+| `us.iso.isone.gen_queue` | restricted | **link-out-only** | §1.6 quoted; re-read 2026-10-23, unchanged (also governs the ISO-NE rows in LBNL's Queued Up file, dropped at ingest) | mod-high |
 | `us.iso.pjm.gen_queue` | restricted (DM2) / attribution-restricted (planning pages) | link-out-only now; derived-only from planning pages after counsel | §1.3 quoted ×3 | mod |
-| `us.iso.miso.gen_queue` | **unknown** | link-out-only; do not publish | §1.7 not retrieved | n/a |
-| `us.lbnl.queued_up` | **unknown** (CC BY unverified) | derived-only, credit LBNL + GridTracker | §2.1 not retrieved | low |
+| `us.iso.miso.gen_queue` | **unknown** | link-out-only; do not publish | §1.7 not retrieved (challenged again 2026-10-23, robots.txt included; a 2026-10-11 Wayback capture exists but was unreachable from here) | n/a |
+| `us.lbnl.queued_up` | open-attribution (CC BY 4.0, stated on the eta-publications.lbl.gov publication page) | **link-out-only (held)** since the 2026-10-23 review round: the rows it keeps restate the non-ISO utilities' OASIS queues, whose terms are unread (`us.oasis.non_iso_queues` below), and most cannot be matched to EIA-860M (§2.1); fetched and diffed, never loaded, until the owner decides. When published: raw-ok for the rows it keeps, LBNL's West and Southeast (non-ISO) regions, + credit "Lawrence Berkeley National Laboratory and GridTracker" + statement of changes + notice "Queued Up Data File. Copyright (c) 2026, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy) & GridTracker."; the PJM (CLAUDE.md), MISO, SPP and ISO-NE (their operators' own rows above) and ERCOT, CAISO and NYISO (read first-hand) regions are dropped at ingest and never stored as records | §2.1 quoted, retrieved 2026-10-23; was `unknown`. Connector built 2026-10-23 (lane national-queues); the reviewed edition's Notes block is hashed and re-checked on every run, and a later edition blocks the run until it is reviewed | high |
 | `us.gridtracker.interconnection_fyi` | restricted | do not ingest at all | ToS + hot-news §3.4 | high |
 | `us.eia.860m`, `us.eia.860m.retirements` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted (the retirements id is the same workbook's Operating and Retired sheets, added 2026-10-06 by lane R1) | high |
 | `us.eia.api` | public-domain | raw-ok | 17 U.S.C. §105 | high |
 | `us.eia.form923` | public-domain | raw-ok | 17 U.S.C. §105; §2.11 quoted, applied at §2.15 (robots-disallowed `archive/`; final-release rule); added 2026-09-19 by the features lane | high |
-| `us.oasis.non_iso_queues` | unknown (per-utility) | derived-only; read per-utility terms before each connector | not retrieved | low |
+| `us.oasis.non_iso_queues` | unknown (per-utility) | derived-only; read per-utility terms before each connector. The same utilities' queues in LBNL's Queued Up file (`us.lbnl.queued_up`) are held on this row's account (§2.1) | not retrieved | low |
 | `us.ferc.elibrary` | public-domain | raw-ok | 17 U.S.C. §105 | high |
 | `us.ferc.pipelines_pending` | public-domain | raw-ok | 17 U.S.C. §105 | high |
 | `us.doe.lng_exports` | public-domain | raw-ok | 17 U.S.C. §105 | high |
@@ -1900,12 +2114,12 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `eu.ecb.eurofxref` | open-attribution (ECB Disclaimer & Copyright: free use, cite the ECB) | raw-ok + credit "Source: European Central Bank" + statement of changes (our USD cross rate); a sold product must say the rates are free from the ECB | ECB terms quoted in `data/sources.yaml` (read 2026-10-22; reference rates for USD equivalents, lane rfp-value) | high |
 | `eu.entsoe.tyndp` | **unknown** | derived-only; EU database right applies (§4.1) | not retrieved | low |
 | `eu.pci_pmi_list` | open-attribution (EU reuse) | raw-ok | §2.3 by analogy | mod |
-| `de.bnetza.mastr` | open-attribution (dl-de/by-2-0) | raw-ok + credit | not re-verified | mod |
-| `ie.eirgrid.connections` | **unknown** | derived-only; EU database right applies | not retrieved | low |
-| `ca.ieso.connection_status` | unknown | derived-only | not retrieved | low |
-| `ca.aeso.connection_list` | unknown | derived-only | not retrieved | low |
+| `de.bnetza.mastr` | open-attribution (dl-de/by-2-0) | raw-ok + credit | §2.20: the Datendownload page labels every export dl-de/by-2-0; licence text read 2026-10-23 | high |
+| `ie.eirgrid.connections` | restricted | **link-out-only** until EirGrid authorises public or commercial use in writing | §2.20 quoted, Legal Statement retrieved 2026-10-23; was `unknown` | high |
+| `ca.ieso.connection_status` | attribution-restricted (an express, non-sublicensable licence to reproduce, conditional on the IESO copyright line) | derived-only, with notice "Copyright © 2004-2022 Independent Electricity System Operator, all rights reserved. This information is subject to the Terms of Use set out in the IESO’s website (www.ieso.ca)" on every reproduction and no onward redistribution right (API and export terms to say so before a connector); pending, no connector | §2.20 quoted, Terms of Use retrieved 2026-10-23; was `unknown` | mod-high |
+| `ca.aeso.connection_list` | restricted (non-commercial, personal or educational copies only, unmodified) | **link-out-only** until the AESO's written permission | §2.20 quoted, Legal page retrieved 2026-10-23; was `unknown` | high |
 | `ca.iaac.registry` | open-attribution (OGL-Canada) | raw-ok + credit | not re-verified | mod |
-| `au.aemo.connections_scorecard` | attribution-restricted (non-modification term recorded) | derived-only | not re-verified | low |
+| `au.aemo.connections_scorecard` | attribution-restricted (non-modification term recorded) | derived-only | §2.20: the permissions page answered a Cloudflare challenge on 2026-10-23; a search index quotes "any purpose ... with accurate and appropriate attribution", to be confirmed in a browser before anything is built | low |
 | `au.dcceew.epbc_referrals` | open-attribution (CC BY 4.0) | raw-ok + credit | not re-verified | mod |
 | `in.seci_mnre.tenders` | unknown | derived-only | not retrieved | low |
 | `br.aneel.leiloes` | unknown | derived-only | not retrieved | low |

@@ -1378,9 +1378,52 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
 
 ## 11. Navigation and page purposes v2 (2026-10-23)
 
-**Status:** design, 2026-10-23 (product-designer, lane nav-v2). Nothing here is built. The decisions the owner
-confirms are in §11.13; everything else follows from the decision rows below. It is built after the four builds in
-progress land (§11.11).
+**Status:** design, 2026-10-23 (product-designer, lane nav-v2). The decisions the owner confirms are in §11.13;
+everything else follows from the decision rows below. It is built in lanes after the four builds in progress land
+(§11.11).
+
+**Built: V1, the shell (2026-10-23, lane nav-shell).** `partials/_top_bar.html` (48px sticky top bar, the
+account menu, the phone Menu), `partials/_section_bar.html` (40px, 44px below 720px), `partials/_sections.html`
+(sections, their pages, `holds`, `section_of()`, `section_current()`, `freshness()`), the words in `web/labels.py`
+(`SECTION_LABELS`, `SECTION_TITLES`), `web/page.py` `nav_state` / `section_live` / `my_pipeline_listed`, and the
+header rules and `site.js` behaviours (search over the bar, account menu, section-bar scroll and fades, sign-in
+`next`, an empty moved-fragments table for V3 and V7). As built, against the text above: Funding, Grants & loans,
+Invitations, State averages and Sources & licences are not listed until their pages exist (`NOT_YET_LIVE`; V4 adds
+Funding with the count rule of §11.2), so a signed-out visitor sees Market alone in the top bar; `rfps` still reads
+"RFPs & funding", and becomes "RFPs" in V4's change that moves grants and loans to `/funding`; the search field is
+336px from 1080px, the width its whole placeholder needs (240px, planned for 1080-1279px, showed about 70%
+of it; 320px lost "ID…"); at 1080px, signed in, with all three sections, the row needs 935 of its 1080px; About &
+sources joins the section bar's right end from 1080px, the freshness line from 1280px; signed out under the
+`commercial` posture, "Sign in" opens a small account menu (Sign in, Create an account, Pricing), so Pricing is only
+ever in the account menu (two clicks to sign in there; one under today's `noncommercial` posture, where it stays a
+link); the Menu button keeps its name "Menu" when open. Measured on a copy of the e2e store served without the
+dev-preview label, before and after, at two moments: once the map's count line has landed, the map starts at 358px
+at 1440x900 (was 372), 354px at 1024x768 (was 433), 429.5px at 390x844 (was 432) and 458px at 360x800 (was 480);
+when its canvas first appears (where the desktop fold test reads it, before the count line takes its place), 343.5px
+at 1440x900 (was 358) and 326px at 1024x768 (was 405). The header is 88px at desktop and tablet widths (was 103 and
+168) and 92px on phones, which is 3px less on the home page and 26px more on other pages, where phones had no
+masthead line and now carry the section bar. No fold budget changed.
+
+Fix round (review of lane nav-shell, 2026-10-23). Sign out posts from every page, the `no-referrer` My pipeline
+pages included, so `/logout` takes the My pipeline forms' rule (`Origin: null` with `Sec-Fetch-Site: same-origin`;
+`web/auth.py` `_is_same_origin_form`, pinned to `web/my_projects.py` `same_origin_form`). The open search field and
+the open account menu close when focus or a click leaves them, so Tab never lands on a control they cover
+(SC 2.4.11), and Escape on the Menu button itself closes the Menu. "Sign in" no longer carries an `/unsubscribe`
+token; an invitation (`/my/invitations/accept`) still carries its own, as its page's sign-in links do. The wordmark's
+own rule is back for the admin header; the top bar sizes its copy. On a phone the map's search pick and the bottom
+sheet's eased point (`map.js` `pick`, `revealAboveSheet`) allow for the sticky top bar, through one helper
+(`topBarBottom`) and two changed lines in V2's file; the patch touches nothing else in `map.js`, so the coordinator
+may land it with V1 or hand it to V2 together with its two e2e tests,
+`test_a_picked_place_leaves_the_map_search_field_in_sight_under_the_top_bar` and
+`test_a_tapped_point_just_under_the_top_bar_is_eased_clear_of_it`.
+
+Left for later lanes, by name. **V2:** `map.js` (about line 703) still writes `next` onto
+`.primary-nav a[href^="/login"]`, a selector nothing matches now that `site.js` `[data-signin]` carries the page;
+`home_map.html` still defines `{% block masthead_modifier %}`, which `base.html` no longer has, and its comment
+describes the masthead. **V4:** `organization_detail.html` hard-codes `>Companies</a>` in its breadcrumb, so it
+joins `test_a_section_is_named_in_one_place` in V4's change to that page (build table row "Same file,
+`test_a_section_is_named_in_one_place`"). **V3 and V4:** breadcrumbs that start with the section (`web/test_seo.py`
+row) live in the page bodies, which V1 does not change; V3 does it for record pages, V4 for Companies and RFPs.
 
 **Asked by the owner, verbatim:** "could we also improve the navigation and various pages? For navigation, use a top
 bar and follow best practices from leading industry platforms to separate the site's major sections Map vs deal
@@ -2294,4 +2337,4 @@ U-4 (path segments).
 | IA-12 | The four panel tab labels fit 300px at `--text-1` with 8px gaps | Estimated about 290px from Plex Sans widths; V2 measures | §11.6 |
 | IA-13 | A full-screen landing with one-finger pan does not strand phone readers, because the landing has no content below the map | §11.6: no footer, everything in the bars and the sheet | §11.8 |
 | IA-14 | Tab segments never collide with record slugs or ids | Slugs and public ids contain no `/` (`docs/21` §3.1) | §11.10 |
-| IA-15 | The search field fits the top bar at 240px from 1080px with the three sections, Alerts and the account on one row | Estimated about 820px of content at 1080; V1 measures | §11.2 |
+| IA-15 | The search field fits the top bar at 240px from 1080px with the three sections, Alerts and the account on one row | Estimated about 820px of content at 1080. Measured by V1 (2026-10-23): the row fits, but 240px left room for about 70% of the placeholder, so the field is 336px, its placeholder's full width; signed in with all three sections the row then needs 935 of 1080px | §11.2 |

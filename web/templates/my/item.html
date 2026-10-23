@@ -1,6 +1,6 @@
 {#- One tracker item and its URL tabs (docs/30 §11.5, T-1 to T-9): one header on every tab, then a tab
-    bar of plain links with `aria-current`, then the tab's one job. Documents arrives with data rooms
-    (docs/19 §3). -#}
+    bar of plain links with `aria-current`, then the tab's one job. The Data room tab (docs/19 §3)
+    shows only while `DATA_ROOMS=on`. -#}
 {% extends "my/_layout.html" %}
 {% block my_title %}{{ item.kind_label }}{% endblock %}
 {% block content %}
@@ -41,5 +41,6 @@
 {%- elif tab == 'checklist' %}{% include "my/_checklist.html" %}
 {%- elif tab == 'notes' %}{% include "my/_notes.html" %}
 {%- elif tab == 'people' %}{% include "my/_people.html" %}
+{%- elif tab == 'documents' %}{% include "my/_documents.html" %}
 {%- endif %}
 {% endblock %}

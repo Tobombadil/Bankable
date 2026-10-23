@@ -426,7 +426,8 @@ def _check_desktop_and_narrow(browser: object) -> None:
         timeout=15000,
     )
     # Review 2026-10-10 §2.6 item 2: the map page opens on what the product does, and says how
-    # current the sources are once, in the masthead; the tier line is on the lists and records
+    # current the sources are in the header (the section bar, docs/30 §11.2); the tier line is on the
+    # lists and records
     # (checked on /proposals below). The panel holding what is in view and the key floats over the
     # map (owner, 2026-10-22), its header inside the first viewport.
     assert page.locator(".delayed-notice").count() == 0
@@ -1191,7 +1192,10 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
     787px (113px visible); at 400x800 at 1,658px, below a 421px header and a 600px filter bar,
     with an 11,121px in-view list beneath it. Owner, 2026-10-22: what is in view and the key are one
     panel over the map's top right, open from 1080px and collapsed from 720 to 1079px; below 720px a
-    bar under the map that opens in the page."""
+    bar under the map that opens in the page. Navigation v2 (docs/30 §11, lane nav-shell, 2026-10-23):
+    the masthead line and the header bar (103px at 1440, 168px at 1024 where the bar wrapped) became a
+    48px top bar over a 40px section bar; on the e2e store, with this server's dev-preview label, the map
+    moved from 438 to 423px at 1440x900 and from 518 to 438px at 1024x768. The budgets are unchanged."""
     many = _geo_envelope(
         [_in_view_feature(f"row-{i:02d}", "solar", -77.6 + i * 0.004) for i in range(60)], records=60
     )
@@ -1297,15 +1301,16 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             assert page.locator("#map-key").is_hidden()
             assert key_toggle.get_attribute("aria-expanded") == "false"
 
-            # Menu: a disclosure; the links are out of the way until it opens.
+            # Menu: a disclosure; the links are out of the way until it opens (docs/30 §11.8).
             menu = page.locator(".nav-toggle")
-            assert page.locator(".primary-nav").is_hidden() and menu.get_attribute("aria-expanded") == "false"
+            assert page.locator("#site-menu").is_hidden() and menu.get_attribute("aria-expanded") == "false"
+            assert page.locator(".top-bar__sections").is_hidden()
             menu.click()
-            assert menu.get_attribute("aria-expanded") == "true" and page.locator(".primary-nav").is_visible()
+            assert menu.get_attribute("aria-expanded") == "true" and page.locator("#site-menu").is_visible()
             # Escape from inside the open panel closes it and returns focus to "Menu".
-            page.locator(".primary-nav a").first.focus()
+            page.locator("#site-menu a").first.focus()
             page.keyboard.press("Escape")
-            assert page.locator(".primary-nav").is_hidden()
+            assert page.locator("#site-menu").is_hidden()
             assert page.evaluate("document.activeElement.classList.contains('nav-toggle')")
 
             # Filters: one button naming how many are set, opening the bar in place.
@@ -1807,9 +1812,15 @@ def _rendered(*layers: str) -> str:
 
 
 def _map_on_top(page: Any) -> None:
-    """Scrolls the page so the map's top edge is at the top of the screen (docs/17 §2.1 row 3)."""
+    """Scrolls the page so the map's top edge is at the top of the screen (docs/17 §2.1 row 3): just under
+    the sticky top bar (Navigation v2, docs/30 §11.2), where a reader scrolling the map into view sees it
+    and where `scroll-padding-top` puts it. The bar is the site's chrome, not a control over the map, so
+    it is not counted as covering the map."""
     page.evaluate(
-        "window.scrollTo(0, document.getElementById('map').getBoundingClientRect().top + window.scrollY)"
+        "(() => { const bar = document.querySelector('.top-bar');"
+        " const below = bar ? bar.getBoundingClientRect().height : 0;"
+        " const top = document.getElementById('map').getBoundingClientRect().top + window.scrollY;"
+        " window.scrollTo(0, top - below); })()"
     )
     page.wait_for_timeout(100)
 
@@ -2372,16 +2383,24 @@ def test_a_newer_view_aborts_the_asset_requests_of_the_one_it_replaces(server: o
 #: under the count, so the map starts 44px lower: 404px measured on the dev store. Owner, 2026-10-23
 #: ("a site link that will do well when it lands in a contact's inbox"): the opening figures
 #: (web/headline.py) take one 28px line under the lede on a phone, so 432px measured, budget 440.
+#: Navigation v2 (docs/30 §11.8, lane nav-shell, 2026-10-23): the home page's 28px masthead line and
+#: 67px header bar became a 48px top bar over a 44px section bar (92px, 3px less), so 429.5px measured;
+#: the budget stays 440.
 PHONE_MAP_TOP_BUDGET = 440
 #: Share of the visible map any control or panel covers: docs/17 asks for under 6%, open or closed.
 #: The column is 44x200px on a 358x490 canvas, 4.6% of it; 55.6% on the live site before.
 PHONE_MAP_COVER_BUDGET = 6.0
 
 # The share (percent) of the on-screen part of the map that something other than the map covers,
-# sampled every 4px (docs/17 §1's method, at 2px there).
+# sampled every 4px (docs/17 §1's method, at 2px there). "On screen" starts under the sticky top bar
+# (Navigation v2, docs/30 §11.2): the strip it holds is the site's chrome at any scroll position, and
+# the map's panel scrolls the page by itself for a while after it opens (map.js `keepPanelInView`), so
+# a map partly scrolled under the bar would otherwise count as covered by it.
 _MAP_COVERED = """() => {
   const m = document.getElementById('map').getBoundingClientRect();
-  const top = Math.max(m.top, 0), bottom = Math.min(m.bottom, innerHeight);
+  const bar = document.querySelector('.top-bar');
+  const chrome = bar ? Math.max(bar.getBoundingClientRect().bottom, 0) : 0;
+  const top = Math.max(m.top, chrome), bottom = Math.min(m.bottom, innerHeight);
   let n = 0, hit = 0;
   for (let y = top + 1; y < bottom; y += 4) for (let x = m.left + 1; x < m.right; x += 4) {
     n++;
@@ -3556,7 +3575,10 @@ def test_a_transmission_line_hover_card_closes_on_the_next_tap_or_a_map_move(ser
             page.mouse.move(x - 30, y)
             page.mouse.move(x, y)
             page.wait_for_function(f"() => ({card})() === 1", timeout=5000)
-            page.touchscreen.tap(20, 20)  # anywhere else on the page
+            # Anywhere else on the page: the map's top left corner, just under the sticky top bar
+            # (whose wordmark at (20, 20) would be a link away from the page).
+            below_bar = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().bottom")
+            page.touchscreen.tap(20, below_bar + 20)
             page.wait_for_function(f"() => ({card})() === 0", timeout=5000)
 
             page.wait_for_timeout(900)
@@ -3767,9 +3789,10 @@ def test_smoke_pricing_page_reached_from_the_nav_and_legible_at_400px(server: ob
             page = browser.new_page(viewport=NARROW_VIEWPORT)
             _install_offline_routes(page)
             page.goto(BASE_URL + "/about")
-            # Below 720px the links sit behind "Menu" (designer audit D-4, docs/31 §3).
+            # Below 720px the links sit behind "Menu" (docs/30 §11.8); this server runs under the
+            # commercial posture, so Pricing is among the Menu's account rows, never a section.
             page.click(".nav-toggle")
-            page.click('.primary-nav a[href="/pricing"]')
+            page.click('#site-menu .site-menu__utils a[href="/pricing"]')
             page.wait_for_url("**/pricing")
 
             for tier in ("Free", "Pro", "Team", "API / Data"):
@@ -3794,12 +3817,14 @@ def test_smoke_pricing_page_reached_from_the_nav_and_legible_at_400px(server: ob
 
 
 # ============================================================================================
-# Navigation (docs/16 §3.1-3.2, U-6, U-17, U-24): six sections named for supply and demand, the
-# Infrastructure tabs, list headers short enough to show data in the first screen, a favicon.
+# Navigation v2 (docs/30 §11.2, §11.3, §11.8; lane nav-shell): the top bar over the section bar, the
+# Infrastructure tabs, list headers short enough to show data in the first screen, a favicon; the
+# phone Menu at 390 and 360px.
 
-#: The dev store has no site-finder run, so the site finder is not listed (`site_finder_listed`,
-#: web/page.py; web/test_layout_states.py pins both states).
-SECTIONS = ["Map", "Projects", "Companies", "RFPs & funding", "Infrastructure", "Alerts"]
+#: The Market bar on the dev store, which has no site-finder run, so the site finder is not listed
+#: (`site_finder_listed`, web/page.py; web/test_layout_states.py pins both states). RFPs & funding
+#: keeps its name until grants, loans and programmes move to Funding (lane V4).
+MARKET_PAGES = ["Map", "Projects", "Companies", "RFPs & funding", "Infrastructure", "Prices"]
 LIST_PATHS = ("/proposals", "/opportunities", "/organizations", "/assets", "/interconnection-points")
 #: Measured as production lays the page out: this server runs with WEB_DEV_PREVIEW=1, whose notice
 #: (`.preview-banner`, about 53px) no production page shows, so it is taken out first.
@@ -3809,15 +3834,74 @@ _FIRST_ROW_JS = """() => {
   const row = document.querySelector('table.record-table tbody tr');
   return [top(row), top(document.getElementById('result-rows'))];
 }"""
+_HEIGHT = "(el) => el.getBoundingClientRect().height"
 
 
-def test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_favicon(
+def _check_phone_menu(browser: Any, width: int) -> None:
+    """docs/30 §11.8: the wordmark, the search button and Menu in a 48px bar; the 44px section bar scrolls
+    sideways inside itself with the current page in view; Menu opens the groups (the current section's
+    open) and the account rows, every row 44px; nothing scrolls the page sideways."""
+    page = browser.new_page(viewport={"width": width, "height": 800})
+    _install_offline_routes(page)
+    page.goto(BASE_URL + "/interconnection-points")
+    assert abs(page.locator(".top-bar").evaluate(_HEIGHT) - 48) < 0.6, width
+    assert abs(page.locator(".section-bar").evaluate(_HEIGHT) - 44) < 0.6, width
+    assert page.locator(".top-bar__sections").is_hidden() and page.locator(".site-search").is_hidden()
+    row = page.locator(".section-bar__items")
+    assert row.evaluate("(r) => r.scrollWidth > r.clientWidth"), width  # it scrolls inside itself
+    current = page.locator(".section-bar__items a[aria-current]")
+    assert current.inner_text() == "Infrastructure"
+    box = current.bounding_box()
+    assert box is not None and 0 <= box["x"] and box["x"] + box["width"] <= width, (width, box)
+    assert "is-cut-start" in (row.get_attribute("class") or "")  # Map, Projects... are off to the left
+    assert page.locator(".section-bar__title").is_hidden()
+
+    menu = page.locator(".nav-toggle")
+    assert page.locator("#site-menu").is_hidden()
+    menu.click()
+    assert menu.get_attribute("aria-expanded") == "true"
+    groups = page.locator("#site-menu details.site-menu__group")
+    assert groups.locator("summary").all_inner_texts() == ["Market"]
+    assert groups.first.evaluate("(d) => d.open")
+    pages = page.locator("#site-menu .site-menu__group li a")
+    assert pages.all_inner_texts() == MARKET_PAGES
+    assert page.locator("#site-menu .site-menu__group a[aria-current]").inner_text() == "Infrastructure"
+    utils = page.locator("#site-menu .site-menu__utils li a")
+    # This server runs under the commercial posture: Pricing is an account row.
+    assert utils.all_inner_texts() == ["Alerts", "Sign in", "Pricing", "About & sources"]
+    for link in (*pages.all(), *utils.all()):
+        assert link.evaluate(_HEIGHT) >= 43.5, link.inner_text()
+    assert page.locator("#site-menu .site-menu__fresh").is_visible()
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+    assert overflow <= 0, f"page scrolls horizontally at {width}px by {overflow}px"
+    page.screenshot(path=str(SCREENSHOT_DIR / f"nav-menu-{width}.png"))
+    menu.click()
+    assert page.locator("#site-menu").is_hidden()
+
+    # The search button opens the field over the bar; Escape puts the bar back, focus on the button.
+    search = page.locator(".search-toggle")
+    search.click()
+    assert search.get_attribute("aria-expanded") == "true"
+    assert page.evaluate("document.activeElement.id") == "site-search-q"
+    field = page.locator("#site-search-q").bounding_box()
+    assert field is not None and field["y"] >= 0 and field["y"] + field["height"] <= 48, field
+    page.keyboard.press("Escape")
+    assert page.locator(".site-search").is_hidden()
+    assert page.evaluate("document.activeElement.classList.contains('search-toggle')")
+    page.close()
+
+
+def test_nav_is_a_top_bar_over_section_bars_with_infrastructure_tabs_and_a_favicon(
     server: object,
 ) -> None:
-    """Owner, 2026-10-20: "proposals vs opportunities are a bit confusing". At 1440: six links in
-    order, the current one marked; About & sources in the masthead; on every list the first row
-    starts under 450px (it was 488-689px, docs/16 §1.2); the favicon loads, so no page logs a 404
-    for it. At 400: the six links and About & sources behind Menu, the tabs on one screen width."""
+    """Navigation v2 (owner, 2026-10-23: "use a top bar ... separate the site's major sections"). At 1440:
+    the 48px top bar marks Market; the 40px section bar under it lists Market's pages in order, the
+    current one marked, with About & sources and the freshness line at its right end; on every list the
+    first row starts under 450px (it was 488-689px before docs/16 §1.2); the top bar stays on screen when
+    the page scrolls; the favicon loads. At 1024 the search field opens over the bar. At 390 and 360 the
+    Menu, the sideways section bar, and no page overflow."""
     with sync_playwright() as p:
         browser = p.chromium.launch(**_launch_kwargs())
         try:
@@ -3830,15 +3914,25 @@ def test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_f
             measured = 0
             for path in LIST_PATHS:
                 wide.goto(BASE_URL + path)
-                links = wide.locator(".primary-nav a")
-                assert links.all_inner_texts()[:6] == SECTIONS, path
-                current = wide.locator(".primary-nav a[aria-current]")
+                assert wide.locator(".top-bar__sections a").all_inner_texts() == ["Market"], path
+                assert wide.locator(".top-bar__sections a").get_attribute("aria-current") == "true", path
+                assert wide.locator(".section-bar__items a").all_inner_texts() == MARKET_PAGES, path
+                current = wide.locator(".section-bar__items a[aria-current]")
                 assert current.count() == 1, path
                 expected = {"/proposals": "Projects", "/opportunities": "RFPs & funding"}.get(path)
                 expected = expected or ("Companies" if path == "/organizations" else "Infrastructure")
                 assert current.inner_text() == expected, path
-                assert wide.locator(".masthead__about").is_visible(), path
-                assert wide.locator(".site-nav-panel__about").is_hidden(), path
+                assert wide.locator(".section-bar__title").inner_text() == "MARKET INTELLIGENCE", path
+                assert wide.locator(".section-bar__about").is_visible(), path
+                assert wide.locator(".section-bar__util .fresh-line").is_visible(), path
+                assert wide.locator("#site-menu").is_hidden() and wide.locator(".nav-toggle").is_hidden(), (
+                    path
+                )
+                assert (
+                    wide.locator("#site-search-q").is_visible() and wide.locator(".search-toggle").is_hidden()
+                )
+                assert abs(wide.locator(".top-bar").evaluate(_HEIGHT) - 48) < 0.6, path
+                assert abs(wide.locator(".section-bar").evaluate(_HEIGHT) - 40) < 0.6, path
                 row, rows_block = wide.evaluate(_FIRST_ROW_JS)
                 # Not every list has rows in the e2e store; where none, the block they would fill.
                 assert (row if row is not None else rows_block) < 450, (
@@ -3846,6 +3940,18 @@ def test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_f
                 )
                 measured += row is not None
             assert measured, "no list had a row to measure"
+            # The field shows its whole placeholder, ellipsis included (review of lane nav-shell: at
+            # 320px it lost "ID...").
+            assert wide.evaluate(
+                "() => { const i = document.getElementById('site-search-q'); i.value = i.placeholder;"
+                " const fits = i.scrollWidth <= i.clientWidth; i.value = ''; return fits; }"
+            )
+            # The top bar is the one sticky bar: scrolled, it stays at the top, and the section bar goes.
+            wide.goto(BASE_URL + "/proposals")
+            wide.evaluate("window.scrollTo(0, 400)")
+            assert wide.evaluate("window.scrollY") >= 100
+            assert wide.evaluate("document.querySelector('.top-bar').getBoundingClientRect().top") == 0
+            assert wide.evaluate("document.querySelector('.section-bar').getBoundingClientRect().bottom") <= 0
             wide.goto(BASE_URL + "/interconnection-points")
             tabs = wide.locator('nav.section-tabs[aria-label="Infrastructure sections"] a')
             assert tabs.all_inner_texts() == ["Plants, pipelines & lines", "Grid connection points"]
@@ -3859,29 +3965,260 @@ def test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_f
                 == "Plants, pipelines & lines"
             )
             assert wide.locator("h1").inner_text() == "Existing infrastructure"
+            # The account menu opens on a click and shuts on Escape (signed out, commercial: Pricing in it).
+            account = wide.locator(".account-menu__toggle")
+            account.click()
+            assert wide.locator(".account-menu__list a").all_inner_texts() == [
+                "Sign in",
+                "Create an account",
+                "Pricing",
+            ]
+            # "Sign in" comes back to the page as it is now, its query included (site.js `data-signin`).
+            wide.evaluate("history.replaceState(null, '', '/assets?status=operating')")
+            sign_in = wide.locator(".account-menu__list a[data-signin]")
+            sign_in.focus()
+            assert sign_in.get_attribute("href") == "/login?next=%2Fassets%3Fstatus%3Doperating"
+            account.focus()
+            wide.keyboard.press("Escape")
+            assert wide.locator(".account-menu__list").is_hidden()
             svg = wide.request.get(BASE_URL + "/static/img/favicon.svg")
             assert svg.status == 200 and svg.headers["content-type"].startswith("image/svg+xml")
             assert not [u for u, status in icon_responses if status >= 400], icon_responses
             wide.screenshot(path=str(SCREENSHOT_DIR / "nav-assets-1440.png"))
 
-            narrow = browser.new_page(viewport=NARROW_VIEWPORT)
-            _install_offline_routes(narrow)
-            narrow.goto(BASE_URL + "/interconnection-points")
-            assert narrow.locator(".masthead").is_hidden()
-            menu = narrow.locator(".nav-toggle")
-            assert narrow.locator(".primary-nav").is_hidden()
+            # 720-1079px: the search field is an icon button that opens it over the bar.
+            tablet = browser.new_page(viewport={"width": 1024, "height": 768})
+            _install_offline_routes(tablet)
+            tablet.goto(BASE_URL + "/proposals")
+            assert tablet.locator(".top-bar__sections a").is_visible()
+            assert tablet.locator(".site-search").is_hidden()
+            tablet.click(".search-toggle")
+            assert tablet.locator("#site-search-q").is_visible()
+            tablet.fill("#site-search-q", "solar")
+            tablet.keyboard.press("Enter")
+            tablet.wait_for_url("**/search?q=solar")
+            assert tablet.evaluate("document.documentElement.scrollWidth") <= 1024
+            tablet.close()
+
+            for width in (390, 360):
+                _check_phone_menu(browser, width)
+        finally:
+            browser.close()
+
+
+#: "" when the focused element shows at its own centre, else what covers it (SC 2.4.11 Focus Not
+#: Obscured, measured the way the review of lane nav-shell measured it).
+_FOCUS_IN_SIGHT = """() => {
+  const el = document.activeElement;
+  if (!el || el === document.body) return 'nothing focused';
+  const r = el.getBoundingClientRect();
+  if (!r.width || !r.height) return 'no box: ' + el.outerHTML.slice(0, 80);
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  if (hit && (hit === el || el.contains(hit))) return '';
+  return 'covered by ' + (hit ? hit.outerHTML.slice(0, 80) : 'nothing');
+}"""
+_SEARCH_OPEN = "() => document.getElementById('site-search').classList.contains('is-open')"
+#: A signed-in header without an account: the top bar reads the session cookie's presence only
+#: (`web/page.py` `nav_state`), and /logout clears it whatever the API says.
+_SESSION = {"name": "session", "value": "e2e-not-a-real-session", "url": BASE_URL}
+
+
+def test_the_open_search_field_and_the_account_menu_never_hide_where_focus_goes(server: object) -> None:
+    """Review of lane nav-shell (2026-10-23), SC 2.4.11: below 1080px the open search field covers the
+    top bar, and Tab past Close went to the Alerts link and the account under it (Menu at 360px), and
+    Shift+Tab from the field to the search button under it. Focus or a click leaving the field now puts
+    the bar back first. The account menu's open list hangs over the section bar's right end, so it shuts
+    when focus leaves it too. Escape on the Menu button itself (straight after opening it) shuts the
+    Menu."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for width, after_close in ((1024, "Alerts"), (800, "Alerts"), (360, "Menu")):
+                page = browser.new_page(viewport={"width": width, "height": 768})
+                _install_offline_routes(page)
+                page.goto(BASE_URL + "/proposals")
+                toggle = page.locator(".search-toggle")
+                toggle.click()
+                assert page.evaluate("document.activeElement.id") == "site-search-q", width
+                for step in ("submit", "Close", after_close):
+                    page.keyboard.press("Tab")
+                    assert page.evaluate(_FOCUS_IN_SIGHT) == "", (width, step)
+                assert page.evaluate("document.activeElement.textContent.trim()") == after_close, width
+                assert not page.evaluate(_SEARCH_OPEN), width
+                assert toggle.get_attribute("aria-expanded") == "false", width
+
+                toggle.click()
+                page.keyboard.press("Shift+Tab")
+                assert page.evaluate("document.activeElement.classList.contains('search-toggle')"), width
+                assert page.evaluate(_FOCUS_IN_SIGHT) == "" and not page.evaluate(_SEARCH_OPEN), width
+
+                # A click inside the open field keeps it; a click anywhere else puts the bar back.
+                toggle.click()
+                page.click("#site-search-q")
+                assert page.evaluate(_SEARCH_OPEN), width
+                page.click("main h1")
+                assert not page.evaluate(_SEARCH_OPEN), width
+                assert page.locator(".search-toggle").is_visible(), width
+                page.close()
+
+            # Escape on Menu itself, straight after opening it.
+            phone = browser.new_page(viewport={"width": 360, "height": 800})
+            _install_offline_routes(phone)
+            phone.goto(BASE_URL + "/proposals")
+            menu = phone.locator(".nav-toggle")
             menu.click()
-            assert narrow.locator(".primary-nav a").all_inner_texts()[:6] == SECTIONS
-            about = narrow.locator(".site-nav-panel__about a")
-            assert about.is_visible() and about.inner_text() == "About & sources"
-            menu.click()
-            tab_boxes = [narrow.locator(".section-tabs a").nth(i).bounding_box() for i in range(2)]
-            assert all(box is not None and box["x"] + box["width"] <= 400 for box in tab_boxes), tab_boxes
-            overflow = narrow.evaluate(
-                "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
-            )
-            assert overflow <= 0, f"page scrolls horizontally at 400px by {overflow}px"
-            narrow.screenshot(path=str(SCREENSHOT_DIR / "nav-points-400.png"))
+            assert menu.get_attribute("aria-expanded") == "true"
+            assert phone.evaluate("document.activeElement.classList.contains('nav-toggle')")
+            phone.keyboard.press("Escape")
+            assert menu.get_attribute("aria-expanded") == "false" and phone.locator("#site-menu").is_hidden()
+            phone.close()
+
+            # Signed in at 1440: Tab out of the open account menu shuts it, and every stop after it, as
+            # far as About & sources at the section bar's right end, is in sight.
+            context = browser.new_context(viewport=DESKTOP_VIEWPORT)
+            context.add_cookies([_SESSION])
+            wide = context.new_page()
+            _install_offline_routes(wide)
+            wide.goto(BASE_URL + "/proposals")
+            wide.click(".account-menu__toggle")
+            sign_out = wide.locator(".account-menu__list button", has_text="Sign out")
+            assert sign_out.is_visible()
+            sign_out.focus()
+            wide.keyboard.press("Tab")
+            assert not wide.evaluate("document.querySelector('details.account-menu').open")
+            for _ in range(20):
+                assert wide.evaluate(_FOCUS_IN_SIGHT) == "", wide.evaluate("document.activeElement.outerHTML")
+                if wide.evaluate("document.activeElement.classList.contains('section-bar__about')"):
+                    break
+                wide.keyboard.press("Tab")
+            else:
+                raise AssertionError("Tab never reached About & sources")
+            context.close()
+        finally:
+            browser.close()
+
+
+def test_sign_out_works_from_a_page_that_sends_no_referrer(server: object) -> None:
+    """Review of lane nav-shell (2026-10-23): the My pipeline pages are served with `Referrer-Policy:
+    no-referrer` (web/my_projects.py), so Chromium posts the header's Sign out with `Origin: null` and
+    no Referer, and /logout answered 403 with the cookie kept. This server has My pipeline switched off,
+    so the page takes the same policy from a `<meta name="referrer">`, which Chromium applies to the
+    form post the same way. Account > Sign out at 1440 and the Menu's Sign out row at 390 both sign out."""
+    no_referrer = (
+        "() => { const m = document.createElement('meta'); m.name = 'referrer';"
+        " m.content = 'no-referrer'; document.head.appendChild(m); }"
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for viewport, open_it, row in (
+                (DESKTOP_VIEWPORT, ".account-menu__toggle", ".account-menu__list button"),
+                ({"width": 390, "height": 844}, ".nav-toggle", "#site-menu .site-menu__utils button"),
+            ):
+                context = browser.new_context(viewport=viewport)
+                context.add_cookies([_SESSION])
+                page = context.new_page()
+                _install_offline_routes(page)
+                page.goto(BASE_URL + "/proposals")
+                page.evaluate(no_referrer)
+                posted: list[dict[str, str]] = []
+                page.on(
+                    "request",
+                    lambda r, posted=posted: posted.append(r.headers) if r.url.endswith("/logout") else None,
+                )
+                page.click(open_it)
+                with page.expect_navigation():
+                    page.click(row + ":has-text('Sign out')")
+                assert posted and posted[0].get("origin") == "null" and "referer" not in posted[0], posted
+                assert urlsplit(page.url).path == "/", page.url
+                assert "Forbidden" not in page.content()
+                assert not [c for c in context.cookies() if c["name"] == "session"], viewport
+                context.close()
+        finally:
+            browser.close()
+
+
+def test_sign_in_from_an_unsubscribe_link_does_not_carry_its_token(server: object) -> None:
+    """Review of lane nav-shell (2026-10-23): "Sign in" carries the page it is on (site.js), but not from
+    a page whose address holds a one-time token it does not mean to keep; `/unsubscribe?token=` was
+    missing from that list. Elsewhere it still carries the page."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport={"width": 390, "height": 844})
+            _install_offline_routes(page)
+            for path, expected in (
+                ("/unsubscribe?token=one-time-e2e", "/login"),
+                ("/proposals?technology=solar", "/login?next=%2Fproposals%3Ftechnology%3Dsolar"),
+            ):
+                page.goto(BASE_URL + path)
+                page.click(".nav-toggle")
+                link = page.locator("#site-menu a[data-signin]")
+                link.focus()
+                assert link.get_attribute("href") == expected, path
+        finally:
+            browser.close()
+
+
+def test_a_picked_place_leaves_the_map_search_field_in_sight_under_the_top_bar(server: object) -> None:
+    """Review of lane nav-shell (2026-10-23): on a phone a pick scrolls the map's search field to the top
+    of the screen (map.js `pick`), 8px from the top, under the new 48px sticky top bar, so the field
+    holding the picked place and its clear button were behind the wordmark. It goes 8px under the bar."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = _phone_page(browser)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function(_COUNT_READY, timeout=30000)
+            _pick(page, "travi", "Travis County, TX")
+            page.wait_for_function("() => !window.__map.isMoving()")
+            page.wait_for_timeout(300)
+            bar = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().bottom")
+            field = page.locator("#map-search-input").evaluate(_BOX)
+            assert bar <= field[1] <= bar + 12, (bar, field)
+            for selector in ("#map-search-input", "#map-search-clear"):
+                page.locator(selector).focus()
+                assert page.evaluate(_FOCUS_IN_SIGHT) == "", selector
+            assert page.input_value("#map-search-input") == "Travis County, TX"
+            page.screenshot(path=str(SCREENSHOT_DIR / "nav-map-pick-390.png"))
+        finally:
+            browser.close()
+
+
+#: A proposal in the upper half of a z4 view on -100, 40.
+_HIGH_POINT = [-100.0, 44.0]
+
+
+def test_a_tapped_point_just_under_the_top_bar_is_eased_clear_of_it(server: object) -> None:
+    """Review of lane nav-shell (2026-10-23): on a phone the map eases a tapped point that the bottom
+    sheet would hide into the part of the map left showing (map.js `revealAboveSheet`), which began at
+    the top of the screen, behind the sticky top bar. It now begins under the bar: a point tapped 12px
+    under the bar is moved at least 24px clear of it."""
+    feature = _feature_with_source("under-bar", _HIGH_POINT[0])
+    feature["geometry"]["coordinates"] = _HIGH_POINT
+    proposals = _geo_envelope([feature], records=1)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_context(**PHONE).new_page()
+            _stub_map(page, proposals)
+            page.goto(BASE_URL + "/?center=-100,40&zoom=4")
+            page.wait_for_function(_rendered("points"), timeout=30000)
+            bar = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().height")
+            _x, y = _screen_point(page, _HIGH_POINT)
+            page.evaluate(f"window.scrollBy(0, {y - (bar + 12)})")
+            page.wait_for_timeout(200)
+            x, y = _screen_point(page, _HIGH_POINT)
+            assert bar < y < bar + 24, (bar, y)
+            page.touchscreen.tap(x, y)
+            page.wait_for_function(_DRAWER_IS_OPEN)
+            page.wait_for_function(_DRAWER_SETTLED)
+            page.wait_for_function("() => !window.__map.isMoving()")
+            page.wait_for_timeout(700)
+            _px, py = _screen_point(page, _HIGH_POINT)
+            bar_bottom = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().bottom")
+            sheet_top = page.locator("#map-drawer").evaluate(_BOX)[1]
+            assert bar_bottom + 24 - 1 <= py <= sheet_top - 24 + 1, (bar_bottom, py, sheet_top)
         finally:
             browser.close()
 

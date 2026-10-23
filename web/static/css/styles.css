@@ -490,44 +490,13 @@ a:visited { color: var(--link-visited); }
 }
 
 /* ---------- 3. Layout ---------- */
-.site-header {
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-.masthead {
-  max-width: 1440px; margin: 0 auto; padding: var(--space-2) var(--space-5);
-  display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); flex-wrap: wrap;
-  font-family: var(--font-mono); font-size: var(--text-1); letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--text-muted); border-bottom: 1px solid var(--border);
-}
-.masthead__ref { color: var(--text-muted); }
-.masthead__lag { color: var(--text-muted); }
-.site-header__bar {
-  max-width: 1440px; margin: 0 auto; padding: var(--space-4) var(--space-5);
-  display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap;
-}
+/* The header (top bar, section bar, phone Menu) and the footer's link row are in the "Navigation v2
+   shell" section further down. The wordmark's own rule stays here, for the admin header too
+   (`admin/base.html`, the name and its "admin" tag); the top bar sets its own size. */
 .wordmark {
   font-family: var(--font-display); font-optical-sizing: auto; font-size: var(--text-5); font-weight: 600;
   color: var(--text); text-decoration: none; display: flex; align-items: baseline; gap: var(--space-2);
 }
-.primary-nav { display: flex; gap: var(--space-5); flex-wrap: wrap; }
-.primary-nav a { color: var(--text); text-decoration: none; font-size: var(--text-3); padding: var(--space-1) 0; border-bottom: 1px solid transparent; }
-.primary-nav a:hover, .primary-nav a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
-.site-search { margin-inline-start: auto; display: flex; gap: var(--space-2); }
-.site-search input {
-  font: inherit; padding: var(--space-2) var(--space-1); border: none; border-bottom: 1px solid var(--border);
-  border-radius: 0; background: transparent; color: var(--text); min-width: 14rem;
-}
-/* UX-15 (audit 2026-10-07): inputs keep the site-wide 2px focus outline (docs/31 §7, SC 2.4.11);
-   the underline darkens as well. They used to drop the outline for a 1px underline change. */
-.site-search input:focus-visible { border-bottom-color: var(--focus-ring); }
-.site-search button {
-  /* Secondary button (docs/31 §5.16): outlined, sentence case. */
-  font: inherit; font-size: var(--text-2);
-  padding: var(--space-1) var(--space-3); border-radius: var(--radius-2); min-height: 2.25rem;
-  border: 1px solid var(--link); background: transparent; color: var(--link); cursor: pointer;
-}
-.site-search button:hover { background: var(--link); color: var(--surface); }
 main { max-width: 1440px; margin: 0 auto; padding: 0 var(--space-5) var(--space-9); }
 .site-footer {
   border-top: 1px solid var(--border); padding: var(--space-6) var(--space-5);
@@ -536,10 +505,6 @@ main { max-width: 1440px; margin: 0 auto; padding: 0 var(--space-5) var(--space-
 
 @media (max-width: 719px) {
   main { padding: 0 var(--space-4) var(--space-8); }
-  .masthead { padding: var(--space-2) var(--space-4); flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: var(--space-1); }
-  .site-header__bar { padding: var(--space-3) var(--space-4); }
-  .site-search { width: 100%; margin-inline-start: 0; }
-  .site-search input { flex: 1; min-width: 0; }
 }
 
 h1, h2, h3 { font-family: var(--font-display); font-optical-sizing: auto; font-weight: 600; line-height: 1.25; margin: 0 0 var(--space-4); }
@@ -1641,12 +1606,10 @@ a.button-secondary:visited { color: var(--link); }
 
 /* ---------- 2026-10-07 layout lane (audit 2026-09-30: D-3, D-4, D-8, D-11, F6, F7) ---------- */
 
-/* Header below 720px (D-4, docs/31 §3): wordmark and a "Menu" disclosure on one row; the
-   links and the search box open beneath it. Every collapsed rule is keyed on `.js` (set in
-   base.html before first paint), so without scripts the header stays open as before. Above
-   720px the panel is `display: contents` and the bar lays out exactly as it did. */
-.nav-toggle, .filter-toggle, .filter-bar__done { display: none; }
-.site-nav-panel { display: contents; }
+/* Filter bars below 720px: a "Filters" disclosure (`.filter-toggle`). Every collapsed rule is keyed on
+   `.js` (set in base.html before first paint), so without scripts the bars stay open. The header's
+   "Menu" (`.nav-toggle`) is in the "Navigation v2 shell" section further down. */
+.filter-toggle, .filter-bar__done { display: none; }
 .nav-toggle, .filter-toggle, .filter-bar__done, .show-more-btn, .map-error__retry {
   font: inherit; font-size: var(--text-2); min-height: 2.5rem; padding: 0 var(--space-4);
   border: 1px solid var(--border); border-radius: var(--radius-2);
@@ -1654,24 +1617,7 @@ a.button-secondary:visited { color: var(--link); }
 }
 .nav-toggle[aria-expanded="true"], .filter-toggle[aria-expanded="true"] { border-color: var(--text); font-weight: 600; }
 .filter-toggle__count { font-variant-numeric: tabular-nums; margin-inline-start: 0.25em; }
-/* The nav at body size, so the links and the search box share one row at 1440px and the map
-   starts ~60px higher (D-3); the masthead line is the edition stamp, dropped below 720px where the
-   tier notice on list and map pages already says the same thing. */
-.primary-nav { gap: var(--space-4); }
-.primary-nav a { font-size: var(--text-2); }
-@media (min-width: 1080px) { .site-search input { min-width: 12rem; } }
 @media (max-width: 719px) {
-  .masthead { display: none; }
-  /* The home page has no tier notice (review 2026-10-10 §2.6 item 2), so its masthead keeps the one
-     source-lateness link at this width, without the edition stamp. */
-  .masthead.masthead--keep { display: flex; padding: var(--space-1) var(--space-4); }
-  .masthead--keep .masthead__ref { display: none; }
-  .js .nav-toggle { display: inline-flex; align-items: center; margin-inline-start: auto; }
-  .js .site-header__bar { gap: var(--space-3); }
-  .js .site-nav-panel { display: none; }
-  .js .site-nav-panel.is-open { display: flex; flex-direction: column; gap: var(--space-3); width: 100%; }
-  .js .site-nav-panel.is-open .primary-nav { flex-direction: column; gap: 0; }
-  .js .site-nav-panel.is-open .primary-nav a { padding: var(--space-2) 0; border-bottom-color: var(--border); }
   /* Filter bars (docs/31 §5.9 "at-400px collapses to a single Filters button"): a disclosure that
      opens in place, so nothing is covered and focus never lands behind an overlay. */
   .js .filter-toggle { display: inline-flex; align-items: center; margin: 0 0 var(--space-3); }
@@ -1679,22 +1625,6 @@ a.button-secondary:visited { color: var(--link); }
   .js .filter-bar[data-collapse].is-open .filter-bar__done { display: block; width: 100%; }
 }
 
-/* ---------- 2026-10-21 navigation lane (docs/16 §3.1-3.2, §4.3: U-6, U-17) ----------
-   Six primary links. The link to this page, or to the section holding it, carries `aria-current`;
-   weight and the underline are its visible echo, never colour alone (SC 1.4.1). The bar is 8px
-   shorter, which every page's first screen gets back. */
-.site-header__bar { padding-block: var(--space-3); }
-.primary-nav a[aria-current] { font-weight: 600; border-bottom-color: currentColor; }
-/* About & sources is reference, not a destination: a utility link beside the freshness line, and
-   in the footer. Below 720px the masthead is hidden, so the Menu panel carries it instead. */
-.masthead__util { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-5); }
-.masthead__about[aria-current] { font-weight: 600; }
-.site-nav-panel__about { display: none; margin: 0; }
-@media (max-width: 719px) {
-  .site-nav-panel__about { display: block; }
-  .site-nav-panel__about a { display: inline-block; padding: var(--space-2) 0; }
-  .masthead--keep .masthead__about { display: none; }
-}
 /* Section tabs (docs/16 §3.2): plain links in a row, the GitHub repository idiom. The current tab
    carries `aria-current="page"`, echoed by weight and a 2px rule in the text colour; the row's
    bottom rule is the page header's own, so a tabbed header draws no second one. */
@@ -2349,11 +2279,12 @@ a.button-secondary:visited { color: var(--link); }
 .map-status .view-notice + .view-notice--unlisted { margin-top: 0; }
 
 /* ---------- Private beta feedback (2026-10-11; web/beta.py, web/feedback.py, docs/65) ----------
-   One line at the top of the header on every public page while the beta's shared login is on
+   One line above the top bar on every public page while the beta's shared login is on
    (SITE_ACCESS=basic): what the site is, and the way to say what a reader was trying to do. It is
-   not hidden below 720px as the masthead is, and it wraps rather than scrolling at 400px. Ink and
-   copper link on --surface, as everywhere else (both themes through the tokens). The link is at
-   least 24px tall (SC 2.5.8). The form itself reuses /submit's `.intake-form` rules. */
+   shown at every width, is not sticky (it scrolls away under the top bar), and wraps rather than
+   scrolling at 360px. Ink and copper link on --surface, as everywhere else (both themes through the
+   tokens). The link is at least 24px tall (SC 2.5.8). The form itself reuses /submit's
+   `.intake-form` rules. */
 .beta-bar { background: var(--surface); border-bottom: 1px solid var(--border); }
 .beta-bar__text {
   max-width: 1440px; margin: 0 auto; padding: var(--space-1) var(--space-5);
@@ -2367,6 +2298,210 @@ a.button-secondary:visited { color: var(--link); }
 @media (max-width: 719px) {
   .beta-bar__text { padding: var(--space-1) var(--space-4); }
 }
+
+/* ---------- Navigation v2 shell (2026-10-23, lane nav-shell; docs/30 §11.2, §11.3, §11.8) ----------
+   The header of every public page: the top bar (the global tier: wordmark, Market · My pipeline ·
+   Funding, search, Alerts, the account; 48px, sticky at every width, the only sticky bar on the site),
+   the section bar under it (the pages of the current section; 40px, 44px below 720px, not sticky,
+   quieter), and below 720px the Menu panel. The page or section that holds this page carries
+   `aria-current`; weight and a 2px rule are its visible echo, never colour alone (SC 1.4.1). Every
+   colour is a token, so both themes hold. Collapsed states are keyed on `.js` (base.html sets it before
+   first paint): without scripts the search field stays in the bar and the Menu panel stays open below
+   720px. `--top-bar-h` and `--section-bar-h` are what the full-screen map subtracts (§11.6, §11.8). */
+:root { --top-bar-h: 3rem; --section-bar-h: 2.5rem; }
+/* An anchor jump or a focused control lands below the sticky bar, not under it (SC 2.4.11). */
+html { scroll-padding-top: var(--top-bar-h); }
+
+.top-bar { position: sticky; top: 0; z-index: 40; background: var(--bg); border-bottom: 1px solid var(--border); }
+.top-bar__row {
+  position: relative; max-width: 1440px; margin: 0 auto; padding: 0 var(--space-5);
+  min-height: calc(var(--top-bar-h) - 1px); display: flex; align-items: stretch; gap: var(--space-6);
+}
+.top-bar .wordmark { display: block; align-self: center; flex: none; line-height: 1; font-size: var(--text-4); }
+.top-bar__sections { display: flex; align-items: stretch; gap: var(--space-5); }
+.top-bar__utils { margin-inline-start: auto; display: flex; align-items: center; gap: var(--space-5); }
+.top-bar__sections a, .top-bar__link {
+  display: flex; align-items: center; align-self: stretch; white-space: nowrap; cursor: pointer;
+  color: var(--text); text-decoration: none; font-size: var(--text-2);
+  border-top: 2px solid transparent; border-bottom: 2px solid transparent;
+}
+.top-bar__sections a:hover, .top-bar__sections a:focus-visible,
+.top-bar__link:hover, .top-bar__link:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.top-bar__sections a[aria-current], .top-bar__link[aria-current] { font-weight: 600; border-bottom-color: currentColor; }
+
+/* Search: a 336px field from 1080px, the width its whole placeholder needs. Its text is 265px in IBM Plex
+   Sans 16px, and the field gives text all but its 12px left padding and the 40px magnifier: 240px (planned
+   in docs/30 §11.2 for 1080-1279px) showed about 70% of it and 320px lost "ID..." (review of lane
+   nav-shell). Measured at 1080px, signed in, with all three sections, Alerts and the account, the row
+   needs 935px of its 1080 (side padding included), leaving 171px between the sections and the field. Below 1080px an icon button opens it over the bar, and Escape, Close, or focus
+   or a click going elsewhere puts the bar back (site.js). */
+.site-search { position: relative; display: flex; align-items: center; gap: var(--space-2); }
+.site-search input {
+  font: inherit; font-size: var(--text-2); width: 21rem; min-height: 2.25rem;
+  padding: 0 2.5rem 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-2);
+  background: var(--surface); color: var(--text);
+}
+/* UX-15 (audit 2026-10-07): inputs keep the site-wide 2px focus outline (docs/31 §7, SC 2.4.11);
+   the border darkens as well. */
+.site-search input:focus-visible { border-color: var(--focus-ring); }
+.site-search button {
+  /* Secondary button (docs/31 §5.16): outlined, sentence case. */
+  font: inherit; font-size: var(--text-2);
+  padding: var(--space-1) var(--space-3); border-radius: var(--radius-2); min-height: 2.25rem;
+  border: 1px solid var(--link); background: transparent; color: var(--link); cursor: pointer;
+}
+.site-search button:hover { background: var(--link); color: var(--surface); }
+/* The magnifier inside the field submits it. */
+.site-search .site-search__submit {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 2.5rem; padding: 0; border: 0;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted);
+}
+.site-search .site-search__submit:hover { background: transparent; color: var(--link); }
+.site-search__close { display: none; }
+.search-toggle {
+  display: none; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; padding: 0;
+  border: 0; border-radius: var(--radius-2); background: transparent; color: var(--text); cursor: pointer;
+}
+.search-toggle:hover, .search-toggle[aria-expanded="true"] { color: var(--link); }
+@media (max-width: 1079px) {
+  .site-search input { width: 12rem; }
+  .js .search-toggle { display: inline-flex; }
+  .js .site-search { display: none; }
+  .js .site-search.is-open {
+    display: flex; position: absolute; inset: 0; z-index: 2; padding: 0 var(--space-5); background: var(--bg);
+  }
+  .js .site-search.is-open input { flex: 1; width: auto; min-width: 0; }
+  .js .site-search.is-open .site-search__submit { position: static; width: 2.75rem; height: 2.75rem; }
+  .js .site-search.is-open .site-search__close { display: inline-flex; align-items: center; min-height: 2.75rem; }
+}
+
+/* The account (§11.2): a `<details>` menu, so it opens without scripts; site.js closes it on Escape and
+   on a click elsewhere. */
+.account-menu { position: relative; display: flex; align-self: stretch; }
+.account-menu__toggle { list-style: none; gap: var(--space-2); }
+.account-menu__toggle::-webkit-details-marker { display: none; }
+.account-menu__toggle::after {
+  content: ""; width: 0.4em; height: 0.4em; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: translateY(-25%) rotate(45deg);
+}
+.account-menu[open] .account-menu__toggle::after { transform: translateY(25%) rotate(-135deg); }
+.account-menu__list {
+  position: absolute; right: 0; top: 100%; z-index: 3; min-width: 12rem; margin: 0; padding: var(--space-1) 0;
+  list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
+  box-shadow: var(--shadow-1);
+}
+.account-menu__list form { margin: 0; }
+.account-menu__list a, .account-menu__list button {
+  display: flex; align-items: center; width: 100%; min-height: 2.5rem; padding: 0 var(--space-4);
+  font: inherit; font-size: var(--text-2); color: var(--text); text-decoration: none; text-align: left;
+  background: none; border: 0; cursor: pointer;
+}
+.account-menu__list a:hover, .account-menu__list a:focus-visible,
+.account-menu__list button:hover, .account-menu__list button:focus-visible { background: var(--bg); color: var(--link); }
+.account-menu__list a[aria-current] { font-weight: 600; box-shadow: inset 2px 0 0 currentColor; }
+
+/* Menu: only below 720px. */
+.nav-toggle { display: none; }
+.site-menu { display: none; }
+
+/* The section bar. Its row scrolls sideways inside itself whenever it is wider than the screen, never
+   wraps; site.js brings the current item into view and fades a cut edge (24px). */
+.section-bar { background: var(--bg); border-bottom: 1px solid var(--border); }
+.section-bar__row {
+  max-width: 1440px; margin: 0 auto; padding: 0 var(--space-5);
+  height: calc(var(--section-bar-h) - 1px); display: flex; align-items: stretch; gap: var(--space-6);
+}
+.section-bar__title {
+  display: none; align-self: center; flex: none; white-space: nowrap; color: var(--text);
+  font-family: var(--font-mono); font-size: var(--text-1); letter-spacing: 0.04em; text-transform: uppercase;
+}
+.section-bar__items {
+  position: relative; display: flex; align-items: stretch; gap: var(--space-5); flex: 0 1 auto; min-width: 0;
+  margin: 0; padding: 0; list-style: none;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-snap-type: x proximity;
+}
+.section-bar__items::-webkit-scrollbar { display: none; }
+.section-bar__items li { display: flex; flex: none; scroll-snap-align: start; }
+.section-bar__items a {
+  display: flex; align-items: center; white-space: nowrap; color: var(--text-muted); text-decoration: none;
+  font-size: var(--text-2); border-top: 2px solid transparent; border-bottom: 2px solid transparent;
+}
+/* Inside a scrolling row the outline is drawn inward, or the row would clip it. */
+.section-bar__items a:focus-visible { outline-offset: -2px; }
+.section-bar__items a:hover, .section-bar__items a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.section-bar__items a[aria-current] { color: var(--text); font-weight: 600; border-bottom-color: currentColor; }
+.section-bar__items.is-cut-end {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+}
+.section-bar__items.is-cut-start {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 1.5rem), transparent);
+}
+.section-bar__items.is-cut-start.is-cut-end {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 1.5rem, #000 calc(100% - 1.5rem), transparent);
+}
+/* The right end: About & sources from 1080px, the source-freshness line (the masthead's strings) from
+   1280px. Below 1080px both are in the footer, and below 720px in the Menu. */
+.section-bar__util {
+  display: none; flex: none; align-items: center; gap: var(--space-5); margin: 0 0 0 auto;
+  white-space: nowrap; font-size: var(--text-1); color: var(--text-muted);
+}
+.section-bar__util .fresh-line { display: none; }
+.section-bar__about { display: inline-flex; align-items: center; min-height: 1.5rem; }
+@media (min-width: 1080px) { .section-bar__util { display: flex; } }
+@media (min-width: 1280px) {
+  .section-bar__title { display: block; }
+  .section-bar__util .fresh-line { display: inline; }
+}
+
+/* Phones (§11.8): the wordmark, the search button and Menu; Menu opens a panel in place under the bar,
+   every row 44px, each section a group (the current one open), then Alerts, the account, About &
+   sources and the freshness line. The panel scrolls inside itself, so a long one never runs under the
+   bottom of the screen. */
+@media (max-width: 719px) {
+  :root { --section-bar-h: 2.75rem; }
+  .top-bar__row { padding: 0 var(--space-4); gap: var(--space-3); }
+  .top-bar__utils { gap: var(--space-2); }
+  .top-bar__sections, .top-bar__link, .account-menu { display: none; }
+  .js .nav-toggle { display: inline-flex; align-items: center; min-height: 2.75rem; }
+  .js .site-search.is-open { padding: 0 var(--space-4); }
+  html:not(.js) .top-bar__row { flex-wrap: wrap; padding-block: var(--space-2); }
+  html:not(.js) .top-bar__utils { flex-basis: 100%; }
+  html:not(.js) .site-search, html:not(.js) .site-search input { width: 100%; }
+  .site-menu {
+    display: block; padding: 0 var(--space-4) var(--space-3); border-top: 1px solid var(--border);
+    max-height: calc(100dvh - var(--top-bar-h)); overflow-y: auto; overscroll-behavior: contain;
+  }
+  .js .site-menu:not(.is-open) { display: none; }
+  .site-menu ul { list-style: none; margin: 0; padding: 0; }
+  .site-menu form { margin: 0; }
+  .site-menu summary, .site-menu li > a, .site-menu button {
+    display: flex; align-items: center; width: 100%; min-height: 2.75rem; padding: 0;
+    font: inherit; font-size: var(--text-2); color: var(--text); text-decoration: none; text-align: left;
+    background: none; border: 0; cursor: pointer;
+  }
+  .site-menu__group { border-bottom: 1px solid var(--border); }
+  .site-menu__group > summary { list-style: none; justify-content: space-between; font-weight: 600; }
+  .site-menu__group > summary::-webkit-details-marker { display: none; }
+  .site-menu__group > summary::after {
+    content: ""; width: 0.45em; height: 0.45em; margin-inline-end: var(--space-2);
+    border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg);
+  }
+  .site-menu__group[open] > summary::after { transform: rotate(-135deg); }
+  .site-menu__group ul { padding: 0 0 var(--space-2) var(--space-4); }
+  .site-menu li > a[aria-current] { font-weight: 600; box-shadow: inset 2px 0 0 currentColor; padding-inline-start: var(--space-3); }
+  .site-menu__utils { padding-top: var(--space-2); }
+  .site-menu__fresh { margin: var(--space-2) 0 0; min-height: 2.75rem; display: flex; align-items: center; font-size: var(--text-1); color: var(--text-muted); }
+  .section-bar__row { padding: 0 var(--space-4); gap: var(--space-4); }
+}
+
+/* The footer's reference and legal links: one wrapping row, each at least 24px tall (SC 2.5.8). */
+.site-footer__scope { margin: 0 0 var(--space-3); max-width: 60rem; }
+.site-footer__links { display: flex; flex-wrap: wrap; gap: 0 var(--space-5); list-style: none; margin: 0 0 var(--space-3); padding: 0; }
+.site-footer__links a { display: inline-flex; align-items: center; min-height: 1.5rem; }
+/* ---------- end Navigation v2 shell ---------- */
 
 /* ---------- Prices (2026-10-22; web/prices.py, docs/29 slice 1) ----------
    The glossary is four short definitions, two columns from 720px, one below. The two tables are

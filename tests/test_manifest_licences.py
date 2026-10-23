@@ -37,25 +37,53 @@ def test_every_gated_vocabulary_source_declares_publication_explicitly() -> None
 
 def test_the_fourteen_audit_sources_are_gated_in_the_manifest() -> None:
     by_id = {e["id"]: e for e in load_manifest(MANIFEST)}
-    fourteen = [
-        "us.lbnl.queued_up",
+    still_unread = [
         "us.oasis.non_iso_queues",
         "us.state.siting_boards",
         "us.state.puc_dockets",
         "us.utility_rfps",
         "eu.entsoe.tyndp",
-        "ie.eirgrid.connections",
-        "ca.ieso.connection_status",
-        "ca.aeso.connection_list",
         "in.seci_mnre.tenders",
         "br.aneel.leiloes",
         "za.ipp_office.reipppp",
         "mdb.others",
         "global.iea.demo_projects",
     ]
-    for sid in fourteen:
+    for sid in still_unread:
         assert by_id[sid]["reuse"] == "unknown", sid
         assert by_id[sid]["publication"] == "none", sid
+    # Four of the fourteen had their terms read and quoted on 2026-10-23 (docs/13 §2.1, §2.20): each
+    # left `unknown` only with the dated quote in its `license`, and only as far as the quote allows.
+    read_since = {
+        # Its own licence is CC BY 4.0 (register class open-attribution), but its rows are the non-ISO
+        # utilities' queues, whose terms are unread, so the manifest records the rows' class (§2.1).
+        "us.lbnl.queued_up": ("unknown", "none"),
+        "ca.ieso.connection_status": ("attribution", "derived_only"),
+        "ca.aeso.connection_list": ("restricted", "none"),
+        "ie.eirgrid.connections": ("restricted", "none"),
+    }
+    for sid, (reuse, publication) in read_since.items():
+        assert (by_id[sid]["reuse"], by_id[sid]["publication"]) == (reuse, publication), sid
+        assert "retrieved 2026-10-23" in by_id[sid]["license"], sid
+    assert by_id["ca.ieso.connection_status"]["status"] == "pending"  # terms read, nothing built
+
+
+def test_lbnl_queued_up_is_held_and_the_loader_loads_none_of_it() -> None:
+    """Review finding 1 of the national-queues lane (2026-10-23): with `reuse: attribution` and
+    `publication: raw_ok` the first load would have made 12,431 rows public whose operators' terms are
+    unread. Held: the registry gates the source (scheduled runs refused; a quarantine run needs
+    `--allow-restricted`) and the loader's own gate refuses every row, which also keeps the source out
+    of the scheduler's resolve pass (`load_refusal`)."""
+    from pipeline.connectors.base import GateViolation
+    from pipeline.connectors.registry import Registry
+    from services.ingest.loader import load_refusal
+
+    registry = Registry()
+    entry = registry.get("us.lbnl.queued_up")
+    assert entry.implemented and entry.gated
+    assert (load_refusal(entry) or "").startswith("us.lbnl.queued_up has reuse='unknown'")
+    with pytest.raises(GateViolation):
+        registry.instantiate("us.lbnl.queued_up")
 
 
 def test_derived_only_sources_carry_the_explicit_field() -> None:
@@ -69,7 +97,10 @@ def test_register_parser_takes_the_strictest_class_and_rule() -> None:
     rows = parse_register(REGISTER)
     assert rows["us.iso.pjm.gen_queue"].strictest_class == "restricted"
     assert rows["us.iso.pjm.gen_queue"].strictest_rule == "none"
-    assert rows["us.lbnl.queued_up"].strictest_class == "unknown"
+    assert rows["us.iso.miso.gen_queue"].strictest_class == "unknown"
+    assert rows["us.lbnl.queued_up"].strictest_class == "open-attribution"
+    # "link-out-only (held)" outranks the "raw-ok" ceiling the same cell states for when it is lifted.
+    assert rows["us.lbnl.queued_up"].strictest_rule == "none"
     assert rows["news.gdelt.doc"].strictest_class == "open-attribution"
     assert rows["news.gdelt.doc"].strictest_rule == "derived_only"
     assert rows["us.eia.860m"].strictest_class == "public-domain"

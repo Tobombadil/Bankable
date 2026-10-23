@@ -1,11 +1,11 @@
 """Paid tiers out of the way under the noncommercial posture (owner, 2026-10-10: a private beta
 opens with paid tiers off, and pricing and Pro must not distract it; docs/26 §3 precondition (i)).
 
-Under `noncommercial`: "Pricing" is not in the primary navigation of any page (each of the four
-Jinja environments that render `base.html`: the site, auth, legal and pricing), no page offers an
-"in Pro" call to action or a "see what the plans include" link, `/docs/api` does not send the reader
-to the plans, and `/pricing` still answers by URL with its posture notice. Under `commercial`
-every one of those is as it was.
+Under `noncommercial`: "Pricing" is nowhere in the header of any page (each of the four Jinja
+environments that render `base.html`: the site, auth, legal and pricing), no page offers an "in Pro"
+call to action or a "see what the plans include" link, `/docs/api` does not send the reader to the
+plans, and `/pricing` still answers by URL with its posture notice. Under `commercial` every one of
+those is as it was, except that Pricing lives in the account menu only (Navigation v2, docs/30 §11.2).
 
 Same wiring as `web/test_pricing.py`: `web.app.app` driven in-process against the real
 `services.api.app.app` on a fresh SQLite database, with `GET /v1/health` answering the posture the
@@ -105,6 +105,27 @@ def _patch_posture(monkeypatch: pytest.MonkeyPatch, value: str, *, free_alerts: 
     monkeypatch.setattr(ApiClient, "get", _with_posture)
 
 
+def _header(html: str) -> str:
+    """Everything the shell draws above `<main>`: the top bar, its account menu, the phone Menu and the
+    section bar (Navigation v2, docs/30 §11)."""
+    return html.split('<a class="skip-link"', 1)[1].split('<main id="main"', 1)[0]
+
+
+def _hrefs(fragment: str) -> list[str]:
+    return re.findall(r'<a href="([^"]+)"(?: data-signin)?(?: aria-current="(?:page|true)")?>', fragment)
+
+
+def _top_sections(html: str) -> str:
+    return html.split('aria-label="Site sections">', 1)[1].split("</nav>", 1)[0]
+
+
+def _account_menus(html: str) -> list[str]:
+    """The account menu of the top bar and the account rows of the phone Menu."""
+    top = re.findall(r'<details class="account-menu">(.*?)</details>', html, re.S)
+    rows = html.split('<ul class="site-menu__utils">', 1)[1].split("</ul>", 1)[0]
+    return [*top, rows]
+
+
 @pytest.mark.parametrize("path", PAGES)
 def test_noncommercial_leaves_pricing_out_of_the_navigation(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, path: str
@@ -112,34 +133,53 @@ def test_noncommercial_leaves_pricing_out_of_the_navigation(
     _patch_posture(monkeypatch, "noncommercial")
     resp = client.get(path)
     assert resp.status_code == 200, path
-    nav = resp.text.split('aria-label="Primary"', 1)[1].split("</nav>", 1)[0]
-    assert 'href="/pricing"' not in nav, path
+    header = _header(resp.text)
+    assert 'href="/pricing"' not in header, path
     assert NAV_LINK not in resp.text, path
-    # The rest of the navigation is unchanged: the section links (docs/16 §3.1; docs/25), with About &
-    # sources beside the freshness line rather than among them. This store has no site-finder run, so
-    # the site finder is not listed (`site_finder_listed`, web/page.py).
-    hrefs = re.findall(r'<a href="([^"]+)"(?: aria-current="(?:page|true)")?>', nav)
-    assert hrefs[:6] == [
-        "/",
-        "/proposals",
-        "/organizations",
-        "/opportunities",
-        "/assets",
-        "/alerts",
-    ], path
-    assert 'href="/about"' not in nav and '<a class="masthead__about" href="/about"' in resp.text, path
+    # The rest of the navigation is unchanged (docs/30 §11.2): signed out, the top bar holds Market (My
+    # pipeline is signed-in only, Funding waits for its page), then Alerts and a plain "Sign in", with no
+    # account menu to open; About & sources is a utility, not a section.
+    assert _hrefs(_top_sections(resp.text)) == ["/"], path
+    assert '<details class="account-menu">' not in header, path
+    assert re.search(
+        r'<a class="top-bar__link" href="/login" data-signin(?: aria-current="page")?>Sign in</a>', header
+    )
+    assert 'href="/about"' not in _top_sections(resp.text), path
 
 
 @pytest.mark.parametrize("path", PAGES)
-def test_commercial_keeps_pricing_in_the_navigation(
+def test_commercial_keeps_pricing_in_the_account_menu_only(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, path: str
 ) -> None:
     _patch_posture(monkeypatch, "commercial")
     resp = client.get(path)
     assert resp.status_code == 200, path
-    nav = resp.text.split('aria-label="Primary"', 1)[1].split("</nav>", 1)[0]
-    # On /pricing itself the link is marked as the current page.
-    assert re.search(r'<a href="/pricing"(?: aria-current="page")?>Pricing</a>', nav), path
+    header = _header(resp.text)
+    # Pricing is never a section or a section-bar page (docs/30 §11.2): only the account menu (the top
+    # bar's, and the phone Menu's account rows) holds it. On /pricing itself it is marked as the page.
+    assert 'href="/pricing"' not in _top_sections(resp.text), path
+    bar = header.split('<nav class="section-bar"', 1)[1] if '<nav class="section-bar"' in header else ""
+    assert 'href="/pricing"' not in bar, path
+    menus = _account_menus(header)
+    assert len(menus) == 2, path
+    for menu in menus:
+        assert re.search(r'<a href="/pricing"(?: aria-current="page")?>Pricing</a>', menu), path
+    assert header.count('href="/pricing"') == 2, path
+
+
+@pytest.mark.parametrize("posture", ["commercial", "noncommercial"])
+def test_signed_in_the_account_menu_holds_account_and_sign_out(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, posture: str
+) -> None:
+    """Signed in, the account slot opens Account, Pricing (only under `commercial`) and Sign out."""
+    _patch_posture(monkeypatch, posture)
+    client.cookies.set("session", "opaque")
+    header = _header(client.get("/proposals").text)
+    [menu] = re.findall(r'<details class="account-menu">(.*?)</details>', header, re.S)
+    assert '<summary class="top-bar__link account-menu__toggle">Account</summary>' in menu
+    assert _hrefs(menu) == (["/account", "/pricing"] if posture == "commercial" else ["/account"])
+    assert '<form method="post" action="/logout"><button type="submit">Sign out</button></form>' in menu
+    assert ">Sign in<" not in header
 
 
 @pytest.mark.parametrize("path", [p for p in PAGES if p != "/pricing"])

@@ -631,6 +631,7 @@ def test_each_store_rule_changes_exactly_what_is_past_its_age(factory: Any, tmp_
         "model_call_prompts",
         "documents",
         "withdrawn_personal_fields",
+        "data_room_orphans",  # data rooms are off here (services/retention/test_data_rooms.py runs it)
     }
     assert report["errors"] == 0 and report["event_id"].startswith("evt_")
 

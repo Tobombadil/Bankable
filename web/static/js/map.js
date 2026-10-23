@@ -1492,6 +1492,15 @@
   var narrowKey = window.matchMedia ? window.matchMedia("(max-width: 719px)") : null;
   var widePanel = window.matchMedia ? window.matchMedia("(min-width: 1080px)") : null;
   function isPhone() { return !!(narrowKey && narrowKey.matches); }
+  // Navigation v2's top bar is sticky (styles.css `.top-bar`, docs/30 §11.2), so what the map brings
+  // into view goes under it, not behind it: where its bottom edge is now, or (`stuck`) where it will be
+  // once the page has scrolled past anything above it, such as the beta bar.
+  var topBar = document.querySelector(".top-bar");
+  function topBarBottom(stuck) {
+    if (!topBar) return 0;
+    if (stuck) return (parseFloat(window.getComputedStyle(topBar).top) || 0) + topBar.offsetHeight;
+    return Math.max(0, topBar.getBoundingClientRect().bottom);
+  }
   // The reader's own choice, from 720px only: a phone's bar always starts closed (docs/17 M-1).
   var PANEL_STORE = "inframation.mapPanel";
   function storedPanelChoice() {
@@ -3310,7 +3319,7 @@
   function revealAboveSheet(lngLat, sheetHeight) {
     if (!narrowKey || !narrowKey.matches || !lngLat) return;
     var r = mapEl.getBoundingClientRect();
-    var top = Math.max(r.top, 0);
+    var top = Math.max(r.top, topBarBottom(false));
     var bottom = Math.min(r.bottom, window.innerHeight - sheetHeight);
     if (bottom - top < 64) return;
     var p = map.project(lngLat);
@@ -3849,12 +3858,13 @@
     syncClear();
     // On a phone the keyboard goes, so the map and the sheet have the screen.
     if (isCoarsePointer()) searchInput.blur();
-    // Below 720px the bar goes to the top of the screen, so the map under it is what shows above a
-    // record's sheet (at 390x844 the sheet left 65px of map when the page stayed where it was). At
-    // once, not smoothly: the fit below is worked out for where the map then is.
+    // Below 720px the bar goes to the top of the screen, 8px under the sticky top bar, so the map under
+    // it is what shows above a record's sheet (at 390x844 the sheet left 65px of map when the page
+    // stayed where it was). At once, not smoothly: the fit below is worked out for where the map then is.
     if (isPhone()) {
       var barTop = searchForm.getBoundingClientRect().top;
-      if (Math.abs(barTop - 8) > 2) window.scrollTo(0, Math.max(0, window.scrollY + barTop - 8));
+      var under = topBarBottom(true) + 8;
+      if (Math.abs(barTop - under) > 2) window.scrollTo(0, Math.max(0, window.scrollY + barTop - under));
     }
     if (opt.kind === "project") { goToProject(opt.item); return; }
     setSearchPin(null);

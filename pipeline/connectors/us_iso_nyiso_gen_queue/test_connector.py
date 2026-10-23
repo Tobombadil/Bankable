@@ -71,3 +71,30 @@ def _frame_digest(df: pd.DataFrame) -> str:
 def test_vendored_parser_reproduces_the_gridstatus_0_36_frame():
     df = queues.nyiso_queue(fixture_path("nyiso_interconnection_queue.xlsx").read_bytes())
     assert (df.shape, _frame_digest(df)) == ((70, 24), "889099f324f5fef3")
+
+
+def test_fetch_goes_through_the_shared_conditional_workbook_fetch():
+    """NYISO uses `iso_queue.fetch_workbook` (tested with CAISO): one GET of the workbook URL,
+    and the validators it answers with are kept for the next run's conditional request."""
+
+    class _Answer:
+        def __init__(self) -> None:
+            self.status_code = 200
+            self.content = fixture_path("nyiso_interconnection_queue.xlsx").read_bytes()
+            self.headers = {
+                "Last-Modified": "Tue, 13 Oct 2026 18:56:50 GMT",
+                "Content-Type": "application/octet-stream",
+            }
+
+    class _Http:
+        def __init__(self) -> None:
+            self.urls: list[str] = []
+
+        def get(self, url: str, **_: object) -> _Answer:
+            self.urls.append(url)
+            return _Answer()
+
+    http = _Http()
+    raw = connector_for(SOURCE_ID, http=http).fetch()
+    assert http.urls == [URL]
+    assert raw.meta == {"requested_url": URL, "last_modified": "Tue, 13 Oct 2026 18:56:50 GMT"}

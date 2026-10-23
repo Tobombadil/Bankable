@@ -98,10 +98,23 @@ def world(db: Session, make_user: UserFactory) -> World:
 
 #: docs/19 §2.6 as the test reads it; `archive` covers archive and unarchive.
 LIVE_ALLOWED = {
-    "owner": {"read", "edit", "invite", "manage_members", "delete", "archive"},
-    "editor": {"read", "edit", "leave"},
-    "viewer": {"read", "leave"},
+    "owner": {
+        "read",
+        "edit",
+        "invite",
+        "manage_members",
+        "delete",
+        "archive",
+        "download",
+        "upload",
+        "manage_files",
+        "audit",
+    },
+    "editor": {"read", "edit", "leave", "download", "upload"},
+    "viewer": {"read", "leave", "download"},
 }
+#: What an archived item still allows: reading (and downloading, and the owner's access log).
+ARCHIVED_ALLOWED = {"read", "archive", "delete", "download", "audit"}
 OUTSIDERS = (
     "non_member",
     "removed_member",
@@ -138,7 +151,7 @@ def test_role_action_matrix(db: Session, world: World, archived: bool) -> None:
             got = _outcome(db, world.contexts[subject], project_id, action)
             if subject in OUTSIDERS:
                 expected = "404"
-            elif archived and action not in {"read", "archive", "delete"}:
+            elif archived and action not in ARCHIVED_ALLOWED:
                 expected = "404"
             else:
                 expected = "ok" if action in LIVE_ALLOWED[subject] else "403"

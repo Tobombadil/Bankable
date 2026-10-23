@@ -117,7 +117,8 @@ def test_the_page_lists_the_bands_that_match_with_the_map_and_its_credits(client
 
 def test_the_nav_names_the_site_finder_after_map_and_marks_it_here(client: TestClient) -> None:
     html = client.get("/site-finder").text
-    nav = html.split('<nav class="primary-nav" aria-label="Primary">', 1)[1].split("</nav>", 1)[0]
+    # The Market section bar (Navigation v2, docs/30 §11.3): Map, then the site finder.
+    nav = html.split('<ul class="section-bar__items">', 1)[1].split("</ul>", 1)[0]
     links = re.findall(r'<a href="([^"]+)"(?: aria-current="([a-z]+)")?>([^<]*)</a>', nav)
     assert [(h, t) for h, _, t in links[:2]] == [("/", "Map"), ("/site-finder", "Site finder")]
     assert {h: c for h, c, _ in links if c} == {"/site-finder": "page"}

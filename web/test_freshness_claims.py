@@ -5,7 +5,8 @@ Before: the masthead said "Every record and every change live" and the tier noti
 every page, and the footer's "fetched 2026-10-07" was the newest fetch (EIA-860M), while CAISO, NYISO
 and NESO were last fetched 2026-09-13, three times past their weekly allowance. The claims are now
 derived from `/v1/coverage`'s per-source `fetched_at` and `freshness`, and say nothing about being
-live when the API cannot tell.
+live when the API cannot tell. Since Navigation v2 (docs/30 §11.2) the header's line (`fresh-line`, at
+the section bar's right end and in the phone Menu) keeps the masthead's strings.
 """
 
 from __future__ import annotations
@@ -126,7 +127,7 @@ def test_late_sources_turn_live_into_no_delay_and_are_named(install: Any) -> Non
     with TestClient(web_app) as client:
         html = client.get("/proposals").text
     assert "Every record and every change live" not in html
-    assert _text(html, "masthead__lag") == "3 of 4 sources behind their fetch schedule"
+    assert _text(html, "fresh-line") == "3 of 4 sources behind their fetch schedule"
     notice = _text(html, "delayed-notice")
     assert notice.startswith("No delay ") and "3 sources are behind their fetch schedule" in notice
     assert "CAISO (last fetched 13 Sep 2026)" in notice and "NESO" in notice
@@ -138,7 +139,7 @@ def test_all_on_schedule_may_say_live(install: Any) -> None:
     install([ROWS[0], ROWS[4]])
     with TestClient(web_app) as client:
         html = client.get("/proposals").text
-    assert _text(html, "masthead__lag") == "All 1 scheduled sources fetched on schedule"
+    assert _text(html, "fresh-line") == "All 1 scheduled sources fetched on schedule"
     assert _text(html, "delayed-notice").startswith("Live ")
 
 
@@ -146,5 +147,5 @@ def test_no_claim_when_the_api_cannot_say(install: Any) -> None:
     install(None)
     with TestClient(web_app) as client:
         html = client.get("/proposals").text
-    assert _text(html, "masthead__lag") == "Source fetch dates"
+    assert _text(html, "fresh-line") == "Source fetch dates"
     assert _text(html, "delayed-notice").startswith("No delay ")

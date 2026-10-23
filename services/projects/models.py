@@ -1,6 +1,7 @@
-"""The private-project tables (docs/19 §4.1; migrations `0040_private_projects`, `0042_tracker_kinds`).
+"""The private-project tables (docs/19 §4.1; migrations `0040_private_projects`, `0042_tracker_kinds`,
+`0043_data_rooms`).
 
-Nine tables, all named `private_*` except the checklist template, which is public content:
+Twelve tables, all named `private_*` except the checklist template, which is public content:
 
 - `private_project`: one item of the user's tracker: a project, a bid or an investment (`kind`, with
   its own stage vocabulary, `services.projects.kinds`; migration 0042). A bid may name the project it
@@ -18,6 +19,9 @@ Nine tables, all named `private_*` except the checklist template, which is publi
 - `private_project_item`, `private_project_evidence`: the project's checklist and the references
   behind suggested public-record evidence. There is no `verified` status.
 - `private_project_note`, `private_project_invitation`, `private_project_activity`.
+- The data room (migration 0043; `DATA_ROOM_TABLES`): `private_project_folder`,
+  `private_project_document` (what a stored file is, never its bytes) and
+  `private_project_document_event` (the item's access log, shown to its owner).
 
 **Ids.** `prj_`, `nte_` and `inv_` public ids are drawn from a random uuid4, not derived from the
 row's primary key, so a private URL carries no creation time and no internal id. Every private
@@ -604,6 +608,181 @@ class PrivateProjectActivity(Base):
         sa.Index("ix_private_project_activity_project_id_occurred_at", "project_id", "occurred_at"),
     )
 
+
+# ================================================================================= data rooms
+# Data rooms (docs/19 §3 and "Data rooms, as built"; next-wave item C; migration `0043_data_rooms`).
+# A tracked item's documents, in folders, behind the same authorisation function. The file itself is
+# never in the database: it is sealed (AES-256-GCM under a per-file key, `data_room_store`) and kept
+# in the private object store under a random key. These rows hold what the pages show (name, type,
+# size, uploader, date), the wrapped file key, and the item's own access log.
+
+#: The default folders: the checklist's six (docs/30 §11.9.4, "The folders are the checklist's six";
+#: Bankable's six categories, docs/18 §1.3), then "Other" for what sits outside the checklist
+#: (Bankable's "Reference"). Every item gets them on first opening its data room; an editor may add
+#: more (custom folders, `key` NULL).
+DATA_ROOM_FOLDER_KEYS: Final = (*CHECKLIST_FOLDERS, "other")
+DATA_ROOM_FOLDER_LABELS: Final[Mapping[str, str]] = {
+    "contracts": "Contracts",
+    "finance": "Finance",
+    "security": "Security",
+    "permits": "Permits",
+    "feasibility": "Feasibility",
+    "legal_corporate": "Legal & Corporate",
+    "other": "Other",
+}
+#: The accepted types, checked from the bytes (`data_room_files`), never from the name.
+DOCUMENT_TYPES: Final = ("pdf", "docx", "xlsx", "pptx", "png", "jpeg", "tiff", "csv", "txt")
+#: `not_scanned`: no scanner ran (none is configured); `clean`: the configured scanner passed it. A
+#: file a scanner flags is never stored, so there is no `infected` row.
+SCAN_STATUSES: Final = ("not_scanned", "clean")
+SCANNERS: Final = ("clamd",)
+#: The access log's vocabulary: who viewed (opened a folder's file list), downloaded, uploaded and
+#: deleted what, and when; refused uploads and folder changes too. Shown to the item's owner.
+DOCUMENT_EVENT_ACTIONS: Final = (
+    "viewed",
+    "downloaded",
+    "uploaded",
+    "deleted",
+    "upload_refused",
+    "folder_created",
+    "folder_renamed",
+    "folder_deleted",
+)
+#: Why an upload was refused (`data_room_files.Refusal`, the quota and the scanner).
+REFUSAL_REASONS: Final = (
+    "empty",
+    "too_large",
+    "type_not_accepted",
+    "executable",
+    "script",
+    "archive",
+    "macros",
+    "external_content",
+    "legacy_office",
+    "encrypted",
+    "malware",
+    "quota",
+)
+FOLDER_NAME_MAX_CHARS: Final = 80
+
+
+def folder_name_key(name: str) -> str:
+    """What makes two folder names the same name in an item: case-folded (`Permits`, `PERMITS` and
+    `permits` are one)."""
+    return name.casefold()
+
+
+FILE_NAME_MAX_CHARS: Final = 200
+MAX_FOLDERS_PER_PROJECT: Final = 30
+MAX_DOCUMENTS_PER_PROJECT: Final = 1000
+
+
+class PrivateProjectFolder(Base):
+    """A data-room folder. `key` names a default folder (`DATA_ROOM_FOLDER_KEYS`) and is NULL for a
+    folder a member added; a default folder is never deleted, so the checklist's folders stay."""
+
+    __tablename__ = "private_project_folder"
+
+    id: Mapped[_uuid.UUID] = _private_pk()
+    project_id: Mapped[_uuid.UUID] = _project_fk()
+    key: Mapped[str | None] = mapped_column(sa.Text)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: `name`, case-folded (`folder_name_key`): unique in the item, so two members adding "Permits"
+    #: and "permits" at once get one folder and a refusal, not two folders.
+    name_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0, server_default="0")
+    created_by_user_id: Mapped[_uuid.UUID | None] = _fk_user(nullable=True)
+    created_at: Mapped[dt.datetime] = _timestamp()
+
+    __table_args__ = (
+        sa.UniqueConstraint("project_id", "key"),
+        sa.UniqueConstraint("project_id", "name_key"),
+        sa.CheckConstraint(_in("key", DATA_ROOM_FOLDER_KEYS), name="key_vocab"),
+        sa.CheckConstraint(f"length(name) BETWEEN 1 AND {FOLDER_NAME_MAX_CHARS}", name="name_length"),
+        sa.Index("ix_private_project_folder_project_id", "project_id"),
+    )
+
+
+class PrivateProjectDocument(Base):
+    """One stored file. The object holds the sealed bytes; `wrapped_key` is the file's own key,
+    sealed under the deployment's data-room key (`key_fingerprint` names which), so neither a
+    database dump nor the bucket alone opens a document."""
+
+    __tablename__ = "private_project_document"
+
+    id: Mapped[_uuid.UUID] = _private_pk()
+    project_id: Mapped[_uuid.UUID] = _project_fk()
+    folder_id: Mapped[_uuid.UUID] = mapped_column(
+        GUID(), sa.ForeignKey("private_project_folder.id", ondelete="CASCADE"), nullable=False
+    )
+    #: As the uploader named it, cleaned (`data_room_files.clean_file_name`). Shown to members only;
+    #: never in a log, an object key, a URL or a response header.
+    file_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: What the bytes are (`DOCUMENT_TYPES`), and so the `Content-Type` it is served with.
+    doc_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
+    #: SHA-256 of the plaintext, checked again on every download.
+    sha256: Mapped[str] = mapped_column(sa.CHAR(64), nullable=False)
+    #: Random, under the data-room prefix; never derived from a name, a title or an id.
+    object_key: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    key_fingerprint: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    wrapped_key: Mapped[bytes] = mapped_column(sa.LargeBinary, nullable=False)
+    scan_status: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    scanner: Mapped[str | None] = mapped_column(sa.Text)
+    scanned_at: Mapped[dt.datetime | None] = _timestamp(nullable=True)
+    #: NULL after the uploader's erasure; pages show "Former member" (as notes do, owner 2026-10-22).
+    uploaded_by_user_id: Mapped[_uuid.UUID | None] = _fk_user(nullable=True)
+    uploaded_at: Mapped[dt.datetime] = _timestamp()
+
+    __table_args__ = (
+        sa.CheckConstraint(_in("doc_type", DOCUMENT_TYPES), name="doc_type_vocab"),
+        sa.CheckConstraint(_in("scan_status", SCAN_STATUSES), name="scan_status_vocab"),
+        sa.CheckConstraint(_in("scanner", SCANNERS), name="scanner_vocab"),
+        sa.CheckConstraint("(scan_status = 'clean') = (scanner IS NOT NULL)", name="scanner_pair"),
+        sa.CheckConstraint("size_bytes > 0", name="size_positive"),
+        sa.CheckConstraint(f"length(file_name) BETWEEN 1 AND {FILE_NAME_MAX_CHARS}", name="file_name_length"),
+        sa.Index("ix_private_project_document_project_id_folder_id", "project_id", "folder_id"),
+        sa.Index("ix_private_project_document_uploaded_by_user_id", "uploaded_by_user_id"),
+    )
+
+
+class PrivateProjectDocumentEvent(Base):
+    """The item's access log (docs/19 §3: "who, when, which file"), read by its owner and kept for
+    the life of the item. It names the file as it was then (`file_name`), so a deleted file's line
+    still says what went. No foreign key to the document or folder, which may be gone. Never written
+    to `event`, the admin audit log or an application log."""
+
+    __tablename__ = "private_project_document_event"
+
+    id: Mapped[_uuid.UUID] = _private_pk()
+    project_id: Mapped[_uuid.UUID] = _project_fk()
+    document_id: Mapped[_uuid.UUID | None] = mapped_column(GUID())
+    folder_id: Mapped[_uuid.UUID | None] = mapped_column(GUID())
+    file_name: Mapped[str | None] = mapped_column(sa.Text)
+    folder_name: Mapped[str | None] = mapped_column(sa.Text)
+    actor_user_id: Mapped[_uuid.UUID | None] = _fk_user(nullable=True)
+    action: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: A refused upload's reason; the file's size. Nothing else.
+    reason: Mapped[str | None] = mapped_column(sa.Text)
+    size_bytes: Mapped[int | None] = mapped_column(sa.BigInteger)
+    occurred_at: Mapped[dt.datetime] = _timestamp()
+
+    __table_args__ = (
+        sa.CheckConstraint(_in("action", DOCUMENT_EVENT_ACTIONS), name="action_vocab"),
+        sa.CheckConstraint(_in("reason", REFUSAL_REASONS), name="reason_vocab"),
+        sa.CheckConstraint("(reason IS NULL) = (action <> 'upload_refused')", name="reason_refusals_only"),
+        sa.Index("ix_private_project_document_event_project_id_occurred_at", "project_id", "occurred_at"),
+        sa.Index("ix_private_project_document_event_actor_user_id", "actor_user_id"),
+    )
+
+
+#: The data-room tables, children first (migration 0043). Separate from `PRIVATE_TABLES` so 0040's
+#: own round trip keeps checking exactly the nine tables 0040 creates.
+DATA_ROOM_TABLES: Final = (
+    "private_project_document_event",
+    "private_project_document",
+    "private_project_folder",
+)
 
 #: Every private table, children first (the order a by-hand delete would take).
 PRIVATE_TABLES: Final = (

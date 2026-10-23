@@ -88,7 +88,13 @@ from web.api_client import ApiClient, build_client
 from web.assets import ASSET_VERSION
 from web.beta import feedback_href
 from web.coverage_statement import coverage_line
-from web.page import get_free_alerts, get_platform_posture, paid_tiers_offered, site_finder_listed
+from web.page import (
+    get_free_alerts,
+    get_platform_posture,
+    nav_state,
+    paid_tiers_offered,
+    site_finder_listed,
+)
 from web.viewmodels import coverage_data
 from web.viewmodels import footer_build as vm_footer_build
 from web.viewmodels import source_freshness as vm_source_freshness
@@ -249,12 +255,15 @@ templates.env.globals["footer_lag_days"] = get_lag_days
 # The navigation leaves "Pricing" out under the noncommercial posture (`web/page.py`).
 templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 templates.env.globals["site_finder_listed"] = site_finder_listed
+# Navigation v2 (docs/30 §11): the header's session, posture and live pages (`web/page.py`).
+templates.env.globals["nav_state"] = nav_state
 templates.env.globals["beta_feedback_href"] = feedback_href  # web/beta.py, as in web/page.py
 templates.env.globals["footer_build"] = lambda request: vm_footer_build(request, get_api(request))
 # The header, tier notice and footer state how current the sources are (web/viewmodels.py).
 templates.env.globals["source_freshness"] = lambda request: vm_source_freshness(request, get_api(request))
 templates.env.globals["asset_version"] = ASSET_VERSION
 templates.env.globals["section_labels"] = labels.SECTION_LABELS
+templates.env.globals["section_titles"] = labels.SECTION_TITLES
 
 
 # ---------------------------------------------------------------------------------------- CSRF

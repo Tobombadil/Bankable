@@ -123,7 +123,7 @@ def test_desktop_criteria_sort_drawer_and_url(finder_server: Any) -> None:
             )
             first_rows = _rows(page)
             assert first_rows, "no bands listed at the defaults"
-            assert page.locator(".primary-nav a[aria-current='page']").inner_text() == "Site finder"
+            assert page.locator(".section-bar__items a[aria-current='page']").inner_text() == "Site finder"
             # The count line is in the first screen at 1440x900.
             count_top = page.locator(".sf-count").bounding_box()
             assert count_top is not None and count_top["y"] < 900, count_top

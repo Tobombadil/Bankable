@@ -302,18 +302,24 @@ def test_every_page_has_the_menu_disclosure_and_list_pages_a_filters_button(tran
         for path, form_id in (("/", "map-filters"), ("/proposals", "filters"), ("/opportunities", "filters")):
             html = client.get(path).text
             nav_toggle = (
-                '<button type="button" class="nav-toggle" aria-expanded="false" '
-                'aria-controls="site-nav-panel">'
+                '<button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu">'
+                "Menu</button>"
             )
             assert nav_toggle in html
-            assert 'id="site-nav-panel"' in html
+            assert '<div class="site-menu" id="site-menu">' in html
+            search_toggle = (
+                '<button type="button" class="search-toggle" aria-expanded="false" '
+                'aria-controls="site-search">'
+            )
+            assert search_toggle in html and '<form class="site-search" id="site-search"' in html
             assert f'aria-controls="{form_id}" data-filter-toggle' in html, path
             assert re.search(rf'<form id="{form_id}" class="[^"]*" data-collapse', html), path
             assert '<script>document.documentElement.classList.add("js")</script>' in html
             assert "/static/js/site.js" in html
     css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
-    # Every collapsed rule is keyed on `.js`, so a page without scripts keeps its links and filters.
-    assert ".js .site-nav-panel { display: none; }" in css
+    # Every collapsed rule is keyed on `.js`, so a page without scripts keeps its links, search and filters.
+    assert ".js .site-menu:not(.is-open) { display: none; }" in css
+    assert ".js .site-search { display: none; }" in css
     assert ".js .filter-bar[data-collapse]:not(.is-open) { display: none; }" in css
 
 
@@ -423,21 +429,29 @@ def test_the_map_page_says_what_the_product_does_before_anything_else(transport:
     assert "Each dot is a proposal filed" not in html
 
 
-def test_the_map_page_states_source_lateness_once_in_the_masthead(late: FakeTransport) -> None:
+def test_the_map_page_states_source_lateness_in_the_header_not_in_a_notice(late: FakeTransport) -> None:
+    """docs/30 §11.2: the masthead line goes; the freshness line keeps its strings and its link, at the
+    section bar's right end from 1280px and in the phone Menu. The two are never drawn at one width:
+    the section bar's copy is hidden below 1280px, and the Menu exists only below 720px."""
     with TestClient(web_app) as client:
         home = client.get("/").text
         listing = client.get("/proposals").text
-    # Home: no tier notice block, one short masthead link, kept below 720px on this page only.
-    assert 'class="delayed-notice"' not in home
-    assert home.count("behind their fetch schedule") == 1
-    lag = re.search(r'<span class="masthead__lag">(.*?)</span>', home, re.S)
-    assert lag is not None and '<a href="/methodology#vintage">' in lag.group(1)
-    assert _text(lag.group(1)) == "1 of 2 sources behind their fetch schedule"
-    assert 'class="masthead masthead--keep"' in home
-    assert 'class="masthead masthead--keep"' not in listing and 'class="masthead"' in listing
+    # Home: no tier notice block; the line once in the section bar and once in the Menu.
+    assert 'class="delayed-notice"' not in home and 'class="masthead' not in home
+    assert home.count("behind their fetch schedule") == 2
+    bar = home.split('<nav class="section-bar"', 1)[1].split("</nav>", 1)[0]
+    menu = home.split('<div class="site-menu" id="site-menu">', 1)[1].split("</header>", 1)[0]
+    for place in (bar, menu):
+        lag = re.search(r'<span class="fresh-line">(.*?)</span>', place, re.S)
+        assert lag is not None and '<a href="/methodology#vintage">' in lag.group(1)
+        assert _text(lag.group(1)) == "1 of 2 sources behind their fetch schedule"
     css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
-    assert ".masthead.masthead--keep { display: flex;" in css
-    assert ".masthead--keep .masthead__ref { display: none; }" in css
+    assert ".section-bar__util .fresh-line { display: none; }" in css
+    assert (
+        "@media (min-width: 1280px) {\n  .section-bar__title { display: block; }\n"
+        "  .section-bar__util .fresh-line { display: inline; }\n}"
+    ) in css
+    assert ".site-menu { display: none; }" in css
     # The list keeps its tier notice, which names the late source.
     assert 'class="delayed-notice"' in listing and "CAISO" in listing
 
@@ -719,17 +733,26 @@ def test_font_files_are_served_with_a_long_lived_cache() -> None:
     assert "immutable" not in css.headers.get("cache-control", "")
 
 
-# ---- docs/16 §3.1-3.2 (U-6): six sections, named in one place; U-24 favicon; U-17 list headers ----
+# ---- Navigation v2 (docs/30 §11.2-§11.3, §11.8; lane V1): the top bar, the section bars, the phone
+# Menu, named in one place; U-24 favicon; U-17 list headers ----
 
-#: The primary links in order (docs/16 §3.1), as the page prints them.
-PRIMARY = [
+#: The Market bar in order (docs/30 §11.3), as the page prints it. RFPs & funding keeps its name until
+#: grants, loans and programmes move to Funding (lane V4).
+MARKET = [
     ("/", "Map"),
     ("/site-finder", "Site finder"),
     ("/proposals", "Projects"),
     ("/organizations", "Companies"),
     ("/opportunities", "RFPs &amp; funding"),
     ("/assets", "Infrastructure"),
-    ("/alerts", "Alerts"),
+    ("/prices", "Prices"),
+]
+#: The About bar: the reference pages, reached from the footer, the Menu and "About & sources".
+ABOUT = [
+    ("/about", "About"),
+    ("/methodology", "Coverage &amp; methodology"),
+    ("/attribution", "Attribution"),
+    ("/docs/api", "API &amp; feeds"),
 ]
 LISTS = ("/proposals", "/opportunities", "/organizations", "/assets", "/interconnection-points")
 
@@ -741,8 +764,28 @@ def lists(transport: FakeTransport) -> FakeTransport:
     return transport
 
 
-def _primary_nav(html: str) -> str:
-    return html.split('<nav class="primary-nav" aria-label="Primary">', 1)[1].split("</nav>", 1)[0]
+def _top_sections(html: str) -> str:
+    return html.split('<nav class="top-bar__sections" aria-label="Site sections">', 1)[1].split("</nav>", 1)[
+        0
+    ]
+
+
+def _section_bar(html: str) -> str | None:
+    """The section bar, from its `<nav>` to its end, or None when the page has none."""
+    if '<nav class="section-bar"' not in html:
+        return None
+    return html.split('<nav class="section-bar"', 1)[1].split("</nav>", 1)[0]
+
+
+def _bar_items(html: str) -> str:
+    bar = _section_bar(html)
+    assert bar is not None
+    return bar.split('<ul class="section-bar__items">', 1)[1].split("</ul>", 1)[0]
+
+
+def _header(html: str) -> str:
+    """Everything the shell draws above `<main>`: the beta bar, the top bar, the Menu, the section bar."""
+    return html.split('<a class="skip-link"', 1)[1].split('<main id="main"', 1)[0]
 
 
 def _links(fragment: str) -> list[tuple[str, str | None, str]]:
@@ -758,29 +801,33 @@ def _h1(html: str) -> str:
 
 
 @pytest.mark.parametrize(
-    ("path", "current"),
+    ("path", "top", "current"),
     [
-        ("/", {"/": "page"}),
-        ("/proposals", {"/proposals": "page"}),
-        ("/proposals?technology=solar", {"/proposals": "page"}),
-        ("/opportunities", {"/opportunities": "page"}),
-        ("/organizations", {"/organizations": "page"}),
-        ("/assets", {"/assets": "page"}),
+        ("/", "page", {"/": "page"}),
+        ("/proposals", "true", {"/proposals": "page"}),
+        ("/proposals?technology=solar", "true", {"/proposals": "page"}),
+        ("/opportunities", "true", {"/opportunities": "page"}),
+        ("/organizations", "true", {"/organizations": "page"}),
+        ("/assets", "true", {"/assets": "page"}),
         # The second Infrastructure tab: its section's link is marked, though it points elsewhere.
-        ("/interconnection-points", {"/assets": "true"}),
-        ("/alerts", {"/alerts": "page"}),
+        ("/interconnection-points", "true", {"/assets": "true"}),
     ],
 )
-def test_the_primary_nav_is_seven_sections_in_order_and_marks_where_the_reader_is(
-    lists: FakeTransport, path: str, current: dict[str, str]
+def test_the_market_bar_lists_its_pages_in_order_and_marks_where_the_reader_is(
+    lists: FakeTransport, path: str, top: str, current: dict[str, str]
 ) -> None:
+    """Signed out: the top bar holds Market alone (My pipeline is signed-in only; Funding waits for
+    `/funding`), marked `page` on the map and `true` on every other Market page; the section bar under
+    it lists Market's pages in order and marks the one the reader is on."""
     with TestClient(web_app) as client:
         html = client.get(path).text
-    links = _links(_primary_nav(html))
-    assert [(href, text) for href, _, text in links[:7]] == PRIMARY, path
-    assert {href: mark for href, mark, _ in links[:7] if mark} == current, path
-    # After the seven: Pricing where the posture offers it, then Sign in. Nothing else.
-    assert [href for href, _, _ in links[7:]] in (["/login"], ["/pricing", "/login"]), path
+    assert _links(_top_sections(html)) == [("/", top, "Market")], path
+    bar = _section_bar(html)
+    assert bar is not None and bar.startswith(' aria-label="Market pages">'), path
+    assert '<span class="section-bar__title">Market intelligence</span>' in bar
+    links = _links(_bar_items(html))
+    assert [(href, text) for href, _, text in links] == MARKET, path
+    assert {href: mark for href, mark, _ in links if mark} == current, path
 
 
 @pytest.mark.parametrize("finder", [None, {"computed": False, "segments": 0}])
@@ -788,17 +835,144 @@ def test_the_site_finder_is_not_listed_until_it_has_a_run_to_show(
     lists: FakeTransport, finder: dict[str, Any] | None
 ) -> None:
     """Owner, 2026-10-22: no empty sections. Without a finished run with segments (`GET /v1/health`
-    `site_finder`, or an API that does not report it), the bar shows the six other sections and the
-    page still answers by URL."""
+    `site_finder`, or an API that does not report it), neither the Market bar nor the Menu lists it,
+    and the page still answers by URL."""
     health = {k: v for k, v in HEALTH.items() if k != "site_finder"}
     if finder is not None:
         health["site_finder"] = finder
     lists.responses["/v1/health"] = (200, health)
     with TestClient(web_app) as client:
         html = client.get("/proposals").text
-    links = _links(_primary_nav(html))
-    assert [(href, text) for href, _, text in links[:6]] == [p for p in PRIMARY if p[0] != "/site-finder"]
-    assert all(href != "/site-finder" for href, _, _ in links)
+    links = _links(_bar_items(html))
+    assert [(href, text) for href, _, text in links] == [p for p in MARKET if p[0] != "/site-finder"]
+    assert 'href="/site-finder"' not in _header(html)
+
+
+@pytest.mark.parametrize(
+    ("path", "bar"),
+    [
+        ("/about", ABOUT),
+        ("/methodology", ABOUT),
+        ("/attribution", ABOUT),
+        ("/search", None),
+        ("/alerts", None),
+        ("/login", None),
+        ("/pricing", None),
+        ("/privacy", None),
+        ("/submit", None),
+    ],
+)
+def test_reference_pages_share_the_about_bar_and_utilities_have_none(
+    lists: FakeTransport, path: str, bar: list[tuple[str, str]] | None
+) -> None:
+    """docs/30 §11.3: the About bar holds the reference pages; search, Alerts, the account, sign-in,
+    Pricing and the legal pages have no section bar. No top-bar
+    section is marked on any of them."""
+    with TestClient(web_app) as client:
+        html = client.get(path).text
+    assert all(mark is None for _, mark, _ in _links(_top_sections(html))), path
+    if bar is None:
+        assert _section_bar(html) is None, path
+        return
+    section = _section_bar(html)
+    assert section is not None and section.startswith(' aria-label="About pages">'), path
+    links = _links(_bar_items(html))
+    assert [(href, text) for href, _, text in links] == bar, path
+    assert [href for href, mark, _ in links if mark] == [path], path
+    # The About bar is itself the reference: its right end carries the freshness line, not a second link.
+    assert 'class="section-bar__about"' not in section
+
+
+@pytest.mark.parametrize(("path", "mark"), [("/alerts", "page"), ("/proposals", None), ("/about", None)])
+def test_alerts_is_marked_in_the_top_bar_and_the_menu_on_its_own_page(
+    lists: FakeTransport, path: str, mark: str | None
+) -> None:
+    """Review of lane nav-shell (2026-10-23): with Alerts a top-bar utility rather than a section, the
+    rendered `/alerts` page must still mark it, in the top bar and in the phone Menu, and no other page
+    may (the macro's `/alerts/new` -> `true` is pinned below)."""
+    with TestClient(web_app) as client:
+        html = client.get(path).text
+    link = r'<a (?:class="[^"]*" )?href="/alerts"( aria-current="([a-z]+)")?>Alerts</a>'
+    alerts = re.findall(link, _header(html))
+    assert len(alerts) == 2, (path, alerts)  # the top bar's link and the Menu's row
+    assert [found or None for _, found in alerts] == [mark, mark], path
+
+
+@pytest.mark.parametrize(
+    ("switch", "cookie", "listed"),
+    [("on", True, True), ("on", False, False), ("off", True, False), (None, True, False)],
+)
+def test_my_pipeline_is_listed_only_signed_in_with_its_switch_on(
+    lists: FakeTransport, monkeypatch: pytest.MonkeyPatch, switch: str | None, cookie: bool, listed: bool
+) -> None:
+    """docs/30 §11.2: My pipeline is not shown to a signed-out visitor (a login wall for every one of
+    them), and while `MY_PIPELINE` is off nothing names it (docs/19 §5.2). The rule is the Track block's:
+    a session cookie, the switch on."""
+    if switch is None:
+        monkeypatch.delenv("MY_PIPELINE", raising=False)
+    else:
+        monkeypatch.setenv("MY_PIPELINE", switch)
+    with TestClient(web_app, cookies={"session": "opaque"} if cookie else None) as client:
+        html = client.get("/proposals").text
+    header = _header(html)
+    top = _links(_top_sections(html))
+    if listed:
+        assert top == [("/", "true", "Market"), ("/my", None, "My pipeline")]
+        # The Menu holds it as a second group, shut, with the Tracker inside.
+        menu = header.split('<nav class="site-menu__sections" aria-label="Menu">', 1)[1].split("</nav>", 1)[0]
+        groups = re.findall(r'<details class="site-menu__group"( open)?>\s*<summary>([^<]+)</summary>', menu)
+        assert groups == [(" open", "Market"), ("", "My pipeline")]
+        assert '<li><a href="/my">Tracker</a></li>' in menu
+    else:
+        assert top == [("/", "true", "Market")]
+        assert "My pipeline" not in header and 'href="/my"' not in header
+
+
+def test_the_my_pipeline_bar_is_shown_under_its_pages_only_while_it_is_listed() -> None:
+    """The section bar of `/my` comes from the same rule: listed, the Tracker bar shows under `/my` and
+    `/my/items/...` with the Tracker marked; not listed, `/my` holds nothing, so a switched-off or
+    signed-out `/my` draws the header of an unknown address."""
+    render = templates.env.from_string(
+        '{% import "partials/_sections.html" as s %}'
+        '{{ s.section_of(path, live) | trim }}|{{ s.current("tracker", path) }}'
+    )
+    live = {"market": True, "my_pipeline": True, "funding": False, "about": True}
+    assert render.render(path="/my", live=live) == 'my_pipeline| aria-current="page"'
+    assert render.render(path="/my/items/itm_1/notes", live=live) == 'my_pipeline| aria-current="true"'
+    assert render.render(path="/my", live={**live, "my_pipeline": False}) == '| aria-current="page"'
+    assert render.render(path="/myself", live=live) == "|"
+
+
+@pytest.mark.parametrize(
+    ("path", "section"),
+    [
+        ("/", "market"),
+        ("/site-finder", "market"),
+        ("/proposals/gonzaga-ridge-battery-facility-tnksj5", "market"),
+        ("/sites/site_1M5CV3A40ETXA6NQ2TPMWXMQV", "market"),
+        ("/organizations/nextera-energy", "market"),
+        ("/opportunities/opp_1", "market"),
+        ("/assets/grand-coulee-us-wa", "market"),
+        ("/interconnection-points/poi_1", "market"),
+        ("/prices", "market"),
+        ("/prices/states", "market"),
+        ("/funding", ""),  # not live until lane V4 builds it
+        ("/about", "about"),
+        ("/methodology", "about"),
+        ("/docs/api", "about"),
+        ("/docs/api-keys", ""),
+        ("/search", ""),
+        ("/alerts", ""),
+        ("/proposals-archive", ""),
+        ("/texas", ""),  # a redirect to the map, never rendered
+    ],
+)
+def test_one_section_holds_each_page(path: str, section: str) -> None:
+    render = templates.env.from_string(
+        '{% import "partials/_sections.html" as s %}{{ s.section_of(path, live) | trim }}'
+    )
+    live = {"market": True, "my_pipeline": False, "funding": False, "about": True}
+    assert render.render(path=path, live=live) == section
 
 
 @pytest.mark.parametrize(
@@ -814,7 +988,12 @@ def test_the_site_finder_is_not_listed_until_it_has_a_run_to_show(
         ("points", "/assets", ""),
         ("map", "/", ' aria-current="page"'),
         ("map", "/proposals", ""),
+        ("prices", "/prices", ' aria-current="page"'),
+        ("prices", "/prices/states", ' aria-current="true"'),
         ("about", "/about", ' aria-current="page"'),
+        ("about_page", "/about", ' aria-current="page"'),
+        ("methodology", "/methodology/gaps", ' aria-current="true"'),
+        ("alerts", "/alerts/new", ' aria-current="true"'),
     ],
 )
 def test_a_link_is_marked_on_its_page_and_on_every_page_its_section_holds(
@@ -826,27 +1005,97 @@ def test_a_link_is_marked_on_its_page_and_on_every_page_its_section_holds(
     assert render.render(key=key, path=path) == expected
 
 
+@pytest.mark.parametrize(
+    ("key", "path", "here", "expected"),
+    [
+        ("market", "/", "market", ' aria-current="page"'),
+        ("market", "/organizations/nextera-energy", "market", ' aria-current="true"'),
+        ("market", "/about", "about", ""),
+        ("my_pipeline", "/my", "my_pipeline", ' aria-current="page"'),
+        ("my_pipeline", "/my/items/itm_1", "my_pipeline", ' aria-current="true"'),
+        ("my_pipeline", "/proposals", "market", ""),
+    ],
+)
+def test_a_top_bar_section_is_marked_page_on_its_landing_and_true_below_it(
+    key: str, path: str, here: str, expected: str
+) -> None:
+    render = templates.env.from_string(
+        '{% import "partials/_sections.html" as s %}{{ s.section_current(key, path, here) }}'
+    )
+    assert render.render(key=key, path=path, here=here) == expected
+
+
+def test_the_landing_link_opens_inside_the_shell_with_no_place_in_the_navigation(
+    lists: FakeTransport,
+) -> None:
+    """PR 96's short link (`/texas`, web/headline.py) still lands on the map, where Map and Market are
+    marked; the navigation names no state (owner, 2026-10-23: national and international messaging)."""
+    with TestClient(web_app) as client:
+        short = client.get("/texas", follow_redirects=False)
+        assert short.status_code == 302 and short.headers["location"].startswith("/?jurisdiction=US-TX")
+        html = client.get(short.headers["location"]).text
+    assert _links(_top_sections(html)) == [("/", "page", "Market")]
+    assert [(href, mark) for href, mark, _ in _links(_bar_items(html)) if mark] == [("/", "page")]
+    for state in ("Texas", "ERCOT", "US-TX"):
+        assert state not in _header(html), state
+    footer = html.split('<footer class="site-footer">', 1)[1]
+    assert "United States and Great Britain, with EU and World Bank tenders" in footer
+
+
+def test_nav_state_reads_the_switch_as_my_pipeline_does(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`web/page.py` cannot import `web/my_projects.py` (that module imports it), so it reads
+    `MY_PIPELINE` itself; the two readings must agree for every value."""
+    from starlette.requests import Request
+
+    from web.my_projects import pipeline_on
+    from web.page import my_pipeline_listed
+
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"cookie", b"session=x")]})
+    for value in ("on", "ON", " on ", "off", "", "1", "true"):
+        monkeypatch.setenv("MY_PIPELINE", value)
+        assert my_pipeline_listed(request) is pipeline_on(), value
+
+
 def test_a_section_is_named_in_one_place() -> None:
-    """The names are the coordinator's recommendation pending the owner (docs/16 §7 question 1), so a
-    rename must be one line: the nav, masthead, footer and list headers take them from the partial."""
+    """A rename must be one line: the top bar, section bars, Menu, footer and list headers take the
+    words from web/labels.py through the partial."""
     partial = (WEB / "templates" / "partials" / "_sections.html").read_text(encoding="utf-8")
     labels_py = (WEB / "labels.py").read_text(encoding="utf-8")
-    # Section names live in web/labels.py (shared with the JSON-LD breadcrumbs); list headings in the partial.
-    for name in ("RFPs & funding", "Plants, pipelines & lines", "Grid connection points"):
+    # Section and page names live in web/labels.py (shared with the JSON-LD breadcrumbs); list headings
+    # in the partial.
+    names = (
+        "RFPs & funding",
+        "Plants, pipelines & lines",
+        "Grid connection points",
+        "Market intelligence",
+        "My pipeline",
+        "Grants & loans",
+        "Coverage & methodology",
+        "API & feeds",
+        "Sources & licences",
+    )
+    for name in names:
         assert labels_py.count(f'"{name}"') == 1 and f'"{name}"' not in partial, name
     for heading in ("Projects in development", "Existing infrastructure"):
         assert partial.count(f'"{heading}"') == 1, heading
-    names = (
-        "RFPs & funding",
+    spellings = (
+        *names,
         "Projects in development",
         "Existing infrastructure",
-        "Plants, pipelines & lines",
+        "RFPs &amp; funding",
+        ">Projects<",
+        ">Infrastructure<",
+        ">Market<",
+        ">Funding<",
+        ">Prices<",
+        "About &amp; sources",
     )
-    spellings = (*names, "RFPs &amp; funding", ">Projects<", ">Infrastructure<", "About &amp; sources")
     records = ("proposal_detail.html", "site_detail.html", "opportunity_detail.html", "asset_detail.html")
-    pages = ("base.html", *(f"{p.strip('/').replace('-', '_')}_list.html" for p in LISTS), *records)
+    shell = ("base.html", "partials/_top_bar.html", "partials/_section_bar.html")
+    pages = (*shell, *(f"{p.strip('/').replace('-', '_')}_list.html" for p in LISTS), *records)
     for page in pages:
-        text = (WEB / "templates" / page).read_text(encoding="utf-8")
+        # What a template prints, not what its comments say about it.
+        text = re.sub(r"\{#.*?#\}", "", (WEB / "templates" / page).read_text(encoding="utf-8"), flags=re.S)
         assert not [s for s in spellings if s in text], page
     # Review of lane w1-nav: record breadcrumbs kept the old names ("Home / Proposals / …" under "Projects").
     old = (">Proposals</a>", ">Opportunities</a>", ">Assets</a>")
@@ -933,25 +1182,39 @@ def test_only_the_five_lists_take_the_compact_list_header(lists: FakeTransport) 
     assert ".list-page .page-header h1 { font-size: var(--text-5);" in css
 
 
-def test_about_and_sources_is_a_masthead_link_and_in_the_footer_not_a_destination(
-    transport: FakeTransport,
-) -> None:
+def test_about_and_sources_is_a_utility_link_not_a_section(transport: FakeTransport) -> None:
+    """docs/30 §11.2: About & sources is a utility, not a top-bar section. It sits at the section bar's
+    right end from 1080px, in the phone Menu and in the footer, with the reference and legal links."""
     with TestClient(web_app) as client:
         html = client.get("/proposals").text
         about = client.get("/about").text
-    assert 'href="/about"' not in _primary_nav(html)
-    masthead = html.split('<div class="masthead">', 1)[1].split("</div>", 1)[0]
-    assert '<a class="masthead__about" href="/about">About &amp; sources</a>' in masthead
-    # Below 720px the masthead is hidden, so the Menu panel carries it.
-    panel = html.split('id="site-nav-panel">', 1)[1].split("</header>", 1)[0]
-    assert '<p class="site-nav-panel__about"><a href="/about">About &amp; sources</a></p>' in panel
+    assert 'href="/about"' not in _top_sections(html)
+    bar = _section_bar(html)
+    assert bar is not None and '<a class="section-bar__about" href="/about">About &amp; sources</a>' in bar
+    menu = html.split('<div class="site-menu" id="site-menu">', 1)[1].split("</header>", 1)[0]
+    assert '<li><a href="/about">About &amp; sources</a></li>' in menu
     footer = html.split('<footer class="site-footer">', 1)[1]
     assert '<a href="/about">About &amp; sources</a>' in footer
-    assert '<a class="masthead__about" href="/about" aria-current="page">' in about
+    links = [href for href, _, _ in _links(footer.split("</ul>", 1)[0])]
+    assert links == [
+        "/about",
+        "/about#sources",
+        "/methodology",
+        "/attribution",
+        "/legal/reuse",
+        "/docs/api",
+        "/privacy",
+    ]
+    # On /about the Menu marks it, and the About bar's own first page is the current one.
+    assert '<li><a href="/about" aria-current="page">About &amp; sources</a></li>' in about
+    assert '<li><a href="/about" aria-current="page">About</a></li>' in _bar_items(about)
     css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
-    assert ".site-nav-panel__about { display: none; margin: 0; }" in css
-    assert ".masthead--keep .masthead__about { display: none; }" in css
-    assert ".primary-nav a[aria-current] { font-weight: 600; border-bottom-color: currentColor; }" in css
+    assert "@media (min-width: 1080px) { .section-bar__util { display: flex; } }" in css
+    # The current page and section carry weight and a rule as well as colour (SC 1.4.1).
+    marked = "{ color: var(--text); font-weight: 600; border-bottom-color: currentColor; }"
+    assert f".section-bar__items a[aria-current] {marked}" in css
+    marked = "{ font-weight: 600; border-bottom-color: currentColor; }"
+    assert f".top-bar__sections a[aria-current], .top-bar__link[aria-current] {marked}" in css
 
 
 def test_every_page_declares_the_favicon_and_its_three_files_are_served(transport: FakeTransport) -> None:

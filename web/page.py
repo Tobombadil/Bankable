@@ -256,7 +256,7 @@ def paid_tiers_offered(request: Request) -> bool:
 
 
 def site_finder_listed(request: Request) -> bool:
-    """Whether the primary navigation lists the site finder: only once `GET /v1/health` reports a
+    """Whether the Market bar and the Menu list the site finder: only once `GET /v1/health` reports a
     finished run with segments (`site_finder.computed`, docs/25 §7), so a deploy whose grid and flood
     layers are not built yet shows no empty section (owner, 2026-10-22: no empty sections; docs/30
     §11.2, a section joins the bar once its page has content). False when the API cannot say.
@@ -264,6 +264,56 @@ def site_finder_listed(request: Request) -> bool:
     health = _request_health(request)
     finder = health.get("site_finder") if health else None
     return bool(isinstance(finder, Mapping) and finder.get("computed"))
+
+
+#: The session cookie the header reads to say "signed in" (web/auth.py, web/my_projects.py): presence
+#: only, never checked against the API, so an expired cookie shows the signed-in header and its links
+#: lead to sign-in, and nothing private.
+SESSION_COOKIE: str = "session"
+#: My pipeline's launch switch, read exactly as `web/my_projects.py::pipeline_on` reads it (that module
+#: imports this one, so it cannot be imported back here; `web/test_layout_states.py` pins the two).
+MY_PIPELINE_ENV: str = "MY_PIPELINE"
+#: Pages Navigation v2 names that have no page yet (docs/30 §11.3: "Pages that are not yet live are left
+#: out, never shown disabled"). Each joins the bars in the change that builds it: Funding and its pages
+#: with `/funding` and its count rule (§11.2, lane V4), State averages with `/prices/states` (V5),
+#: Sources & licences with `/about/sources` (V7), Invitations with a list of waiting invitations (V6).
+NOT_YET_LIVE: frozenset[str] = frozenset(
+    {"funding", "funding_grants", "funders", "prices_states", "about_sources", "invitations"}
+)
+
+
+def my_pipeline_listed(request: Request) -> bool:
+    """Whether the top bar shows My pipeline: only while `MY_PIPELINE=on` and only to a visitor with a
+    session cookie, the rule the Track block already follows (`web/my_projects.py::track_offer`). A
+    signed-out visitor has nothing in it, so it would be a login wall (docs/30 §11.2); while the
+    switch is off nothing on any page says the pages exist (docs/19 §5.2)."""
+    switch_on = os.environ.get(MY_PIPELINE_ENV, "").strip().lower() == "on"
+    return switch_on and bool(request.cookies.get(SESSION_COOKIE))
+
+
+def section_live(request: Request, key: str) -> bool:
+    """Whether a section or page of Navigation v2 is listed in the bars and the Menu (docs/30 §11.2,
+    §11.3; `partials/_sections.html` names them). Every built page is, except the site finder before it
+    has a run to show (`site_finder_listed`) and My pipeline outside its rule (`my_pipeline_listed`)."""
+    if key in NOT_YET_LIVE:
+        return False
+    if key == "site_finder":
+        return site_finder_listed(request)
+    if key in ("my_pipeline", "tracker"):
+        return my_pipeline_listed(request)
+    return True
+
+
+def nav_state(request: Request) -> dict[str, Any]:
+    """What the header needs to know about this request, asked once per page (base.html): whether a
+    session cookie is present, whether the paid tiers may be pointed at (Pricing in the account menu,
+    `paid_tiers_offered`), and which sections and pages are listed. Reads `GET /v1/health` at most
+    once, through `_request_health`."""
+    return {
+        "signed_in": bool(request.cookies.get(SESSION_COOKIE)),
+        "pricing": paid_tiers_offered(request),
+        "live": {key: section_live(request, key) for key in labels.SECTION_LABELS},
+    }
 
 
 #: User agents that are not a reader: search and social crawlers, link unfurlers, uptime probes,
@@ -313,13 +363,16 @@ def is_htmx(request: Request) -> bool:
 templates.env.globals["is_preview_active"] = is_preview_active
 templates.env.globals["footer_lag_days"] = get_lag_days
 # Every environment that renders `base.html` registers this (web/auth.py, web/legal.py,
-# web/pricing.py): the primary navigation leaves "Pricing" out under the noncommercial posture.
+# web/pricing.py): the account menu leaves "Pricing" out under the noncommercial posture.
 templates.env.globals["paid_tiers_offered"] = paid_tiers_offered
 templates.env.globals["site_finder_listed"] = site_finder_listed
+# Navigation v2 (docs/30 §11): the header's one read of the session, the posture and the live pages.
+templates.env.globals["nav_state"] = nav_state
 # The same four register the private beta's header link (web/beta.py; off unless SITE_ACCESS=basic).
 templates.env.globals["beta_feedback_href"] = feedback_href
 templates.env.globals["asset_version"] = ASSET_VERSION
 templates.env.globals["section_labels"] = labels.SECTION_LABELS
+templates.env.globals["section_titles"] = labels.SECTION_TITLES
 templates.env.globals["cdn"] = CDN_ASSETS  # UX-19: `_macros.html` cdn_script / cdn_style
 templates.env.filters["group_source_rows"] = group_source_rows  # UX-11: one Sources row per register
 labels.install(templates.env)

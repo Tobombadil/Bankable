@@ -73,19 +73,50 @@ from services.projects.models import (
     utcnow,
 )
 
-Action = Literal["read", "edit", "invite", "manage_members", "delete", "leave", "archive"]
+Action = Literal[
+    "read",
+    "edit",
+    "invite",
+    "manage_members",
+    "delete",
+    "leave",
+    "archive",
+    "download",
+    "upload",
+    "manage_files",
+    "audit",
+]
 Role = Literal["owner", "editor", "viewer"]
 ACTIONS: Final[tuple[str, ...]] = get_args(Action)
 
 #: docs/19 §2.6, as a table. `archive` covers archive and unarchive (PATCH, owner only, §6.1).
 #: An owner cannot `leave`: ownership must be transferred first.
+#:
+#: The data room (docs/19 §3; "Data rooms, as built"): every member may `download` (and see the
+#: folders and files); an owner or editor may `upload` (which also adds and renames folders and
+#: deletes the files they uploaded themselves); only the owner may `manage_files` (delete anyone's
+#: file, delete a folder) and read the access log (`audit`).
 ROLE_ACTIONS: Final[Mapping[str, frozenset[str]]] = {
-    "owner": frozenset({"read", "edit", "invite", "manage_members", "delete", "archive"}),
-    "editor": frozenset({"read", "edit", "leave"}),
-    "viewer": frozenset({"read", "leave"}),
+    "owner": frozenset(
+        {
+            "read",
+            "edit",
+            "invite",
+            "manage_members",
+            "delete",
+            "archive",
+            "download",
+            "upload",
+            "manage_files",
+            "audit",
+        }
+    ),
+    "editor": frozenset({"read", "edit", "leave", "download", "upload"}),
+    "viewer": frozenset({"read", "leave", "download"}),
 }
-#: What an archived project still allows (docs/19 §5.1).
-ARCHIVED_ACTIONS: Final = frozenset({"read", "archive", "delete"})
+#: What an archived project still allows (docs/19 §5.1): reading, which for a data room is listing
+#: and downloading its files and, for the owner, its access log.
+ARCHIVED_ACTIONS: Final = frozenset({"read", "archive", "delete", "download", "audit"})
 
 NOT_FOUND_TITLE: Final = "Not found"
 #: The same words `services.api.errors.not_found` uses for every other gated or absent record.
