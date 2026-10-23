@@ -177,18 +177,18 @@ zoom^-0.8.
 
 - **Wordmark.** "inframation" in lower case, tracking -0.03em, set in two parts that name what it joins:
   **infra**structure and infor**mation** (owner, 2026-10-23: "emphasize the two parts of the word Infra and mation";
-  then, after seeing four variants, "I like the use of bold mation": variant D). "infra" is Geist 400 and "mation"
-  Geist 700, both in `--text` (navy `#0b1023`; `#eef1f5` on dark). One word, no space or rule between the parts; the
-  accessible name stays "Inframation". The first i is dotless and carries the orange mark, centred on the stem as
-  measured from the font (the first mock-ups placed it by eye and it sat left of the stem). The mark is the round
-  information dot by default (sized for the regular-weight stem, about 1.6 times its width) or the north-pointer
-  needle (a triangle 0.32em wide and 0.38em tall, foot 0.07em above the x-height); the owner's pick between them is
-  open. The production wordmark ships as outlined SVG paths, not live text, so the mark cannot drift with font
-  loading. Variants A (weight only, infra bold), B (infra bold navy, mation regular slate) and C (mation in
-  evergreen: rejected, green is the data colour) are in the review page.
-- **Mark (16px favicon).** The same i, orange pointer over a navy stem:
-  `<path fill="#e68023" d="M8 0 11.9 6.6H4.1Z"/><rect x="5.7" y="8" width="4.6" height="8" rx=".7"/>`. The stem turns
-  `#f1f3f6` under `prefers-color-scheme: dark`. Checked at 16, 32 and 64px on light and dark tabs.
+  after the variants, "Let's go with the dot over the i, then let's flip the bold": variant A). "infra" is Geist 700
+  and "mation" Geist 400, both in `--text` (navy `#0b1023`; `#eef1f5` on dark). One word, no space or rule between
+  the parts; the accessible name stays "Inframation". The first i is dotless and carries an orange round dot (the
+  information i), about 1.25 times the bold stem's width, centred on the stem as measured from the font (the first
+  mock-ups placed the old needle by eye and it sat left of the stem). The production wordmark ships as outlined SVG
+  paths, not live text, so the dot cannot drift with font loading. Variant B (mation in slate) is the one-token
+  alternative; C (mation in evergreen) was rejected because green is the data colour; D (mation bold) was tried
+  and flipped back.
+- **Mark (app icon and favicon).** The information i: a navy rounded square (radius 20% of the side) with a white
+  i stem and the orange round dot, legible at 16px where the old needle-over-stem faded. In the product UI the
+  "information" control is labelled in words ("About this map"), never with an i glyph, so the logo and a control are
+  never confused.
 - **Lockup.** The wordmark, then "a Compass company" in Geist 500, `--text-muted`, at 0.58 of the wordmark's size. It
   sits on the wordmark's baseline, 14px after it. The accessible name is "Inframation, a Compass company".
 - **Endorsement.** The footer and About carry "Inframation is a Compass company. Compass International Trading
