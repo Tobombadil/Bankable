@@ -1,0 +1,732 @@
+{
+ "279638": {
+  "errorcode": 0,
+  "msg": "Webservice Succeeds",
+  "data": {
+   "id": 279638,
+   "revision": 1,
+   "opportunityNumber": "RDBCP-REAP-RES-EEI-2016",
+   "opportunityTitle": "Renewable Energy Systems and Energy Efficiency Improvements Program",
+   "owningAgencyCode": "USDA-RBCS",
+   "listed": "L",
+   "flag2006": "N",
+   "opportunityCategory": {
+    "category": "M",
+    "description": "Mandatory"
+   },
+   "synopsis": {
+    "opportunityId": 279638,
+    "version": 2,
+    "agencyCode": "USDA-RBCS",
+    "agencyName": "[removed from fixture]",
+    "agencyPhone": "[removed from fixture]",
+    "agencyAddressDesc": "[removed from fixture]",
+    "agencyDetails": {
+     "code": "USDA-RBCS",
+     "seed": "USDA-RBCS",
+     "agencyName": "Rural Business-Cooperative Service ",
+     "agencyCode": "USDA-RBCS",
+     "topAgencyCode": "USDA"
+    },
+    "topAgencyDetails": {
+     "code": "USDA",
+     "seed": "USDA",
+     "agencyName": "Department of Agriculture",
+     "agencyCode": "USDA",
+     "topAgencyCode": "USDA"
+    },
+    "agencyContactPhone": "[removed from fixture]",
+    "agencyContactName": "[removed from fixture]",
+    "agencyContactDesc": "[removed from fixture]",
+    "agencyContactEmail": "[removed from fixture]",
+    "agencyContactEmailDesc": "[removed from fixture]",
+    "synopsisDesc": "<p>REAP Renewable Energy Systems and Energy Efficiency Improvement Program.Refer to Application Package AND Application ...",
+    "responseDate": "Nov 02, 2015 12:00:00 AM EST",
+    "responseDateDesc": "REAP Applications are accepted year-round.For applicants requesting grants of $20,000 or less, that wish to have their a...",
+    "fundingDescLinkUrl": "http://www.rd.usda.gov/programs-services/rural-energy-america-program-renewable-energy-systems-energy-efficiency",
+    "fundingDescLinkDesc": "REAP Renewable Energy Systems and Energy Efficiency Improvements Program",
+    "postingDate": "Oct 13, 2015 12:00:00 AM EDT",
+    "costSharing": true,
+    "numberOfAwards": "1000",
+    "estimatedFunding": "35400000",
+    "estimatedFundingFormatted": "35,400,000",
+    "awardCeiling": "500000",
+    "awardCeilingFormatted": "500,000",
+    "awardFloor": "1500",
+    "awardFloorFormatted": "1,500",
+    "applicantEligibilityDesc": "Agricultural Producers...",
+    "sendEmail": "Y",
+    "createTimeStamp": "Oct 20, 2026 09:54:07 AM EDT",
+    "modComments": "This publication closed on 11/2/2015....",
+    "createdDate": "Oct 13, 2015 02:25:35 PM EDT",
+    "lastUpdatedDate": "Oct 20, 2026 09:54:07 AM EDT",
+    "applicantTypes": [
+     {
+      "id": "23",
+      "description": "Small businesses"
+     },
+     {
+      "id": "25",
+      "description": "Others (see text field entitled \"Additional Information on Eligibility\" for clarification)"
+     },
+     {
+      "id": "11",
+      "description": "Native American tribal organizations (other than Federally recognized tribal governments)"
+     }
+    ],
+    "fundingInstruments": [
+     {
+      "id": "G",
+      "description": "Grant"
+     }
+    ],
+    "fundingActivityCategories": [
+     {
+      "id": "AG",
+      "description": "Agriculture"
+     },
+     {
+      "id": "BC",
+      "description": "Business and Commerce"
+     },
+     {
+      "id": "EN",
+      "description": "Energy"
+     }
+    ],
+    "responseDateStr": "2015-11-02-00-00-00",
+    "postingDateStr": "2015-10-13-00-00-00",
+    "createTimeStampStr": "2026-10-20-09-54-07"
+   },
+   "agencyDetails": {
+    "code": "USDA-RBCS",
+    "seed": "USDA-RBCS",
+    "agencyName": "Rural Business-Cooperative Service ",
+    "agencyCode": "USDA-RBCS",
+    "topAgencyCode": "USDA"
+   },
+   "topAgencyDetails": {
+    "code": "USDA",
+    "seed": "USDA",
+    "agencyName": "Department of Agriculture",
+    "agencyCode": "USDA",
+    "topAgencyCode": "USDA"
+   },
+   "synopsisAttachmentFolders": [],
+   "synopsisDocumentURLs": [],
+   "synAttChangeComments": [],
+   "cfdas": [
+    {
+     "id": 316059,
+     "opportunityId": 279638,
+     "cfdaNumber": "10.868",
+     "programTitle": "Rural Energy for America Program"
+    }
+   ],
+   "opportunityHistoryDetails": [],
+   "opportunityPkgs": [],
+   "closedOpportunityPkgs": [],
+   "originalDueDateDesc": "REAP Applications are accepted year-round.\r\n\r\nFor applicants requesting grants of $20,000 or less, that wish to have their application compete for the &quot;Grants of $20,000 or less set aside&quot;, complete applications must be received no later than 4:30pm local time on: November 2, 2015, or May 2, 2016.\r\n\r\nFor applicants requesting grant funds of over $20,000 or funding for a combination grant and guaranteed loan, complete applications must be recevied no later than 4:30pm local time on May 2, 2016. ",
+   "synopsisModifiedFields": [
+    "revision",
+    "version",
+    "synopsisDesc",
+    "responseDate",
+    "responseDateDesc",
+    "createTimeStamp"
+   ],
+   "forecastModifiedFields": [],
+   "errorMessages": [],
+   "synPostDateInPast": true,
+   "docType": "synopsis",
+   "forecastHistCount": 0,
+   "synopsisHistCount": 0,
+   "assistCompatible": false,
+   "assistURL": "",
+   "relatedOpps": [],
+   "draftMode": "N",
+   "ost": "CLOSED"
+  }
+ },
+ "356623": {
+  "errorcode": 0,
+  "msg": "Webservice Succeeds",
+  "data": {
+   "id": 356623,
+   "revision": 2,
+   "opportunityNumber": "DE-FOA-0003467",
+   "opportunityTitle": "SEEDING CRITICAL ADVANCES FOR LEADING ENERGY TECHNOLOGIES WITH UNTAPPED POTENTIAL (SCALEUP) READY",
+   "owningAgencyCode": "DOE-ARPAE",
+   "listed": "L",
+   "publisherUid": "[removed from fixture]",
+   "flag2006": "N",
+   "opportunityCategory": {
+    "category": "D",
+    "description": "Discretionary"
+   },
+   "synopsis": {
+    "opportunityId": 356623,
+    "version": 4,
+    "agencyCode": "DOE-ARPAE",
+    "agencyName": "[removed from fixture]",
+    "agencyPhone": "[removed from fixture]",
+    "agencyAddressDesc": "[removed from fixture]",
+    "agencyDetails": {
+     "code": "ARPAE",
+     "seed": "DOE-ARPAE",
+     "agencyName": "Advanced Research Projects Agency Energy ",
+     "agencyCode": "DOE-ARPAE",
+     "topAgencyCode": "DOE"
+    },
+    "topAgencyDetails": {
+     "code": "DOE",
+     "seed": "DOE",
+     "agencyName": "Department of Energy",
+     "agencyCode": "DOE",
+     "topAgencyCode": "DOE"
+    },
+    "agencyContactPhone": "[removed from fixture]",
+    "agencyContactName": "[removed from fixture]",
+    "agencyContactDesc": "[removed from fixture]",
+    "agencyContactEmail": "[removed from fixture]",
+    "agencyContactEmailDesc": "[removed from fixture]",
+    "synopsisDesc": "<p>The purpose of this modification is to clarify the meaning of the Program Policy Factors in Section V.C.</p>\n<p><br><...",
+    "responseDate": "Sep 29, 2029 12:00:00 AM EDT",
+    "responseDateDesc": "Open continuously until otherwise amended....",
+    "fundingDescLinkUrl": "https://arpa-e-foa.energy.gov",
+    "fundingDescLinkDesc": "ARPA-E",
+    "postingDate": "Oct 02, 2024 12:00:00 AM EDT",
+    "archiveDate": "Oct 29, 2029 12:00:00 AM EDT",
+    "costSharing": true,
+    "awardCeiling": "20000000",
+    "awardCeilingFormatted": "20,000,000",
+    "awardFloor": "5000000",
+    "awardFloorFormatted": "5,000,000",
+    "applicantEligibilityDesc": "See Section II.A. of the NOFO....",
+    "sendEmail": "Y",
+    "createTimeStamp": "Feb 11, 2025 11:52:53 AM EST",
+    "modComments": "The purpose of this modification is to clarify the meaning of the Program Policy Factors in Section V.C....",
+    "createdDate": "Oct 02, 2024 01:43:21 PM EDT",
+    "lastUpdatedDate": "Feb 11, 2025 11:52:53 AM EST",
+    "applicantTypes": [
+     {
+      "id": "99",
+      "description": "Unrestricted (i.e., open to any type of entity above), subject to any clarification in text field entitled \"Additional Information on Eligibility\""
+     }
+    ],
+    "fundingInstruments": [
+     {
+      "id": "CA",
+      "description": "Cooperative Agreement"
+     },
+     {
+      "id": "O",
+      "description": "Other"
+     }
+    ],
+    "fundingActivityCategories": [
+     {
+      "id": "OZ",
+      "description": "Opportunity Zone Benefits"
+     },
+     {
+      "id": "ST",
+      "description": "Science and Technology and other Research and Development"
+     }
+    ],
+    "responseDateStr": "2029-09-29-00-00-00",
+    "postingDateStr": "2024-10-02-00-00-00",
+    "archiveDateStr": "2029-10-29-00-00-00",
+    "createTimeStampStr": "2025-02-11-11-52-53"
+   },
+   "agencyDetails": {
+    "code": "ARPAE",
+    "seed": "DOE-ARPAE",
+    "agencyName": "Advanced Research Projects Agency Energy ",
+    "agencyCode": "DOE-ARPAE",
+    "topAgencyCode": "DOE"
+   },
+   "topAgencyDetails": {
+    "code": "DOE",
+    "seed": "DOE",
+    "agencyName": "Department of Energy",
+    "agencyCode": "DOE",
+    "topAgencyCode": "DOE"
+   },
+   "synopsisAttachmentFolders": [],
+   "synopsisDocumentURLs": [],
+   "synAttChangeComments": [],
+   "cfdas": [
+    {
+     "id": 424033,
+     "opportunityId": 356623,
+     "cfdaNumber": "81.135",
+     "programTitle": "Advanced Research Projects Agency - Energy"
+    }
+   ],
+   "opportunityHistoryDetails": [],
+   "opportunityPkgs": [],
+   "closedOpportunityPkgs": [],
+   "originalDueDate": "Sep 29, 2029 12:00:00 AM EDT",
+   "originalDueDateDesc": "Open continuously until otherwise amended.",
+   "synopsisModifiedFields": [
+    "revision",
+    "version",
+    "synopsisDesc",
+    "createTimeStamp"
+   ],
+   "forecastModifiedFields": [],
+   "errorMessages": [],
+   "synPostDateInPast": true,
+   "docType": "synopsis",
+   "forecastHistCount": 0,
+   "synopsisHistCount": 2,
+   "assistCompatible": false,
+   "assistURL": "",
+   "relatedOpps": [],
+   "draftMode": "N",
+   "ost": "POSTED"
+  }
+ },
+ "363396": {
+  "errorcode": 0,
+  "msg": "Webservice Succeeds",
+  "data": {
+   "id": 363396,
+   "revision": 3,
+   "opportunityNumber": "RUS-PART-2026",
+   "opportunityTitle": "Powering Affordable Reliable Technology (PART) Energy Program",
+   "owningAgencyCode": "USDA-RUS",
+   "listed": "L",
+   "publisherUid": "[removed from fixture]",
+   "flag2006": "N",
+   "opportunityCategory": {
+    "category": "D",
+    "description": "Discretionary"
+   },
+   "synopsis": {
+    "opportunityId": 363396,
+    "version": 1,
+    "agencyCode": "USDA-RUS",
+    "agencyName": "[removed from fixture]",
+    "agencyPhone": "[removed from fixture]",
+    "agencyAddressDesc": "[removed from fixture]",
+    "agencyDetails": {
+     "code": "RUS",
+     "seed": "USDA-RUS",
+     "agencyName": "Rural Utilities Service",
+     "agencyCode": "USDA-RUS",
+     "topAgencyCode": "USDA"
+    },
+    "topAgencyDetails": {
+     "code": "USDA",
+     "seed": "USDA",
+     "agencyName": "Department of Agriculture",
+     "agencyCode": "USDA",
+     "topAgencyCode": "USDA"
+    },
+    "agencyContactPhone": "[removed from fixture]",
+    "agencyContactName": "[removed from fixture]",
+    "agencyContactDesc": "[removed from fixture]",
+    "agencyContactEmail": "[removed from fixture]",
+    "agencyContactEmailDesc": "[removed from fixture]",
+    "synopsisDesc": "<p><span style=\"color: black;\">The Rural Utilities Service (RUS or the Agency), a Rural Development (RD) Agency of the U...",
+    "responseDate": "Oct 09, 2026 12:00:00 AM EDT",
+    "responseDateDesc": "Letters of Interest (LOI) can be submitted beginning at 11:59 a.m. Eastern Time (ET) on September 8, 2026, until 11:59 a...",
+    "fundingDescLinkUrl": "https://www.rd.usda.gov/programs-services/electric-programs/powering-affordable-reliable-technology-program",
+    "fundingDescLinkDesc": "RUS PART Energy Program Website",
+    "postingDate": "Sep 08, 2026 12:00:00 AM EDT",
+    "archiveDate": "Nov 08, 2026 12:00:00 AM EST",
+    "costSharing": true,
+    "numberOfAwards": "100",
+    "estimatedFunding": "410000000",
+    "estimatedFundingFormatted": "410,000,000",
+    "awardCeiling": "100000000",
+    "awardCeilingFormatted": "100,000,000",
+    "awardFloor": "1000000",
+    "awardFloorFormatted": "1,000,000",
+    "applicantEligibilityDesc": "RUS will accept LOIs and Applications from Operating Utilities as the followings: (a) For-profit organizations.(b) State...",
+    "sendEmail": "Y",
+    "createTimeStamp": "Aug 20, 2026 09:13:33 AM EDT",
+    "createdDate": "Aug 20, 2026 09:13:33 AM EDT",
+    "lastUpdatedDate": "Aug 20, 2026 09:13:33 AM EDT",
+    "applicantTypes": [
+     {
+      "id": "25",
+      "description": "Others (see text field entitled \"Additional Information on Eligibility\" for clarification)"
+     }
+    ],
+    "fundingInstruments": [
+     {
+      "id": "O",
+      "description": "Other"
+     }
+    ],
+    "fundingActivityCategories": [
+     {
+      "id": "EN",
+      "description": "Energy"
+     }
+    ],
+    "responseDateStr": "2026-10-09-00-00-00",
+    "postingDateStr": "2026-09-08-00-00-00",
+    "archiveDateStr": "2026-11-08-00-00-00",
+    "createTimeStampStr": "2026-08-20-09-13-33"
+   },
+   "agencyDetails": {
+    "code": "RUS",
+    "seed": "USDA-RUS",
+    "agencyName": "Rural Utilities Service",
+    "agencyCode": "USDA-RUS",
+    "topAgencyCode": "USDA"
+   },
+   "topAgencyDetails": {
+    "code": "USDA",
+    "seed": "USDA",
+    "agencyName": "Department of Agriculture",
+    "agencyCode": "USDA",
+    "topAgencyCode": "USDA"
+   },
+   "forecast": {
+    "opportunityId": 363396,
+    "version": 3,
+    "postingDate": "Aug 03, 2026 12:00:00 AM EDT",
+    "archiveDate": "Sep 07, 2026 12:00:00 AM EDT",
+    "forecastDesc": "<p><span style=\"color: black;\">The Rural Utilities Service (RUS or the Agency), a Rural Development (RD) Agency of the U...",
+    "costSharing": true,
+    "numberOfAwards": "100",
+    "estimatedFunding": "410000000",
+    "awardCeiling": "100000000",
+    "awardFloor": "1000000",
+    "fundingDescLinkUrl": "https://www.rd.usda.gov/programs-services/electric-programs/powering-affordable-reliable-technology-program",
+    "fundingDescLinkDesc": "RUS PART Energy Program Website",
+    "agencyContactName": "[removed from fixture]",
+    "agencyContactPhone": "[removed from fixture]",
+    "agencyContactEmail": "[removed from fixture]",
+    "agencyContactEmailDesc": "[removed from fixture]",
+    "agencyCode": "USDA-RUS",
+    "sendEmail": "Y",
+    "applicantEligibilityDesc": "RUS will accept LOIs and Applications from Operating Utilities as the followings: (a) For-profit organizations.(b) State...",
+    "estSynopsisPostingDate": "Sep 08, 2026 12:00:00 AM EDT",
+    "estApplicationResponseDate": "Oct 09, 2026 12:00:00 AM EDT",
+    "estApplicationResponseDateDesc": "Letters of Interest (LOI) can be submitted beginning at 11:59 a.m. Eastern Time (ET) on September 8, 2026, until 11:59 a.m. ET on October 9,2026.",
+    "fiscalYear": 2026,
+    "modComments": "Updated estimated application due date....",
+    "createTimeStamp": "Aug 20, 2026 09:45:03 AM EDT",
+    "createdDate": "Jul 30, 2026 11:00:45 AM EDT",
+    "lastUpdatedDate": "Aug 20, 2026 09:45:03 AM EDT",
+    "agencyDetails": {
+     "code": "RUS",
+     "seed": "USDA-RUS",
+     "agencyName": "Rural Utilities Service",
+     "agencyCode": "USDA-RUS",
+     "topAgencyCode": "USDA"
+    },
+    "estimatedFundingFormatted": "410,000,000",
+    "awardCeilingFormatted": "100,000,000",
+    "awardFloorFormatted": "1,000,000",
+    "applicantTypes": [
+     {
+      "id": "25",
+      "description": "Others (see text field entitled \"Additional Information on Eligibility\" for clarification)"
+     }
+    ],
+    "fundingInstruments": [
+     {
+      "id": "O",
+      "description": "Other"
+     }
+    ],
+    "fundingActivityCategories": [
+     {
+      "id": "EN",
+      "description": "Energy"
+     }
+    ],
+    "postingDateStr": "2026-08-03-00-00-00",
+    "archiveDateStr": "2026-09-07-00-00-00",
+    "estSynopsisPostingDateStr": "2026-09-08-00-00-00",
+    "estApplicationResponseDateStr": "2026-10-09-00-00-00",
+    "createTimeStampStr": "2026-08-20-09-45-03"
+   },
+   "synopsisAttachmentFolders": [],
+   "synopsisDocumentURLs": [],
+   "synAttChangeComments": [],
+   "cfdas": [
+    {
+     "id": 434826,
+     "opportunityId": 363396,
+     "cfdaNumber": "10.757",
+     "programTitle": "Powering Affordable Reliable Technology Energy Program"
+    }
+   ],
+   "opportunityHistoryDetails": [],
+   "opportunityPkgs": [],
+   "closedOpportunityPkgs": [],
+   "originalDueDate": "Oct 09, 2026 12:00:00 AM EDT",
+   "originalDueDateDesc": "Letters of Interest (LOI) can be submitted beginning at 11:59 a.m. Eastern Time (ET) on September 8, 2026, until 11:59 a.m. ET on October 9,2026.",
+   "synopsisModifiedFields": [],
+   "forecastModifiedFields": [
+    "revision",
+    "version",
+    "sendEmail",
+    "forecastDesc",
+    "estApplicationResponseDate",
+    "modComments"
+   ],
+   "errorMessages": [],
+   "synPostDateInPast": true,
+   "docType": "synopsis",
+   "forecastHistCount": 2,
+   "synopsisHistCount": 0,
+   "assistCompatible": false,
+   "assistURL": "",
+   "relatedOpps": [],
+   "draftMode": "N",
+   "ost": "CLOSED"
+  }
+ },
+ "361526": {
+  "errorcode": 0,
+  "msg": "Webservice Succeeds",
+  "data": {
+   "id": 361526,
+   "revision": 2,
+   "opportunityNumber": "DE-FOA-0003612",
+   "opportunityTitle": "The Genesis Mission:  Transforming Science and Energy with AI",
+   "owningAgencyCode": "PAMS-SC",
+   "listed": "L",
+   "publisherUid": "[removed from fixture]",
+   "flag2006": "N",
+   "opportunityCategory": {
+    "category": "D",
+    "description": "Discretionary"
+   },
+   "synopsis": {
+    "opportunityId": 361526,
+    "version": 3,
+    "agencyCode": "PAMS-SC",
+    "agencyName": "[removed from fixture]",
+    "agencyPhone": "[removed from fixture]",
+    "agencyAddressDesc": "[removed from fixture]",
+    "agencyDetails": {
+     "code": "SC",
+     "seed": "PAMS-SC",
+     "agencyName": "Office of Science",
+     "agencyCode": "PAMS-SC",
+     "topAgencyCode": "PAMS"
+    },
+    "topAgencyDetails": {
+     "code": "PAMS",
+     "seed": "PAMS",
+     "agencyName": "Department of Energy - Office of Science",
+     "agencyCode": "PAMS",
+     "topAgencyCode": "PAMS"
+    },
+    "agencyContactPhone": "[removed from fixture]",
+    "agencyContactName": "[removed from fixture]",
+    "agencyContactDesc": "[removed from fixture]",
+    "agencyContactEmail": "[removed from fixture]",
+    "agencyContactEmailDesc": "[removed from fixture]",
+    "synopsisDesc": "<p><span style=\"color: black;\">The DOE Office of Science (SC), Office of Critical Minerals and Energy Innovation (CMEI),...",
+    "responseDate": "Dec 17, 2026 12:00:00 AM EST",
+    "responseDateDesc": "",
+    "postingDate": "Mar 17, 2026 12:00:00 AM EDT",
+    "archiveDate": "Mar 17, 2027 12:00:00 AM EDT",
+    "costSharing": true,
+    "estimatedFunding": "293760000",
+    "estimatedFundingFormatted": "293,760,000",
+    "awardCeiling": "16000000",
+    "awardCeilingFormatted": "16,000,000",
+    "awardFloor": "500000",
+    "awardFloorFormatted": "500,000",
+    "applicantEligibilityDesc": "",
+    "sendEmail": "N",
+    "createTimeStamp": "Jul 20, 2026 09:23:02 AM EDT",
+    "modComments": "updated...",
+    "createdDate": "Mar 17, 2026 08:54:35 AM EDT",
+    "lastUpdatedDate": "Apr 10, 2026 09:22:17 AM EDT",
+    "applicantTypes": [
+     {
+      "id": "99",
+      "description": "Unrestricted (i.e., open to any type of entity above), subject to any clarification in text field entitled \"Additional Information on Eligibility\""
+     }
+    ],
+    "fundingInstruments": [
+     {
+      "id": "O",
+      "description": "Other"
+     }
+    ],
+    "fundingActivityCategories": [
+     {
+      "id": "ST",
+      "description": "Science and Technology and other Research and Development"
+     }
+    ],
+    "responseDateStr": "2026-12-17-00-00-00",
+    "postingDateStr": "2026-03-17-00-00-00",
+    "archiveDateStr": "2027-03-17-00-00-00",
+    "createTimeStampStr": "2026-07-20-09-23-02"
+   },
+   "agencyDetails": {
+    "code": "SC",
+    "seed": "PAMS-SC",
+    "agencyName": "Office of Science",
+    "agencyCode": "PAMS-SC",
+    "topAgencyCode": "PAMS"
+   },
+   "topAgencyDetails": {
+    "code": "PAMS",
+    "seed": "PAMS",
+    "agencyName": "Department of Energy - Office of Science",
+    "agencyCode": "PAMS",
+    "topAgencyCode": "PAMS"
+   },
+   "synopsisAttachmentFolders": [],
+   "synopsisDocumentURLs": [],
+   "synAttChangeComments": [],
+   "cfdas": [
+    {
+     "id": 432260,
+     "opportunityId": 361526,
+     "cfdaNumber": "81.049",
+     "programTitle": "Office of Science Financial Assistance Program"
+    }
+   ],
+   "opportunityHistoryDetails": [],
+   "opportunityPkgs": [],
+   "closedOpportunityPkgs": [],
+   "originalDueDate": "Dec 17, 2026 12:00:00 AM EST",
+   "originalDueDateDesc": "",
+   "synopsisModifiedFields": [
+    "revision",
+    "version",
+    "awardCeiling",
+    "createTimeStamp"
+   ],
+   "forecastModifiedFields": [],
+   "errorMessages": [],
+   "synPostDateInPast": true,
+   "docType": "synopsis",
+   "forecastHistCount": 0,
+   "synopsisHistCount": 2,
+   "assistCompatible": false,
+   "assistURL": "",
+   "relatedOpps": [],
+   "draftMode": "N",
+   "ost": "POSTED"
+  }
+ },
+ "322667": {
+  "errorcode": 0,
+  "msg": "Webservice Succeeds",
+  "data": {
+   "id": 322667,
+   "revision": 0,
+   "opportunityNumber": "PAS-SCB-600-20-PAS-0001",
+   "opportunityTitle": "Public Affairs Section Notice of Funding Opportunity 2020",
+   "owningAgencyCode": "DOS-KHM",
+   "listed": "L",
+   "publisherUid": "[removed from fixture]",
+   "flag2006": "N",
+   "opportunityCategoryExplanation": "The U.S. Embassy Phnom Penh Public Affairs Section (PAS) of the U.S. Department of State is pleased to announce that funding is available through its Public Diplomacy Small Grants Program.",
+   "opportunityCategory": {
+    "category": "O",
+    "description": "Other"
+   },
+   "agencyDetails": {
+    "code": "KHM",
+    "seed": "DOS-KHM",
+    "agencyName": "U.S. Mission to Cambodia",
+    "agencyCode": "DOS-KHM",
+    "topAgencyCode": "DOS"
+   },
+   "topAgencyDetails": {
+    "code": "DOS",
+    "seed": "DOS",
+    "agencyName": "Department of State",
+    "agencyCode": "DOS",
+    "topAgencyCode": "DOS"
+   },
+   "forecast": {
+    "opportunityId": 322667,
+    "version": 1,
+    "postingDate": "Nov 23, 2019 12:00:00 AM EST",
+    "forecastDesc": "<p>The U.S. Embassy Phnom Penh Public Affairs Section (PAS) of the U.S. Department of State is pleased to announce that ...",
+    "fundingActivityCategoryDesc": "AS Phnom Penh invites proposals for projects that strengthen ties between the U.S. and Cambodia through cultural and exc...",
+    "costSharing": false,
+    "awardCeiling": "20000",
+    "fundingDescLinkUrl": "https://kh.usembassy.gov/public-affairs-section-notice-of-funding-opportunity-2020/",
+    "fundingDescLinkDesc": "Public Affairs Section Notice of Funding Opportunity 2020",
+    "agencyContactName": "[removed from fixture]",
+    "agencyContactPhone": "[removed from fixture]",
+    "agencyContactEmail": "[removed from fixture]",
+    "agencyContactEmailDesc": "[removed from fixture]",
+    "agencyCode": "DOS-KHM",
+    "sendEmail": "Y",
+    "applicantEligibilityDesc": "This funding opportunity is available to organizations and individuals who are interested and have experience working wi...",
+    "estApplicationResponseDate": "Sep 30, 2020 12:00:00 AM EDT",
+    "fiscalYear": 2020,
+    "createTimeStamp": "Nov 21, 2019 11:23:47 PM EST",
+    "createdDate": "Nov 21, 2019 11:23:47 PM EST",
+    "lastUpdatedDate": "Nov 21, 2019 11:23:47 PM EST",
+    "agencyDetails": {
+     "code": "KHM",
+     "seed": "DOS-KHM",
+     "agencyName": "U.S. Mission to Cambodia",
+     "agencyCode": "DOS-KHM",
+     "topAgencyCode": "DOS"
+    },
+    "awardCeilingFormatted": "20,000",
+    "applicantTypes": [
+     {
+      "id": "25",
+      "description": "Others (see text field entitled \"Additional Information on Eligibility\" for clarification)"
+     }
+    ],
+    "fundingInstruments": [
+     {
+      "id": "G",
+      "description": "Grant"
+     }
+    ],
+    "fundingActivityCategories": [
+     {
+      "id": "O",
+      "description": "Other (see text field entitled \"Explanation of Other Category of Funding Activity\" for clarification)"
+     }
+    ],
+    "postingDateStr": "2019-11-23-00-00-00",
+    "estApplicationResponseDateStr": "2020-09-30-00-00-00",
+    "createTimeStampStr": "2019-11-21-23-23-47"
+   },
+   "synopsisAttachmentFolders": [],
+   "synopsisDocumentURLs": [],
+   "synAttChangeComments": [],
+   "cfdas": [
+    {
+     "id": 375872,
+     "opportunityId": 322667,
+     "cfdaNumber": "19.040",
+     "programTitle": "Public Diplomacy Programs"
+    }
+   ],
+   "opportunityHistoryDetails": [],
+   "opportunityPkgs": [],
+   "closedOpportunityPkgs": [],
+   "synopsisModifiedFields": [],
+   "forecastModifiedFields": [],
+   "errorMessages": [],
+   "synPostDateInPast": true,
+   "docType": "forecast",
+   "forecastHistCount": 0,
+   "synopsisHistCount": 0,
+   "assistCompatible": false,
+   "assistURL": "",
+   "relatedOpps": [],
+   "draftMode": "N",
+   "ost": "FORECASTED"
+  }
+ }
+}

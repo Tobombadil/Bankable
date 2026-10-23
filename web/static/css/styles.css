@@ -846,6 +846,53 @@ h3 { font-size: var(--text-4); }
    stays on one line rather than tripling the row height. */
 @media (min-width: 1080px) { .record-table td.cell-nowrap-wide { white-space: nowrap; } }
 
+/* ---------- 7.3 Figures in list cells (lane pages, 2026-10-23) ----------
+   RFPs & funding Value: the amount in its own currency, the approximate US-dollar figure beside it
+   (muted: it is ours, not the notice's), and what the figure is on the line under it. Companies:
+   each figure is a link to the list that reproduces it, in the text colour with a dotted rule so a
+   column of numbers stays a column of numbers. A zero is muted, a missing figure is a dash. */
+/* The companies index's name search: the first control on the page, wider and larger than a filter,
+   and outside the collapsible bar so it stays on screen at phone width. Its placeholder says what it
+   is; the label is for assistive technology. */
+.org-search { margin: var(--space-3) 0 var(--space-2); max-width: 40rem; }
+.org-search__row { display: flex; gap: var(--space-2); }
+.org-search__input {
+  flex: 1 1 auto; min-width: 0; font: inherit; font-size: var(--text-3); min-height: 2.75rem;
+  padding: var(--space-1) var(--space-3); color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-2);
+}
+.org-search__input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+@media (max-width: 719px) { .org-search__input { font-size: var(--text-2); } }
+.org-search__submit {
+  font: inherit; min-height: 2.75rem; padding: 0 var(--space-4); cursor: pointer;
+  color: var(--link); background: transparent; border: 1px solid var(--link); border-radius: var(--radius-2);
+}
+.org-search__submit:hover { background: var(--surface); }
+/* The switch, its note and the count on one row over the companies table where they fit. */
+.org-toolbar .scope-switch__note { flex: 0 1 auto; }
+.org-toolbar .result-count { margin: 0 0 0 auto; }
+@media (max-width: 719px) { .org-toolbar .result-count { margin-left: 0; } }
+/* The companies table: the name column takes the room, the five figures stay narrow. */
+@media (min-width: 720px) { .org-table td.cell-title { width: 40%; } }
+.record-table td.cell-value { min-width: 8.5rem; }
+.cell-value__amount { font-weight: 600; white-space: nowrap; }
+.cell-value__usd { color: var(--text-muted); white-space: nowrap; }
+.cell-value__kind { display: block; color: var(--text-muted); font-size: var(--text-1); }
+.figure-link { color: inherit; text-decoration: underline dotted var(--border); text-underline-offset: 0.2em; }
+.figure-link:visited { color: inherit; }
+.figure-link:hover, .figure-link:focus-visible { color: var(--link); text-decoration: underline solid; }
+.figure-zero { color: var(--text-muted); }
+/* "from 1 of 47 assets": under a capacity fewer than half of the records behind it state. */
+.figure-note { display: block; color: var(--text-muted); font-size: var(--text-1); font-weight: 400; }
+.record-table td.cell-figure { white-space: nowrap; }
+.cell-sub { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--text-1); font-weight: 400; }
+@media (max-width: 719px) {
+  .record-table--compact .cell-value__kind { display: inline; font-size: inherit; }
+  .record-table--compact .cell-value__amount { font-weight: 400; }
+  .record-table--compact .cell-sub { display: none; }
+  .record-table--compact .figure-note { display: inline; font-size: inherit; }
+}
+
 /* RFPs & funding scope switch (docs/16 U-7): "Show: Energy-related 328 · All notices 624", the
    view-switch links with their counts, and one muted line saying what "energy-related" keeps. */
 .scope-switch { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); }
@@ -1168,6 +1215,7 @@ a.button-secondary:visited { color: var(--link); }
 .org-summary { font-size: var(--text-3); color: var(--text-muted); margin: 0 0 var(--space-4); }
 .asset-group { margin-bottom: var(--space-5); }
 .asset-group h3 { margin-bottom: var(--space-2); }
+.asset-group__more { font-size: var(--text-2); font-weight: 400; color: var(--text-muted); }
 /* Company pipeline (owner 2026-10-10, "show me their pipeline"): three small tables, side by side
    where they fit and stacked at 400px. Not `.record-table`, whose rows become cards below 720px:
    three columns fit a phone as they are. Counts are links to the filtered list. */
@@ -1291,6 +1339,37 @@ a.button-secondary:visited { color: var(--link); }
 .field-grid .mono { font-family: var(--font-mono); }
 .field-grid__source-value { display: block; font-size: var(--text-1); color: var(--text-muted); }
 @media (max-width: 719px) { .field-grid { grid-template-columns: 1fr; } }
+/* A company's public facts under its name (lane pages): one line of what it is, then website,
+   headquarters and listing on one wrapping row, each value followed by its source in small muted
+   type -- text on the paper, no card (D-7). The source names link to the statement read. */
+.org-about { margin: var(--space-2) 0 0; font-size: var(--text-3); max-width: 48rem; }
+.org-about__text::first-letter { text-transform: uppercase; }
+.org-facts {
+  list-style: none; margin: var(--space-2) 0 var(--space-3); padding: 0;
+  display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-5);
+}
+.org-facts__item { overflow-wrap: anywhere; }
+.org-facts__label { font-size: var(--text-1); color: var(--text-muted); margin-inline-end: var(--space-1); }
+.fact-source {
+  font-size: var(--text-1); color: var(--text-muted); margin-inline-start: var(--space-1);
+  text-decoration: underline dotted; text-underline-offset: 0.2em; white-space: nowrap;
+}
+.fact-source:visited { color: var(--text-muted); }
+.fact-source:hover, .fact-source:focus-visible { color: var(--link); }
+
+/* A row across both columns: an opportunity's value, with its US-dollar figure, the other figures
+   the notice states, where it was read and the ECB credit on lines of their own (lane pages). */
+.field-grid > .field-grid__wide { grid-column: 1 / -1; }
+.field-grid__wide dd { max-width: 44rem; }
+@media (max-width: 719px) {
+  .field-grid > .field-grid__wide { flex-direction: column; gap: var(--space-1); }
+  .field-grid__wide dd { text-align: left; }
+}
+.value-figure { font-size: var(--text-3); font-weight: 600; }
+.value-line, .value-source { display: block; margin-top: var(--space-1); }
+.value-line { color: var(--text); }
+.value-source { color: var(--text-muted); font-size: var(--text-1); }
+.value-source .mono { font-family: var(--font-mono); }
 
 /* Lifecycle timeline as a ruled ledger: date column in Plex Mono, event column, hairline rules
    between rows -- a register entry, not a rounded-dot activity feed (docs/30 §1, D-26). */
@@ -2086,4 +2165,38 @@ a.button-secondary:visited { color: var(--link); }
 .feedback-form { gap: var(--space-5); }
 @media (max-width: 719px) {
   .beta-bar__text { padding: var(--space-1) var(--space-4); }
+}
+
+/* ---------- Prices (2026-10-22; web/prices.py, docs/29 slice 1) ----------
+   The glossary is four short definitions, two columns from 720px, one below. The two tables are
+   the shared `.record-table--compact` list (two-line rows below 720px); `.cell-sub` puts market and
+   kind under the location's name on wide screens and beside it on the compact row. A withheld or
+   unpublished figure is muted text, never colour alone. Every colour comes from the tokens, so both
+   themes hold. */
+.price-glossary { display: grid; gap: var(--space-2) var(--space-5); margin: var(--space-3) 0 var(--space-5); }
+.price-glossary div { margin: 0; }
+.price-glossary dt { font-weight: 600; }
+.price-glossary dd { margin: 0; color: var(--text-muted); }
+@media (min-width: 720px) {
+  .price-glossary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.price-table .cell-sub { display: block; font-size: var(--text-1); color: var(--text-muted); }
+.price-table .price-window { white-space: nowrap; font-size: var(--text-1); }
+.price-table .price-withheld,
+.price-table .price-ref { color: var(--text-muted); font-style: italic; }
+.price-flag { color: var(--text-muted); font-size: var(--text-1); }
+.price-linkouts ul,
+.price-credits ul,
+.price-method ul { padding-inline-start: var(--space-5); }
+.price-linkouts li,
+.price-credits li,
+.price-method li { margin-bottom: var(--space-2); }
+.price-screening { margin: var(--space-4) 0; }
+/* 2026-10-23: a figure resting on a short history says so in its cell, in muted text (SPP's 30 days
+   beside twelve months); the method section reads as a short list like the credits. */
+.price-table .price-short { color: var(--text-muted); font-size: var(--text-1); white-space: nowrap; }
+.price-method { max-width: 72ch; }
+@media (max-width: 719px) {
+  .price-table .cell-sub { display: inline; }
+  .price-table .price-window { white-space: normal; }
 }

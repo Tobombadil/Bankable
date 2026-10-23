@@ -92,6 +92,7 @@ from services.db.models import (
     User,
 )
 from services.ids import public_id, slugify
+from services.ingest.opportunity_value import value_identifiers
 from services.match.run import active_match_count, run_matches
 from services.sor.ports import CompanyUpsert, CrmPort, LeadSignal, SorRejected, SorUnavailable
 from services.sor.wiring import get_crm_port
@@ -379,7 +380,13 @@ def _create_opportunity_from_pending(
         open_at=_parse_iso_date(pending.get("open_at")),
         due_at=_parse_iso_datetime(pending.get("due_at")),
         status="open",
-        identifiers=identifiers,
+        # With the value block for the stated amount (services/ingest/opportunity_value.py).
+        identifiers=value_identifiers(
+            identifiers,
+            pending.get("budget_amount"),
+            pending.get("budget_currency") if isinstance(pending.get("budget_currency"), str) else None,
+            _parse_iso_date(pending.get("open_at")),
+        ),
         publish_state=publish_state,
         published_at=now if publish_state in ("api_only", "public") else None,
         public_at=now if publish_state == "public" else None,

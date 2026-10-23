@@ -168,6 +168,8 @@ def test_deploy_order_sync_pull_stop_migrate_up_health_workers_scheduler(
     queue_schema = first_index(lines, f"{app} {compose} run --rm --no-deps -T scheduler python -c ")
     step = lines[queue_schema]
     expect('m = "infra.scheduler.queue_schema"' in step and step.endswith(" ensure"), step)
+    restate = first_index(lines, 'm = "services.ingest.opportunity_value"')
+    expect(lines[restate].endswith(" --refresh-rates"), lines[restate])
     up_app = first_index(lines, "up -d --no-build caddy api web")
     health = first_index(lines, "docker inspect -f '{{.State.Health.Status}}'")
     health_url = first_index(lines, "curl -sf --max-time 5 http://api:8000/v1/health")
@@ -184,6 +186,7 @@ def test_deploy_order_sync_pull_stop_migrate_up_health_workers_scheduler(
         dump,
         migrate,
         queue_schema,
+        restate,
         up_app,
         health,
     ]
@@ -361,6 +364,8 @@ def test_rollback_reruns_deploy_without_auto_rollback(shims: tuple[pathlib.Path,
     expect(not any("infraque-backup.service" in ln for ln in calls(log)), "no dump on a plain rollback")
     expect(not any("upgrade head" in ln for ln in calls(log)), "no migration on a rollback")
     expect(any("infra.scheduler.queue_schema" in ln for ln in calls(log)), "the queue schema step still runs")
+    restated = any("services.ingest.opportunity_value" in ln for ln in calls(log))
+    expect(not restated, "no value restatement on a rollback")
 
 
 #: The host runs the bad tag (deploy.sh recorded it in current-tag); the operator rolls back to the good one.
@@ -835,9 +840,13 @@ def test_seed_ships_the_data_root_then_loads_waits_loads_context_and_fetches(
     )
     load = first_index(lines, "worker python -m infra.scheduler.bootstrap load")
     drain = first_index(lines, "exec -T postgres psql")
+    # Every stored opportunity gains its value and USD equivalent once the loads are in (lane
+    # rfp-value): incremental sources never reload the rows the seed shipped.
+    values = first_index(lines, "worker python -m services.ingest.opportunity_value --refresh-rates")
     context = first_index(lines, "worker python -m infra.scheduler.bootstrap context")
     fetch = first_index(lines, "worker python -m infra.scheduler.bootstrap fetch")
-    expect([ship, load, drain, context, fetch] == sorted([ship, load, drain, context, fetch]), lines)
+    order = [ship, load, drain, values, context, fetch]
+    expect(order == sorted(order), lines)
     # The context load is waited for too, before the fetches start.
     drains = [i for i, ln in enumerate(lines) if "exec -T postgres psql" in ln]
     expect(any(context < i < fetch for i in drains), lines)
@@ -854,6 +863,7 @@ def test_seed_stops_when_the_loads_do_not_drain(
     result = run("seed_single_host.sh", str(_data_root(tmp_path)), env=env)
     expect(result.returncode != 0 and "still pending" in result.stderr, result.stderr)
     expect(not any("bootstrap context" in ln for ln in calls(log)), "context must wait for the loads")
+    expect(not any("opportunity_value" in ln for ln in calls(log)), "values must wait for the loads")
 
 
 def test_seed_refuses_a_data_root_with_nothing_to_ship(

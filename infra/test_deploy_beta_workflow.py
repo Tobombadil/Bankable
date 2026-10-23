@@ -33,6 +33,8 @@ VARIABLES = {
     "SENDER_POSTAL_ADDRESS",
 }
 OPTIONAL_VARIABLES = {"SENDER_LEGAL_NAME", "PRODUCT_CONTACT_EMAIL", "PRODUCT_NAME", "SITE_ACCESS"}
+#: The ERCOT Public API account (lane price-hubs, 2026-10-22): optional, all three or none.
+OPTIONAL_SECRETS = {"ERCOT_API_SUBSCRIPTION_KEY", "ERCOT_API_USERNAME", "ERCOT_API_PASSWORD"}
 PINNED = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
 
 
@@ -114,19 +116,23 @@ def test_secrets_and_variables_are_exactly_the_documented_names() -> None:
     text = WORKFLOW.read_text()
     secrets = set(re.findall(r"secrets\.([A-Z0-9_]+)", text)) - {"GITHUB_TOKEN"}
     variables = set(re.findall(r"vars\.([A-Z0-9_]+)", text))
-    expect(secrets == SECRETS, f"secrets: {secrets ^ SECRETS}")
+    expect(secrets == SECRETS | OPTIONAL_SECRETS, f"secrets: {secrets ^ (SECRETS | OPTIONAL_SECRETS)}")
     expect(
         variables == VARIABLES | OPTIONAL_VARIABLES,
         f"variables: {variables ^ (VARIABLES | OPTIONAL_VARIABLES)}",
     )
     check_env = workflow()["jobs"]["inputs"]["steps"][1]["env"]
-    expect(set(check_env) >= SECRETS | VARIABLES | OPTIONAL_VARIABLES, "the inputs check sees every input")
+    expect(
+        set(check_env) >= SECRETS | OPTIONAL_SECRETS | VARIABLES | OPTIONAL_VARIABLES,
+        "the inputs check sees every input",
+    )
     from infra.ci import beta
 
     expect(set(beta.SECRETS) == SECRETS and set(beta.VARIABLES) == VARIABLES, "beta.py's lists")
     expect(set(beta.OPTIONAL_VARIABLES) == OPTIONAL_VARIABLES, "beta.py's optional list")
+    expect(set(beta.OPTIONAL_SECRETS) == OPTIONAL_SECRETS, "beta.py's optional secrets")
     docs = DOCS_64.read_text()
-    for name in SECRETS | VARIABLES | OPTIONAL_VARIABLES | {"beta-tfstate"}:
+    for name in SECRETS | OPTIONAL_SECRETS | VARIABLES | OPTIONAL_VARIABLES | {"beta-tfstate"}:
         expect(f"`{name}`" in docs, f"docs/64 does not tell the owner about {name}")
 
 

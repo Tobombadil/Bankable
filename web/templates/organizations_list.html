@@ -2,25 +2,73 @@
 {% import "_macros.html" as m %}
 {% import "partials/_sections.html" as sections %}
 {% block title %}{{ sections.heading.companies }} — Inframation{% endblock %}
-{% block meta_description %}Owners and operators of the power plants, pipelines, processing and storage in the Inframation register, each with what it holds, the proposals it sponsors and the sources behind them.{% endblock %}
+{% block meta_description %}Owners, operators and developers of power plants, pipelines and energy projects, ranked by operating and planned capacity, each with the registers behind its figures.{% endblock %}
 {% block content %}
 {#- A list page reached from the primary nav carries no breadcrumb; the nav marks where the reader is
     (docs/30 §1). The H1 is the sections partial's (docs/16 §3.1). -#}
-{% import "partials/_sections.html" as sections %}
 <div class="page-header">
   <h1>{{ sections.heading.companies }}</h1>
-  <p>Every company or public body the register names as an owner, operator, sponsor or issuer. Search by name; a company page shows what it holds, where, and which register said so.</p>
+  <p>Who owns, runs and develops the plants, pipelines and projects in the register, largest operating fleet first. Every number opens the records it counts.</p>
 </div>
 
-<form id="filters" class="filter-bar" method="get" action="/organizations" hx-get="/organizations" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" role="search" aria-label="Filter companies">
-  <div class="filter-field">
-    <label for="f-org-q">Company name</label>
-    <input id="f-org-q" type="search" name="q" placeholder="e.g. Tallgrass" value="{{ filters.get('q', '') }}">
+{#- docs/16 U-9 (lane pages, 2026-10-23). The name search sits outside the collapsible filter bar so it
+    stays on screen at phone width, and belongs to the same form through `form="filters"`, so one
+    GET (Enter or Search) carries the name and every filter, the chosen scope and order included. -#}
+{%- set fo = filter_options or {} %}
+<div class="org-search" role="search">
+  <label class="visually-hidden" for="f-org-q">Find a company by name</label>
+  <div class="org-search__row">
+    <input id="f-org-q" class="org-search__input" form="filters" type="search" name="q" value="{{ filters.get('q', '') }}" placeholder="Company name, e.g. NextEra" autocomplete="off" data-not-filter>
+    <button class="org-search__submit" form="filters" type="submit">Search</button>
   </div>
-  <button class="filter-bar__submit" type="submit">Search</button>
-  {% if filters.get('q') or filters.get('type') or filters.get('country') %}
-  <a class="filter-bar__clear" href="/organizations">Clear</a>
+</div>
+
+{{ m.filter_toggle("filters") }}
+<form id="filters" class="filter-bar" data-collapse method="get" action="/organizations" hx-get="/organizations" hx-target="#result-rows" hx-push-url="true" hx-trigger="change, submit" aria-label="Filter companies">
+  {%- if fo.types %}
+  <div class="filter-field">
+    <label for="f-org-type">Type</label>
+    <select id="f-org-type" name="type">
+      <option value="">All</option>
+      {% for t in fo.types %}<option value="{{ t }}" {% if filters.get('type') == t %}selected{% endif %}>{{ t | organization_type_label }}</option>{% endfor %}
+    </select>
+  </div>
+  {%- endif %}
+  <div class="filter-field">
+    <label for="f-org-state">State</label>
+    <select id="f-org-state" name="state">
+      <option value="">All</option>
+      {%- set chosen_state = (filters.get('state') or '') | upper %}
+      {% for code, name in fo.states or [] %}<option value="{{ code }}" {% if chosen_state == code %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      {%- if chosen_state and chosen_state not in (fo.states or []) | map('first') | list %}<option value="{{ filters.get('state') }}" selected>{{ filters.get('state') }}</option>{% endif %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-org-technology">Technology</label>
+    <select id="f-org-technology" name="technology">
+      <option value="">All</option>
+      {% for t in fo.technologies or [] %}<option value="{{ t }}" {% if filters.get('technology') == t %}selected{% endif %}>{{ t | technology_label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field">
+    <label for="f-org-role">Role</label>
+    <select id="f-org-role" name="role">
+      <option value="">Any</option>
+      {% for value, label in fo.roles or [] %}<option value="{{ value }}" {% if filters.get('role') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="filter-field filter-field--checkbox">
+    <label for="f-org-pipeline"><input id="f-org-pipeline" type="checkbox" name="has_pipeline" value="true"{% if filters.get('has_pipeline') == 'true' %} checked{% endif %}> Has projects in development</label>
+  </div>
+  {#- The scope and the order the reader chose (the switch over the rows, a heading click), so applying
+      a filter keeps both. -#}
+  {% if scope == 'self' %}<input type="hidden" name="scope" value="self">{% endif %}
+  {% if sort_param %}<input type="hidden" name="sort" value="{{ sort_param }}">{% endif %}
+  <button class="filter-bar__submit" type="submit">Apply filters</button>
+  {% if filters.get('q') or filters.get('type') or filters.get('state') or filters.get('technology') or filters.get('role') or filters.get('has_pipeline') %}
+  <a class="filter-bar__clear" href="/organizations{{ '?scope=self' if scope == 'self' }}">Clear all</a>
   {% endif %}
+  <button type="button" class="filter-bar__done" data-filter-done>Show the companies</button>
 </form>
 
 <div id="result-rows">

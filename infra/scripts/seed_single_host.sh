@@ -13,11 +13,15 @@
 #   2. queue one load per source at its latest promoted run (infra/scheduler/bootstrap.py `load`),
 #      which the running worker takes, each chaining into resolve and enrich;
 #   3. wait, bounded, until no load/resolve/enrich/match job is queued or running;
-#   4. queue the context load (bootstrap `context`: the monthly tick's `context_load`, which loads
+#   4. restate every opportunity's value and USD equivalent at the latest ECB rates (the daily
+#      `value_tick`, run now in a one-off worker container: `python -m services.ingest.opportunity_value
+#      --refresh-rates`). A load converts only the rows it writes and incremental sources never
+#      reload old rows, so without this step `sort=-value` ranks only notices loaded later;
+#   5. queue the context load (bootstrap `context`: the monthly tick's `context_load`, which loads
 #      the shipped normalized/context/ files, the EIA-860M retirements onto the plants, owner
 #      shares and features) and wait for it the same way. After the loads, not beside them: both
 #      write organisations;
-#   5. queue one fetch per source (bootstrap `fetch`), so every source gets its `source_run` row
+#   6. queue one fetch per source (bootstrap `fetch`), so every source gets its `source_run` row
 #      and freshness now rather than at its bucket's next tick.
 # Matches need no step of their own: every load's resolve chain ends in `match_tick`.
 # Safe to repeat: a re-shipped file overwrites its copy, a repeated load is idempotent, and a
@@ -49,12 +53,12 @@ done
 (( ${#parts[@]} > 0 )) || { echo "[seed] ${data_root} holds none of runs/ snapshots/ normalized/ held/" >&2; exit 1; }
 [[ -d "${data_root}/normalized/context" ]] || log "warning: ${data_root}/normalized/context is absent; no asset layer will load"
 
-log "1/5 shipping ${parts[*]} from ${data_root} into ${volume} on ${APP_HOST}"
+log "1/6 shipping ${parts[*]} from ${data_root} into ${volume} on ${APP_HOST}"
 # -h follows symlinked directories (a checkout whose data/ links to another root).
 tar -C "$data_root" -czh "${parts[@]}" \
   | remote_compose "run --rm --no-deps -T --user root --entrypoint sh worker -c 'tar -xz -C ${data_dir} && chown -R appuser:appuser ${data_dir}'"
 
-log "2/5 queueing one load per source at its latest promoted run"
+log "2/6 queueing one load per source at its latest promoted run"
 remote_compose "run --rm --no-deps -T worker python -m infra.scheduler.bootstrap load"
 
 # Wait, bounded, until no job of the store-wide chain is queued or running.
@@ -73,14 +77,17 @@ drain() {
   done
 }
 
-log "3/5 waiting for the loads, resolve, enrich and matches to finish (at most ${drain_timeout}s)"
+log "3/6 waiting for the loads, resolve, enrich and matches to finish (at most ${drain_timeout}s)"
 drain "load/resolve"
 
-log "4/5 loading the context layers (the scheduler's context_load) and waiting for it"
+log "4/6 restating every opportunity's value at the latest ECB rates (a failed rate fetch uses the table in force)"
+remote_compose "run --rm --no-deps -T worker python -m services.ingest.opportunity_value --refresh-rates"
+
+log "5/6 loading the context layers (the scheduler's context_load) and waiting for it"
 remote_compose "run --rm --no-deps -T worker python -m infra.scheduler.bootstrap context"
 drain "context"
 
-log "5/5 queueing one fetch per source"
+log "6/6 queueing one fetch per source"
 remote_compose "run --rm --no-deps -T worker python -m infra.scheduler.bootstrap fetch"
 
 log "done. The site serves the seeded store; the scheduler keeps it fresh from here."

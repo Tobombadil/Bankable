@@ -107,3 +107,18 @@ def test_a_zero_or_negative_estimate_is_an_unknown_budget(parsed):
     assert df["budget_amount"].isna()[0] and df["budget_amount"].isna()[1]
     assert df.loc[2, "budget_amount"] == 150000.0
     assert list(df.loc[:1, "budget_currency"]) == ["USD", "USD"]
+
+
+def test_the_bid_estimate_is_labelled_an_estimate_on_every_notice_type(parsed):
+    """Lane rfp-value: `bid_estimate_amount` is the package's estimate on a contract award too."""
+    _, _, _, df = parsed
+    by_id = df.set_index("source_record_id")
+    award = by_id.loc["OP00468071"]  # a Contract Award
+    assert (award["budget_amount"], award["budget_currency"]) == (2_000_000.0, "USD")
+    assert json.loads(award["identifiers"])["value"] == {
+        "kind": "estimated_value",
+        "source_field": "bid_estimate_amount",
+    }
+    bids = by_id.loc["OP00468087"]  # an Invitation for Bids
+    assert json.loads(bids["identifiers"])["value"]["kind"] == "estimated_value"
+    assert bids["budget_amount"] == 16_661_000.0

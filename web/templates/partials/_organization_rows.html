@@ -1,48 +1,90 @@
-{# The company index's rows: same list idiom as `_proposal_rows.html` and `_asset_rows.html`.
-   "Holds" is `_org_summary_parts()` -- the same "Operates 3 gas pipelines · Owns 12 power plants"
-   clauses the company page shows, from the same API counts -- and the badge is `org_descriptor()`,
-   which replaces a meaningless type of "other" with what the organisation actually holds. Both are
-   absent for an organisation the API reports no assets for, and the row then says nothing rather
-   than zero. #}
+{#- The companies index's rows (docs/16 U-9; lane pages, 2026-10-23; web/organizations.py
+    `org_index_row`). Each figure is the stored one of the chosen scope (`GET /v1/organizations`
+    `stats`) and links to the list that reproduces it: projects and RFPs to their lists, assets to the
+    company page's Assets section at the same statuses and role. A missing figure is a dash, never a
+    zero; a zero is muted, and left off the phone row. Below 720px each row is two lines (styles.css
+    `.record-table--compact`): the name, then the figures with their units. -#}
 {% import "_macros.html" as m %}
-<p class="result-count" aria-live="polite">
-  {%- if records -%}
-  {{ records | length }} compan{{ 'y' if records | length == 1 else 'ies' }} on this page{% if filters.get('q') %}, matching &ldquo;{{ filters.get('q') }}&rdquo;{% endif %}.
-  {%- else -%}
-  No companies match this search.
-  {%- endif -%}
-</p>
+{%- macro fig(f, unit, one=None) -%}
+{%- set unit = one if (one and f is not none and f.value == 1) else unit -%}
+{%- if f is none or f.text is none -%}—
+{%- elif f.value == 0 -%}<span class="figure-zero">0</span><span class="cell-unit">{{ unit }}</span>
+{%- elif f.href -%}<a class="figure-link" href="{{ f.href }}"{% if f.title %} title="{{ f.title }}"{% endif %}>{{ f.text }}</a><span class="cell-unit">{{ unit }}</span>
+{%- else -%}<span{% if f.title %} title="{{ f.title }}"{% endif %}>{{ f.text }}</span><span class="cell-unit">{{ unit }}</span>
+{%- endif -%}
+{%- if f is not none and f.note %}<span class="figure-note"> {{ f.note }}</span>{% endif -%}
+{%- endmacro -%}
+{%- macro fig_class(f) -%}
+{%- if f is none or f.text is none %} is-empty{% elif f.value == 0 %} cell-opt{% endif -%}
+{%- endmacro -%}
+{#- Whose figures the rows show: "Whole group" (the company and every subsidiary listed under it, each
+    asset counted once; the default, as on a company page) or "This company only". Each link keeps
+    the rest of the view (search, filters, order) and drops the page cursor. -#}
+{#- One row over the table where it fits (the switch, what it means, the count), so the first company
+    starts as high on the page as the other lists' first rows (docs/16 §1.2). -#}
+{%- set ss = scope_switch %}
+{%- if refreshing %}
+<p class="view-notice" role="status" id="figures-refreshing">Company figures are being refreshed after a data update, so they are left out for now{% if figure_filtered %} and filters on them match nothing{% endif %}{% if refreshing_order == 'name' %}; the list is in name order{% elif refreshing_order == 'best match' %}; the best matches come first{% endif %}. They are usually back within a few minutes.</p>
+{%- endif %}
+<div class="scope-switch org-toolbar">
+  {%- if ss %}
+  <nav class="view-switch" aria-label="Whose figures to count">
+    <span class="view-switch__label">Count</span>
+    <a class="view-switch__link" id="scope-group" href="{{ ss.group }}"{% if ss.current == 'group' %} aria-current="page"{% endif %}>Whole group</a>
+    <a class="view-switch__link" id="scope-self" href="{{ ss.self }}" rel="nofollow"{% if ss.current == 'self' %} aria-current="page"{% endif %}>This company only</a>
+  </nav>
+  <p class="scope-switch__note">{% if ss.current == 'group' %}Each company with the subsidiaries listed under it, every asset counted once.{% else %}What each company holds and develops itself, without its subsidiaries.{% endif %}</p>
+  {%- endif %}
+  <p class="result-count" aria-live="polite">
+    {%- if records -%}
+    {%- set n = total if total is not none else records | length %}
+    {%- if total_is_estimate %}About {% endif %}{{ n | thousands }} compan{{ 'y' if n == 1 else 'ies' }}{% if filters.get('q') %} matching &ldquo;{{ filters.get('q') }}&rdquo;{% endif %}, {{ sort_caption }}.
+    {%- if filters.get('state') or filters.get('technology') or filters.get('iso') %} The filters pick the companies; the figures are each one&rsquo;s totals.{% endif %}
+    {%- else -%}
+    No companies match {{ 'this search' if filters.get('q') else 'these filters' }}.
+    {%- endif -%}
+  </p>
+</div>
 {% if records %}
+{%- set sh = sort_headers or {} %}
 <div class="table-scroll">
-<table class="record-table">
-  <caption class="visually-hidden">Companies matching the current search, by name.</caption>
+<table class="record-table record-table--compact org-table">
+  <caption class="visually-hidden">Companies {{ 'matching the current search and filters' if filters.get('q') else 'matching the current filters' }}, {{ sort_caption }}. Figures {{ 'for each whole group' if scope == 'group' else 'for each company alone' }}; capacity in gigawatts.</caption>
   <thead>
     <tr>
-      <th scope="col">Company</th>
-      <th scope="col">Type</th>
-      <th scope="col">Holds</th>
-      <th scope="col" class="num">Assets</th>
-      <th scope="col">Country</th>
+      {{ m.sort_th("Company", sh.name, short="Name") }}
+      {{ m.sort_th("Operating assets", sh.assets, num=True, short="Assets") }}
+      {{ m.sort_th("Operating GW", sh.operating_mw, num=True) }}
+      {{ m.sort_th("Owned GW", sh.owned_mw, num=True) }}
+      {{ m.sort_th("Projects in development", sh.pipeline_count, num=True, short="Projects") }}
+      {{ m.sort_th("Development GW", sh.pipeline_mw, num=True, short="Dev. GW") }}
     </tr>
   </thead>
   <tbody>
     {% for r in records %}
+    {%- set f = r.figures %}
+    {%- set sub = [('Group of ' ~ r.group_size ~ ' companies') if r.group_size and r.group_size > 1 else none, r.places] | select | list %}
     <tr>
-      <td data-label="Company"><a class="row-link" href="{{ r.href }}">{{ r.name }}</a></td>
-      <td data-label="Type">{% if r.descriptor %}<span class="reuse-badge">{{ r.descriptor }}</span>{% elif r.type %}{{ r.type | organization_type_label }}{% else %}—{% endif %}</td>
-      <td data-label="Holds">{% if r.summary_parts %}{{ r.summary_parts | join(' · ') }}{% else %}—{% endif %}</td>
-      <td data-label="Assets" class="num tnum">{% if r.asset_total is not none %}{{ '{:,}'.format(r.asset_total) }}{% else %}—{% endif %}</td>
-      <td data-label="Country">{{ r.country or '—' }}</td>
+      <td data-label="Company" class="cell-title"><a class="row-link" href="{{ r.href }}"{% if r.personal_data %} rel="nofollow"{% endif %}>{{ r.name | readable_name }}</a>{% if sub %}<span class="cell-sub">{{ sub | join(' · ') }}</span>{% endif %}</td>
+      <td data-label="Operating assets" class="num tnum cell-meta cell-figure{{ fig_class(f.assets) }}">{{ fig(f.assets, ' assets', ' asset') }}</td>
+      <td data-label="Operating GW" class="num tnum cell-meta cell-figure{{ fig_class(f.operating_mw) }}">{{ fig(f.operating_mw, ' GW operating') }}</td>
+      <td data-label="Owned GW" class="num tnum cell-meta cell-figure{{ fig_class(f.owned_mw) }}">{{ fig(f.owned_mw, ' GW owned') }}</td>
+      <td data-label="Projects in development" class="num tnum cell-meta cell-figure{{ fig_class(f.pipeline_count) }}">{{ fig(f.pipeline_count, ' projects in development', ' project in development') }}</td>
+      <td data-label="Development GW" class="num tnum cell-meta cell-figure{{ fig_class(f.pipeline_mw) }}">{{ fig(f.pipeline_mw, ' GW in development') }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
 {{ m.pager(prev_cursor, next_cursor, querystring, "/organizations") }}
-{{ m.credits_line([], empty=credits_note) }}
+{{ m.credits_line(credits, empty=credits_note) }}
 {% else %}
 <div class="empty-state">
-  <p>No companies match this search.</p>
-  <p><a href="/organizations">Clear the search</a></p>
+  {%- if refreshing and figure_filtered %}
+  <p>No companies to show while the figures refresh: the filters on them match nothing until they are back.</p>
+  {%- else %}
+  <p>No companies match {{ 'this search' if filters.get('q') else 'these filters' }}.</p>
+  {%- endif %}
+  <p><a href="/organizations{{ '?scope=self' if scope == 'self' }}">Clear the search and filters</a></p>
 </div>
 {% endif %}

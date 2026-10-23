@@ -9,6 +9,12 @@ map model, motion, banned patterns) are the design inputs this doc builds screen
 
 ## 1. Three surfaces, one grammar
 
+**Changed 2026-10-23 (§11; design, with the owner's confirmations pending in §11.13):** the six flat links give way to
+a 48px top bar of three sections, **Market · My pipeline · Funding** (My pipeline only once signed in), with search,
+Alerts and the account, over a section bar for the current section's pages (§11.2–§11.3). "RFPs & funding" splits into
+**RFPs** (Market) and **Grants & loans** (Funding), and the masthead line goes. The rest of §1 and §2 describes the
+navigation as built until §11's lanes land.
+
 D-16 fixes the shape: Public (`inframation.io`, no key), Pro (same host, entitlement-gated routes),
 Admin (`admin.` host, role `operator`/`owner`). D-4 and D-17 fix the rule governing every screen below: one filter
 vocabulary, one URL grammar (`docs/23` §7), shared across list, map and feed, on every tier — a tier changes what
@@ -67,9 +73,71 @@ reason are recorded here. Section names (nav, list H1s, tab labels) are read fro
 
 ### 1.1 Public sitemap
 
-**Updated 2026-10-22 (§2.1–§2.7).** The public site grouped by development phase. Routes are as built on
-2026-10-22, plus `/site-finder` (being built by the site finder lane) and the `#deals` section of `/about`. Dashed
-edges leave Inframation.
+**Updated 2026-10-23 (§11).** The site grouped by the top bar's three sections, with the reference pages beside them.
+Routes are as built on 2026-10-23 plus those §11.10 adds (marked *new*); a tab is a path segment under its record
+(§11.5); an asterisk marks a page or tab that shows only once it has content. Dashed edges need a signed-in user.
+
+```mermaid
+flowchart TD
+  TB["Top bar: Market · My pipeline (signed in) · Funding · Search · Alerts · Account"]
+  subgraph MARKET["Market (Market intelligence). Section bar: Map · Site finder* · Projects · Companies · RFPs · Infrastructure · Prices*"]
+    H["/ : the full-screen map (§11.6); /map answers 301 to /"]
+    SF["/site-finder*"]
+    P["/proposals : Projects (Map · List · Grid)"]
+    PD["/proposals/{slug} : Overview · /timeline · /sources · /matches*"]
+    SD["/sites/{id}"]
+    ORGS["/organizations : Companies"]
+    ORG["/organizations/{slug} : Overview · /portfolio* · /pipeline* · /matches* · /rfps* · /sources"]
+    O["/opportunities : RFPs (RFPs, tenders, auctions, procurement notices)"]
+    OD["/opportunities/{slug} : an RFP"]
+    A["/assets · /interconnection-points : Infrastructure (two URL tabs)"]
+    AD["/assets/{slug} : Overview · /retirement* · /grid* · /ownership* · /nearby* · /sources"]
+    IPD["/interconnection-points/{id} : Overview · /projects · /changes* · /sources"]
+    PR["/prices · /prices/states (new) : Prices (two URL tabs)*"]
+  end
+  subgraph FUNDING["Funding. Section bar: Grants & loans · Funders (after counsel)"]
+    F["/funding (new) : grants, loans and programmes"]
+    FD["/opportunities/{slug} : a funding notice"]
+    FS["Funders: invited capital partners only, after counsel (docs/18 §4)"]
+  end
+  subgraph MINE["My pipeline (signed in, MY_PIPELINE on). Section bar: Tracker · Invitations*"]
+    T["/my (new) : Tracker of projects, bids and investments"]
+    IT["/my/items/{id} (new) : Overview · /linked · /checklist · /notes · /people · /documents (later)"]
+    INV["/my/invitations*, /my/invitations/accept"]
+  end
+  subgraph REF["About (reference). Section bar: About · Sources & licences · Coverage & methodology · Attribution · API & feeds"]
+    AB["/about (#deals) · /about/sources (new) · /methodology, /methodology/gaps, /methodology/status-words (new) · /attribution · /docs/api, /feeds/*"]
+  end
+  TB --> H & F & T & AB
+  H --> SF & P & ORGS & O & A & PR
+  H -.->|"marker, cluster or region"| DR["drawer; bottom sheet below 720px (D-12)"]
+  DR --> PD & AD & OD
+  P --> PD --> SD
+  O --> OD
+  A --> AD & IPD
+  ORGS --> ORG
+  PD & OD & AD & SD & IPD --> ORG
+  F --> FD
+  FD --> ORG
+  PD -.->|"Track: a Project or an Investment"| T
+  OD & FD -.->|"Track: a Bid"| T
+  SF & AD & IPD -.->|"Track: a Project"| T
+  T --> IT
+  FS ~~~ F
+  TB --> S["/search?q= (&type=) : tabs by type (US-103)"]
+  TB --> AL["/alerts, /alerts/new"]
+  TB --> U["/account, /login, /register, /pricing (by URL and the account menu), /submit, /privacy, /legal/reuse, /legal/api-licence, /contact, /bot"]
+  PD --> RPT["POST /report (US-204)"]
+  H --> RB["/robots.txt, /sitemap.xml, /sitemaps/{n}.xml"]
+```
+
+What changed from the 2026-10-22 diagram (folded below): the nodes are grouped by the top bar's sections instead of by
+phase; Funding is a section with `/funding`; My pipeline is a section with the Tracker, and "Track" on records replaces
+the Bankable edges (Build a deal is native since 2026-10-22, `docs/19`); record pages show their tabs; Prices, the
+About split and the methodology tabs are new; Alerts, search and the account hang from the top bar. Every 2026-10-22
+route still answers (§11.10).
+
+<details><summary>Superseded 2026-10-23: the 2026-10-22 sitemap, grouped by phase</summary>
 
 ```mermaid
 flowchart TD
@@ -113,11 +181,13 @@ flowchart TD
   H --> RB["/robots.txt, /sitemap.xml, /sitemaps/{n}.xml"]
 ```
 
-What changed from the 2026-09-12 diagram (updated 2026-09-19), which is in git history: the nodes are grouped by
+What changed in the 2026-10-22 diagram from the 2026-09-12 one (updated 2026-09-19), which is in git history: the nodes are grouped by
 phase; `/interconnection-points`, `/sites/{id}`, `/methodology`, `/attribution`, `/about`, `/alerts` and the utility
 pages are drawn as built (they were missing); `/plans` is `/pricing` and `/legal/privacy` is `/privacy`, as built;
 the drawer is a bottom sheet below 720px (`docs/17` M-4, built 2026-10-22); `/site-finder` and the Bankable edges are
 new. The 2026-09-12 diagram is kept below, folded and superseded, only so its user-story references stay findable.
+
+</details>
 
 <details><summary>Superseded: the 2026-09-12 sitemap</summary>
 
@@ -313,6 +383,10 @@ to put a deal together for this site?". A change is one line in `web/labels.py`.
 
 ### 2.3 The navigation at 1440px and at 360px
 
+**Amended 2026-10-23 (§11.2–§11.3, §11.8):** the flat row below becomes a top bar of three sections over a section
+bar, phase words stay out of the bars, and the masthead line goes. This section stays the record of the 2026-10-22
+design and its measurements until §11's shell lane (V1) lands.
+
 **Which items.** The rule is the decision row's: a section is in the nav only once its page has something in it.
 
 - **Find** has pages here: Map, Site finder (once it has results), Projects, Companies, RFPs & funding, Infrastructure.
@@ -400,6 +474,9 @@ before and after. Phone menu rows are 41px as built; `docs/17` M-10 asks for 44p
 beside About & sources, not in the bar, because in the bar it moves the one-row threshold to about 1320px.
 
 ### 2.4 Where each page sits
+
+**Amended 2026-10-23 (§11.2, §11.4):** RFPs & funding splits into RFPs (Market) and Grants & loans (Funding,
+`/funding`); every page's one question and primary action are in §11.4.
 
 | Page | URL | Phase | Reached from | Change |
 |---|---|---|---|---|
@@ -645,21 +722,30 @@ at all" under the `noncommercial` posture, against the 2026-10-22 row that lets 
 
 ## 3. Page inventory
 
+**Updated 2026-10-23 (§11).** Rows marked **Changed 2026-10-23** or **New 2026-10-23** follow §11; each page's one
+question and one primary action are in §11.4, and the record tabs with what moves to each in §11.5.
+
 | Page | Surface | Purpose | PRD stories | API reads | Tier-gated elements |
 |---|---|---|---|---|---|
-| `/map` (home) | Public/Pro | Map-first browse, filters, in-view list | US-104, US-101, US-102 | `GET /v1/proposals/geo`, `/v1/opportunities` (polygon) | D-3 delay banner (public); exact points withheld for restricted sources (D-9) at any tier |
-| `/site-finder` (added 2026-10-22, being built) | Public/Pro | Candidate sites for powered land: corridor bands near 69 kV-and-up lines and substations, outside the FEMA floodplain; later the prospect score. In the nav, second, once it has results (§2.3). Each result offers Build a deal (§2.6) | None yet (decision rows of 2026-10-22) | The site finder lane's | Screening grade labelled on every value; the prospect score stays off until its back-test passes |
-| `/proposals` | Public/Pro | Filtered, sorted list | US-101, US-102, US-103 | `GET /v1/proposals` | No age test on any tier since 2026-09-21 (US-101 AC3); gated-source rows never present (AC4) |
-| `/proposals/{slug}` | Public/Pro | Canonical record, provenance, timeline | US-201, US-202, US-203, US-204 | `GET /v1/proposals/{id}`, `/events`, `/sources`, `/matches` | US-201 AC4 banner states the page is live (no delay on any tier); Sources panel omits gated rows (D-27); `field_provenance` Pro+ only |
-| `/opportunities` | Public/Pro | Filtered, sorted opportunity list | US-301 | `GET /v1/opportunities` | Same tier rules as US-101 AC3–4 |
-| `/opportunities/{slug}` | Public/Pro | Record, provenance, status timeline, matches | US-302, US-402 | `GET /v1/opportunities/{id}`, `/events`, `/sources` | Linked documents = title+link only (no article bodies, `docs/02` §4) |
+| `/map` (home) | Public/Pro | ~~Map-first browse, filters, in-view list~~ **Changed 2026-10-23:** the full-screen map under the top bar and section bar; one floating bar (find, filters, count, Map · List · Grid); one dismissable intro line; the panel's tabs Projects · Companies · Infrastructure · RFPs under the stability rules (§11.6–§11.7) | US-104, US-101, US-102 | `GET /v1/proposals/geo`, `/v1/opportunities` (polygon); from 2026-10-23 also `GET /v1/opportunities/geo` (RFPs tab) and the companies-in-view aggregate (B-1) | D-3 delay banner (public); exact points withheld for restricted sources (D-9) at any tier |
+| `/site-finder` (added 2026-10-22, being built) | Public/Pro | Candidate sites for powered land: corridor bands near 69 kV-and-up lines and substations, outside the FEMA floodplain; later the prospect score. In the nav, second, once it has results (§2.3). Each result offers Build a deal (§2.6). **Changed 2026-10-23:** second in the Market section bar; each result offers Track, which creates a Project (§11.4) | None yet (decision rows of 2026-10-22) | The site finder lane's | Screening grade labelled on every value; the prospect score stays off until its back-test passes |
+| `/proposals` | Public/Pro | Filtered, sorted list. **Changed 2026-10-23:** the view switch Map · List · Grid (`layout=list` or `layout=grid`) and, once the API takes it, the map's area (`bbox`, B-2) (§11.6) | US-101, US-102, US-103 | `GET /v1/proposals` | No age test on any tier since 2026-09-21 (US-101 AC3); gated-source rows never present (AC4) |
+| `/proposals/{slug}` | Public/Pro | Canonical record, provenance, timeline. **Changed 2026-10-23:** URL tabs Overview · Timeline · Sources · Matches (Matches once matches publish); Track on Overview (§11.5) | US-201, US-202, US-203, US-204 | `GET /v1/proposals/{id}`, `/events`, `/sources`, `/matches` | US-201 AC4 banner states the page is live (no delay on any tier); Sources panel omits gated rows (D-27); `field_provenance` Pro+ only |
+| `/opportunities` | Public/Pro | Filtered, sorted opportunity list. **Changed 2026-10-23:** RFPs only (RFPs, tenders, auctions, procurement notices), H1 "RFPs and tenders"; links naming only funding kinds answer 301 to `/funding` (§11.2) | US-301 | `GET /v1/opportunities` | Same tier rules as US-101 AC3–4 |
+| `/opportunities/{slug}` | Public/Pro | Record, provenance, status timeline, matches. **Changed 2026-10-23:** its section bar and breadcrumb follow its kind (Market / RFPs or Funding / Grants & loans); Track creates a Bid; one page until a Matches tab has rows | US-302, US-402 | `GET /v1/opportunities/{id}`, `/events`, `/sources` | Linked documents = title+link only (no article bodies, `docs/02` §4) |
+| `/funding` (**New 2026-10-23**) | Public/Pro | Grants, loans and programmes: the opportunity kinds that offer money, open or announced (a Grants.gov forecast is `announced`) and energy-relevant by default, soonest deadline first (§11.2) | US-301 | `GET /v1/opportunities`, filtered to the kinds `foa`, `loan_program` and `program` | Same as `/opportunities` |
 | `/assets` | Public/Pro | Asset index: by-type counts, filters (type, state, name/operator), sort, paged rows | US-104, US-203 | `GET /v1/assets`, `GET /v1/assets/geo` (by-type totals only) | None; no lag |
-| `/organizations` | Public/Pro | Company index: name search, what each company holds, paged rows | US-203, US-303 | `GET /v1/organizations`, `GET /v1/organizations/{id}` per row (counts) | None; no lag |
-| `/organizations/{slug}` | Public/Pro | Company page: summary line by role and type, map of every asset with geometry, assets grouped by role then type, parent/subsidiaries, proposals, opportunities, sources of those records | US-203 AC1, US-303 | `GET /v1/organizations/{id}`, `/assets`, `/proposals`, `/opportunities`; `GET /v1/assets?organization=` when asset rows carry no geometry | None beyond list-level tier rules; no lag (assets are public-domain / CC BY) |
-| `/assets/{slug}` | Public/Pro | Existing-asset page (ADR 0008): fields by type, static map (SVG, MapLibre-enhanced), attributes, owners/operators, nearby exact-grade proposals with distance, sources | US-104, US-203 | `GET /v1/assets?slug=`, `/v1/assets/{id}/nearby-proposals` | None; no lag |
-| `/search` | Public/Pro | Free-text + identifier search | US-103 | `GET /v1/proposals?q=`, `/v1/opportunities?q=` | Same as list |
-| `/alerts` | Pro | Saved searches, delivery mode, history | US-501, US-502, US-504 | `GET/POST/PATCH/DELETE /v1/saved-searches`, `/v1/alerts` | Pro-only route; entitlement check (US-602) |
-| `/account` | Pro | Seats, subscription, keys, export log | US-602, US-603, US-701 | `GET /v1/me`, `/v1/keys` | Pro/API scopes; billing read-through CRM adapter |
+| `/organizations` | Public/Pro | Company index: name search, what each company holds, paged rows. **Changed 2026-10-23:** the view switch; its figure links open the company's tabs (§11.10) | US-203, US-303 | `GET /v1/organizations`, `GET /v1/organizations/{id}` per row (counts) | None; no lag |
+| `/organizations/{slug}` | Public/Pro | Company page: summary line by role and type, map of every asset with geometry, assets grouped by role then type, parent/subsidiaries, proposals, opportunities, sources of those records. **Changed 2026-10-23:** URL tabs Overview · Portfolio · Pipeline · Matches · RFPs · Sources, each section moved as §11.5 lists | US-203 AC1, US-303 | `GET /v1/organizations/{id}`, `/assets`, `/proposals`, `/opportunities`; `GET /v1/assets?organization=` when asset rows carry no geometry; each tab reads only its own | None beyond list-level tier rules; no lag (assets are public-domain / CC BY) |
+| `/assets/{slug}` | Public/Pro | Existing-asset page (ADR 0008): fields by type, static map (SVG, MapLibre-enhanced), attributes, owners/operators, nearby exact-grade proposals with distance, sources. **Changed 2026-10-23:** URL tabs Overview · Retirement · Grid · Ownership · Nearby · Sources, each shown only with content (§11.5) | US-104, US-203 | `GET /v1/assets?slug=`, `/v1/assets/{id}/nearby-proposals` | None; no lag |
+| `/interconnection-points/{id}` (row added 2026-10-23) | Public/Pro | A grid connection point. **Changed 2026-10-23:** URL tabs Overview (fields, by technology) · Projects · Changes · Sources (§11.5) | US-104 | `GET /v1/interconnection-points/{id}` and its proposals and changes | None; no lag |
+| `/prices`, `/prices/states` (**New 2026-10-23**; the page is the prices lane's) | Public/Pro | Two URL tabs under "Prices": hubs and zones (statistics, a latest readout where terms allow), and average retail price by state (§11.4; `docs/29`) | None yet (decision rows of 2026-10-22) | `GET /v1/prices/hubs`, `/v1/prices/retail` | Link-out markets are named, never shown (`docs/29` §2) |
+| `/search` | Public/Pro | Free-text + identifier search. **Changed 2026-10-23:** tabs by type with counts and a top hit (`type=`; `docs/16` §4.4) | US-103 | `GET /v1/proposals?q=`, `/v1/opportunities?q=` | Same as list |
+| `/alerts` | Pro | Saved searches, delivery mode, history. **Changed 2026-10-23:** a utility in the top bar, no longer a section link | US-501, US-502, US-504 | `GET/POST/PATCH/DELETE /v1/saved-searches`, `/v1/alerts` | Pro-only route; entitlement check (US-602) |
+| `/account` | Pro | Seats, subscription, keys, export log. **Changed 2026-10-23:** reached from the account menu | US-602, US-603, US-701 | `GET /v1/me`, `/v1/keys` | Pro/API scopes; billing read-through CRM adapter |
+| `/my`, `/my/items/{id}` and its tabs (**New 2026-10-23**; replaces `docs/19` §6.2's `/my/projects` pages, not yet built) | Signed in | The Tracker of the user's projects, bids and investments, by next deadline; each item's tabs Overview · Linked records · Checklist · Notes · People · Documents (later) (§11.4–§11.5) | None (`docs/19`) | `/v1/my/…` (`docs/19` §6.1) | Private: never in a public count, page, feed or log (`docs/19` §5.2) |
+| `/about`, `/about/sources` (**Changed 2026-10-23**) | Public | About splits: what Inframation is, who runs it and the phases (`#deals`); Sources & licences on its own URL (§11.4) | US-704 | `GET /v1/coverage` | None |
+| `/methodology` and its tabs (**Changed 2026-10-23**) | Public | Three URL tabs: release dates (`#vintage` stays here), what is not here, status words (§11.4) | — | `GET /v1/coverage` | None |
 | `/docs/api` | Public/Pro | Generated API reference | US-704 | `api/openapi.yaml` (Redoc) | Licence-acceptance gate before key creation |
 | `/feeds/*` | Public | RSS/JSON Feed twins of every list | US-503 | Same list endpoints, `.rss`/`.json` | Feed title states "Public feed, live" (D-28) |
 
@@ -1282,3 +1368,930 @@ Restricted-precision, unplaced — n/a. Gated — publish column reads "GATED", 
   bridge; URLs; the implementation plan and the files other lanes hold); §1 nav paragraph and names table (three
   rows); §1.1 sitemap redrawn by phase and as built; §2 marked where the 2026-10-22 decisions changed it (view row,
   side list, bottom sheet, D-14 retired); §3 `/site-finder` row; §7 IA-4 to IA-8.
+- 2026-10-23 — design (product-designer, lane nav-v2, owner's navigation and next-wave decisions): new §11, navigation
+  and page purposes v2 (the evidence; a top bar Market · My pipeline · Funding with search, Alerts and account; section
+  bars; one question and one primary action per page; record pages as URL tabs, with where each current section goes;
+  the full-screen map landing and its panel tabs; nine testable panel stability rules; phones; wireframes at 1440 and
+  390; URLs; the lanes and the tests that change; the owner's decisions; IA-9 to IA-15), with the coordinator's design
+  input of the same day on My pipeline as one tracker (projects, bids, investments); §1 pointer; §1.1 sitemap redrawn
+  by section; §3 page inventory rows marked where they change.
+
+## 11. Navigation and page purposes v2 (2026-10-23)
+
+**Status:** design, 2026-10-23 (product-designer, lane nav-v2). Nothing here is built. The decisions the owner
+confirms are in §11.13; everything else follows from the decision rows below. It is built after the four builds in
+progress land (§11.11).
+
+**Asked by the owner, verbatim:** "could we also improve the navigation and various pages? For navigation, use a top
+bar and follow best practices from leading industry platforms to separate the site's major sections Map vs deal
+building vs funding (with whatever names we are using for that). Further, give each page a clear purpose. Do not have
+long scrolling pages with random sets of data stacked on top of eachother, its confusing." Earlier the same day: "id
+really like the landing to be similar to previous business intelligence site I created called Pakira which was a full
+screen map, much like some of the other energy intelligence systems as well, but keep the floating box and possible
+list the companies in the floating box. Further, the floating box analytics are great but bounced around alot as you
+scrolled in and didnt remain consistent which was jarring." Priorities, unchanged: a good experience for the average
+user, mouse and phone users first, early credibility, so no empty sections.
+
+**Decision rows this section applies** (`docs/00-PLAN.md`): 2026-10-23 "Navigation and pages: a global top bar…" and
+"Next wave, queued behind the four builds in progress…" (item A, the landing and panel); 2026-10-22 "The site has two
+modes, Market | My pipeline", "Copy rule: … Market intelligence", "Readers see the phases as Find · Build a deal · Get
+funded", "The home map keeps what is in view, as one floating panel", "The responsive floor is 360px", "Build a deal is
+built natively in Inframation", "Build a deal v1 choices", "Energy prices join Market intelligence"; 2026-10-21
+"Company matching and subscriptions are free" (matches stay withheld from readers until a rule set clears US-401 AC3).
+The coordinator's design input of 2026-10-23, that My pipeline is one central tracker of everything a user works on
+(item types pending the owner), is folded into §11.3, §11.4, §11.5 and §11.9.
+
+**What changes, in one table.**
+
+| As built on 2026-10-23 | Becomes |
+|---|---|
+| One header: a masthead line (edition, source freshness, About & sources), the wordmark, six flat links, Sign in, search | A 48px **top bar** (Market · My pipeline · Funding, search, Alerts, account) over a 40px **section bar** for the pages of the current section (§11.2, §11.3) |
+| "RFPs & funding", one list of every notice | **RFPs** in Market (buyers asking for projects); **Grants & loans** in Funding (public money offered) (§11.2) |
+| Record pages as one long stack of numbered sections (NextEra's company page 9,959px, 11 screens at 1440; `docs/16` §1.1) | **URL tabs**, one job each, under a shared record header (§11.5) |
+| The home map from 336px down at 1440×900, under the intro, filters and status rows | The map fills the viewport under the two bars; search, filters, count and views float in one bar (§11.6) |
+| A panel with "In view" and "Key" tabs that re-renders on every answer | Tabs **Projects · Companies · Infrastructure · RFPs**, and nine testable stability rules (§11.6, §11.7) |
+| My pipeline planned as "Your projects" cards (`docs/19` §6.2) | One **Tracker** of projects, bids and investments; "Track" replaces "Start a deal" (§11.4, §11.9.4) |
+
+**Amends:** §1 (six flat links), §2.1 (the two-way switch at the top of the header becomes the top bar), §2.3 (a flat
+nav with no phase labels), §2.4 (RFPs & funding as one Find list), §2.6 and `docs/19` §6.2 (the "Start a deal" block
+and its words), `docs/16` U-4 (company tabs as `?tab=`: they become path segments, and `?tab=` still answers, §11.10).
+
+### 11.1 Best practice, with evidence
+
+Retrieved 2026-10-23 unless dated. Several product pages refused automated reading (HTTP 403); those are named, and
+nothing below rests on them alone.
+
+| Source | What it shows | What Inframation takes |
+|---|---|---|
+| Nielsen Norman Group, Laubheimer, "Local Navigation Is a Valuable Orientation and Wayfinding Aid", 2021, https://www.nngroup.com/articles/local-navigation/ | "The global navigation of the site shows the top tier of the tree, no matter where the user currently is"; local navigation "is contextual to the user's current location", should stay visible, and "should not be more salient than the global navigation"; it sits horizontally below the global navigation or on the left | Two bars: the top bar is the global tier on every page; the section bar under it is local and quieter |
+| NN/g, Farrell, "Utility Navigation: What It Is and How to Design It", 2015, https://www.nngroup.com/articles/utility-navigation/ | Utilities (sign in, search, subscribe) are secondary tools; "Put utilities where people expect and need them", the top right being the common place | Search, Alerts and the account sit at the top bar's right; About & sources is a utility, not a section |
+| NN/g, Sunwall, "Tabs, Used Right", 2024 (reviewed 2026), https://www.nngroup.com/articles/tabs-used-right/ | Tabs suit "lengthy content" with "clear groupings"; they are wrong when users must see the groups together (switching "tax[es] users' short-term memory"); "The fewer tabs, the better"; labels "usually 1-2 words" | Record tabs only where a page holds separable jobs; one- or two-word labels; what a reader compares stays together (the Overview carries every tab's headline figures) |
+| NN/g, Fessenden, "Scrolling and Attention", 2018, https://www.nngroup.com/articles/scrolling-and-attention/ | 57% of page-viewing time is in the first screenful and 74% in the first two | Each tab's content starts in the first screen; a company Overview fits two screens at 1440 (`docs/16` §4.1's target) |
+| NN/g, Budiu, "Login Walls Stop Users in Their Tracks", 2014, https://www.nngroup.com/articles/login-walls/ | Asking for sign-in before users see value makes them leave; reserve sign-in for actions that need it | A signed-out top bar has no My pipeline; sign-in is asked at "Track", the action that needs it |
+| NN/g, Budiu, "Mobile Subnavigation", 2017, https://www.nngroup.com/articles/mobile-subnavigation/ | Under 6 subcategories, an accordion in the main menu; 6 to 15, a section menu, distinct in look from the main menu | Market's seven pages get a section bar on phones that looks unlike the Menu; the Menu's groups are accordions |
+| Salesforce Lightning Design System, "Global Navigation", https://v1.lightningdesignsystem.com/components/global-navigation/; Trailhead, "Custom Record Pages", https://trailhead.salesforce.com/content/learn/modules/lightning_app_builder/lightning_app_builder_recordpage | Global navigation is "a Navigation Bar where your users find the App Launcher, App Name, and Pages that each App includes"; a record page's Tabs component starts with Details, Related and Activity | Sections over pages; a record as a set of views: Overview is Details, Portfolio and Pipeline are Related, Timeline is Activity |
+| LinkedIn, "Sales Navigator: Top Navigation" (tip sheet TS019), https://business.linkedin.com/sales-solutions/learning-center/resources/tip-sheets/ts019 | Top navigation Home, Lists (saved leads and accounts), Discover, Inbox, Settings and an App Switcher; search is a separate section | The user's saved work is its own destination apart from discovery (My pipeline apart from Market); search is global, not a section |
+| Bloomberg (bloomberg.com answered 403; from search-indexed Bloomberg pages): "Innovating a modern icon", https://www.bloomberg.com/company/stories/innovating-a-modern-icon-how-bloomberg-keeps-the-terminal-cutting-edge/ and "Bloomberg Terminal Essentials: IB, Worksheets & Launchpad", https://www.bloomberg.com/professional/insights/technology/bloomberg-terminal-essentials-ib-worksheets-launchpad/ | Finding functions was an early problem that "led to a hierarchical menu system"; Launchpad links panels in "security groups", so changing the security in one changes the others. Confidence medium: not read first-hand | One record, many views sharing its header and scope; the map panel's tabs all follow one view (the bbox and the filters) |
+| OpenInfraMap, https://openinframap.org/ (page markup) | One `<header>` with the title and three links (about, stats, exports), then `<div id="map">`: the map fills the page under a slim header | The landing is the map under a slim top bar |
+| Electricity Maps (`docs/30-design-references` §2.1); Pakira (the owner's screenshots, 2026-10-23) | A full-screen map with a breakdown panel; Pakira: a full-viewport map, one floating search bar with a result count, mode tabs and map, list and grid views, results docked beside the map | One floating bar (search, filters, count, views) and one floating panel |
+| LandGate, https://www.landgate.com/, and Paces, https://www.paces.com/ (marketing navigation; the apps were not studied) | LandGate groups its energy offer by the developer's job ("Data Center Siting", "Offtake Capacity", "Power Pricing", "Transmission") and gives capital audiences their own entries ("Funds & Asset Managers", "Lenders & Insurances"); Paces groups by audience (Power Developers, Data Center Developers) then product | Capital is its own top-level destination, apart from siting and market data |
+| Grid Status, PitchBook, Crunchbase | gridstatus.io answered 403 (as on 2026-09-12, `docs/30-design-references` §2.2); PitchBook and Crunchbase profiles answered 403, and their sectioned profiles are known only second-hand | Not relied on |
+| Bankable (the owner's screenshots, 2026-10-23; `docs/18` §1) | A top bar (Projects, Pipeline, Community, alerts, account); a data room with folders and document counts, a score card on the right and tabs (Overview, Progress, Funding, Team); a funder pipeline with adjustable pillar weights and Engage, Watch and Pass | The tracker item's tabs, the folder layout and a pillar card with counts, never a single score (`docs/19` §2.3) |
+| web.dev, "Cumulative Layout Shift (CLS)", updated 2023-04-12, https://web.dev/articles/cls | Good is 0.1 or less; shifts within 500 ms of a tap, click or keypress are excluded, but "Scrolls, drags, and pinch-zoom gestures don't qualify" | A panel that reflows after a map drag is a counted layout shift (S-8) |
+| MapLibre GL JS, "MapEventType", https://maplibre.org/maplibre-gl-js/docs/API/type-aliases/MapEventType/ | `move` is "Fired repeatedly during an animated transition"; `moveend` "just after the map completes a transition" | The panel renders after `moveend` only (S-6) |
+| NN/g, Laubheimer, "Executing UX Animations: Duration and Motion Characteristics", 2020, https://www.nngroup.com/articles/animation-duration/ | Most UI animation 100–500 ms; 200–300 ms for substantial changes | Figures ease over 200 ms (S-4) |
+
+**What the evidence settles:** two levels of navigation, utilities at the top right, sign-in at the action that needs
+it, tabs only for separable jobs, numbers that change in place rather than jump. **What it does not settle:** the words.
+They follow the owner's decisions and the desk test of §2.2; the cheap check is the first-click test §2.2 proposes
+for the beta testers (`docs/65`), with two questions: "where would you go to track a bid for this RFP?" and "where
+would you find a federal grant for a battery?".
+
+### 11.2 The top bar
+
+**The sections: Market · My pipeline · Funding**, then search, Alerts and the account. The coordinator's proposal
+stands; the reasons are in the table.
+
+| Item | Holds | Signed-out visitor | Why this word |
+|---|---|---|---|
+| **Market** | Map, Site finder, Projects, Companies, RFPs, Infrastructure, Prices (§11.3) | Shown | The owner's mode word (2026-10-22). The copy rule puts "Market" wherever space is tight, which a top bar is; "Market intelligence" is the section bar's title, the page titles and the meta descriptions |
+| **My pipeline** | The Tracker of the user's projects, bids and investments, and each item's pages | **Not shown** | The owner's word and developers' own. A signed-out visitor has nothing in it, so the item would be a login wall for every one of them (NN/g, §11.1). Their way in is **Track** on any eligible record, which asks for sign-in at that moment (`docs/19` §6.2's signed-out flow), and About's `#deals` |
+| **Funding** | Grants & loans now; Funders, the invited-funder showroom, after counsel (`docs/18` §4) | Shown | A place, named by a noun like the other two. "Get funded" stays the phase word in prose (About `#deals`) and is Bankable's tagline. With "RFPs & funding" split, "Funding" no longer collides with a list name (§2.2's worry) |
+| Search | One field: projects, companies, places, RFPs, funding notices, infrastructure (`/search`) | Shown | A utility on every page (NN/g) |
+| Alerts | `/alerts` | Shown | Free (2026-10-21); its page explains and asks for sign-in to save, as now |
+| Account ▾ or Sign in | Account, Download your data, Sign out; Pricing only under the `commercial` posture | "Sign in" | A utility |
+
+The order follows the phases a reader moves through: Find, Build a deal, Get funded.
+
+**Funding is not empty.** It lists the opportunity kinds that offer money: `foa`, `loan_program` and `program`
+(`web/labels.py` `OPPORTUNITY_KIND_LABELS`). The store held 149 `foa` records on 2026-09-20 (decision row "Coverage
+gap"), and Grants.gov answered 151 hits for "energy" on 2026-09-12 (`docs/11`). This session had no store, so today's
+open count is not measured here. The page defaults to open or announced notices (Grants.gov's forecasts map to `announced`,
+`pipeline/connectors/us_grants_gov_search2/status_map.yaml`) that pass the matcher's energy gate (as
+`/opportunities` does since 2026-10-22), soonest deadline first, with "All notices" one click away. **Rule:** the Funding
+item renders while that default view holds at least one row; the build lane states the live count in its PR. At zero
+the item hides until a notice arrives (no empty section), and `/funding` still answers by URL with "No open funding
+notices now; N closed in the last twelve months".
+
+**Utility RFPs belong in Market.** Four reasons. (1) An RFP is a buyer asking for power, capacity or a project: demand
+for the project's output, the other side of the market the map shows. Reading it beside projects, prices and grid
+points is prospecting, and the 2026-10-22 rows already call RFPs a Find list. (2) The matcher pairs RFPs with projects
+and companies, and its results (the Matches tabs, §11.5) are Market pages. (3) Funding answers a different question
+(who pays for the project) for a different audience (lenders and funders), the split LandGate's navigation also draws.
+(4) A developer responding to an RFP tracks it as a **Bid** in My pipeline (§11.4), so the RFP's page is a doorway to
+My pipeline, as it was to "Build a deal" (§2.4). Tenders, auctions and procurement notices go with RFPs; a notice goes
+where its kind says.
+
+**Layout.** 48px tall and sticky at every width; the only sticky bar on the site. From 1080px: the wordmark, the three
+sections, then the search field (320px, 240px at 1080–1279px), Alerts and the account. From 720 to 1079px the search
+field is an icon button that opens the field over the bar. Below 720px: the wordmark, the search button and Menu
+(§11.8). The section that holds the page is marked `aria-current="true"` (`"page"` on its landing page), with weight
+600 and a 2px underline, the idiom of §1. The wordmark links to `/`.
+
+**What leaves the header.** The masthead line (28px: "Inframation register · public edition", the source-freshness
+line, About & sources) goes. Source freshness moves to the section bar's right end from 1280px (`All N scheduled sources
+fetched on schedule`, or `N of M sources behind their fetch schedule`, the same strings and link as today), and stays
+in the tier notice on lists and records (`docs/31` §5.4) and in the map's attribution strip. About & sources moves to
+the section bar's right end, the Menu, the map's attribution strip and the footer. The beta bar, while
+`SITE_ACCESS=basic`, sits above the top bar as it sits above the masthead today.
+
+### 11.3 The section bars
+
+**Rules for every section bar.** 40px tall (44px below 720px), directly under the top bar, not sticky. Quieter than
+the top bar: Plex Sans 400 at `--text-2`, the current page at 600 with an underline; from 1280px the section's title
+leads in Plex Mono capitals at `--text-1`. Plain links to their own URLs in `<nav aria-label="{Section} pages">`,
+`aria-current` as in §1. A section bar shows on every page of its section, even with one item, so the chrome is the same
+height in every section and nothing below it jumps when the reader moves between sections. A record page shows its
+section's bar with its list marked `aria-current="true"`. Pages that are not yet live are left out (`section_live`,
+§2.8), never shown disabled.
+
+| Section | Bar, in order | Third level | Notes |
+|---|---|---|---|
+| Market | **MARKET INTELLIGENCE** · Map · Site finder · Projects · Companies · RFPs · Infrastructure · Prices · *(right)* source freshness · About & sources | Infrastructure: *Plants, pipelines & lines* · *Grid connection points* (as built). Prices: *Hubs & zones* · *State averages* | Map-shaped tools first (the landing, then the finder), then the record lists in the ratified order, then Prices (aggregates, not records). Site finder joins when its page has results, Prices when its page ships. Alerts leaves the bar: it is a utility in the top bar |
+| My pipeline | **MY PIPELINE** · Tracker · Invitations | None | Invitations shows only while one waits for this user. The Tracker's type filter (All · Projects · Bids · Investments) is a control on the page, not bar items: one list, filtered. Later: Documents, every file across items, when data rooms ship |
+| Funding | **FUNDING** · Grants & loans · Funders | None | Funders after counsel has read `docs/18` §4, invited capital partners only, never a public listing of deals seeking investment |
+| About (reference) | **ABOUT** · About · Sources & licences · Coverage & methodology · Attribution · API & feeds | Coverage & methodology: *Release dates* · *What is not here* · *Status words* | Reached from the footer, the Menu and About & sources. Privacy and the legal pages stay footer links with no bar |
+
+Search, Alerts, Account, sign-in and the admin surface have no section bar. Admin keeps its own navigation (§1.3).
+
+**Words** (one place, `web/labels.py`; code keys in brackets). Sections: Market `market`, My pipeline `my_pipeline`,
+Funding `funding`. Section titles: "Market intelligence", "My pipeline", "Funding", "About". New page labels: RFPs
+`rfps` (was "RFPs & funding"), Prices `prices`, Hubs & zones `prices_hubs`, State averages `prices_states`, Grants &
+loans `funding_grants`, Funders `funders`, Tracker `tracker`, Invitations `invitations`, Sources & licences
+`about_sources`, Coverage & methodology `methodology`, Attribution `attribution`, API & feeds `api`. New list H1s: "RFPs
+and tenders" (`/opportunities`) and "Grants, loans and programmes" (`/funding`). Breadcrumbs start with the section,
+as the copy rule asks for "Market" there: "Market / Companies / {name}", "Funding / Grants & loans / {title}", "My
+pipeline / Tracker / {item}".
+
+### 11.4 One purpose per page
+
+Every page answers one question and offers one primary action, styled as the one primary button (`docs/31` §5.16);
+everything else is a link or a secondary button. **Exception:** reference prose (Methodology's tabs, the legal pages)
+may run long when it opens with a contents list; a data page may not.
+
+| Page | URL | The one question it answers | Primary action | Change |
+|---|---|---|---|---|
+| **Market** | | | | |
+| Map | `/` | What is being built, where, and by whom? | Find (the floating search field) | Full-screen (§11.6) |
+| Site finder | `/site-finder` | Where could a large load or a plant connect to power? | Set the criteria | The finder lane's page; each candidate offers Track |
+| Projects | `/proposals` | Which projects match my filters? | Save this search as an alert | View switch Map · List · Grid (§11.6) |
+| Project | `/proposals/{slug}` and tabs | Per tab (§11.5) | Track | URL tabs |
+| Site | `/sites/{id}` | What records sit at this one physical site? | Open the lead record | None: one job already (1,698px at 1440) |
+| Companies | `/organizations` | Who owns, runs and develops the most? | Find a company by name | The pages lane's index; the view switch |
+| Company | `/organizations/{slug}` and tabs | Per tab | Follow this company | URL tabs |
+| RFPs | `/opportunities` | Which buyers are asking for projects now? | Save this search as an alert | RFP kinds only (§11.2) |
+| RFP | `/opportunities/{slug}` | What is asked, by whom, by when? | Read the notice at source | Track (creates a Bid); a Matches tab once matches publish |
+| Infrastructure | `/assets` | What is already built, and where? | Filter by type and state | None |
+| Grid connection points | `/interconnection-points` | Where are projects queuing to connect? | Sort by active MW | None |
+| Plant, pipeline or line | `/assets/{slug}` and tabs | Per tab | Show on the map (Track for retiring and retired plants) | URL tabs |
+| Grid connection point | `/interconnection-points/{id}` and tabs | Per tab | Track | URL tabs |
+| Prices: hubs and zones | `/prices` | What does power sell for at the hubs and zones, and how does it behave? | Sort by a statistic | The glossary becomes a closed disclosure "What these figures mean"; the link-out markets one line under the table; state averages move to their own tab |
+| Prices: state averages | `/prices/states` | What do businesses pay for power in each state? | Sort by a sector | New URL tab |
+| **Funding** | | | | |
+| Grants & loans | `/funding` | Which public funding is open for my project? | Save this search as an alert | New: kinds `foa`, `loan_program`, `program` |
+| Funding notice | `/opportunities/{slug}` | What is offered, by whom, by when, and for what? | Read the notice at source | Track (creates a Bid); section and breadcrumb by kind |
+| Funders (later) | after counsel | Which invited funders' criteria does this deal meet? | Not designed here | `docs/18` §4 first |
+| **My pipeline** (signed in) | | | | |
+| Tracker | `/my` | What am I working on, and what is due next? | Add an item | New (coordinator's input): every item the user owns or was invited to, sorted by next deadline (undated items after, most recently changed first), with a type filter. Below 720px each item is a ruled two-line card in one column; from 720px a table. Each item shows its stage, next deadline, what changed on its linked records since the user's last visit, and readiness |
+| New item | `/my/items/new` | What is this item? | Create | The type is chosen first (Project · Bid · Investment); fields prefilled from the starting record under `docs/19` §7's licence rule |
+| Item | `/my/items/{id}` and tabs | Per tab (§11.5) | Per tab | Same tabs for every type |
+| Invitations | `/my/invitations` | Who has invited me, to what? | Accept | Shown only while one is pending; the accept page `/my/invitations/accept` (`docs/19` §6.2) is unchanged |
+| **Utilities and reference** | | | | |
+| Search | `/search?q=` (`&type=`) | Which records match my words? | Open the top hit | Tabs by type with counts and a top hit (`docs/16` §4.4): All · Companies · Projects · Infrastructure · RFPs · Funding |
+| Alerts | `/alerts` | What am I following, and what changed? | New alert from a search | None |
+| New alert | `/alerts/new` | What should this alert watch? | Save alert | None |
+| Account | `/account` | What does my account hold, and how do I leave? | Download your data | None (one short page) |
+| About | `/about` | What is Inframation, who runs it, and how do the phases fit together? | Read the sources and licences | Split: it was 5,124px at 1440 (`docs/16` §1.1) |
+| Sources & licences | `/about/sources` | Which register says what, under which licence? | Open a source's terms | New: today's About §2 and §3 |
+| Coverage & methodology | `/methodology`, `/methodology/gaps`, `/methodology/status-words` | How current is each source? What is not here? What do the status words mean? | Check a source's fetch date | Three URL tabs (10,894px, 12 screens today); About's method notes join it |
+| Attribution | `/attribution` | Whom must I credit, and how? | Copy a credit | None |
+| API & feeds | `/docs/api` | How do I get this data by program? | Subscribe to a feed | None |
+| Pricing | `/pricing` | What does each plan include? | None under `noncommercial` (a posture note) | By URL and the account menu only |
+| Submit a project | `/submit` | How do I add my project to the register? | Submit | None |
+| Sign in, register, verify, reset | as today | Am I who I say I am? | The form's button | None |
+| Privacy, reuse, API licence, contact, bot | as today | Read | None | Footer links |
+
+**The tracker's item types** (coordinator's input, pending the owner's confirmation):
+
+| Type | Stages, in order | Created by Track on | Next deadline, live from |
+|---|---|---|---|
+| **Project** (developing) | Prospecting → Site control → Development → Ready to build → Construction → Operating (`docs/19` §2.1's stages) | A project page ("I'm developing this, or something near it"), a site-finder candidate, a retiring or retired plant, a grid connection point; or blank | The soonest due date among its attached bids' notices; none otherwise |
+| **Bid** (responding to an RFP or a funding call; may attach to one of the user's projects or stand alone) | Considering → Preparing → Submitted → Shortlisted → Won / Lost / Withdrawn | An RFP or funding notice page; or blank | The notice's `due_at`, read live, so a deadline the issuer moves moves here |
+| **Investment** (a project the user is looking to fund) | Screening → Diligence → Term sheet → Committed → Closed / Passed | A project page ("I'm looking to fund this"); or blank | None from public records today |
+
+**"Track" replaces "Start a deal"** on record pages (`docs/19` §6.2's block keeps its place, after the key facts, and its
+mechanics: a POST form, the record in the body, the signed-out cookie and `next`). Its words: heading "Track this",
+one line ("Add it to your private tracker: its deadline and changes follow the public record."), the button
+**Track**, and the privacy note ("Only you, and the people you invite, can see it."). On a project page the form asks
+which type; on an RFP or funding notice it creates a Bid and offers to attach it to one of the user's projects.
+**The tracker shows no counts to anyone else, ever:** no "N people track this", no tracked-item counts in public pages,
+page HTML, JSON-LD, social cards, analytics, logs, alerts or the admin dashboards, and a record's sponsor is never told
+it is tracked or by whom (an Investment item is the funder's private note, which keeps it clear of `docs/18` §4's
+solicitation question). This extends the 2026-10-22 consent guardrail and `docs/19` §5.2; `tests/test_private_isolation.py`
+pins it.
+
+### 11.5 Record pages as URL tabs
+
+**Rules.**
+
+- **T-1 One header on every tab:** breadcrumb, H1 (readable name), status chip or type badge, the company or owner line
+  (`docs/16` U-2, U-20), the tier notice (D-3), the one primary action, then the tab bar. The scope switch of a company
+  (This company only · With direct subsidiaries · Whole group) sits in the header and applies to every tab.
+- **T-2 One job per tab**, named in one or two words, with a count where the tab lists countable rows ("Pipeline 73").
+- **T-3 A tab shows only when it has content; a tab bar shows only with two or more tabs.** A tab URL reached while
+  empty answers 404 with the header, the tab bar and one line ("No RFPs recorded for this company"), so the reader can
+  move on and a crawler does not index an empty page.
+- **T-4 Provenance on every tab** (D-2, D-27, D-34): each tab ends with its own credits line (the registers behind its
+  rows, their licence words and retrieval dates) and the record's attribution line; the Sources tab holds the full
+  panel. Per-field "source:" notes stay where they are.
+- **T-5 Overview is the record's URL** and answers its main question within two screens at 1440 and four at 390. It
+  holds the top five rows of each other tab with "All N in {tab} →", so nothing a reader compares is split across tabs.
+- **T-6 URLs are path segments** under the record URL (`/organizations/{slug}/pipeline`). `?tab={name}` (`docs/16` U-4's
+  form) answers 301 to the segment; every query parameter the tab understands (scope, sort, filters) is carried; a
+  merged slug's 301 to the survivor keeps the segment. A path segment names the view in the address bar, the access
+  log and analytics, and lets each tab's route read only its own data. It departs from D-17's word "parameters", not
+  from its purpose: the tab is in the URL.
+- **T-7 Search engines:** the Overview is indexable, in the sitemap and carries the JSON-LD; tab pages are
+  `noindex, follow` and canonical to themselves, so tens of thousands of thin tab URLs do not compete with the record.
+  `BreadcrumbList` stops at the record.
+- **T-8 Old anchors keep working.** The Overview keeps an element with each old section id (`#assets`, `#nearby`,
+  `#pipeline`, `#group`, `#owners`, `#sources`): that tab's summary block, which links to the tab. `site.js` replaces
+  the URL with the tab's when a known fragment arrives (`location.replace`, so Back is not doubled). Without scripts the
+  reader lands on the summary and its link.
+- **T-9 The tab bar** is a `<nav aria-label="{record name} sections">` of plain links with `aria-current="page"`, not a
+  `role="tablist"` (the Infrastructure tabs' pattern, `docs/16` §3.2); below 720px it scrolls sideways like a section
+  bar.
+- **T-10 Each tab reads only its own data.** Today's company page makes every read for every section on every load.
+
+**Company** (`/organizations/{slug}`): **Overview · Portfolio · Pipeline · Matches · RFPs · Sources**, the owner's
+order plus Sources. From `organization_detail.html` as built, and as the pages lane changes it:
+
+| Section today | Moves to |
+|---|---|
+| Breadcrumb (the ownership chain), H1, descriptor badge, "As filed" | Header (every tab) |
+| Profile line and facts (pages lane: about, website, headquarters, listing, each with its source) | Overview |
+| Summary line ("Operates 3 gas pipelines · Owns 12 power plants") | Overview, as a figure strip: operating assets · operating GW · owned GW · projects in development · development GW · RFPs issued, the companies index's stored figures (decision row 2026-10-22), each linking to its tab |
+| "Follow this company's proposals"; "Follow its opportunities" | Header: one primary "Follow this company"; "Follow its RFPs" on the RFPs tab |
+| Field grid (type, country, jurisdiction, website, LEI, Wikipedia, parent claim) | Overview, "Facts" |
+| "No parent recorded …" coverage sentence | Portfolio › By company |
+| Scope links | Header |
+| Group summary line and notes; Group table | Portfolio, view **By company** (`?by=company`) |
+| Pipeline block (`partials/_org_pipeline.html`: by status, by technology, by ISO, registers) | Pipeline, then its project list |
+| 1. Assets: mini-map, asset-filter notice, one table per role and type | Portfolio, view **By asset** (default); the map moves to Overview as one combined map, operating assets filled and active projects as rings (`docs/16` §4.1) |
+| 2. Proposals near these assets, with its technology filter (`nearby_technology`) | Matches: "Projects near its assets" |
+| 3. Proposals (the 100 most recently changed) | Pipeline, under its tables, paged and sortable |
+| 4. Opportunities | RFPs, shown only when it has issued any |
+| 5. Sources | Sources; each tab's own credits line (T-4) |
+
+**Matches** answers "what fits this company?": today the projects within 25 km of its assets, a deterministic,
+published proximity match; later the RFPs that fit its projects, once a rule set clears US-401 AC3 (decision rows
+2026-10-21). It shows when either has rows. The Overview's "Largest assets (5)" and "Recently changed projects (5)"
+link to Portfolio and Pipeline.
+
+**Project** (`/proposals/{slug}`): **Overview · Timeline · Sources · Matches** (Matches once matches publish).
+
+| Section today (`proposal_detail.html`) | Moves to |
+|---|---|
+| Breadcrumb, H1, status chip, slip note, "No longer listed", "As filed", company line and its claim | Header |
+| Tier notice (`delayed_banner`) | Header |
+| Field grid | Overview |
+| Location (`partials/_proposal_location.html`) | Overview |
+| "At this site" (`_site_panel.html`) | Overview, its first five rows, then "All N at this site →" to `/sites/{id}` |
+| Track block (was Build a deal, §2.6) | Overview, after the facts |
+| 1. Sources | Sources |
+| 2. Lifecycle timeline; 4. History | Timeline: one dated list, newest first, stated future dates marked as stated, record-maintenance rows collapsed (`docs/16` §4.2) |
+| 3. What this record combines | Sources, as "Combined records" |
+| Report a problem | Sources (the form); a "Report a problem" link at the foot of every tab |
+| Attribution line | Every tab |
+
+**RFP or funding notice** (`/opportunities/{slug}`): one page today (1,119px at 1440: facts, value, summary, sources,
+a short status timeline), so no tabs. It gains **Overview · Matches** once matches publish. Its section bar and
+breadcrumb follow its kind: Market / RFPs, or Funding / Grants & loans.
+
+**Plant, pipeline or line** (`/assets/{slug}`): **Overview · Retirement · Grid · Ownership · Nearby · Sources**, each
+after Overview only when it has content. An operating plant today shows Overview · Ownership · Nearby · Sources.
+
+| Section today (`asset_detail.html`) | Moves to |
+|---|---|
+| Breadcrumb, H1, badge, "As filed", owner and operator line | Header |
+| Field grid; the two-lengths note | Overview |
+| Map (mini-map) | Overview |
+| Attributes | Overview, a closed disclosure "All N attributes from {source}" |
+| Retirement: rule text, facts, by technology, generator units, changes, reuse note | Retirement (retiring and retired plants); the Overview shows its first fact ("Retiring: N MW by {year}, EIA-860M") |
+| Retirement: grid connection rows, lines within 25 km, interconnection points nearby | Grid (today only retiring and retired plants have these, `web/retirement.py`; Grid widens to every plant when the API serves a grid block per plant, ask B-3, and gains the pricing node of `docs/29` §8) |
+| Owners and operators | Ownership, when the asset has two or more ownership records; a sole owner and operator stays the header line with its source and date |
+| Nearby proposals | Nearby |
+| Sources | Sources |
+
+**Grid connection point** (`/interconnection-points/{id}`): **Overview · Projects · Changes · Sources**. Overview is the
+field grid and "By technology"; Projects is "Projects connecting here"; Changes is "Recent changes at this point"
+(shown when there are any); Sources is the panel.
+
+**Site** (`/sites/{id}`): unchanged, one page.
+
+**Tracker item** (`/my/items/{id}`): **Overview · Linked records · Checklist · Notes · People · Documents** (Documents
+when data rooms ship), the same for every type (coordinator's input). Overview: type, stage (editable), next deadline,
+"Changed since your last visit" (the change events on its linked records since this user last opened the item, from
+the public event history, with each event's source), the readiness card by pillar (counts, "your status, not
+verified", no single score, `docs/19` §2.3), and the map point. Linked records: each linked public record's live facts
+with its Sources line, "Open" and "Remove" (`docs/19` §2.2). Checklist: `docs/19` §6.2's checklist page (six folders,
+four-way status, suggested evidence never marked verified). Notes: newest first, the add box. People: members, roles,
+invitations, "Copy link". Documents: the six checklist folders with document counts and items done, the readiness card
+beside them (§11.9.4), to `docs/19` §3's security bar. Primary action per tab: Overview, set the stage; Linked records,
+link a record; Checklist, mark an item; Notes, add a note; People, invite; Documents, upload. The user's last-visit
+time per item is private data in the private tables, erased with the account, never in analytics.
+
+### 11.6 The full-screen map landing
+
+**Layout.** The top bar (48px) and the Market section bar (40px) sit over the map, which fills the rest of the
+viewport, full-bleed (`100dvh` less 88px). At 1440×900 the canvas is 1440×812, against 1400×630 from 336px down today
+(`docs/31` §5.19): 33% more map, nothing above it but navigation. The landing does not scroll at any width from 720px,
+and has no footer; the footer's links are in the Menu, the section bar's right end and the map's attribution strip.
+
+**The floating bar** (one row, 48px, top left, 12px in; up to 720px wide and 12px short of the panel):
+
+- **Find**: today's map search (`docs/31` §5.18), placeholder "Find a project, company or place".
+- **Filters (N)**: opens today's filter form (`#map-filters`: technology, kind, jurisdiction, status, layers, asset
+  types, location precision) as a sheet anchored under the bar, 560px wide, scrolling inside; "Show N projects" and
+  "Clear all" at its foot, and "Save this search as an alert".
+- **The count**: "N projects match", every match anywhere, in tabular figures, then "Why?", which opens the lifecycle
+  notice and the hidden-records line as a popover. Coverage notes (`/?iso=PJM`) are provenance, so they show as a
+  line under the bar at every width (`docs/31` §3's rule).
+- **Map · List · Grid**: three links carrying the query. Map is `/`. List and Grid open the list page of the panel's
+  current tab (Projects → `/proposals`, Companies → `/organizations`, Infrastructure → `/assets`, RFPs →
+  `/opportunities`) with the same filters and `layout=list` or `layout=grid`. **List** is the two-line row (as built
+  below 720px, now offered at every width); **Grid** is the full sortable table (as built from 720px). "Grid" means a
+  data grid, never a grid of cards (D-7; `docs/31` §3). Below 720px, where the table is the two-line row anyway, the
+  switch is Map · List. The list pages carry the same switch. Until the list endpoints accept `bbox` (ask B-2), List
+  and Grid carry the filters but not the map's area, and the list says so in its count line ("All N matches, not only
+  the map's area").
+
+**The intro becomes one dismissable line** under the bar: the H1 (`map_heading()`, "Planned power plants, batteries,
+data centres and CO2 storage wells"), "from public filings in the US and GB, every fact linked to its source", "About
+this map" (today's disclosure) and a close button. It is one line from 1280px and two below. The full sentence is
+always in the HTML, so first-time visitors and search engines read it. Dismissing it is remembered per viewer in
+`localStorage` ("inframation.mapIntro", every read and write in `try`/`catch`), applied by a class set in `<head>`
+before first paint, so it never shifts the page; the H1 stays in the DOM, visually hidden. The home `<title>` becomes
+"Inframation — Energy market intelligence" (copy rule).
+
+**Controls.** Zoom in, zoom out, Reset and "Jump to" in a column at the left edge under the bar. The attribution strip
+is bottom left: "© OpenStreetMap contributors · Sources · About & sources", the full source phrase behind its "ⓘ".
+Errors (RFC 9457 title, request id, Retry) show as a strip under the bar; the panel keeps its last state. The
+dev-preview label (`preview_banner`) floats under the bar like the intro line, so no state of the page moves the map.
+
+**The panel** keeps its place, size and surface (`docs/31` §5.19: top right, 12px in, 340px wide from 1080px and 300px
+from 720px, the map's height less 24px; collapsed by default from 720 to 1079px). New anatomy:
+
+- **Header** (44px): "In view", **Key** (a toggle button, `aria-pressed`, that lays the full key over the tab body;
+  the tab strip stays), and the collapse chevron.
+- **Tab strip** (48px): **Projects · Companies · Infrastructure · RFPs**, each label over its in-view count. Collapsed,
+  the panel is the header and the strip (92px), so the counts stay at a glance.
+- **Projects**: a summary slot (N projects · X GW, the status bar and its words, the key for the marks in glyphs and
+  words), then the overview or the list of today (`docs/31` §5.19), switched by S-3. At its foot, signed in, "Your pipeline: N in
+  view (only you can see these)" (`docs/19` §2.7), never in a count.
+- **Companies** (the owner's "list the companies in the floating box"): "Companies with projects or plants in view,
+  by GW". One row per company: name, projects in view, GW in development, operating GW. Sorted by GW in development
+  by default (the map's default status filter shows active projects), with a switch to operating GW. 25 rows, then
+  "Open the Companies list". MW sums generation and storage only, as the pipeline block does (a data centre's MW is
+  demand). A natural person named in a register is not listed (`docs/13` §5.5). Hovering a row rings that company's
+  marks (mouse only); a click fits them, as map search does. Needs an API aggregate (ask B-1).
+- **Infrastructure**: an overview by type at national and multi-state views (power plants and GW by fuel, pipeline
+  miles, LNG terminals, retired and retiring plants), the list once zoomed in (today's existing-asset and retired
+  groups). With the layers off, its body says so and offers "Show existing infrastructure".
+- **RFPs**: open RFPs whose place (service territory, state or country) lies in view, soonest deadline first: status
+  chip, title, issuer, due date, value; from `GET /v1/opportunities/geo`. With none in view: "No open RFPs in this
+  area" and "N open across the map".
+- Each tab ends with its credits line (T-4). The record drawer still opens in the panel's place (`docs/31` §5.19).
+
+### 11.7 Panel stability rules
+
+**Why it bounced, as built** (`web/static/js/map.js`, 2026-10-23): (1) after one move, up to four answers land
+separately (`refetch` for projects, `refetchAssets`, `refetchRetired` and the busiest areas), and each calls `render()`,
+which rebuilds the list (`listEl.innerHTML = ""`) and the header; (2) the overview and the list swap at one threshold
+(`chooseInViewMode`: zoom 5, 300 projects, 25), so a view near it flips on small moves; (3) rows are rebuilt in each
+answer's order; (4) numbers are replaced, not changed; (5) slots appear and disappear (the "also in view" line, the
+unplaced note, key rows); (6) `resetInViewPages()` on every refetch closes "Show more". The rules below remove each.
+
+| Rule | Requirement | Test |
+|---|---|---|
+| **S-1 Fixed box** | The open panel's box (top, right, width, height) depends on the viewport alone. No data, mode, tab, loading or error state changes it. Collapsed, it is 92px tall | e2e: record `#map-panel`'s bounding box after first idle, then after each of 12 scripted moves (pans, zoom 4 to 9 and back, a region jump, a filter change, every tab); all equal the first within 0.5px |
+| **S-2 Reserved slots** | Each tab is a fixed stack of slots with heights set in CSS from first paint. Projects: summary (3 lines); hint (1 line); by status, 6 rows (all six groups always drawn, a zero shown as a muted "0", never removed); technology, 4 rows; busiest areas, 5 rows; "also in view", 2 lines; the list region last. Companies: summary (1 line), sort switch (1 row), rows. Infrastructure and RFPs alike. Nothing above a slot moves when that slot's content changes | e2e: each slot's `offsetTop` in its tab is equal in the loading, loaded, empty and error states and across the 12 moves |
+| **S-3 Hysteresis** | With *n* the projects in view (what lies left of the open panel, `docs/31` §5.19) and *z* the zoom: overview → list when *n* ≤ 25, or when *z* ≥ 5.5 and *n* ≤ 250 and the answer is not clustered; list → overview when (*n* > 40 and *z* < 4.5), or *n* > 350, or the answer is clustered. Otherwise the mode stays. Today's single switch is *z* 5, *n* 300, 25 (`chooseInViewMode`). Infrastructure uses the same numbers for assets in view. Evaluated once per committed update (S-6) | Unit: `window.__mapPanelRules.nextMode(mode, n, zoom, clustered)` over a case table, including the sequence zoom 4.9, 5.1, 4.9 with 280, 320, 280 in view, which must not flip. e2e: zoom 4.8, 5.0, 5.2, 5.0, 4.8 at one centre gives at most one mode change |
+| **S-4 Figures ease** | Every number and meter in the panel and the floating bar's count moves from the value shown to the new value over 200ms (`--motion-base`), ease-out; a new value retargets from the value on screen; integers stay rounded with separators on every frame; a figure never counts up from zero (the first value is set directly). Each figure's box is `tabular-nums` with a minimum width for the widest value of its kind ("999,999"; "9,999.9 GW"), so a new digit moves nothing beside it. Under `prefers-reduced-motion: reduce` values are set at once. Amends `docs/31` §8 ("cross-fade over 150ms") for these figures: a cross-fade of two numbers on every move reads as flicker, a tween as one figure changing | e2e: after a committed update, sample at +0, +100 and +250ms: the final value at +250ms; at +100ms strictly between the two when they differ by 10 or more; with reduced motion, final at +0. A count going 999 → 1,000 moves no neighbour's x |
+| **S-5 Stable order** | A ranked list (companies by GW, busiest areas, top technologies, RFPs by deadline, the project list) keeps its rows and their order on an update, values changing in place, unless a row would move 2 or more places in the exact order, or a row's value now exceeds the row above it by more than 10%. Then it re-sorts exactly, once, with a 150ms cross-fade, no sliding rows. A row that leaves the view is replaced in its slot by the best-ranked newcomer; other newcomers join at the end. A filter change, a tab switch or a sort change always sorts exactly. While the pointer is over the panel or the panel holds focus, nothing re-sorts; a pending re-sort waits until 400ms after the pointer leaves | Unit: `__mapPanelRules.reorder(previous, next)` over a case table. e2e: with the pointer over the Companies tab, pan; the row order is unchanged and the values have eased |
+| **S-6 One commit per settled move** | Between `movestart` and `moveend` (drag, pinch, scroll zoom, `flyTo`) nothing in the panel or the floating bar changes. Reads start 200ms after `moveend` (as now). All the view's answers (projects, assets, retired plants, areas, companies, RFPs) commit in one frame when the last lands, or 800ms after the first with what has landed; a later answer fills only its own slot. A newer move cancels an older one's pending commit (the sequence numbers kept as built). "Show more" keeps its state while the view's filters are unchanged | e2e: a `MutationObserver` on `#map-panel` and the floating bar records no mutation during a scripted drag (pointer down, ten moves, up) or a `flyTo`, and after `moveend` one batch within one animation frame, plus at most one late fill per slot |
+| **S-7 Skeletons hold** | From first paint every slot shows a skeleton at its final height (bars in `--border` at line height). A later read never swaps loaded values back to skeletons: the old values stay until the commit, with a 2px progress line at the panel's top edge while a read is out. An empty slot shows a one-line reason at the same height ("No RFPs in this area"); an error shows its line and Retry at the same height. No slot is `display: none` after first paint; only whole tabs hide | e2e with a fake transport (delays, empty answers, errors): slot heights identical across loading, loaded, empty and error |
+| **S-8 Layout-shift budget** | Over the scripted 12-move session, the layout-shift entries whose sources lie in the panel or the floating bar sum to 0.02 or less at 1440×900 and 390×844; the page stays within D-31's 0.1. Drags and pinches are not "input" for CLS (web.dev, §11.1), so these shifts count | e2e: a `PerformanceObserver` on `layout-shift` filtered by source node |
+| **S-9 Tabs and collapse keep their place** | Switching tabs or collapsing changes no box (S-1), and each tab keeps its own scroll (as built). The overview-to-list swap cross-fades over 150ms in the same box; the summary slot above it does not move | e2e: as S-1, across tab switches and collapse and reopen |
+
+### 11.8 Phones (360px floor)
+
+- **Top bar** (48px, sticky): the wordmark, a search button (44×44; it opens the field over the bar, and Escape or
+  Close puts the bar back) and **Menu** (44×44). Alerts and the account move into the Menu.
+- **Menu**: an in-place panel, as built (`docs/31` §3), every row 44px. Groups as accordions, the current section's
+  open: Market (its seven pages), My pipeline (signed in), Funding; then Alerts, Account or Sign in, About & sources and
+  the source-freshness line.
+- **Section bar** (44px, not sticky): one row that scrolls sideways (`overflow-x: auto`, scroll snap, no visible
+  scrollbar), never wraps; the current item scrolled into view on load without animation; a 24px fade on the cut edge
+  signals more. The section title is not drawn below 1280px. Record tab bars behave the same way.
+- **The map** fills `100dvh` less the two bars (92px). One finger pans it on the landing, because there is no page
+  below the map to scroll: today's cooperative gestures (`docs/31` §3, M-3) stay on the record pages' mini-maps. The
+  floating bar is the search field with Filters (full width less 16px, 8px from the top), then a line with the count,
+  "Why?" and Map · List. The intro line is one line, clamped, under it, tap to read and dismiss. The zoom column stays
+  on the right edge (44px buttons, as built).
+- **The panel is a bottom sheet** over the map with three heights: peek 112px (handle, the tab strip with counts, the
+  summary line), half (50% of the map) and full (the map less 56px, so the search stays visible). Drag the handle or tap
+  a tab to open it; no in-between resting heights. The record drawer opens in the same sheet (the bottom-sheet pattern
+  of `docs/31` §5.8, kept) and Back returns to the panel. This replaces "a bar under the map that opens in the page"
+  (`docs/31` §5.19), which a full-screen map has no room for. The sheet's scroll is contained (`overscroll-behavior: contain`).
+- **Lists, records and the tracker** are one column; tables are two-line rows (decision row 2026-10-22); the primary
+  action is a full-width 44px button under the header.
+- **At 360px** nothing scrolls sideways: the top bar needs about 110px for the wordmark and 2×44px for the buttons; the
+  section bar and tab bars scroll inside themselves.
+
+### 11.9 Wireframes
+
+Structured text, not pixel layouts; 116 characters stand for 1440px and 40 for 390px. Figures and names are
+illustrative, not measured. Where the model is too narrow, labels are shortened: on screen the freshness link reads
+"All 21 scheduled sources fetched on schedule" and About reads "About & sources", and the panel's tabs read Companies
+and Infrastructure in full (IA-12).
+
+#### 11.9.1 The top bar and a section bar
+
+Signed in, on the Companies list, at 1440:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Inframation    Market    My pipeline    Funding     [⌕ Search projects, companies, places ]   Alerts   Account ▾ │
+│                ━━━━━━                                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ MARKET INTELLIGENCE  Map  Site finder  Projects  Companies  RFPs  Infrastructure  Prices     On schedule · About │
+│                                                  ━━━━━━━━━                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Signed out at 1440: no My pipeline.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Inframation    Market    Funding                      [⌕ Search projects, companies, places ]   Alerts   Sign in │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+At 390, closed and with the Menu open:
+
+```
+┌──────────────────────────────────────┐    ┌──────────────────────────────────────┐
+│ Inframation              [⌕]  [Menu] │    │ Inframation             [⌕]  [Close] │
+├──────────────────────────────────────┤    ├──────────────────────────────────────┤
+│ Map  Site finder  Projects  Compan░  │    │ ▾ Market                             │
+└──────────────────────────────────────┘    │   Map                                │
+                                            │   Site finder                        │
+ Closed: bar 48px, section bar 44px.        │   Projects                           │
+ The section bar scrolls sideways; its      │   Companies          (current)       │
+ current item is scrolled into view and     │   RFPs                               │
+ the cut edge fades (░) to say more.        │   Infrastructure                     │
+ Menu: every row 44px; the current          │   Prices                             │
+ section's group open, the others shut.     │ ▸ My pipeline                        │
+                                            │ ▸ Funding                            │
+                                            ├──────────────────────────────────────┤
+                                            │ Alerts                               │
+                                            │ Account                              │
+                                            │ About & sources                      │
+                                            │ 21 of 21 sources on schedule         │
+                                            │                                      │
+                                            └──────────────────────────────────────┘
+```
+
+#### 11.9.2 The full-screen map
+
+At 1440×900 (the panel on its Projects tab, national view, so the overview):
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Inframation    Market    My pipeline    Funding     [⌕ Search projects, companies, places ]   Alerts   Account ▾ │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ MARKET INTELLIGENCE  Map  Site finder  Projects  Companies  RFPs  Infrastructure  Prices     On schedule · About │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ┌─────────────────────────────────────────────────────────────────────────────┐  ┌─────────────────────────────┐ │
+│ │ ⌕ Find a project or place  [Filters 2]  6,009 match · Why?  [Map│List│Grid] │  │ In view            [Key]  ˄ │ │
+│ └─────────────────────────────────────────────────────────────────────────────┘  ├─────────────────────────────┤ │
+│  Planned power plants, batteries, data centres and CO2 storage wells (the h1),   │ Projects Compan. Infra. RFPs│ │
+│  from public filings in the US and GB, every fact sourced.  About this map  ×    │ 4,138    312     2,040   6  │ │
+│                                                                                  │ ━━━━━━━━                    │ │
+│  [ + ]                                                                           ├─────────────────────────────┤ │
+│  [ − ]                          (12)                                             │ 4,138 projects · 92.4 GW    │ │
+│  [Reset]                                                                         │ ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮  │ │
+│  [Jump to ▾]      ( 37 )                                                         │ ○ 561  ◔ 2,974  ■ 603       │ │
+│                                                    (214)                         │ Zoom in or search to list.  │ │
+│                                                                                  │ BY STATUS                   │ │
+│                                           ●  ●                                   │ Announced               561 │ │
+│                                                                                  │ In process            2,974 │ │
+│                                                                                  │ Contracted              603 │ │
+│                             ▦ county, 9                                          │ Built or operating        0 │ │
+│                                                             (1,208)              │ Withdrawn or cancelled    0 │ │
+│                                                                                  │ Status unknown            0 │ │
+│                                                                                  │ TECHNOLOGY (top 4)   4 rows │ │
+│           MapLibre canvas, full-bleed, 1440 × 812 under the two bars             │ BUSIEST AREAS        5 rows │ │
+│           (today: 1400 × 630, from 336px down)                                   │ Texas            1,129  [→] │ │
+│                                                                                  │ California         612  [→] │ │
+│                                                                                  │ …  (rows reserved, S-2)     │ │
+│  ⓘ © OpenStreetMap contributors · Sources · About & sources                      └─────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+At 390×844 (the sheet at its peek):
+
+```
+┌──────────────────────────────────────┐
+│ Inframation              [⌕]  [Menu] │
+├──────────────────────────────────────┤
+│ Map  Site finder  Projects  Compan░  │
+├──────────────────────────────────────┤
+│┌────────────────────────────────────┐│
+││ ⌕ Find on the map      [Filters 2] ││
+│└────────────────────────────────────┘│
+│ 6,009 match · Why?        [Map│List] │
+│ Planned power plants, batteries… ×   │
+│                                      │
+│                               [+]    │
+│                                      │
+│     ( 37 )                    [−]    │
+│                                      │
+│                               [⤢]    │
+│               (214)                  │
+│                               [Key]  │
+│                                      │
+│                                      │
+│       ●  ●     (12)                  │
+│                                      │
+│                                      │
+│                                      │
+│ map: 100dvh − 92px; one finger pans  │
+│                                      │
+│                                      │
+├──────────────────────────────────────┤
+│                ────                  │
+│ Projects Compan. Infra. RFPs         │
+│ 4,138    312     2,040   6           │
+│ ━━━━━━━━                             │
+│ 4,138 projects · 92.4 GW             │
+│ ▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮▮       │
+│ sheet: peek 112px · half · full      │
+└──────────────────────────────────────┘
+```
+
+#### 11.9.3 A company page with tabs
+
+The Overview tab at 1440:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Inframation    Market    My pipeline    Funding     [⌕ Search projects, companies, places ]   Alerts   Account ▾ │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ MARKET INTELLIGENCE  Map  Site finder  Projects  Companies  RFPs  Infrastructure  Prices     On schedule · About │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Market / Companies / Example Energy Inc                                                                          │
+│ Example Energy Inc   [Power plant owner and developer]                                   [ Follow this company ] │
+│ Utility holding company (Wikidata) · example.com (SEC EDGAR) · Florida · NYSE: EXMP (SEC EDGAR)                  │
+│ Showing: This company only · With direct subsidiaries · [Whole group]                          Tier notice (D-3) │
+│                                                                                                                  │
+│ Overview   Portfolio 312   Pipeline 73   Matches 13   Sources 6                                                  │
+│ ━━━━━━━━                                                                                                         │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ OPERATING ASSETS │ OPERATING GW │ OWNED GW │ PROJECTS IN DEVELOPMENT │ DEVELOPMENT GW │ RFPS ISSUED              │
+│ 312 →            │ 58.1 →       │ 41.7 →   │ 33 →                    │ 7.1 →          │ —                        │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ FACTS                                                 │ MAP: operating assets filled, active projects as rings   │
+│ Type          Utility holding company                 │                                                          │
+│ Country       US · jurisdiction US-FL                 │         ■   ■ ○        ○                                 │
+│ LEI           <20-character LEI> (GLEIF)              │      ■ ■■  ○      ■                                      │
+│ Parent        none recorded (why)                     │             ■ ○○ ■                                       │
+│ Group         8 companies → Portfolio › By company    │                  (the existing key)                      │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ LARGEST ASSETS (5)                                    │ RECENTLY CHANGED PROJECTS (5)                            │
+│ Example Nuclear 1    Nuclear  2,000 MW  FL            │ ◔ Example Solar 2   Solar   250 MW   TX   12 Oct         │
+│ Example Gas CC       Gas CC   1,500 MW  FL            │ ■ Example Wind      Wind    300 MW   OK    9 Oct         │
+│ …                                                     │ …                                                        │
+│ All 312 in Portfolio →                                │ All 73 in Pipeline →                                     │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ Sources of these figures: EIA-860M, EIA-860 and EPA GHGRP (public domain); ERCOT (credit required by             │
+│ licence); NYISO (derived fields only). Retrieved 9–21 Oct 2026. Every source and licence: the Sources tab.       │
+│                                                                                                                  │
+│ Names and figures are illustrative, not measured. No RFPs tab: this company has issued none (T-3).               │
+│ Overview target: two screens at 1440 (docs/16 §4.1). NextEra's page today is 9,959px, 11 screens.                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+At 390:
+
+```
+┌──────────────────────────────────────┐
+│ Inframation              [⌕]  [Menu] │
+├──────────────────────────────────────┤
+│ Projects  Companies  RFPs  Infras░   │
+├──────────────────────────────────────┤
+│ Market / Companies                   │
+│ Example Energy Inc                   │
+│ [Power plant owner and developer]    │
+│ Utility holding company (Wikidata)   │
+│ [      Follow this company       ]   │
+│ Showing: This company only ·         │
+│ With direct subsidiaries · [Group]   │
+│ Overview  Portfolio 312  Pipeline░   │
+│ ━━━━━━━━                             │
+│──────────────────────────────────────│
+│ OPERATING ASSETS        OPERATING GW │
+│ 312 →                         58.1 → │
+│ OWNED GW              IN DEVELOPMENT │
+│ 41.7 →                 33 · 7.1 GW → │
+│──────────────────────────────────────│
+│ Type      Utility holding company    │
+│ Country   US · US-FL                 │
+│ Parent    none recorded (why)        │
+│ [ map 358 × 220, two-finger pan ]    │
+│                                      │
+│ LARGEST ASSETS                       │
+│ Example Nuclear 1                    │
+│ Nuclear · 2,000 MW · FL              │
+│ Example Gas CC                       │
+│ Gas CC · 1,500 MW · FL               │
+│ All 312 in Portfolio →               │
+│                                      │
+│ RECENTLY CHANGED PROJECTS            │
+│ ◔ Example Solar 2                    │
+│ Solar · 250 MW · TX · 12 Oct         │
+│ All 73 in Pipeline →                 │
+│                                      │
+│ Sources of these figures: EIA-860M…  │
+│ Target: 4 screens at 390 (21 today). │
+└──────────────────────────────────────┘
+```
+
+#### 11.9.4 My pipeline: a tracker item with its data room
+
+A Project item on its Documents tab, at 1440 (Bankable's folders, document counts and the card on the right, with
+counts by pillar and no score):
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Inframation    Market    My pipeline    Funding     [⌕ Search projects, companies, places ]   Alerts   Account ▾ │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ MY PIPELINE   Tracker   Invitations 1                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ My pipeline / Tracker / Example Solar + Storage                                                                  │
+│ Example Solar + Storage   [Project]   Stage: [Development ▾]                                [ Upload documents ] │
+│ Private: only you and the 2 people you invited can see this item. Nothing here feeds public pages or counts.     │
+│                                                                                                                  │
+│ Overview   Linked records 3   Checklist 9 of 32   Notes 4   People 3   Documents 14                              │
+│                                                                        ━━━━━━━━━━━━                              │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ FOLDERS                        DOCUMENTS   ITEMS DONE                       │ READINESS BY PILLAR                │
+│ ▸ Contracts                            3   2 of 8                           │ your status, not verified          │
+│ ▾ Permits                              4   3 of 7                           │                                    │
+│     Land Use Permit          land_use.pdf     Available  12 Oct             │ Completeness        9 of 32        │
+│     Air Quality Permit       air_permit.pdf   Scanning…  14 Oct             │ Fundamentals        3 of 10        │
+│     Environmental Approvals  none yet         [Upload]                      │ Counterparties      2 of 7         │
+│     Suggested from public records · not verified  [Accept]                  │ Regulatory & site   3 of 9         │
+│ ▸ Finance                              2   1 of 6                           │ Sponsor             1 of 6         │
+│ ▸ Security                             0   0 of 3                           │                                    │
+│ ▸ Feasibility                          5   3 of 5                           │ No single score until              │
+│ ▸ Legal & Corporate                    0   0 of 3                           │ documents and a reviewer           │
+│                                                                             │ exist (docs/19 §2.3)               │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ Files are private, scanned before they open, and served as downloads through 5-minute signed links; every        │
+│ upload, download and delete is in the item's access log (docs/19 §3). The folders are the checklist's six.       │
+│                                                                                                                  │
+│ The Overview tab holds instead: stage · NEXT DEADLINE 15 Dec 2026, live from the linked RFP · WHAT CHANGED       │
+│ since your last visit ("queue status studied → permitted, 14 Oct") · the readiness card · the map point.         │
+│ Names, dates and counts are illustrative.                                                                        │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+At 390:
+
+```
+┌──────────────────────────────────────┐
+│ Inframation              [⌕]  [Menu] │
+├──────────────────────────────────────┤
+│ Tracker   Invitations 1              │
+├──────────────────────────────────────┤
+│ My pipeline / Tracker                │
+│ Example Solar + Storage              │
+│ [Project]  Stage [Development ▾]     │
+│ Private: you and 2 invited people    │
+│                                      │
+│ Checklist 9/32  Notes 4  Documents░  │
+│                          ━━━━━━━━━━  │
+│ [        Upload documents        ]   │
+│ Readiness: 9 of 32 done            ▸ │
+│ (your status, not verified)          │
+│──────────────────────────────────────│
+│ ▸ Contracts               3 · 2 of 8 │
+│ ▾ Permits                 4 · 3 of 7 │
+│    Land Use Permit                   │
+│    land_use.pdf · Available          │
+│    Air Quality Permit                │
+│    air_permit.pdf · Scanning…        │
+│    Environmental Approvals           │
+│    [Upload]                          │
+│ ▸ Finance                 2 · 1 of 6 │
+│ ▸ Security                0 · 0 of 3 │
+│ ▸ Feasibility             5 · 3 of 5 │
+│ ▸ Legal & Corporate       0 · 0 of 3 │
+│──────────────────────────────────────│
+│ Every row 44px, one column. Files    │
+│ download; they never open inline.    │
+│                                      │
+└──────────────────────────────────────┘
+```
+
+The Tracker itself, at 1440 and 390:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Inframation    Market    My pipeline    Funding     [⌕ Search projects, companies, places ]   Alerts   Account ▾ │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ MY PIPELINE   Tracker   Invitations 1                                                                            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ Tracker                                                                                          [ Add an item ] │
+│ Show: [All 7] · Projects 3 · Bids 3 · Investments 1      Sort: next deadline ▾         Only you see these counts │
+│                                                                                                                  │
+│ Type        Item                       Stage        Next deadline         Changed since your visit  Readiness    │
+│──────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│ Bid         Example Utility 2027 RFP   Preparing    15 Dec · in 53 days   Deadline moved, 20 Oct    4 of 12      │
+│ Project     Example Solar + Storage    Development  15 Dec · via its bid  1 status change           9 of 32      │
+│ Investment  Example Wind               Diligence    —                     —                         —            │
+│ Project     Site near Example 345 kV   Prospecting  —                     —                         2 of 32      │
+│ Undated items follow the dated ones, most recently changed first. Names and dates are illustrative.              │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+```
+┌──────────────────────────────────────┐
+│ Inframation              [⌕]  [Menu] │
+├──────────────────────────────────────┤
+│ Tracker   Invitations 1              │
+├──────────────────────────────────────┤
+│ Tracker                [Add an item] │
+│ [All 7] Projects 3  Bids 3  Inves░   │
+│──────────────────────────────────────│
+│ BID · Preparing                      │
+│ Example Utility 2027 RFP             │
+│ Due 15 Dec · in 53 days              │
+│ Deadline moved, 20 Oct               │
+│ Checklist 4 of 12                    │
+│──────────────────────────────────────│
+│ PROJECT · Development                │
+│ Example Solar + Storage              │
+│ Due 15 Dec, via its bid              │
+│ 1 status change since your visit     │
+│ Checklist 9 of 32                    │
+│──────────────────────────────────────│
+│ Ruled rows in one column, not tiles. │
+└──────────────────────────────────────┘
+```
+
+### 11.10 URLs
+
+- **Every current URL keeps working.** The record URLs are the Overview tabs. `/opportunities` keeps its route, and
+  its default lists the RFP kinds; its meaning narrows from "every notice" to "RFPs and tenders", and the page says
+  in its standfirst where grants and loans went.
+- **New:** `/funding`; `/prices/states`; `/about/sources`; `/methodology/gaps`, `/methodology/status-words`; the tab
+  segments `/proposals/{slug}/{timeline|sources|matches}`, `/organizations/{slug}/{portfolio|pipeline|matches|rfps|sources}`,
+  `/assets/{slug}/{retirement|grid|ownership|nearby|sources}`, `/interconnection-points/{id}/{projects|changes|sources}`;
+  `/my`, `/my/items/new`, `/my/items/{id}` and `/my/items/{id}/{linked|checklist|notes|people|documents}`,
+  `/my/invitations` (all `/my/` disallowed in `robots.txt`, as `docs/19` P3 plans). `docs/19` §6.2's `/my/projects…`
+  URLs are not yet built; if P3 ships them first, they answer 301 to the new ones.
+- **Redirects (301, query kept):** `{record}?tab={name}` → `{record}/{name}`; `/organizations/{slug}?status=…` or
+  `?role=…` (the companies index's figure links) → `/organizations/{slug}/portfolio?…`; `/organizations/{slug}?nearby_technology=…`
+  → `/organizations/{slug}/matches?…`; `/opportunities?kind=` naming only funding kinds → `/funding?…`.
+- **Fragments** (`/about#sources`, `/methodology#ownership`, `/methodology#absences`, `/methodology#states`,
+  `/prices#states`, the record anchors of T-8): the page keeps the id on a summary block that links to the new page,
+  and `site.js` replaces the URL. `/methodology#vintage`, linked from the freshness line, stays on `/methodology`.
+- **Sitemap:** adds `/funding`, `/prices`, `/prices/states`, `/about/sources` and the methodology tabs; record tabs
+  stay out (T-7).
+- **Parameters:** `layout=list|grid` on the list pages; `by=company` on Portfolio; `type=` on `/search`. `bbox` on the
+  list pages once the API takes it (B-2).
+
+### 11.11 Implementation plan in lanes
+
+**First, the four builds in progress land**, each holding these files now:
+
+| Build in progress | Files it holds |
+|---|---|
+| Companies and RFP pages (lane "pages") | `web/templates/organizations_list.html`, `opportunities_list.html`, `organization_detail.html`, `opportunity_detail.html`, `partials/_organization_rows.html`, `partials/_opportunity_rows.html`, `web/organizations.py`, `web/viewmodels.py`, `web/list_sort.py` |
+| Site finder | `site_finder.*` (`web/templates/site_finder.html`, `web/static/js/site_finder.js`), its route module and switch, `services/site_finder/` |
+| Prices | `prices.*` (`web/templates/prices.html`, `partials/_price_rows.html`), `web/prices.py`, `web/test_prices.py`, the route mount in `web/app.py` |
+| My pipeline pages (`docs/19` P3) | `web/templates/my/*`, `web/my_projects.py`, `partials/_start_deal.html`, `web/static/css/my.css` |
+
+**Then, in order:**
+
+| Order | Lane | Owns (writes) | Depends on |
+|---|---|---|---|
+| 1 | **V1 · The shell** | `web/templates/base.html` (header and footer), new `partials/_top_bar.html` and `partials/_section_bar.html`, `partials/_sections.html` (sections, their pages, `holds`, `current()`), `web/labels.py` (§11.3's words), `web/page.py` (a `nav` context: signed in, `MY_PIPELINE`, posture, `section_live` for Site finder, Prices and Funding; registered wherever `section_labels` is today: `web/page.py`, `web/auth.py`, `web/legal.py`, `web/pricing.py`, `web/admin/shell.py`), `web/static/js/site.js` (Menu accordions, section-bar scroll, the fragment table of T-8 and §11.10), the header rules of `web/static/css/styles.css` | The four builds landed; nobody else with `base.html` open |
+| 2 | **V2 · Landing and panel** (next-wave item A) | `web/templates/home_map.html`, `web/static/js/map.js`, `_map_notice.html`, the map rules of `styles.css`, the home route in `web/app.py`, `web/map_search.py` | V1. B-1 for the Companies tab (the tab ships hidden until B-1 answers) |
+| 2 | **V3 · Record tabs: projects, assets, grid points** | `proposal_detail.html`, `asset_detail.html`, `interconnection_point_detail.html` split into one template per tab over new `partials/_record_header.html` and `partials/_record_tabs.html`; the routes in `web/app.py`, `web/assets_pages.py`, `web/interconnection_points.py`; `web/sitemaps.py`; the Track include | V1 (hands its fragment entries to V1's table in `site.js`) |
+| 2 | **V7 · Search tabs, About and Methodology** | `search.html`, `about.html` and a new `about_sources.html`, `methodology.html` split into three, their routes in `web/app.py` | V1 |
+| 3 | **V4 · Companies, RFPs and Funding** | `organization_detail.html` split into tabs, `partials/_org_pipeline.html`, `web/organizations.py` (tab routes, the 301s, the index's figure hrefs pointing at tabs), `opportunities_list.html` (H1, standfirst, RFP kinds), a new `funding_list.html` and the `/funding` route sharing the opportunities list code (one function, two kind sets), `opportunity_detail.html` (section and breadcrumb by kind) | V1, V3's record partials; the pages lane landed |
+| 3 | **V5 · Prices tabs** | `prices.html` split into Hubs & zones and State averages, `web/prices.py` (`/prices/states`) | V1; the prices lane landed |
+| 3 | **V6 · My pipeline as one tracker** | `web/templates/my/*` (tracker, item tabs), `partials/_track.html` (replacing `_start_deal.html`), `web/my_projects.py`, `my.css`. If P3 has not started, P3 builds this design directly | V1; the owner's answer on item types (§11.13); the backend follow-up B-5 |
+
+**V1 goes first** because every later lane renders inside its header and section bar, it changes the most-pinned
+tests in one place, and it is small. V2, V3 and V7 then run in parallel: their files do not overlap.
+
+**Backend asks** (API lane, not these lanes):
+
+- **B-1** Companies in view: `GET /v1/organizations/in-view?bbox&zoom&{proposal filters}`, the top 25 companies by
+  development MW (generation and storage) with operating MW from the assets in view, each with its `list_query`;
+  withheld while a visibility gate moves, as `organization_stats` is (decision row 2026-10-22); natural persons
+  excluded; within the `/geo` budget (D-13, 400ms p95).
+- **B-2** `bbox` on `GET /v1/proposals`, `/v1/assets`, `/v1/opportunities` (the geo routes already parse it, `_parse_bbox`
+  in `services/api/records.py`).
+- **B-3** A grid block for every plant (nearest substations and lines, voltage, connection points), so Grid shows for
+  operating plants.
+- **B-4** `capacity_mw_by_lifecycle_state` and `capacity_mw_by_technology` on geo features (already asked, `docs/31` §5.19).
+- **B-5** Tracker items: a type and its stages on the private item (the data lane chooses the shape), the next deadline
+  derived from linked records, and a private last-visit time per user and item.
+
+**Tests that pin nav labels and page structure** (found by grepping `web/test_*.py`), and how each changes:
+
+| Test | Pins | Changes to |
+|---|---|---|
+| `web/test_layout_states.py` `PRIMARY` (line 720), `_primary_nav` (738), `test_the_primary_nav_is_six_sections_in_order_and_marks_where_the_reader_is` (768) | Six links in order inside `<nav class="primary-nav" aria-label="Primary">` | Table-driven: the top bar's items by session state (signed out: Market, Funding; signed in with `MY_PIPELINE`: Market, My pipeline, Funding), each section bar's items in order, `aria-current` on the section and the page. V1 |
+| Same file, `test_a_link_is_marked_on_its_page_and_on_every_page_its_section_holds` (796) | `current()` per key and path | Gains the sections' `holds` (`/funding` and funding-kind records under Funding, `/my` under My pipeline, `/prices` under Market). V1 |
+| Same file, `test_a_section_is_named_in_one_place` (805) | Section names only in `labels.py` | The new names and titles join the list; `organization_detail.html` joins the templates checked for `>Companies</a>` (§2.8 item 5). V1 |
+| Same file, `test_infrastructure_is_one_heading_over_two_tab_links` (849) | Infrastructure's two URL tabs | Unchanged; a twin for Prices' two tabs. V1, V5 |
+| Same file, `test_the_two_record_lists_say_in_one_line_which_side_of_the_market_they_hold` | The `/opportunities` standfirst "Demand side: buyers and funders asking for projects" | "Demand side: buyers asking for projects"; a twin for `/funding`. V4 |
+| Same file, `test_only_the_five_lists_take_the_compact_list_header` | Five list paths | Adds `/funding`. V4 |
+| Same file, `test_about_and_sources_is_a_masthead_link_and_in_the_footer_not_a_destination` (912) and `test_the_map_page_states_source_lateness_once_in_the_masthead` (421) | The masthead's About link and freshness line | The section bar's right end from 1280px, the Menu, the footer; the same strings. V1 |
+| Same file, the map intro tests `test_the_map_page_heading_and_its_meta_share_one_source` (329), `test_the_map_page_opens_on_a_plain_line_not_a_source_list` (340), `test_the_map_page_says_what_the_product_does_before_anything_else` (404) | `.map-intro`, its H1 and lede | The intro line: H1 and sentence in the HTML, the close button, the head class. V2 |
+| Same file, the panel tests `test_the_key_is_a_tab_of_the_panel_floating_over_the_map` (459), `test_the_panel_floats_translucent_and_is_a_bar_below_720px` (534), `test_map_js_keeps_the_panel_choice_per_browser_and_follows_the_width` (565), `test_the_map_filter_bar_is_a_disclosure_from_720_to_1079_px` (580) | The In view and Key tabs; the phone bar; the filter disclosure | The four tabs and the Key button; the phone bottom sheet; the panel choice rule stands; the filters as the floating bar's sheet at every width. V2 |
+| `web/test_e2e.py` `SECTIONS` (3789), `test_nav_is_six_sections_with_infrastructure_tabs_short_list_headers_and_a_favicon` (3801), the Menu test (1296–1302) | Six links at 1440, the Menu at 400 | Top bar and section bar at 1440; at 360 and 390 the Menu's groups, the section bar scrolling inside itself, no page overflow. V1 |
+| `web/test_e2e.py` map fold (1211, `top < 450`; 1215–1220, the panel at map top + 12 and 340 wide), `PHONE_MAP_TOP_BUDGET` (2364, 2420), the lede (433, 2423–2483) | Where the map starts; the intro | Map top at 88px ±1 at 1440×900 and 92px at 390×844; the panel rule stands; the lede rules become the intro line's. Plus S-1 to S-9 in a new `web/test_map_panel_stability.py`. V2 |
+| `web/test_e2e.py` line 3761 (clicks `.primary-nav a[href="/pricing"]`) | Pricing in the nav | The account menu under `commercial`. V1 |
+| `web/test_paid_tiers_posture.py` (115–122, 132) | `hrefs[:6]` and Pricing in the Primary nav | The top bar's items; Pricing in the account menu only under `commercial`. V1 |
+| `web/test_feedback.py` (190–192) | The beta bar above the masthead | Above the top bar. V1 |
+| `web/test_freshness_claims.py` (129–149) | `.masthead__lag` text | The same strings in the section bar's freshness link. V1 |
+| `web/test_asset_pages.py` (1079: the company page's "Proposals near these assets"; 1699, 1840: an asset's `aria-label="Nearby proposals"`) | Sections on one page | Read `/organizations/{slug}/matches` and `/assets/{slug}/nearby`. V4, V3 |
+| `web/test_nearby_relevance.py` | The company nearby filter form | Its action is `/organizations/{slug}/matches`; the old parameter on the Overview answers 301. V4 |
+| `web/test_org_pipeline.py` (367–401) | `<section class="org-pipeline" id="pipeline"` | Read `/organizations/{slug}/pipeline`; the Overview keeps `id="pipeline"` on its summary (T-8). V4 |
+| `web/test_record_company.py` (626: `#owners`; 709, 731, 790: `id="group"`; 829: `<span class="section-num">5.</span> Sources`; 536: "Records at this site") | Anchors and section numbers | `#owners` links the Ownership tab; the group table at `/portfolio?by=company`; section numbers go (each tab is one job); the site page test is unchanged. V3, V4 |
+| `web/test_interconnection_points.py` (222–228), `web/test_event_history.py` | "Recent changes at this point" before Sources | Read `/interconnection-points/{id}/changes`. V3 |
+| `web/test_companies_index.py` (pages lane: figure hrefs ending `#assets`) | The index's figure links | `/organizations/{slug}/portfolio?…`. V4 |
+| `web/test_seo.py` | `BreadcrumbList`, `ItemList` names, the sitemap | Breadcrumbs start with the section; tab pages `noindex, follow`; the sitemap's new pages. V1, V3, V4 |
+| New: `web/test_record_tabs.py` | | Every tab answers 200 with the shared header, one primary action and its own credits line; absent tabs are not linked and answer 404; `?tab=` answers 301; a merged slug's 301 keeps the tab. V3, V4 |
+| New: in `tests/test_private_isolation.py` | | No public response, page, feed, card or log carries a tracked-item count or the fact that a record is tracked. V6 |
+
+### 11.12 Standards check (`docs/04`)
+
+| Rule | This design | Departure to record |
+|---|---|---|
+| D-2, D-27, D-34 provenance on every data element | Each tab carries its own credits line and the record's attribution line; the Sources tab holds the full panel; the panel's tabs end with their credits | — |
+| D-3, D-28 tier notice | Under every record header and list header, unchanged; nothing is delayed on any tier since 2026-09-21 | — |
+| D-7 banned patterns | No marketing hero above the map (one dismissable line); "Grid" is a data table, never a card grid; the tracker's phone cards are ruled rows in one column (the two-line row of 2026-10-22), not rounded tiles; the panel's blur stays the owner-directed exception (`docs/31` §9) | — |
+| D-15 motion | Figures ease over 200ms, within the 100–500ms range; `flyTo` and the drawer unchanged; reduced motion makes all of it instant | `docs/31` §8: the panel's figures tween over 200ms instead of cross-fading over 150ms |
+| D-16 one nav on public and Pro | One top bar and one set of section bars on every public and Pro page | D-16's "six sections" becomes the top bar and section bars of §11.2–§11.3 |
+| D-17 everything in the URL | Tabs, layouts, views and filters are in the URL; the panel's tab and the intro's dismissal are per-viewer conveniences | Tabs as path segments, not parameters (T-6) |
+| D-18 detail pages are the unit of SEO | The Overview is server-rendered with canonical fields, the attribution line, a credits line and JSON-LD | The full Sources panel moves to the Sources tab, one click from every tab |
+| D-30 WCAG 2.2 AA | Keyboard-only and screen-reader optimisation stays deferred (owner, 2026-10-22); links stay links, tabs are links, the Menu stays a disclosure, the sheet has a handle and tap targets | — |
+| D-31 Core Web Vitals | S-8 holds the panel to 0.02 of CLS; tab pages read less than today's company page | — |
+| D-32 360px | §11.8 | `docs/31` §3 and §5.19: on phones the panel becomes a bottom sheet over a full-screen map, and the landing drops cooperative gestures |
+
+**Docs that need matching edits, outside this lane:** `docs/04` D-16 and D-18 (above); `docs/31` §3, §5.18, §5.19 and
+§8 (the landing, the floating bar, the panel's tabs and rules, the tween); `docs/19` §1, §2.1 and §6.2 (item types and
+stages, "Track", the tracker, the `/my/items` URLs, rows instead of cards); `docs/29` §8 (the two Prices tabs); `docs/16`
+U-4 (path segments).
+
+### 11.13 Decisions for the owner, and assumptions
+
+**For the owner to confirm**, most consequential first. Each has a working default, so the lanes are not blocked.
+
+1. **The top bar words: Market · My pipeline · Funding**, with "Market intelligence" as the Market section bar's title.
+2. **My pipeline is hidden from signed-out visitors**, who reach it through "Track" on records. The alternative shows it
+   to everyone and opens an explainer with sign-in: more discoverable, at the cost of a login wall in the bar for every
+   visitor.
+3. **RFPs stay in Market; grants, loans and programmes move to Funding.** `/opportunities` then lists RFPs and tenders,
+   and links that name only funding kinds move to `/funding`.
+4. **"Grid" is the full data table and "List" the two-line rows**, not a grid of cards (banned, D-7); phones offer Map ·
+   List.
+5. **The panel's tabs are Projects · Companies · Infrastructure · RFPs**, with Key as a header button; companies rank by
+   GW in development in view, switchable to operating GW.
+6. **The tracker's item types and stages** (Project, Bid, Investment, as in §11.4) and **"Track"** in place of "Start a
+   deal", with a project page asking "developing it" or "funding it".
+7. **The company tab "Matches"** holds the projects near its assets now and matched RFPs later. The alternative is
+   "Nearby", plainer but narrower once rule matches publish.
+8. **Record tab pages are kept out of search engines** (`noindex`); only the Overview is indexed.
+9. **The masthead line goes**; source freshness moves to the section bar from 1280px and stays in the tier notice.
+
+**Assumptions.**
+
+| ID | Assumption | Basis | Affects |
+|---|---|---|---|
+| IA-9 | Matches are still withheld from readers (US-401 AC3) when V3 and V4 build, so the Matches tabs show proximity rows only and the project and RFP Matches tabs stay hidden | Decision rows 2026-10-21; `data/match_rules.yaml` `publish: false` | §11.5 |
+| IA-10 | Funding's default view holds at least one open, energy-relevant notice on the live store | 149 `foa` records on 2026-09-20; not re-counted here (no store in this session) | §11.2 |
+| IA-11 | The companies-in-view aggregate fits the `/geo` budget, as `organization_stats` fits the index | Decision row 2026-10-22 (refresh 4s on the 2026-10-20 store); not measured for a bbox | §11.6, B-1 |
+| IA-12 | The four panel tab labels fit 300px at `--text-1` with 8px gaps | Estimated about 290px from Plex Sans widths; V2 measures | §11.6 |
+| IA-13 | A full-screen landing with one-finger pan does not strand phone readers, because the landing has no content below the map | §11.6: no footer, everything in the bars and the sheet | §11.8 |
+| IA-14 | Tab segments never collide with record slugs or ids | Slugs and public ids contain no `/` (`docs/21` §3.1) | §11.10 |
+| IA-15 | The search field fits the top bar at 240px from 1080px with the three sections, Alerts and the account on one row | Estimated about 820px of content at 1080; V1 measures | §11.2 |

@@ -147,6 +147,14 @@ OWNERSHIP_SOURCE_LABELS: dict[str, str] = {
     "us.eia.860": "EIA-860",
     "us.epa.ghgrp": "EPA GHGRP",
 }
+#: The reference registers a page credits beside a figure it prints: the ECB beside a US-dollar
+#: equivalent, Wikidata and SEC EDGAR beside a company's website, headquarters and ticker (lane
+#: pages, 2026-10-23). Same rule: every word is in the source's `data/sources.yaml` name.
+REFERENCE_SOURCE_LABELS: dict[str, str] = {
+    "eu.ecb.eurofxref": "ECB",
+    "global.wikidata": "Wikidata",
+    "us.sec.company_tickers": "SEC EDGAR",
+}
 
 
 def source_label(source_id: str | None) -> str | None:
@@ -160,6 +168,7 @@ def source_label(source_id: str | None) -> str | None:
         OPPORTUNITY_SOURCE_LABELS.get(source_id)
         or ASSET_SOURCE_LABELS.get(source_id)
         or OWNERSHIP_SOURCE_LABELS.get(source_id)
+        or REFERENCE_SOURCE_LABELS.get(source_id)
     )
 
 
@@ -972,8 +981,227 @@ def deadline_passed(status: Any, due_at: Any, today: dt.date | None = None) -> b
     return due < (today or dt.datetime.now(dt.UTC).date())
 
 
+def _amount_text(amount: Any) -> str | None:
+    """A stated amount as the page prints it: whole units, or two decimals for a small figure that
+    has them (a unit price such as EUR 0.26 is not "0")."""
+    if not isinstance(amount, int | float) or isinstance(amount, bool):
+        return None
+    value = float(amount)
+    return f"{value:,.0f}" if value.is_integer() or value >= 100 else f"{value:,.2f}"
+
+
+def opportunity_value_fields(entity: Mapping[str, Any]) -> dict[str, Any]:
+    """What the page prints for the notice's value (lane rfp-value): the API's `value` block says
+    what the figure is (`kind_label`: "Award ceiling", "Total awarded value", ...) and, for an amount
+    that looks like a placeholder (`amount_note`: a field maximum such as Grants.gov's 2,147,483,647,
+    a run of nines, a unit price), why it is not a figure. A placeholder is shown as a dash with the
+    stated number and the note beside it, never as the notice's value; `budget_amount` is then None
+    so no other part of the page prints it either. An API without `value` keeps the old "Budget"."""
+    if "value" not in entity:
+        return {
+            "value_label": "Budget",
+            "value_note": None,
+            "value_stated": None,
+            "budget_amount": _known_budget(entity.get("budget_amount")),
+        }
+    value = _mapping_or_empty(entity.get("value"))
+    note = value.get("amount_note") if value else None
+    stated = _amount_text(value.get("amount")) if note else None
+    return {
+        "value_label": value.get("kind_label") or "Value",
+        "value_note": note,
+        "value_stated": f"{stated} {value.get('currency') or ''}".strip() if stated else None,
+        "budget_amount": None if note or not value else _known_budget(entity.get("budget_amount")),
+    }
+
+
+# ---- an opportunity's value, as the RFPs & funding list and the record page print it (lane pages) --
+#: What the list's Value column says the figure is, in a few words, under the amount; the record
+#: page prints the API's own `kind_label` ("Estimated value", "Award ceiling"). Keyed by `value.kind`
+#: (`pipeline/connectors/opportunity.py` `VALUE_KINDS`); a kind the API adds later reads "stated value"
+#: until it is named here, which is true of any amount.
+VALUE_KIND_SHORT: dict[str, str] = {
+    "estimated_value": "est. contract value",
+    "estimated_value_incl_vat": "est. contract value incl. VAT",
+    "awarded_value": "awarded value",
+    "contract_value": "contract value",
+    "total_programme_funding": "programme funding",
+    "award_ceiling": "award ceiling",
+    "award_floor": "award floor",
+}
+VALUE_KIND_UNSTATED = "stated value"
+#: Currencies printed with their symbol ($35,000,000); any other prints its ISO 4217 code first
+#: (PLN 4,200,000), so a symbol shared by several currencies (kr, $ for CAD) is never guessed.
+CURRENCY_SYMBOLS: dict[str, str] = {"USD": "$", "EUR": "€", "GBP": "£"}
+
+
+def _positive(value: Any) -> float | None:
+    number = formatting._number(value)
+    return number if number is not None and number > 0 else None
+
+
+def _money(currency: Any, number: str) -> str:
+    code = str(currency or "").upper()
+    if code in CURRENCY_SYMBOLS:
+        return f"{CURRENCY_SYMBOLS[code]}{number}"
+    return f"{code} {number}" if code else number
+
+
+def _three_figures(x: float) -> str:
+    """`335.31` -> `335`, `12.53` -> `12.5`, `1.234` -> `1.23`: three significant figures at most,
+    trailing zeros dropped."""
+    text = f"{x:.0f}" if x >= 99.95 else f"{x:.1f}" if x >= 9.995 else f"{x:.2f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+#: Thousands, millions, billions, trillions: the list's short form of an amount.
+_COMPACT_UNITS: tuple[tuple[float, str], ...] = ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "k"))
+
+
+def money_compact(amount: Any, currency: Any) -> str | None:
+    """`€300M`, `$1.25B`, `£950k`, `PLN 4.2M`: an amount in a list cell, to three significant figures.
+    None for no amount (or 0 or less, a source placeholder)."""
+    number = _positive(amount)
+    if number is None:
+        return None
+    for index, (divisor, suffix) in enumerate(_COMPACT_UNITS):
+        if number >= divisor:
+            text = _three_figures(number / divisor)
+            if text == "1000" and index > 0:  # 999.96M is 1B, not 1000M
+                text, suffix = "1", _COMPACT_UNITS[index - 1][1]
+            return _money(currency, text + suffix)
+    return _money(currency, _three_figures(number))
+
+
+def money_full(amount: Any, currency: Any) -> str | None:
+    """`$35,000,000`, `€300,000,000`, `MKD 12,000,000` (docs/31 §4: tabular numerals, no decimals
+    unless a small amount has them)."""
+    number = _positive(amount)
+    text = _amount_text(number) if number is not None else None
+    return _money(currency, text) if text else None
+
+
+#: Millions and billions in words: the record page's approximate US-dollar figure.
+_APPROX_UNITS: tuple[tuple[float, str], ...] = ((1e12, "trillion"), (1e9, "billion"), (1e6, "million"))
+
+
+def money_approx(amount: Any, currency: Any) -> str | None:
+    """`$335 million`, `$1.25 billion`, `$48,900`: a converted figure to three significant figures,
+    because the exchange rate makes every further digit noise (an exact-looking `$184,896,928` claims
+    a precision a reference rate does not have). None for no amount."""
+    number = _positive(amount)
+    if number is None:
+        return None
+    for index, (divisor, word) in enumerate(_APPROX_UNITS):
+        if number >= divisor:
+            text = _three_figures(number / divisor)
+            if text == "1000" and index > 0:  # 999.96 million is 1 billion
+                text, word = "1", _APPROX_UNITS[index - 1][1]
+            return _money(currency, f"{text} {word}")
+    rounded = float(f"{number:.3g}")
+    return _money(currency, f"{rounded:,.0f}" if rounded >= 100 else _three_figures(rounded))
+
+
+def inline_label(label: Any) -> str:
+    """ "Estimated value including VAT" -> "estimated value including VAT": a label in mid-sentence,
+    with only its first letter lowered, and not even that for a word in capitals ("VAT refund")."""
+    text = str(label or "")
+    if len(text) > 1 and text[1].isupper():
+        return text
+    return text[:1].lower() + text[1:]
+
+
+def _fx_rate_text(rate: Any, currency: Any) -> str | None:
+    """`1 EUR = 1.1177 USD`: the rate behind an equivalent, to four decimals (the API's is unrounded)."""
+    number = _positive(rate)
+    if number is None or not currency or str(currency).upper() == "USD":
+        return None
+    return f"1 {str(currency).upper()} = {number:,.4f} USD"
+
+
+def opportunity_value_view(entity: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The notice's value as the list cell and the record page print it, from the API's `value` block
+    (lane rfp-value): the amount in its own currency and what it is; the approximate US-dollar figure
+    when it was converted, with the ECB fixing and the credit the ECB's terms require beside it; the
+    other figures the notice states; the expected number of awards; and where the figure was read.
+    A placeholder amount (`amount_note`) prints as a dash with "stated as" and the reason, never as a
+    figure. None when the notice states no amount."""
+    value = entity.get("value")
+    if not isinstance(value, Mapping) or _positive(value.get("amount")) is None:
+        return None
+    amount, currency = value.get("amount"), value.get("currency")
+    note = value.get("amount_note") or None
+    usd = _positive(value.get("usd_equivalent"))
+    converted = bool(value.get("usd_is_approximate")) and usd is not None and not note
+    fx_source = _mapping_or_empty(value.get("fx_source"))
+    provenance = _mapping_or_empty(value.get("provenance"))
+    kind = value.get("kind")
+    stated = f"{_amount_text(amount)} {currency or ''}".strip()
+    also = []
+    for figure in value.get("also_stated") or []:
+        if not isinstance(figure, Mapping) or _positive(figure.get("amount")) is None:
+            continue
+        figure_note = figure.get("amount_note") or None
+        label = figure.get("kind_label") or VALUE_KIND_UNSTATED.capitalize()
+        also.append(
+            {
+                "label": label,
+                "label_inline": inline_label(label),
+                "text": None if figure_note else money_full(figure.get("amount"), figure.get("currency")),
+                "stated": f"{_amount_text(figure.get('amount'))} {figure.get('currency') or ''}".strip(),
+                "note": figure_note,
+                "source_field": figure.get("source_field"),
+            }
+        )
+    awards = value.get("expected_awards")
+    source_id = provenance.get("source_id")
+    return {
+        "label": value.get("kind_label") or VALUE_KIND_UNSTATED.capitalize(),
+        "short": VALUE_KIND_SHORT.get(str(kind)) if kind else VALUE_KIND_UNSTATED,
+        "placeholder": note is not None,
+        "note": note,
+        "stated": stated,
+        "full": None if note else money_full(amount, currency),
+        "compact": None if note else money_compact(amount, currency),
+        "currency": currency,
+        "converted": converted,
+        "usd_full": money_full(usd, "USD") if converted else None,
+        # What the page prints: the converted figure to three significant figures.
+        "usd_approx": money_approx(usd, "USD") if converted else None,
+        "usd_compact": money_compact(usd, "USD") if converted else None,
+        "fx_rate": _fx_rate_text(value.get("fx_rate"), currency) if converted else None,
+        "fx_date": value.get("fx_date") if converted else None,
+        # Why there is no equivalent (an unquoted currency); not said for a placeholder, whose own
+        # note already says why nothing is printed.
+        "fx_note": None if converted or note else value.get("fx_note"),
+        "fx_credit": (
+            {
+                "name": source_label(fx_source.get("source_id")) or fx_source.get("source_name"),
+                "text": fx_source.get("attribution_text"),
+                "url": fx_source.get("source_url"),
+                "licence_url": fx_source.get("licence_url"),
+                "rate_date": fx_source.get("rate_date") or value.get("fx_date"),
+            }
+            if converted and fx_source
+            else None
+        ),
+        "also_stated": also,
+        "expected_awards": awards if isinstance(awards, int) and not isinstance(awards, bool) else None,
+        "source": {
+            "name": source_label(source_id) or provenance.get("source_name") or source_id,
+            "url": provenance.get("source_url"),
+            "field": provenance.get("source_field"),
+            "retrieved_at": provenance.get("retrieved_at"),
+            "endpoint": provenance.get("endpoint"),
+        }
+        if provenance
+        else None,
+    }
+
+
 def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
     primary_source = _primary_provenance(entity.get("provenance") or [])
+    value_fields = opportunity_value_fields(entity)
     return {
         "deadline_passed": deadline_passed(entity.get("status"), entity.get("due_at")),
         "public_id": entity["public_id"],
@@ -991,8 +1219,10 @@ def flatten_opportunity(entity: Mapping[str, Any]) -> dict[str, Any]:
         "jurisdiction": entity.get("jurisdiction"),
         "technologies": entity.get("technologies") or [],
         "capacity_sought_mw": entity.get("capacity_sought_mw"),
-        "budget_amount": _known_budget(entity.get("budget_amount")),
         "budget_currency": entity.get("budget_currency"),
+        **value_fields,
+        # The list's Value cell and the record page's value row (`opportunity_value_view`).
+        "value_view": opportunity_value_view(entity),
         "open_at": entity.get("open_at"),
         "due_at": entity.get("due_at"),
         "status": entity.get("status"),

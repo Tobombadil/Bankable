@@ -12,6 +12,11 @@
 {% if mini_map %}{{ m.cdn_style("maplibre_css") }}{% endif %}
 {% endblock %}
 {% block content %}
+{#- One profile fact's source line: the register's short name, linked to the statement read. -#}
+{% macro fact_source(s) -%}
+{%- if s and s.url %} <a class="fact-source" href="{{ s.url }}" rel="noopener nofollow"{% if s.title %} title="{{ s.title }}"{% endif %}><span class="visually-hidden">Source: </span>{{ s.name }}</a>
+{%- elif s %} <span class="fact-source"{% if s.title %} title="{{ s.title }}"{% endif %}><span class="visually-hidden">Source: </span>{{ s.name }}</span>{% endif -%}
+{%- endmacro %}
 {# Breadcrumbs walk the ownership chain, root first: Home / Companies / Tallgrass Energy /
    Trailblazer Pipeline Co. Plain links, one URL per level -- this site's browser tests run with
    scripts off (docs/04 D-30), so the whole drill-down is links and nothing else. #}
@@ -25,6 +30,21 @@
   {% if descriptor %}<span class="reuse-badge" id="org-descriptor">{{ descriptor }}</span>{% elif record.type and record.type != 'other' %}<span class="reuse-badge">{{ record.type | organization_type_label }}</span>{% endif %}
 </div>
 {{ m.as_filed(record.name) }}
+{#- The company's public facts (lane org-enrich `profile`; lane pages 2026-10-23): what it is in one
+    line, then its website, headquarters and stock listing. Each value carries its own source line, a
+    link to the statement it was read from (a Wikidata property, an SEC EDGAR filer page) with the
+    credit and the date it was read as the tooltip, because a company fact is shown only with where
+    it came from. A fact the API withholds or the source does not state is simply absent. -#}
+{% if profile %}
+{% if profile.description %}<p class="org-about" id="org-about"><span class="org-about__text">{{ profile.description.text }}</span>{{ fact_source(profile.description.source) }}</p>{% endif %}
+{% if profile.header %}
+<ul class="org-facts" id="org-facts">
+  {%- for f in profile.header %}
+  <li class="org-facts__item" id="org-fact-{{ f.key }}"><span class="org-facts__label">{{ f.label }}</span> {% if f.href %}<a href="{{ f.href }}" rel="noopener nofollow">{{ f.text }}</a>{% else %}<span class="org-facts__value">{{ f.text }}</span>{% endif %}{{ fact_source(f.source) }}</li>
+  {%- endfor %}
+</ul>
+{% endif %}
+{% endif %}
 {# "Operates 3 gas pipelines · Owns 12 power plants": one clause per (role, type) group, from the
    API's `asset_counts` where it sends them, else counted over the rows on this page. #}
 {% if summary_parts %}<p class="org-summary" id="org-summary">{{ summary_parts | join(' · ') }}</p>{% endif %}
@@ -43,7 +63,10 @@
   {% if record.type %}<div><dt>Type</dt><dd>{{ record.type | organization_type_label }}</dd></div>{% endif %}
   {% if record.country %}<div><dt>Country</dt><dd>{{ record.country }}</dd></div>{% endif %}
   {% if record.jurisdiction %}<div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction }}</dd></div>{% endif %}
-  {% if record.website %}<div><dt>Website</dt><dd><a href="{{ record.website }}" rel="noopener">{{ record.website }}</a></dd></div>{% endif %}
+  {#- A curated website stays here; one the profile states is in the header with its source. -#}
+  {% if record.website and not (profile and profile.website == record.website) %}<div><dt>Website</dt><dd><a href="{{ record.website }}" rel="noopener">{{ record.website }}</a></dd></div>{% endif %}
+  {% if profile and profile.lei %}<div id="org-fact-lei"><dt>LEI</dt><dd><span class="mono">{{ profile.lei.text }}</span>{{ fact_source(profile.lei.source) }}</dd></div>{% endif %}
+  {% if profile and profile.wikipedia %}<div id="org-fact-wikipedia"><dt>Wikipedia</dt><dd><a href="{{ profile.wikipedia.href }}" rel="noopener nofollow">English article</a>{{ fact_source(profile.wikipedia.source) }}</dd></div>{% endif %}
   {# An ownership claim is never rendered as a bare name. "X owns Y" is a statement about today
      read from a file that states some other day, so the source and the date -- or the plain fact
      that the source published no date -- sit with the claim (owner brief, 2026-09-20). #}
@@ -145,15 +168,20 @@
 </section>
 {% endif %}
 
-<section aria-label="Assets">
+<section aria-label="Assets" id="assets">
   {{ m.section_heading("1.", "Assets") }}
+  {#- Opened from a companies-index figure: the section shows what that figure counted. -#}
+  {% if asset_filter_notice %}<p class="filter-notice" id="asset-filter-notice">{{ asset_filter_notice.text }} <a href="{{ asset_filter_notice.clear_href }}">Show every asset</a></p>{% endif %}
   {% if mini_map %}{{ m.mini_map(mini_map, tile_url, tile_mode) }}{% endif %}
   {% if group_view and not group_view.show_asset_table %}
   <p>Open a company in the portfolio above for its assets.</p>
   {% elif asset_groups %}
   {% for g in asset_groups %}
   <div class="asset-group">
-    <h3 id="assets-{{ g.role }}-{{ g.asset_type }}">{{ g.role_label }} {{ g.count }} {{ g.type_label if g.count != 1 else g.type_label_singular }}</h3>
+    {#- One row per asset (web/organizations.py `_merge_holdings`), with every company of the scope
+        that holds it; the heading counts distinct assets, as the companies index does. When the API
+        holds more rows than the page reads, the heading is the whole count and says how many follow. -#}
+    <h3 id="assets-{{ g.role }}-{{ g.asset_type }}">{{ g.role_label }} {{ g.total }} {{ g.type_label if g.total != 1 else g.type_label_singular }}{% if g.total > g.count %} <span class="asset-group__more">(the first {{ g.count }} listed)</span>{% endif %}</h3>
     <div class="table-scroll">
     <table class="record-table">
       <caption class="visually-hidden">Assets this company {{ g.role_label | lower }}: {{ g.type_label }}.</caption>
@@ -168,7 +196,7 @@
           {% if g.show_length %}<td data-label="Length (miles)" class="num tnum">{% if a.length_miles is not none %}{{ '{:,.0f}'.format(a.length_miles) }}{% endif %}</td>{% endif %}
           {% if g.show_states %}<td data-label="States">{% if a.states %}{{ a.states }}{% elif a.state %}{{ a.state }}{% endif %}</td>{% endif %}
           {% if g.show_share and not record.personal_data %}<td data-label="Share" class="num tnum">{% if a.share_pct is not none %}{{ '%.1f%%'|format(a.share_pct) }}{% endif %}</td>{% endif %}
-          {% if g.show_held_by %}<td data-label="Held by">{% if a.held_by %}{% if a.held_by.slug %}<a href="/organizations/{{ a.held_by.slug }}">{{ a.held_by.name or a.held_by.slug }}</a>{% else %}{{ a.held_by.name }}{% endif %}{% endif %}</td>{% endif %}
+          {% if g.show_held_by %}<td data-label="Held by">{% for h in a.holders %}{% if h.slug %}<a href="/organizations/{{ h.slug }}">{{ h.name or h.slug }}</a>{% else %}{{ h.name }}{% endif %}{{ ', ' if not loop.last }}{% endfor %}</td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>

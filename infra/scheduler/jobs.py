@@ -341,6 +341,32 @@ def deadline_tick_job(_session_factory: Any = None, *, now: dt.datetime | None =
     return data
 
 
+def value_tick_job(
+    _session_factory: Any = None, *, _refresh: Callable[[], Any] | None = None
+) -> dict[str, Any]:
+    """Body of the `value_tick` task (lane rfp-value, review 2026-10-22): fetch the ECB reference
+    rates (one conditional GET; a failure is reported and the table in force is used), then restate
+    every opportunity's value and USD equivalent (`services/ingest/opportunity_value.py`
+    `value_pass`). Incremental sources never reload old rows, so without this the rows stored before
+    the value lane never gain a USD equivalent and `sort=-value` ranks only newer notices; it also
+    brings each day's new fixing to notices converted at an earlier one. Moves no `last_changed` and
+    writes no event (a restatement is not news, docs/22 §8)."""
+    from services.db.session import session_scope
+    from services.ingest.opportunity_value import value_pass
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    with session_scope(factory) as session:
+        data = value_pass(session, refresh=True, _refresh=_refresh)
+    _log_report(
+        "value_tick",
+        {
+            "fx_refresh": (data.get("fx_refresh") or {}).get("status"),
+            **{k: data[k] for k in ("examined", "changed", "amounts_restated", "with_value", "with_usd")},
+        },
+    )
+    return data
+
+
 class RetentionIncomplete(RuntimeError):
     """`retention_tick` could not read or delete some raw snapshots (`services/retention`). Raised
     after the run log is committed, so the job shows as failed in the queue and the record of what
@@ -1209,4 +1235,62 @@ def context_load_job(
     refresh = _refresh if _refresh is not None else refresh_organization_stats
     data["organization_stats"] = refresh(factory)
     _log_report("context_load", data)
+    return data
+
+
+#: The counts the `org_enrich_fetch` job reports and logs: no organisation names (the decisions file
+#: holds those, for the apply job and an operator).
+_ORG_ENRICH_REPORT_KEYS = (
+    "targets",
+    "by_status",
+    "matched_by_rule",
+    "wikidata_attached",
+    "with_fields",
+    "fields_filled",
+    "ticker_withheld",
+    "search",
+    "requests",
+)
+
+
+def org_enrich_decisions_path(data_root: Path | None = None) -> Path:
+    """Where `org_enrich_fetch` leaves its decisions for `org_enrich_apply`: the connector data
+    root's `normalized/context/`, beside the other monthly context files."""
+    from services.ingest.org_enrich import DECISIONS_FILENAME
+
+    root = data_root if data_root is not None else connector_data_root()
+    return root / "normalized" / "context" / DECISIONS_FILENAME
+
+
+def org_enrich_fetch_job(
+    _transport: Any = None, *, _session_factory: Any = None, _data_root: Path | None = None
+) -> dict[str, Any]:
+    """Body of `org_enrich_fetch` (monthly; `services/ingest/org_enrich.py`): read the targets in one
+    short transaction, then decide every match over the network with no session open, and write the
+    decisions file. Writes nothing to the store, so it holds no store-wide lock. `_transport` is the
+    test seam (a `RecordedTransport`); the live one needs `BANKABLE_DOMAIN` for its User-Agents."""
+    from services.ingest import org_enrich
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    with factory() as session:
+        targets = org_enrich.collect_targets(session)
+    transport = _transport if _transport is not None else org_enrich.LiveTransport()
+    result = org_enrich.fetch_profiles(None, transport, targets=targets)
+    org_enrich.write_decisions(result, org_enrich_decisions_path(_data_root))
+    data = {key: result.report.get(key) for key in _ORG_ENRICH_REPORT_KEYS}
+    _log_report("org_enrich_fetch", data)
+    return data
+
+
+def org_enrich_apply_job(*, _session_factory: Any = None, _data_root: Path | None = None) -> dict[str, Any]:
+    """Body of `org_enrich_apply`: write the decisions `org_enrich_fetch` left (profiles, the
+    websites this module wrote; what a negative decision withdraws). No network.
+    Idempotent: a second apply of one decisions file changes nothing."""
+    from services.ingest import org_enrich
+
+    factory = _session_factory if _session_factory is not None else build_session_factory()
+    result = org_enrich.read_decisions(org_enrich_decisions_path(_data_root))
+    with factory() as session:
+        data = org_enrich.apply_profiles(session, result).as_report()
+    _log_report("org_enrich_apply", data)
     return data

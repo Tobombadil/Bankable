@@ -315,18 +315,12 @@ def test_assets_index_type_counts_are_fetched_once_and_cached(web_client: TestCl
 
 
 # ========================================================================= /organizations index
-def test_organizations_index_shows_descriptor_and_holdings_from_the_shared_helpers(
-    web_client: TestClient,
-) -> None:
-    """`org_descriptor()` and `_org_summary_parts()` are the ownership lane's helpers; the index
-    reuses them, so a row reads exactly as the company page's header and summary do."""
-    counts = {"by_role_and_type": {"operator": {"gas_pipeline": 6}, "owner": {"gas_processing_plant": 2}}}
-    transport = _transport(
-        {
-            "/v1/organizations": _page([_org()]),
-            "/v1/organizations/org_01JBQ8C4X1": (200, {"data": {**_org(), "group_asset_counts": counts}}),
-        }
-    )
+# Lane pages (2026-10-23): each row's figures come from the list response's `stats`
+# (`web/test_companies_index.py` holds the figures, sorts, filters and links); these keep the
+# index's crawlable basics: one list read per page, the row link, the search's own empty state.
+def test_organizations_index_reads_each_row_from_the_list_alone(web_client: TestClient) -> None:
+    stats = {"scope": "group", "organizations": 1, "assets": 8, "operating_mw": 1200.0, "list_queries": {}}
+    transport = _transport({"/v1/organizations": _page([_org(stats=stats)])})
     _install(transport)
 
     resp = web_client.get("/organizations")
@@ -334,9 +328,9 @@ def test_organizations_index_shows_descriptor_and_holdings_from_the_shared_helpe
     assert resp.status_code == 200
     body = resp.text
     assert '<a class="row-link" href="/organizations/tallgrass-energy">Tallgrass Energy</a>' in body
-    assert "Gas pipeline operator and Gas processing operator" in body
-    assert "Operates 6 gas pipelines · Owns 2 gas processing plants" in body
-    assert ">8<" in body  # the assets column: 6 + 2
+    assert ">8<" in body and ">1.20<" in body  # assets, and operating capacity in GW
+    # No per-row detail read any more: the figures ride on the list row.
+    assert not any(c[1] == "/v1/organizations/org_01JBQ8C4X1" for c in transport.calls)
 
 
 def test_organizations_index_search_forwards_q_and_shows_its_own_empty_state(
@@ -348,26 +342,21 @@ def test_organizations_index_search_forwards_q_and_shows_its_own_empty_state(
     resp = web_client.get("/organizations", params={"q": "nobody"})
 
     assert resp.status_code == 200
-    params = next(c[2] for c in transport.calls if c[1] == "/v1/organizations")
+    params = next(c[2] for c in transport.calls if c[1] == "/v1/organizations" and c[2].get("q"))
     assert params["q"] == "nobody"
-    assert params["limit"] == "25"
+    assert params["limit"] == "50"
+    assert params.get("sort") is None  # a search keeps the API's best-match order
     assert "No companies match this search." in resp.text
 
 
-def test_organizations_index_row_survives_a_failed_counts_call(web_client: TestClient) -> None:
-    transport = _transport(
-        {
-            "/v1/organizations": _page([_org(type="developer")]),
-            "/v1/organizations/org_01JBQ8C4X1": (500, {"title": "boom"}),
-        }
-    )
+def test_organizations_index_row_without_figures_prints_dashes_not_zeros(web_client: TestClient) -> None:
+    transport = _transport({"/v1/organizations": _page([_org(type="developer", stats=None)])})
     _install(transport)
 
     resp = web_client.get("/organizations")
 
     assert resp.status_code == 200
     assert "Tallgrass Energy" in resp.text
-    assert "Developer" in resp.text  # the stored type in words, since no counts came back
     assert ">0<" not in resp.text  # never a fabricated zero
 
 

@@ -91,6 +91,8 @@ tags:
     description: Proposal ↔ opportunity matches with score and rationale (docs/21 §3.11).
   - name: Map
     description: Clustered GeoJSON for the map-first surface (docs/04 §2.2). Same filters and tier rules as the lists.
+  - name: Prices
+    description: Energy prices (docs/29) — hub and zone statistics, the latest price where the source's terms allow raw rows, and EIA's state retail averages. Context data with no lifecycle; every value carries its provenance and credit.
   - name: Interconnection points
     description: Where proposals connect to the grid, as each register names it (docs/21 §3.24), with the queue behind each point. Totals are computed per request over the proposals the caller's tier may see.
   - name: Sites
@@ -121,6 +123,16 @@ tags:
     description: Outbound subscriptions — a saved search with a URL as its channel (scope `write:webhooks`).
   - name: Feeds
     description: RSS 2.0, JSON Feed 1.1 and sitemaps on the public tier.
+  - name: Private projects
+    description: >-
+      "My pipeline" (docs/19 §6.1; ADR 0009): a signed-in user's private deals on Inframation's graph, under
+      `/v1/my/`. Session only (never an API key), a verified email required, every read and write through one
+      authorisation function: an outsider gets the same `404` as an unknown id, a member without the role
+      `403 forbidden_role`. Linked public records are read live at the caller's tier; nothing private reaches a
+      public surface, the change feed, analytics, logs or error reports. Writes need an `Origin` naming the site
+      and a JSON body. An `Idempotency-Key` is accepted and never replayed: no private response is stored outside
+      the private tables. No PRD story names this workspace (docs/10 predates it); `x-prd-stories` lists the
+      stories each operation builds on and `x-spec` the docs/19 section it implements.
   - name: Admin — sources
     description: Source health, runs, snapshots, publish state and licence gates (US-904, US-905).
   - name: Admin — records
@@ -191,7 +203,7 @@ x-filter-grammar:
   operators: [gte, lte, gt, lt, from, to]
   sort_allowlist:
     proposals: [last_changed, first_seen, capacity_mw, name_canonical]
-    opportunities: [due_at, open_at, last_changed, budget_amount]
+    opportunities: [due_at, open_at, last_changed, budget_amount, value]
     events: [seq, observed_at]
     matches: [score, first_matched_at]
   defaults:
@@ -247,6 +259,25 @@ x-standard-headers: &std_headers
   Sunset:
     $ref: '#/components/headers/Sunset'
 
+# Headers on every private (`/v1/my/`) response (docs/19 §5.2 item 6): never cached, never indexed, no referrer.
+x-private-headers: &private_headers
+  X-Request-Id:
+    $ref: '#/components/headers/X-Request-Id'
+  RateLimit-Limit:
+    $ref: '#/components/headers/RateLimit-Limit'
+  RateLimit-Remaining:
+    $ref: '#/components/headers/RateLimit-Remaining'
+  RateLimit-Reset:
+    $ref: '#/components/headers/RateLimit-Reset'
+  RateLimit-Policy:
+    $ref: '#/components/headers/RateLimit-Policy'
+  Cache-Control:
+    $ref: '#/components/headers/Cache-Control'
+  X-Robots-Tag:
+    $ref: '#/components/headers/X-Robots-Tag'
+  Referrer-Policy:
+    $ref: '#/components/headers/Referrer-Policy'
+
 # Security requirement sets. In OpenAPI 3.1 the string list on a non-OAuth scheme is a list of role names —
 # here the key scopes of docs/23 §5 for ApiKey, and entitlement / role names for the session schemes.
 x-security-sets:
@@ -271,6 +302,8 @@ x-security-sets:
     - AdminSession: [owner]
   legal: &sec_legal
     - AdminSession: [legal]
+  private: &sec_private
+    - Session: []
 
 # Error responses common to every operation (docs/23 §8). Listed once here and referenced per operation.
 x-common-errors: &common_errors
@@ -637,6 +670,8 @@ paths:
         - $ref: '#/components/parameters/CapacitySoughtMwGte'
         - $ref: '#/components/parameters/BudgetCurrency'
         - $ref: '#/components/parameters/BudgetAmountGte'
+        - $ref: '#/components/parameters/MinValue'
+        - $ref: '#/components/parameters/MaxValue'
         - $ref: '#/components/parameters/FirstSeenFrom'
         - $ref: '#/components/parameters/FirstSeenTo'
         - $ref: '#/components/parameters/LastChangedFrom'
@@ -928,7 +963,12 @@ paths:
       operationId: getOrganization
       tags: [Organizations]
       summary: Organization detail
-      description: Canonical name, type, identifiers, aliases (each with its provenance quartet) and counts of visible proposals and opportunities (US-203 AC1).
+      description: >-
+        Canonical name, type, identifiers, aliases (each with its provenance quartet) and counts of visible
+        proposals and opportunities (US-203 AC1). `profile` adds the public company facts a company page shows
+        (official website, headquarters, one-line description, stock ticker and exchange, LEI, English Wikipedia
+        link), each with its own provenance, from Wikidata and SEC EDGAR (2026-10-22); the envelope's
+        `licence_summary` attributes the facts shown.
       x-tier: public
       x-status: live
       x-sprint: 2
@@ -2306,6 +2346,148 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  # ───────────────────────── Energy prices, slice 1 (docs/29; owner decision 2026-10-22) ─────────────────────────
+  /v1/prices/hubs:
+    get:
+      operationId: listPriceHubs
+      tags: [Prices]
+      summary: Hub and zone price statistics, with the latest price where the terms allow it
+      description: |
+        Every trading hub and load zone the platform prices (ERCOT, SPP, CAISO, NYISO and Great Britain's system
+        price), each with its trailing statistics per market (`da` day-ahead, `rt` real-time): the average price,
+        the last 30 days' average, basis to the market's reference hub, the share of negative-price intervals and
+        the average daily top-4 minus bottom-4 hourly spread, with the window, sample count and coverage behind
+        them. A figure under 90% interval coverage is `null`, with the reason in `withheld`.
+
+        Gated by the visibility predicate: a location appears only when its source is on the caller's surface and
+        its licence class is publishable under the platform posture (SPP is `noncommercial`). `latest` and
+        `series_url` are present only where the source's licence allows raw publication (`publication: raw_ok`);
+        a derived-only source (CAISO, NYISO) carries statistics alone. PJM, MISO and ISO New England have no rows:
+        `notes.link_outs` names each with its own price page and the reason. Not paged (under 50 rows).
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: market
+          in: query
+          description: Market codes, comma-separated for OR.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [ERCOT, SPP, CAISO, NYISO, GB]
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [hub, zone]
+        - name: sort
+          in: query
+          description: >-
+            One statistic of one market (`da_mean`, `rt_mean_30d`, `da_basis`, `rt_negative_share`, `da_spread`, ...),
+            a statistic of each location's `lead_market` (`mean`, `mean_30d`, `basis`, `negative_share`, `spread`:
+            day-ahead where the location has day-ahead statistics, else real-time, as the page shows them),
+            `latest_rt`, `latest_da`, `name` or `market`; prefix `-` for descending. Numbers sort within their
+            currency, dollar rows before pound rows, never interleaved. Locations without the figure sort last in
+            both directions. Default `-da_mean`.
+          schema:
+            type: string
+            pattern: '^-?((da_|rt_)?(mean|mean_30d|basis|negative_share|spread)|latest_rt|latest_da|name|market)$'
+      responses:
+        '200':
+          description: Hub and zone prices inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHubListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/prices/hubs/{location_id}/series:
+    get:
+      operationId: getPriceHubSeries
+      tags: [Prices]
+      summary: One hub or zone, with its daily averages for a year where the terms allow raw rows
+      description: |
+        The location as in the list, plus `series`: one row per market-local day for the trailing year (mean,
+        min, max, intervals present and expected, negative intervals, the day's top-4 minus bottom-4 spread).
+        A day holding under 90% of its intervals (today so far; SPP's hourly real-time readouts) is left out.
+        Only where the source's licence allows raw publication; for a derived-only source `series` is `null`
+        and `series_withheld_reason` says why, and the statistics are returned instead. A location the caller's
+        tier may not see is `404`, as an unknown id is.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: location_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z]+\.[a-z0-9_]+$'
+            examples: [ercot.hb_north]
+      responses:
+        '200':
+          description: The location and its daily series inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceHubSeriesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/prices/retail:
+    get:
+      operationId: listRetailPrices
+      tags: [Prices]
+      summary: Average retail electricity price by state, latest month and 12-month average (EIA)
+      description: |
+        EIA-861M's average price (revenue per kilowatt-hour sold) for each state and sector, the latest month and
+        the trailing twelve-month average (revenue over sales across the twelve months), in cents per kWh. Public
+        domain; the credit names the file's release date, as EIA asks. An average, not a tariff, and not what a
+        new large load would pay.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: sector
+          in: query
+          description: The sector `latest_cents_kwh`, `avg_12m_cents_kwh` and the sort read. Default `industrial`.
+          schema:
+            type: string
+            enum: [industrial, commercial, residential]
+        - name: sort
+          in: query
+          description: '`state`, `latest` or `avg_12m`; prefix `-` for descending. Default `-latest`.'
+          schema:
+            type: string
+            pattern: '^-?(state|latest|avg_12m)$'
+      responses:
+        '200':
+          description: State retail prices inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetailPriceListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         <<: *common_errors
 
   # ───────────────────────── Built-infrastructure context layer (docs/00-PLAN.md 2026-09-14) ─────────────────────────
@@ -3937,6 +4119,976 @@ paths:
           $ref: '#/components/responses/Unauthenticated'
         '404':
           $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  # ───────────────────────────── Private projects: "My pipeline" (docs/19 §6.1; ADR 0009) ─────────────────────────────
+  # Session only (`Session: []`, a verified email), never an API key; `Cache-Control: private, no-store`,
+  # `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: no-referrer` on every response; the same `404` for an
+  # unknown project and one the caller is not a member of. Writes need `Origin` naming the site and a JSON body.
+  /v1/my/projects:
+    get:
+      operationId: listMyProjects
+      tags: [Private projects]
+      summary: Your projects, owned and shared
+      description: >-
+        Every project the signed-in user owns or is a member of, newest change first; archived ones only with
+        `include_archived=true`. Each row carries the caller's `role`, the member count and checklist progress
+        ("N of M done, your status": counts the members set, never a score). Empty for a user with none.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      parameters:
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ['true', 'false']
+            default: 'false'
+      responses:
+        '200':
+          description: The caller's projects.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        <<: *common_errors
+    post:
+      operationId: createMyProject
+      tags: [Private projects]
+      summary: Start a project, blank or from a public record
+      description: >-
+        Blank, or `from` a proposal (any status but withdrawn and cancelled; relation `this_project` or `nearby`),
+        a retiring or retired power plant (`grid_connection`), an announced, open or reinstated opportunity
+        (`offtake_or_rfp`, or `funding` for a funding notice) or an interconnection point (`grid_connection`),
+        which the caller must be able to see now (`400` otherwise). The record is linked to the new project, and
+        each field the body leaves out is prefilled from it, but only from values whose sources are all `open` or
+        `attribution` (docs/19 §7): `prefill.fields` names what was filled and `prefill.left_blank` what the
+        licence rule left blank (the live value stays on the linked record). A field the body gives, `null`
+        included, is the user's own. A merged record's old id starts from its survivor. At most 25 active owned
+        projects (`409 conflict`). The owner is the caller; no body key can name another.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §1, §6.1, §7
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyProjectCreate'
+      responses:
+        '201':
+          description: The new project, as `GET /v1/my/projects/{project_id}` returns it, plus `prefill`.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/prefill:
+    post:
+      operationId: previewMyPrefill
+      tags: [Private projects]
+      summary: What starting a deal from a record would prefill
+      description: >-
+        The "Start a deal" form's values (docs/19 §6.2) for a record, under the same rules as
+        `createMyProject`'s `from`, without creating anything: the prefilled `values`, the fields left blank by the
+        licence rule, the relations offered and the record as the caller sees it now. A `POST` so the record id
+        travels in the body, never in a URL an access log records.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.2, §7
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyStartFrom'
+      responses:
+        '200':
+          description: The prefill.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyPrefillResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: getMyProject
+      tags: [Private projects]
+      summary: A project, its linked records read live, and readiness by pillar
+      description: >-
+        Viewer. Each linked record is re-read on this request through its own public read path and visibility
+        predicate at the caller's tier (docs/19 §4.2): `available` with its key facts and Sources, `merged` with
+        its visible survivor's, or `unavailable` with "This record is no longer available" and nothing else.
+        `readiness` is "N of M items done (your status) · K with suggested public-record evidence" per pillar,
+        completeness first; there is no single score and no item is ever "verified".
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201, US-203]
+      x-spec: docs/19 §2.2, §2.3, §6.1
+      security: *sec_private
+      responses:
+        '200':
+          description: The project.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    patch:
+      operationId: updateMyProject
+      tags: [Private projects]
+      summary: Edit a project's fields; archive or unarchive it
+      description: >-
+        Editor for the fields (title, technology, capacity, stage, map point; a moved point becomes the user's
+        own, `point_precision: user`), owner for `archived`. An archived project takes only `archived: false`
+        (and delete); anything else is `404`. Unarchiving runs before the edit and archiving after it.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyProjectUpdate'
+      responses:
+        '200':
+          description: The project after the change.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyProjectResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    delete:
+      operationId: deleteMyProject
+      tags: [Private projects]
+      summary: Delete a project permanently
+      description: Owner. Every member, link, checklist item, evidence reference, note, invitation and activity row goes with it.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201, US-910]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      responses:
+        '204':
+          description: Deleted.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/links:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyProjectLinks
+      tags: [Private projects]
+      summary: Linked records, read live
+      description: Viewer. As `links` on `getMyProject`.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-203]
+      x-spec: docs/19 §2.2, §4.2
+      security: *sec_private
+      responses:
+        '200':
+          description: The links, oldest first.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLinkListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: addMyProjectLink
+      tags: [Private projects]
+      summary: Link a public record
+      description: >-
+        Editor. A reference (type, public id, relation) to a record the caller can see now (`400` otherwise); a
+        merged id is stored as its survivor's. The same link again answers `200` with the one already there. At
+        most 50 links per project (`409 conflict`). `corridor` links arrive with the site finder (docs/19 §4.2,
+        lane P6) and are refused until then.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-203]
+      x-spec: docs/19 §2.2, §6.1
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyLinkCreate'
+      responses:
+        '200':
+          description: The link was already there.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLinkResponse'
+        '201':
+          description: The new link, read live.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLinkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/links/{link_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyLinkId'
+    delete:
+      operationId: removeMyProjectLink
+      tags: [Private projects]
+      summary: Remove a link
+      description: Editor. When no other link names the record, its evidence references go too.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-203]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      responses:
+        '204':
+          description: Removed.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: getMyChecklist
+      tags: [Private projects]
+      summary: The bankability checklist, with live suggestions
+      description: >-
+        Viewer. Six folders of items, each with the status the members set (not started, in progress, done, not
+        applicable: there is no "verified"), the private pack's guidance once one is loaded, and suggested
+        evidence rebuilt now from the linked records (docs/19 §2.4), each labelled "Suggested from public records
+        · not verified" with what the record states, its source and its retrieval date. Dismissed suggestions are
+        not listed. Only the reference behind a suggestion is stored.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.3, §2.4
+      security: *sec_private
+      responses:
+        '200':
+          description: The checklist.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyChecklistResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: addMyChecklistItem
+      tags: [Private projects]
+      summary: Add a custom checklist item
+      description: Editor. Its pillar follows its folder unless given.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §6.1
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyChecklistItemCreate'
+      responses:
+        '201':
+          description: The item.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyChecklistItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist/{item_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyItemId'
+    patch:
+      operationId: setMyChecklistStatus
+      tags: [Private projects]
+      summary: Set an item's status (your statement, never a verification)
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.3
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyChecklistStatusUpdate'
+      responses:
+        '200':
+          description: The item.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyChecklistItemResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist/{item_id}/evidence/{evidence_id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyItemId'
+      - $ref: '#/components/parameters/MyEvidenceId'
+    post:
+      operationId: acceptMyEvidence
+      tags: [Private projects]
+      summary: Keep a suggestion on its item
+      description: Editor. The item's status does not change; the suggestion stays "not verified".
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.4
+      security: *sec_private
+      responses:
+        '200':
+          description: The decision.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEvidenceDecisionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/checklist/{item_id}/evidence/{evidence_id}/dismiss:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyItemId'
+      - $ref: '#/components/parameters/MyEvidenceId'
+    post:
+      operationId: dismissMyEvidence
+      tags: [Private projects]
+      summary: Hide a suggestion
+      description: Editor. The item's status does not change.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §2.4
+      security: *sec_private
+      responses:
+        '200':
+          description: The decision.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEvidenceDecisionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/notes:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyNotes
+      tags: [Private projects]
+      summary: Notes, newest first
+      description: >-
+        Viewer. Plain text, returned as typed (pages render it escaped). An author who is no longer a member, an
+        erased account included, is shown as "Former member" with no name or id.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      responses:
+        '200':
+          description: The notes.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyNoteListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: addMyNote
+      tags: [Private projects]
+      summary: Add a note
+      description: Editor. At most 20,000 characters; control characters other than line breaks are refused.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyNoteWrite'
+      responses:
+        '201':
+          description: The note.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyNoteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/notes/{note_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyNoteId'
+    patch:
+      operationId: editMyNote
+      tags: [Private projects]
+      summary: Edit your note
+      description: Its author, while an editor.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyNoteWrite'
+      responses:
+        '200':
+          description: The note.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyNoteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    delete:
+      operationId: deleteMyNote
+      tags: [Private projects]
+      summary: Delete a note
+      description: Its author or the project owner.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.5
+      security: *sec_private
+      responses:
+        '204':
+          description: Deleted.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/members:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyMembers
+      tags: [Private projects]
+      summary: Members and roles
+      description: Viewer. Owner first; names and roles, never another member's email address.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      responses:
+        '200':
+          description: The members.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyMemberListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/members/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyMemberUserId'
+    patch:
+      operationId: changeMyMember
+      tags: [Private projects]
+      summary: Change a member's role, or transfer ownership
+      description: >-
+        Owner. `editor` or `viewer`; `owner` transfers ownership to that member (the caller becomes an editor and
+        their open invitations are revoked). Returns the members.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyMemberUpdate'
+      responses:
+        '200':
+          description: The members after the change.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyMemberListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    delete:
+      operationId: removeMyMember
+      tags: [Private projects]
+      summary: Remove a member, or leave
+      description: >-
+        Owner removes another member; any other member removes themselves (leaving). The owner cannot leave
+        (`403 forbidden_role`: transfer ownership first). Access ends on the removed user's next request.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      responses:
+        '204':
+          description: Removed.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/invitations:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyInvitations
+      tags: [Private projects]
+      summary: Pending invitations
+      description: Owner only (an editor or viewer gets `403 forbidden_role`). Never a token or its hash.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6 rule 5
+      security: *sec_private
+      responses:
+        '200':
+          description: Pending invitations, newest first.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+    post:
+      operationId: createMyInvitation
+      tags: [Private projects]
+      summary: Invite one address as editor or viewer, and get the link to send
+      description: >-
+        Owner. Returns the private link (`/my/invitations/accept?t=…`) once: the token is stored only as its
+        SHA-256, never logged, and this response is never stored for replay. Nothing is emailed (owner,
+        2026-10-22): the owner copies the link. Inviting an address with an open invitation replaces it. At most 10
+        pending per project and 20 new a day per user (`409`, `429 quota_exceeded`), and 10 an hour per user
+        (`429 rate_limited`).
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6
+      security: *sec_private
+      parameters:
+        - $ref: '#/components/parameters/MyIdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyInvitationCreate'
+      responses:
+        '201':
+          description: The invitation and its link, shown once.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationCreatedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/invitations/{invitation_id}:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+      - $ref: '#/components/parameters/MyInvitationId'
+    delete:
+      operationId: revokeMyInvitation
+      tags: [Private projects]
+      summary: Revoke a pending invitation
+      description: Owner. Its link stops working and its address is cleared.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6 rule 4
+      security: *sec_private
+      responses:
+        '204':
+          description: Revoked.
+          headers: *private_headers
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenRole'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/invitations/preview:
+    post:
+      operationId: previewMyInvitation
+      tags: [Private projects]
+      summary: Check an invitation before accepting it
+      description: >-
+        Who invited you, the project's title and the role, once the token and your verified address both check out
+        (docs/19 §6.2). Consumes nothing. Every failure (wrong, expired, used or revoked token; wrong or unverified
+        address) is the same `404`, "This invitation is not valid for this account". The token is in the body,
+        never the path.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6, §6.2
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyInvitationToken'
+      responses:
+        '200':
+          description: The invitation.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationPreviewResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/invitations/accept:
+    post:
+      operationId: acceptMyInvitation
+      tags: [Private projects]
+      summary: Accept an invitation
+      description: >-
+        Single use: the membership is added and the invitation consumed in one transaction; a replay fails. The
+        same `404` as `previewMyInvitation` for every failure. A member who accepts keeps their role.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-602]
+      x-spec: docs/19 §2.6 rules 1-5
+      security: *sec_private
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyInvitationToken'
+      responses:
+        '200':
+          description: The project joined.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/projects/{project_id}/activity:
+    parameters:
+      - $ref: '#/components/parameters/MyProjectId'
+    get:
+      operationId: listMyActivity
+      tags: [Private projects]
+      summary: The project's history
+      description: >-
+        Viewer. Newest first: the action, when, who (a departed member as "Former member") and the ids it touched,
+        never a value. Never written to the public change feed (`event`).
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-201]
+      x-spec: docs/19 §4.1
+      security: *sec_private
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        '200':
+          description: The history.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyActivityListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/my/pins:
+    get:
+      operationId: listMyPins
+      tags: [Private projects]
+      summary: The map's private dots
+      description: >-
+        One pin per active project the caller owns or is a member of that has a map point: `public_id`, `title`,
+        `stage`, `lat`, `lon`, `precision`, `progress` and `role`, nothing else; `meta.unplaced_count` counts the
+        projects without one (docs/19 §2.7). The site fetches this by script after the map loads (relayed as
+        `/api/my/pins`), so no page's HTML ever varies with it.
+      x-tier: public
+      x-status: live
+      x-prd-stories: [US-104]
+      x-spec: docs/19 §2.7
+      security: *sec_private
+      responses:
+        '200':
+          description: The pins.
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyPinsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
+        <<: *common_errors
+
+  /v1/my/export:
+    get:
+      operationId: exportMyData
+      tags: [Private projects]
+      summary: Download your own data
+      description: >-
+        One JSON document (`schema: inframation.my-export/1`) as a download, at most 5 a day (docs/19 §5.5): for
+        each project you own its fields, members, links (references and URLs, never a linked record's values),
+        checklist, evidence references, notes and activity; for each project you are a member of, your membership
+        and your own notes. Never another member's address. The document is built by lane P4; until it lands this
+        answers `503 unavailable`. A request the browser marks `Sec-Fetch-Site: cross-site` (another site's link
+        or navigation, which `SameSite=Lax` sends the cookie with) is refused with a `400` before it counts
+        against the daily limit.
+      x-tier: public
+      x-status: planned
+      x-prd-stories: [US-910]
+      x-spec: docs/19 §5.5
+      security: *sec_private
+      responses:
+        '200':
+          description: 'The export, as a download (`Content-Disposition: attachment`).'
+          headers: *private_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyExport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/ForbiddenTier'
         <<: *common_errors
 
   # ───────────────────────────── §4 Admin — admin. hostname, role operator or owner ─────────────────────────────
@@ -6771,9 +7923,74 @@ components:
       schema:
         type: string
         format: uri
+    X-Robots-Tag:
+      description: '`noindex, nofollow` on every private (`/v1/my/`) response (docs/19 §5.2 item 6).'
+      schema:
+        type: string
+        examples: ['noindex, nofollow']
+    Referrer-Policy:
+      description: '`no-referrer` on every private (`/v1/my/`) response, so no private path reaches another site.'
+      schema:
+        type: string
+        examples: [no-referrer]
 
   # ───────────────────────────── Parameters ─────────────────────────────
   parameters:
+    MyProjectId:
+      name: project_id
+      in: path
+      required: true
+      description: A private project the caller is a member of; any other value is the same `404`.
+      schema:
+        $ref: '#/components/schemas/MyProjectPublicId'
+    MyLinkId:
+      name: link_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
+    MyItemId:
+      name: item_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
+    MyEvidenceId:
+      name: evidence_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyRowId'
+    MyNoteId:
+      name: note_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyNotePublicId'
+    MyMemberUserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/UserPublicId'
+    MyInvitationId:
+      name: invitation_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/MyInvitationPublicId'
+    MyIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: >-
+        Accepted on a private write (8 to 128 printable characters) and never replayed: no private response is
+        stored outside the private tables (docs/19 §6.1). The writes a retry could repeat are safe to repeat:
+        the same link answers with the one already there, and a second invitation to one address replaces
+        the first.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
     # Pagination and expansion (docs/23 §7)
     Limit:
       name: limit
@@ -6856,15 +8073,40 @@ components:
       name: sort
       in: query
       description: >-
-        Allowlist: `due_at`, `open_at`, `last_changed`, `budget_amount`. Default `due_at`. Budgets are stored in the
-        notice's own currency and never converted, so `budget_amount` (either direction, in any position) orders only
-        within exactly one `budget_currency` (`?budget_currency=EUR&sort=-budget_amount`); without `budget_currency`,
-        or with more than one, it is a `400 validation_error` naming `sort` rather than an ordering across currencies.
-        The same rule applies to an export's stored `query` and to `Accept: text/csv`.
+        Allowlist: `due_at`, `open_at`, `last_changed`, `budget_amount`, `value`. Default `due_at`. Budgets are stored
+        in the notice's own currency and never converted, so `budget_amount` (either direction, in any position) orders
+        only within exactly one `budget_currency` (`?budget_currency=EUR&sort=-budget_amount`); without
+        `budget_currency`, or with more than one, it is a `400 validation_error` naming `sort` rather than an ordering
+        across currencies. The same rule applies to an export's stored `query` and to `Accept: text/csv`. `value`
+        orders across currencies by `value.usd_equivalent`, the stated amount converted at the ECB reference rate of the
+        notice's publication date (`-value`: largest first); records without a USD equivalent (no stated amount, a
+        currency the ECB does not quote, or an amount that looks like a placeholder, `value.amount_note`) come last in
+        both directions. The equivalent is approximate and the stated
+        amount and currency stay the record's value (`Opportunity.value`).
       schema:
         type: string
-        pattern: '^-?(due_at|open_at|last_changed|budget_amount)(,-?(due_at|open_at|last_changed|budget_amount))*$'
+        pattern: '^-?(due_at|open_at|last_changed|budget_amount|value)(,-?(due_at|open_at|last_changed|budget_amount|value))*$'
         default: due_at
+    MinValue:
+      name: min_value
+      in: query
+      description: >-
+        Inclusive lower bound on `value.usd_equivalent`, in US dollars (`?min_value=1000000`). An opportunity with no
+        USD equivalent matches no bound. A list filter only: saved searches and alerts do not take it (`400
+        unknown_parameter`).
+      schema:
+        type: number
+        minimum: 0
+    MaxValue:
+      name: max_value
+      in: query
+      description: >-
+        Inclusive upper bound on `value.usd_equivalent`, in US dollars. Below `min_value` it is a `400
+        validation_error` naming `max_value`. An opportunity with no USD equivalent matches no bound. A list filter
+        only, as `min_value`.
+      schema:
+        type: number
+        minimum: 0
     SortOrganizations:
       name: sort
       in: query
@@ -8180,6 +9422,24 @@ components:
 
   # ───────────────────────────── §8 Error responses (RFC 9457) ─────────────────────────────
   responses:
+    ForbiddenRole:
+      description: >-
+        A member of the private project whose role does not allow the action (docs/19 §5.1, §2.6): an editor
+        inviting, a viewer editing, an owner leaving without transferring. An outsider gets `404 not_found`.
+      headers: *private_headers
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://api.inframation.io/errors/forbidden_role
+            title: Your role in this project does not allow this
+            status: 403
+            code: forbidden_role
+            detail: This needs the owner role in this project.
+            instance: /v1/my/projects/prj_1M5K3CH64E3HS6N0YM6BNFP3F/invitations
+            request_id: req_4b1e3a
+            docs: https://inframation.io/docs/api/errors#forbidden_role
     Problem:
       description: Any other error, as RFC 9457 problem details with a stable `code`.
       headers: *std_headers
@@ -8477,6 +9737,713 @@ components:
 
   # ───────────────────────────── Schemas ─────────────────────────────
   schemas:
+    # ---------- Private projects: "My pipeline" (docs/19 §4, §6.1) ----------
+    MyProjectPublicId:
+      type: string
+      description: A private project's id, drawn at random (never from a title, a time or a row id).
+      pattern: '^prj_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [prj_1M5K3CH64E3HS6N0YM6BNFP3F]
+    MyNotePublicId:
+      type: string
+      pattern: '^nte_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [nte_2N6M4DJ75F4JT7P1ZN7CPGQ4G]
+    MyInvitationPublicId:
+      type: string
+      pattern: '^inv_[0-9A-HJKMNP-TV-Z]{10,26}$'
+      examples: [inv_3P7N5EK86G5KV8Q2ZP8DQHR5H]
+    MyRowId:
+      type: string
+      format: uuid
+      description: A checklist item's, link's or evidence reference's id (a random uuid4).
+    MyStage:
+      type: string
+      description: User-set, never inferred, never shown publicly (docs/19 §2.1).
+      enum: [prospecting, site_control, development, ready_to_build, construction, operating]
+    MyTechnology:
+      type: [string, 'null']
+      description: Inframation's technology classes (`pipeline/normalize.py`) plus `other`.
+      enum: [biomass, coal, fuel_cell, gas_cc, gas_ct, gas_ice, gas_other, gas_steam, geothermal, hydro, hydrogen, load, marine, nuclear, oil, pumped_storage, solar, solar_storage, solar_thermal, storage, transmission, waste, wind, wind_offshore, wind_storage, other, null]
+    MyRole:
+      type: string
+      enum: [owner, editor, viewer]
+    MyPointPrecision:
+      type: [string, 'null']
+      description: '`user` for a pin the user placed; otherwise the grade of the record it was copied from.'
+      enum: [user, exact, county_centroid, state_centroid, corridor_centre, null]
+    MyLinkRecordType:
+      type: string
+      enum: [proposal, site, asset, opportunity, organization, interconnection_point, corridor]
+    MyLinkRelation:
+      type: string
+      enum: [this_project, nearby, candidate_site, grid_connection, offtake_or_rfp, funding, counterparty, comparable]
+    MyItemStatus:
+      type: string
+      description: The members' own statement. There is no `verified` status (docs/19 §2.3).
+      enum: [not_started, in_progress, done, not_applicable]
+    MyEvidenceRule:
+      type: string
+      enum: [queue_position, executed_interconnection_agreement, gb_tec_register, air_permit, federal_record]
+    MyProgress:
+      type: object
+      description: '"9 of 32 done, your status": done items over items not marked not applicable. Counts, never a score.'
+      required: [done, total, label]
+      properties:
+        done: {type: integer, minimum: 0}
+        total: {type: integer, minimum: 0}
+        label: {type: string}
+      additionalProperties: false
+    MyProjectCreate:
+      type: object
+      description: Every key is optional except `title` on a blank project; any other key is refused (`400`).
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null'], minimum: 0}
+        storage_mwh: {type: [number, 'null'], minimum: 0}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        lat: {type: [number, 'null'], minimum: -90, maximum: 90}
+        lon: {type: [number, 'null'], minimum: -180, maximum: 180}
+        from:
+          $ref: '#/components/schemas/MyStartFrom'
+      additionalProperties: false
+    MyProjectUpdate:
+      type: object
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null'], minimum: 0}
+        storage_mwh: {type: [number, 'null'], minimum: 0}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        lat: {type: [number, 'null'], minimum: -90, maximum: 90}
+        lon: {type: [number, 'null'], minimum: -180, maximum: 180}
+        archived: {type: boolean, description: Owner only.}
+      additionalProperties: false
+    MyStartFrom:
+      type: object
+      description: The public record a deal starts from (docs/19 §1).
+      required: [record_type, public_id]
+      properties:
+        record_type:
+          type: string
+          enum: [proposal, asset, opportunity, interconnection_point]
+        public_id:
+          type: string
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+      additionalProperties: false
+    MyProjectSummary:
+      type: object
+      required: [public_id, url, title, technology, capacity_mw, storage_mwh, stage, role, archived, updated_at, member_count, shared, progress]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        url: {type: string, format: uri, description: The project's private page.}
+        title: {type: string}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null']}
+        storage_mwh: {type: [number, 'null']}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        role:
+          $ref: '#/components/schemas/MyRole'
+        archived: {type: boolean}
+        updated_at: {type: string, format: date-time}
+        member_count: {type: integer, minimum: 1}
+        shared: {type: boolean}
+        progress:
+          $ref: '#/components/schemas/MyProgress'
+      additionalProperties: false
+    MyLinkedRecord:
+      type: object
+      description: >-
+        A public record as the caller sees it now, through its own public read path: its key facts and its Sources
+        (one provenance quartet per readable source), never copied into private storage.
+      required: [record_type, public_id, url, name, status, facts, sources]
+      properties:
+        record_type:
+          $ref: '#/components/schemas/MyLinkRecordType'
+        public_id: {type: string}
+        url: {type: string, format: uri}
+        name: {type: [string, 'null']}
+        status: {type: [string, 'null']}
+        facts:
+          type: object
+          description: The record type's key facts, served exactly as its public detail serves them.
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvenanceQuartet'
+    MyLink:
+      type: object
+      required: [link_id, record_type, public_id, relation, added_at, state, survivor_public_id, record, message]
+      properties:
+        link_id:
+          $ref: '#/components/schemas/MyRowId'
+        record_type:
+          $ref: '#/components/schemas/MyLinkRecordType'
+        public_id:
+          type: [string, 'null']
+          description: The reference as stored; `null` when `state` is `unavailable`, so a record the viewer cannot see is not named.
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+        added_at: {type: string, format: date-time}
+        state:
+          type: string
+          description: '`available`; `merged` (the record was merged, or the site retired: `record` is the visible survivor); `unavailable` (nothing else is said).'
+          enum: [available, merged, unavailable]
+        survivor_public_id: {type: [string, 'null']}
+        record:
+          oneOf:
+            - $ref: '#/components/schemas/MyLinkedRecord'
+            - type: 'null'
+        message:
+          type: [string, 'null']
+          description: '"This record is no longer available" when `state` is `unavailable`, else null.'
+      additionalProperties: false
+    MyLinkCreate:
+      type: object
+      required: [record_type, public_id, relation]
+      properties:
+        record_type:
+          $ref: '#/components/schemas/MyLinkRecordType'
+        public_id: {type: string}
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+      additionalProperties: false
+    MyReadiness:
+      type: object
+      description: One line of readiness, "N of M items done (your status) · K with suggested public-record evidence".
+      required: [pillar, label, done, total, not_applicable, with_suggested_evidence, text]
+      properties:
+        pillar:
+          type: string
+          enum: [completeness, fundamentals, counterparties, regulatory_site, sponsor]
+        label: {type: string}
+        done: {type: integer, minimum: 0}
+        total: {type: integer, minimum: 0}
+        not_applicable: {type: integer, minimum: 0}
+        with_suggested_evidence: {type: integer, minimum: 0}
+        text: {type: string}
+      additionalProperties: false
+    MyPrefillMarks:
+      type: object
+      required: [from, relation, relations, fields, left_blank]
+      properties:
+        from:
+          type: object
+          required: [record_type, public_id]
+          properties:
+            record_type: {type: string}
+            public_id: {type: string}
+        relation:
+          $ref: '#/components/schemas/MyLinkRelation'
+        relations:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyLinkRelation'
+        fields:
+          type: array
+          description: The project fields filled from the record.
+          items: {type: string}
+        left_blank:
+          type: array
+          description: Fields the record states that the licence rule left blank (docs/19 §7).
+          items:
+            type: object
+            required: [field, reason]
+            properties:
+              field: {type: string}
+              reason: {type: string, enum: [licence]}
+    MyProject:
+      type: object
+      required: [public_id, url, title, technology, capacity_mw, storage_mwh, stage, role, archived, updated_at, lat, lon, point_precision, origin, created_at, archived_at, member_count, shared, links, readiness, progress, status_disclaimer]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        url: {type: string, format: uri}
+        title: {type: string}
+        technology:
+          $ref: '#/components/schemas/MyTechnology'
+        capacity_mw: {type: [number, 'null']}
+        storage_mwh: {type: [number, 'null']}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        role:
+          $ref: '#/components/schemas/MyRole'
+        archived: {type: boolean}
+        updated_at: {type: string, format: date-time}
+        lat: {type: [number, 'null']}
+        lon: {type: [number, 'null']}
+        point_precision:
+          $ref: '#/components/schemas/MyPointPrecision'
+        origin:
+          type: [object, 'null']
+          description: The record the project was started from.
+          properties:
+            record_type: {type: string}
+            public_id:
+              type: [string, 'null']
+              description: '`null` when the viewer cannot see that record now, as on a link.'
+        created_at: {type: string, format: date-time}
+        archived_at: {type: [string, 'null'], format: date-time}
+        member_count: {type: integer, minimum: 1}
+        shared: {type: boolean}
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyLink'
+        readiness:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyReadiness'
+        progress:
+          $ref: '#/components/schemas/MyProgress'
+        status_disclaimer: {type: string}
+        prefill:
+          description: On `createMyProject` only.
+          oneOf:
+            - $ref: '#/components/schemas/MyPrefillMarks'
+            - type: 'null'
+      additionalProperties: false
+    MyPrefill:
+      allOf:
+        - $ref: '#/components/schemas/MyPrefillMarks'
+        - type: object
+          required: [values, record]
+          properties:
+            values:
+              type: object
+              description: The prefilled project fields (`title`, `technology`, `capacity_mw`, `storage_mwh`, `stage`, `lat`, `lon`, `point_precision`).
+            record:
+              $ref: '#/components/schemas/MyLinkedRecord'
+    MySuggestion:
+      type: object
+      description: Suggested evidence, rebuilt from a linked record on this request. Never verified.
+      required: [evidence_id, state, rule, label, text, record, source, retrieved_at]
+      properties:
+        evidence_id:
+          description: The stored reference, for accept and dismiss; null on an archived project that had none.
+          oneOf:
+            - $ref: '#/components/schemas/MyRowId'
+            - type: 'null'
+        state:
+          type: string
+          enum: [suggested, accepted]
+        rule:
+          $ref: '#/components/schemas/MyEvidenceRule'
+        label:
+          type: string
+          const: Suggested from public records · not verified
+        text: {type: string, description: What the record states.}
+        record:
+          type: object
+          required: [record_type, public_id, url, name]
+          properties:
+            record_type: {type: string}
+            public_id: {type: string}
+            url: {type: string, format: uri}
+            name: {type: [string, 'null']}
+        source:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+        retrieved_at: {type: [string, 'null'], format: date-time}
+      additionalProperties: false
+    MyChecklistItem:
+      type: object
+      required: [item_id, template_key, name, folder, pillar, status, status_label, custom, guidance, updated_at, suggestions]
+      properties:
+        item_id:
+          $ref: '#/components/schemas/MyRowId'
+        template_key: {type: [string, 'null']}
+        name: {type: string}
+        folder:
+          type: string
+          enum: [contracts, finance, security, permits, feasibility, legal_corporate]
+        pillar:
+          type: string
+          enum: [fundamentals, counterparties, regulatory_site, sponsor]
+        status:
+          $ref: '#/components/schemas/MyItemStatus'
+        status_label: {type: string, description: '"Done (your status)" for done.'}
+        custom: {type: boolean}
+        guidance: {type: [string, 'null'], description: The private content pack's "What this is", once loaded.}
+        updated_at: {type: string, format: date-time}
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/MySuggestion'
+      additionalProperties: false
+    MyChecklist:
+      type: object
+      required: [project_id, status_disclaimer, evidence_label, status_labels, folders, readiness]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        status_disclaimer: {type: string}
+        evidence_label: {type: string}
+        status_labels:
+          type: object
+          additionalProperties: {type: string}
+        folders:
+          type: array
+          items:
+            type: object
+            required: [folder, label, done, total, items]
+            properties:
+              folder: {type: string}
+              label: {type: string}
+              done: {type: integer, minimum: 0}
+              total: {type: integer, minimum: 0}
+              items:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyChecklistItem'
+        readiness:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyReadiness'
+      additionalProperties: false
+    MyChecklistItemCreate:
+      type: object
+      required: [name, folder]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        folder:
+          type: string
+          enum: [contracts, finance, security, permits, feasibility, legal_corporate]
+        pillar:
+          type: string
+          enum: [fundamentals, counterparties, regulatory_site, sponsor]
+      additionalProperties: false
+    MyChecklistStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/MyItemStatus'
+      additionalProperties: false
+    MyEvidenceDecision:
+      type: object
+      required: [evidence_id, item_id, state, rule, label, record, decided_at]
+      properties:
+        evidence_id:
+          $ref: '#/components/schemas/MyRowId'
+        item_id:
+          $ref: '#/components/schemas/MyRowId'
+        state:
+          type: string
+          enum: [accepted, dismissed]
+        rule:
+          $ref: '#/components/schemas/MyEvidenceRule'
+        label: {type: string}
+        record:
+          type: object
+          required: [record_type, public_id]
+          properties:
+            record_type: {type: string}
+            public_id: {type: string}
+        decided_at: {type: [string, 'null'], format: date-time}
+      additionalProperties: false
+    MyPerson:
+      type: object
+      description: A member by name; anyone no longer a member as "Former member", with no id.
+      required: [user_public_id, name, former_member]
+      properties:
+        user_public_id:
+          oneOf:
+            - $ref: '#/components/schemas/UserPublicId'
+            - type: 'null'
+        name: {type: [string, 'null']}
+        former_member: {type: boolean}
+      additionalProperties: false
+    MyNote:
+      type: object
+      required: [note_id, body, author, mine, created_at, updated_at, edited]
+      properties:
+        note_id:
+          $ref: '#/components/schemas/MyNotePublicId'
+        body: {type: string, description: Plain text as typed.}
+        author:
+          $ref: '#/components/schemas/MyPerson'
+        mine: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        edited: {type: boolean}
+      additionalProperties: false
+    MyNoteWrite:
+      type: object
+      required: [body]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 20000}
+      additionalProperties: false
+    MyMember:
+      type: object
+      required: [user_public_id, name, role, added_at, is_you]
+      properties:
+        user_public_id:
+          $ref: '#/components/schemas/UserPublicId'
+        name: {type: [string, 'null']}
+        role:
+          $ref: '#/components/schemas/MyRole'
+        added_at: {type: string, format: date-time}
+        is_you: {type: boolean}
+      additionalProperties: false
+    MyMemberUpdate:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/MyRole'
+      additionalProperties: false
+    MyInvitation:
+      type: object
+      required: [invitation_id, email, role, created_at, expires_at]
+      properties:
+        invitation_id:
+          $ref: '#/components/schemas/MyInvitationPublicId'
+        email: {type: [string, 'null'], description: The invited address; cleared on accept, revoke or expiry.}
+        role:
+          type: string
+          enum: [editor, viewer]
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+    MyInvitationCreated:
+      allOf:
+        - $ref: '#/components/schemas/MyInvitation'
+        - type: object
+          required: [link]
+          properties:
+            link:
+              type: string
+              format: uri
+              description: The private link, shown in this response only.
+    MyInvitationCreate:
+      type: object
+      required: [email, role]
+      properties:
+        email: {type: string, maxLength: 254}
+        role:
+          type: string
+          enum: [editor, viewer]
+      additionalProperties: false
+    MyInvitationToken:
+      type: object
+      required: [token]
+      properties:
+        token: {type: string, maxLength: 128}
+      additionalProperties: false
+    MyInvitationPreview:
+      type: object
+      required: [project, role, inviter_name, expires_at]
+      properties:
+        project:
+          type: object
+          required: [title]
+          properties:
+            title: {type: string}
+          additionalProperties: false
+        role:
+          type: string
+          enum: [editor, viewer]
+        inviter_name: {type: [string, 'null']}
+        expires_at: {type: string, format: date-time}
+      additionalProperties: false
+    MyInvitationAccepted:
+      type: object
+      required: [project, role]
+      properties:
+        project:
+          type: object
+          required: [public_id, url, title]
+          properties:
+            public_id:
+              $ref: '#/components/schemas/MyProjectPublicId'
+            url: {type: string, format: uri}
+            title: {type: string}
+        role:
+          $ref: '#/components/schemas/MyRole'
+      additionalProperties: false
+    MyActivity:
+      type: object
+      required: [action, occurred_at, actor, detail]
+      properties:
+        action:
+          type: string
+          enum: [created, field_changed, link_added, link_removed, item_status_changed, evidence_accepted, evidence_dismissed, note_added, note_edited, note_deleted, member_invited, member_joined, member_removed, role_changed, ownership_transferred, invitation_revoked, archived, unarchived, exported]
+        occurred_at: {type: string, format: date-time}
+        actor:
+          $ref: '#/components/schemas/MyPerson'
+        detail:
+          type: object
+          description: >-
+            Field names, ids and vocabulary tokens only; never a value. A user id (`user_id`, `from_user_id`,
+            `to_user_id`) of someone no longer a member is `null`, as their name is "Former member"; a record id
+            (`record_public_id`, `origin_public_id`) of a record the viewer cannot see now is `null` beside its type.
+      additionalProperties: false
+    MyPin:
+      type: object
+      description: Exactly these fields (docs/19 §2.7, §6.1); no notes, members or score.
+      required: [public_id, title, stage, lat, lon, precision, progress, role]
+      properties:
+        public_id:
+          $ref: '#/components/schemas/MyProjectPublicId'
+        title: {type: string}
+        stage:
+          $ref: '#/components/schemas/MyStage'
+        lat: {type: number, minimum: -90, maximum: 90}
+        lon: {type: number, minimum: -180, maximum: 180}
+        precision:
+          $ref: '#/components/schemas/MyPointPrecision'
+        progress:
+          $ref: '#/components/schemas/MyProgress'
+        role:
+          $ref: '#/components/schemas/MyRole'
+      additionalProperties: false
+    MyExport:
+      type: object
+      description: '`schema: inframation.my-export/1` (docs/19 §5.5); its fields are lane P4''s.'
+      required: [schema]
+      properties:
+        schema:
+          type: string
+          const: inframation.my-export/1
+    MyProjectListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyProjectSummary'
+    MyProjectResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyProject'
+    MyPrefillResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyPrefill'
+    MyLinkListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyLink'
+    MyLinkResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyLink'
+    MyChecklistResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyChecklist'
+    MyChecklistItemResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyChecklistItem'
+    MyEvidenceDecisionResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyEvidenceDecision'
+    MyNoteListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyNote'
+    MyNoteResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyNote'
+    MyMemberListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyMember'
+    MyInvitationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyInvitation'
+    MyInvitationCreatedResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyInvitationCreated'
+    MyInvitationPreviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyInvitationPreview'
+    MyInvitationAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MyInvitationAccepted'
+    MyActivityListResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyActivity'
+    MyPinsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyPin'
     PrivacyRequestCreate:
       type: object
       required: [kind, record_public_id, contact_email]
@@ -9192,6 +11159,7 @@ components:
         - invalid_cursor
         - unauthenticated
         - forbidden_tier
+        - forbidden_role
         - licence_gated
         - seat_limit
         - not_found
@@ -9213,7 +11181,7 @@ components:
         type:
           type: string
           format: uri
-          pattern: '^https://api\.inframation\.io/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable|internal_error|method_not_allowed)$'
+          pattern: '^https://api\.inframation\.io/errors/(validation_error|unknown_parameter|invalid_cursor|unauthenticated|forbidden_tier|forbidden_role|licence_gated|seat_limit|not_found|unpublished|conflict|paid_tiers_inactive|gate_unmet|rate_limited|quota_exceeded|sor_unavailable|unavailable|internal_error|method_not_allowed)$'
         title:
           type: string
         status:
@@ -9749,6 +11717,8 @@ components:
       description: Identical shape for an opportunity (docs/21 §3.4).
     OpportunityIdentifiers:
       type: object
+      description: >-
+        The source's own identifiers. The stored value block is not among them: its served form is `Opportunity.value`.
       properties:
         grants_gov_number:
           type: [string, 'null']
@@ -9759,6 +11729,192 @@ components:
         solicitation_number:
           type: [string, 'null']
       additionalProperties: true
+    OpportunityValueKind:
+      type: [string, 'null']
+      description: >-
+        What the stated figure is (`pipeline/connectors/opportunity.py` `VALUE_KINDS`): `estimated_value` (TED BT-27 on
+        a competition or planning form, World Bank `bid_estimate_amount`, Find a Tender `tender.value.amount` excluding
+        VAT), `estimated_value_incl_vat` (Find a Tender `amountGross`), `awarded_value` (TED BT-161 on a result form, a
+        single Find a Tender award), `contract_value` (TED direct-award and modification forms),
+        `total_programme_funding` (Grants.gov `estimatedFunding`), `award_ceiling`, `award_floor` (Grants.gov). Null
+        when the source says nothing more than an amount.
+      enum:
+        - estimated_value
+        - estimated_value_incl_vat
+        - awarded_value
+        - contract_value
+        - total_programme_funding
+        - award_ceiling
+        - award_floor
+        - null
+    OpportunityValueFigure:
+      type: object
+      description: Another figure the same notice states, beside the one `value.amount` carries.
+      required: [kind, kind_label, amount, currency, source_field, amount_note]
+      properties:
+        kind:
+          $ref: '#/components/schemas/OpportunityValueKind'
+        kind_label:
+          type: string
+          examples: [Award ceiling]
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        currency:
+          type: [string, 'null']
+          pattern: '^[A-Z]{3}$'
+        source_field:
+          type: [string, 'null']
+          examples: [synopsis.awardCeiling]
+        amount_note:
+          type: [string, 'null']
+          description: >-
+            Set when this figure looks like a placeholder, by the same rules as `value.amount_note` (Grants.gov 363912
+            states a total of 2,147,483,647 beside its 250,000,000 award ceiling, which leads).
+    FxSource:
+      type: object
+      description: >-
+        The reference rate behind a USD equivalent and the credit its terms require (ECB "Disclaimer & Copyright": cite
+        the ECB, state that the cross rate is ours; `data/sources.yaml` `eu.ecb.eurofxref`).
+      required: [source_id, source_name, source_url, retrieved_at, licence_id, reuse_class, attribution_text, rate_date]
+      properties:
+        source_id:
+          $ref: '#/components/schemas/SourceIdValue'
+        source_name:
+          type: string
+        source_url:
+          type: string
+          format: uri
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When the file that supplied this fixing (`rate_date`) was read from the ECB; the last fetched history, or
+            the vendored seed for a fixing only the seed holds.
+        licence_id:
+          type: [string, 'null']
+        licence_url:
+          type: [string, 'null']
+          format: uri
+        reuse_class:
+          $ref: '#/components/schemas/ReuseClass'
+        attribution_text:
+          type: [string, 'null']
+          description: Credit and statement of changes, verbatim, to print beside the equivalent.
+        rate_date:
+          type: [string, 'null']
+          format: date
+    OpportunityValueProvenance:
+      type: object
+      description: >-
+        Where the stated figure comes from: the source and licence of the link that supplied it, the record's page at
+        the source, when the figure was read (a Grants.gov figure is read from the opportunity detail, separately from
+        the search, so it carries that time) and the source field.
+      required: [source_id, source_url, retrieved_at, licence_id, reuse_class, attribution_text, source_field]
+      properties:
+        source_id:
+          type: [string, 'null']
+        source_name:
+          type: [string, 'null']
+        source_url:
+          type: [string, 'null']
+          format: uri
+        retrieved_at:
+          type: [string, 'null']
+          format: date-time
+        licence_id:
+          type: [string, 'null']
+        reuse_class:
+          oneOf:
+            - $ref: '#/components/schemas/ReuseClass'
+            - type: 'null'
+        attribution_text:
+          type: [string, 'null']
+        source_field:
+          type: [string, 'null']
+          examples: [total-value, synopsis.estimatedFunding]
+        endpoint:
+          type: [string, 'null']
+          format: uri
+          description: The API the figure was read from when it is not the record's own row (Grants.gov `fetchOpportunity`).
+    OpportunityValue:
+      type: object
+      description: >-
+        The notice's stated value (lane rfp-value, 2026-10-22; `services/api/opportunity_value.py`). `amount` and
+        `currency` are the notice's own figure, the same as `budget_amount`/`budget_currency`. `usd_equivalent` is that
+        amount at the ECB euro reference rate of the notice's publication date (`fx_date`; the most recent earlier
+        fixing on a day without one, or the earliest fixing when the table holds none on or before it), for sorting
+        across currencies; it is approximate (`usd_is_approximate` is true exactly when an equivalent was converted from
+        another currency) and null for a currency the ECB does not quote or a placeholder amount (`fx_note` says why).
+        Nothing is inferred: no figure is derived from another.
+      required:
+        - amount
+        - currency
+        - kind
+        - kind_label
+        - usd_equivalent
+        - usd_is_approximate
+        - fx_rate
+        - fx_date
+        - fx_source
+        - also_stated
+        - expected_awards
+        - provenance
+      properties:
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        currency:
+          type: [string, 'null']
+          pattern: '^[A-Z]{3}$'
+        kind:
+          $ref: '#/components/schemas/OpportunityValueKind'
+        kind_label:
+          type: string
+          description: The words to print beside the amount; `Stated value` when `kind` is null.
+          examples: [Estimated total programme funding, Total awarded value]
+        usd_equivalent:
+          type: [number, 'null']
+          minimum: 0
+        usd_is_approximate:
+          type: boolean
+          description: >-
+            True when `usd_equivalent` was converted from another currency at an ECB reference rate; false for an amount
+            stated in USD and whenever `usd_equivalent` is null.
+        fx_rate:
+          type: [number, 'null']
+          description: >-
+            US dollars per one unit of `currency` on `fx_date` (the ECB's USD per euro over the currency's units per euro,
+            unrounded); 1 for USD. `usd_equivalent` is exactly `amount` times `fx_rate`, rounded to the cent.
+        fx_date:
+          type: [string, 'null']
+          format: date
+        fx_source:
+          oneOf:
+            - $ref: '#/components/schemas/FxSource'
+            - type: 'null'
+        fx_note:
+          type: [string, 'null']
+          description: Why `usd_equivalent` is null, when it is.
+          examples: [no ECB reference rate for MKD]
+        amount_note:
+          type: [string, 'null']
+          description: >-
+            Set when the stated amount looks like a placeholder (the largest number a 32-bit field holds, a run of nine
+            or more nines, or under 100 in any currency, which on the store were unit prices); the amount is shown as
+            stated but has no USD equivalent, so it neither leads nor trails `sort=value`. A notice that states a real
+            figure beside a placeholder leads with the real one, labelled by its own `kind`.
+          examples: [the largest number the source's field holds, not a figure]
+        also_stated:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpportunityValueFigure'
+        expected_awards:
+          type: [integer, 'null']
+          minimum: 1
+          description: Expected number of awards, where the notice states it (Grants.gov `numberOfAwards`).
+        provenance:
+          $ref: '#/components/schemas/OpportunityValueProvenance'
     Opportunity:
       type: object
       description: Demand-side object (docs/21 §3.3).
@@ -9798,6 +11954,13 @@ components:
         budget_currency:
           type: [string, 'null']
           pattern: '^[A-Z]{3}$'
+        value:
+          description: >-
+            What the notice states it is worth, what that figure is, and an approximate USD equivalent; null when it
+            states no amount. Always present on list rows and the detail (lane rfp-value, 2026-10-22).
+          oneOf:
+            - $ref: '#/components/schemas/OpportunityValue'
+            - type: 'null'
         open_at:
           type: [string, 'null']
           format: date
@@ -9946,9 +12109,16 @@ components:
             duns:
               type: [string, 'null']
           additionalProperties: true
+          description: >-
+            Identifiers the registers and operators recorded. The monthly company-facts pass never writes here: the
+            Wikidata item and SEC CIK it matched, with their confidence, are `profile.match` (2026-10-22).
         website:
           type: [string, 'null']
           format: uri
+          description: >-
+            The organisation's website. Where it was empty, the monthly company-facts pass writes Wikidata's official
+            website (P856, `profile.website`); that value is served only while Wikidata's source is public, and an
+            operator who clears it is not overridden (2026-10-22).
         is_curated_issuer:
           type: boolean
           description: On the curated RFP issuer list (US-303).
@@ -10039,6 +12209,14 @@ components:
             serve (listed since the last refresh, or withheld; `meta.organization_stats.state`).
           oneOf:
             - $ref: '#/components/schemas/OrganizationListStats'
+            - type: 'null'
+        profile:
+          description: >-
+            Public company facts, each with its own provenance (`services/ingest/org_enrich.py`, monthly).
+            Detail responses only (2026-10-22). Null for a natural person, for an organisation nobody matched
+            with confidence, and when none of its facts' sources is visible. Never inside `ids`.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfile'
             - type: 'null'
         provenance:
           type: array
@@ -10199,6 +12377,139 @@ components:
           type: [string, 'null']
           format: date-time
       additionalProperties: false
+    OrganizationProfile:
+      type: object
+      description: >-
+        A company's public facts (lane org-enrich, 2026-10-22). Each fact is null where the source states nothing,
+        where its source or licence is not public, or (`website`) where the organisation's own `website` is a
+        different, curated value. Matched by LEI (Wikidata P1278), then SEC CIK, then exact normalised name plus
+        country with a confidence score; nothing is shown below the threshold (0.85).
+      required: [website, headquarters, description, ticker, lei, wikipedia, match]
+      properties:
+        website:
+          description: >-
+            Official website (Wikidata P856). Equals the organisation's `website` whenever present. Null for a
+            company Wikidata records as dissolved (P576): its site is the defunct company's.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileUri'
+            - type: 'null'
+        headquarters:
+          description: >-
+            Headquarters city and country (Wikidata P159; a building, a square or a neighbourhood reads as the city
+            it is located in). The city is null when Wikidata names only a country, a street, or several places that
+            disagree.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileHeadquarters'
+            - type: 'null'
+        description:
+          description: Wikidata's one-line English description.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileText'
+            - type: 'null'
+        ticker:
+          description: >-
+            Stock ticker and exchange, shown only when two sources say the company is listed: an SEC main-board
+            common-share symbol for the company's CIK that the matched Wikidata item lists on an exchange under the
+            same symbol (P414 with its P249), or, when the item's listing names no symbol, SEC's primary main-board
+            symbol (provenance SEC). When the two name different symbols nothing is shown (Georgia Power: SEC's only
+            main-board row is a note, `GPJA`; Wikidata says `GAR`). For a US company with no verified CIK,
+            Wikidata's listing (P414 with its P249 symbol) is shown only when SEC lists that symbol under a
+            registrant of the company's name (provenance SEC); outside the US, where SEC is silent, Wikidata's
+            listing stands alone (provenance Wikidata).
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileTicker'
+            - type: 'null'
+        lei:
+          description: Legal Entity Identifier as Wikidata states it (P1278). A GLEIF LEI the row holds is `ids.lei`.
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileLei'
+            - type: 'null'
+        wikipedia:
+          description: English Wikipedia article (a link only; the article text is never copied).
+          oneOf:
+            - $ref: '#/components/schemas/OrganizationProfileUri'
+            - type: 'null'
+        match:
+          $ref: '#/components/schemas/OrganizationProfileMatch'
+    OrganizationProfileUri:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: string
+          format: uri
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileText:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: string
+          maxLength: 250
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileLei:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: string
+          pattern: '^[A-Z0-9]{18}[0-9]{2}$'
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileHeadquarters:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: object
+          required: [city, country]
+          properties:
+            city:
+              type: [string, 'null']
+              description: The headquarters place's English label; null when Wikidata names only the country.
+            country:
+              type: [string, 'null']
+              pattern: '^[A-Z]{2}$'
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileTicker:
+      type: object
+      required: [value, provenance]
+      properties:
+        value:
+          type: object
+          required: [symbol, exchange]
+          properties:
+            symbol:
+              type: string
+            exchange:
+              type: [string, 'null']
+              description: SEC's exchange value (`NYSE`, `Nasdaq`, `CBOE`, `TXSE`) or the Wikidata exchange's short name or label.
+        provenance:
+          $ref: '#/components/schemas/ProvenanceQuartet'
+    OrganizationProfileMatch:
+      type: object
+      description: Which company the facts are about, and how sure the match is.
+      required: [rule, confidence, wikidata_id, cik, matched_at]
+      properties:
+        rule:
+          type: string
+          enum: [lei, sec_cik, name_country]
+        confidence:
+          type: number
+          minimum: 0.85
+          maximum: 1
+        wikidata_id:
+          type: [string, 'null']
+          pattern: '^Q[1-9][0-9]*$'
+        cik:
+          type: [string, 'null']
+          pattern: '^[0-9]{10}$'
+        matched_at:
+          type: string
+          format: date-time
     DocumentSummary:
       type: object
       required: [document_id, title, doc_type, url, provenance]
@@ -12407,6 +14718,415 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/RegionFeatureCollection'
+
+    # ---------- Energy prices, slice 1 (docs/29; services/api/prices.py) ----------
+    PriceStatistics:
+      type: object
+      description: >-
+        Trailing statistics of one location and market (docs/29 §7.2): the trailing 365 days ending with the last
+        complete market-local day, or from the first day held. Derived values; `provenance` names the rows
+        they summarise. A figure under 90% interval coverage is `null` with its reason in `withheld`.
+      required: [window, window_start, window_end, days, sample_count, expected_count, coverage, interval_minutes,
+        mean, mean_30d, basis, negative_share, spread, withheld, provenance]
+      properties:
+        window:
+          type: string
+          enum: [trailing_12m]
+        window_start:
+          type: string
+          format: date
+        window_end:
+          type: string
+          format: date
+        days:
+          type: integer
+          minimum: 0
+        sample_count:
+          type: integer
+          minimum: 0
+          description: Intervals (real time) or hours (day ahead) behind the figures.
+        expected_count:
+          type: integer
+          minimum: 0
+        coverage:
+          type: [number, 'null']
+        interval_minutes:
+          type: integer
+        mean:
+          type: [number, 'null']
+          description: Time-weighted average price over the window, in the location's unit.
+        mean_30d:
+          type: [number, 'null']
+        window_30d_start:
+          type: [string, 'null']
+          format: date
+        samples_30d:
+          type: integer
+        basis:
+          type: [number, 'null']
+          description: Mean of location minus `basis_reference_id`, interval by interval.
+        basis_reference_id:
+          type: [string, 'null']
+        basis_samples:
+          type: integer
+        negative_share:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+        spread:
+          type: [number, 'null']
+          description: Average daily top-4 minus bottom-4 hourly price; a signal, not revenue.
+        spread_days:
+          type: integer
+        withheld:
+          type: object
+          additionalProperties:
+            type: string
+        computed_at:
+          type: [string, 'null']
+          format: date-time
+        provenance:
+          type: object
+          required: [source_id, source_url, retrieved_at, licence_id, derived]
+          properties:
+            source_id:
+              $ref: '#/components/schemas/SourceIdValue'
+            source_url:
+              type: string
+            retrieved_at:
+              type: [string, 'null']
+              format: date-time
+            licence_id:
+              $ref: '#/components/schemas/LicenceIdValue'
+            derived:
+              type: boolean
+    PriceLatest:
+      type: object
+      required: [interval_start, interval_end, price, retrieved_at, source_url]
+      properties:
+        interval_start:
+          type: string
+          format: date-time
+        interval_end:
+          type: string
+          format: date-time
+        price:
+          type: number
+        retrieved_at:
+          type: string
+          format: date-time
+        source_url:
+          type: string
+    PricePlacement:
+      type: object
+      description: >-
+        Where the location is drawn (docs/29 §5): `point` only at a position the market publishes (SPP's price
+        map), with `lat`/`lon`; otherwise `region`, drawn as the `region_id` polygon of `GET /v1/geo/regions`, with
+        no coordinate and a `label_point` that is a label position, never a location.
+      required: [grade, method, basis, region_id, lat, lon]
+      properties:
+        grade:
+          type: string
+          enum: [point, region]
+        method:
+          type: string
+        basis:
+          type: string
+        region_id:
+          type: string
+        lat:
+          type: [number, 'null']
+        lon:
+          type: [number, 'null']
+        evidence_url:
+          type: [string, 'null']
+        label_point:
+          type: [object, 'null']
+          properties:
+            lat:
+              type: number
+            lon:
+              type: number
+            method:
+              type: string
+    PriceHub:
+      type: object
+      required: [id, name, label, market, kind, currency, unit, publication, placement, statistics, latest,
+        series_url, credit, provenance]
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z]+\.[a-z0-9_]+$'
+        name:
+          type: string
+          description: The source's own spelling (`HB_NORTH`, `TH_SP15_GEN-APND`, `N.Y.C.`).
+        label:
+          type: string
+        market:
+          type: string
+          enum: [ERCOT, SPP, CAISO, NYISO, GB]
+        kind:
+          type: string
+          enum: [hub, zone]
+        currency:
+          type: string
+          enum: [USD, GBP]
+        unit:
+          type: string
+        markets:
+          type: array
+          items:
+            type: string
+            enum: [da, rt]
+        market_labels:
+          type: object
+          description: What each market's figures are built from (CAISO real-time is the 15-minute RTPD market, NYISO's the hourly integrated price, ...).
+          additionalProperties:
+            type: string
+        lead_market:
+          type: string
+          enum: [da, rt]
+          description: The market the shared figures and the unprefixed sort tokens read, day-ahead where it has statistics, else real-time.
+        note:
+          type: [string, 'null']
+        publication:
+          type: string
+          enum: [raw_ok, derived_only]
+        reference:
+          type: [object, 'null']
+          properties:
+            id:
+              type: string
+            label:
+              type: [string, 'null']
+        placement:
+          $ref: '#/components/schemas/PricePlacement'
+        statistics:
+          type: object
+          properties:
+            da:
+              oneOf:
+                - $ref: '#/components/schemas/PriceStatistics'
+                - type: 'null'
+            rt:
+              oneOf:
+                - $ref: '#/components/schemas/PriceStatistics'
+                - type: 'null'
+        latest:
+          description: '`null` where the licence withholds raw rows (derived-only).'
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties:
+                $ref: '#/components/schemas/PriceLatest'
+        series_url:
+          type: [string, 'null']
+        credit:
+          type: [string, 'null']
+          description: The source's credit line verbatim (Elexon's with the years of the data served).
+        licence_url:
+          type: [string, 'null']
+        provenance:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProvenanceQuartet'
+    PriceLinkOut:
+      type: object
+      required: [market, label, url, reason]
+      properties:
+        market:
+          type: string
+        label:
+          type: string
+        url:
+          type: string
+          format: uri
+        reason:
+          type: string
+        reference:
+          type: string
+    PriceHubListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          required: [notes]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/PriceHub'
+            notes:
+              type: object
+              required: [screening_note, credits, link_outs]
+              properties:
+                sort:
+                  type: string
+                posture:
+                  type: string
+                  enum: [commercial, noncommercial]
+                screening_note:
+                  type: string
+                credits:
+                  type: array
+                  description: >-
+                    Each credit of the rows returned, once, with its licence's URL: a page shows the statement and links
+                    the licence (Elexon's BMRS licence asks for the link where possible).
+                  items:
+                    type: object
+                    required: [text]
+                    properties:
+                      text:
+                        type: string
+                      licence_url:
+                        type: [string, 'null']
+                      source_id:
+                        type: [string, 'null']
+                markets:
+                  type: array
+                  description: The markets visible to this caller before filters (SPP only under the noncommercial posture).
+                  items:
+                    type: string
+                    enum: [ERCOT, SPP, CAISO, NYISO, GB]
+                link_outs:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PriceLinkOut'
+    PriceDailyRow:
+      type: object
+      required: [day, mean, min, max, intervals, expected_intervals, negative_intervals]
+      properties:
+        day:
+          type: string
+          format: date
+        mean:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        intervals:
+          type: integer
+        expected_intervals:
+          type: integer
+        negative_intervals:
+          type: integer
+        spread:
+          type: [number, 'null']
+        retrieved_at:
+          type: string
+          format: date-time
+    PriceHubSeriesResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/PriceHub'
+                - type: object
+                  required: [series, series_withheld_reason]
+                  properties:
+                    series:
+                      oneOf:
+                        - type: 'null'
+                        - type: object
+                          properties:
+                            da:
+                              type: array
+                              items:
+                                $ref: '#/components/schemas/PriceDailyRow'
+                            rt:
+                              type: array
+                              items:
+                                $ref: '#/components/schemas/PriceDailyRow'
+                    series_withheld_reason:
+                      type: [string, 'null']
+            notes:
+              type: object
+              properties:
+                screening_note:
+                  type: string
+                posture:
+                  type: string
+    RetailPriceSummary:
+      type: object
+      required: [latest_period, latest_cents_kwh, avg_12m_cents_kwh, months]
+      properties:
+        latest_period:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        latest_cents_kwh:
+          type: [number, 'null']
+        latest_status:
+          type: [string, 'null']
+        avg_12m_cents_kwh:
+          type: [number, 'null']
+          description: >-
+            Revenue over sales across the twelve calendar months to `latest_period`; null when any of them is not
+            published or has no revenue or sales figure (`avg_12m_withheld` says which).
+        avg_12m_from:
+          type: [string, 'null']
+        avg_12m_to:
+          type: [string, 'null']
+        avg_12m_withheld:
+          type: [string, 'null']
+        months:
+          type: integer
+        preliminary_months:
+          type: integer
+    RetailPriceRow:
+      type: object
+      required: [state, sectors, latest_cents_kwh, avg_12m_cents_kwh, provenance]
+      properties:
+        state:
+          type: string
+          pattern: '^[A-Z]{2}$'
+        sectors:
+          type: object
+          additionalProperties:
+            oneOf:
+              - type: 'null'
+              - $ref: '#/components/schemas/RetailPriceSummary'
+        latest_cents_kwh:
+          type: [number, 'null']
+        avg_12m_cents_kwh:
+          type: [number, 'null']
+        provenance:
+          type: object
+          required: [source_id, source_url, retrieved_at, licence_id]
+          properties:
+            source_id:
+              $ref: '#/components/schemas/SourceIdValue'
+            source_url:
+              type: string
+            retrieved_at:
+              type: [string, 'null']
+              format: date-time
+            licence_id:
+              $ref: '#/components/schemas/LicenceIdValue'
+    RetailPriceListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ListEnvelope'
+        - type: object
+          required: [notes]
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/RetailPriceRow'
+            notes:
+              type: object
+              properties:
+                sector:
+                  type: string
+                sort:
+                  type: string
+                credit:
+                  type: [string, 'null']
+                released:
+                  type: [string, 'null']
+                note:
+                  type: string
     UiEventCreateRequest:
       type: object
       required: [name]

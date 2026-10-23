@@ -20,6 +20,7 @@ import decimal
 import json
 import math
 import uuid as _uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -150,7 +151,7 @@ def coerce_tiebreaker(value: str, type_: TypeEngine[Any], instance: str) -> Any:
     return value
 
 
-def _is_not_null(column: InstrumentedAttribute[Any]) -> bool:
+def _is_not_null(column: InstrumentedAttribute[Any] | ColumnElement[Any]) -> bool:
     """True for a mapped table column declared NOT NULL; anything else (an aggregate, a label, a
     nullable column) keeps the NULL-aware keyset."""
     expression = getattr(column, "expression", None)
@@ -167,12 +168,13 @@ def paginate(
     session: Session,
     stmt: sa.Select[tuple[T]],
     *,
-    sort_column: InstrumentedAttribute[Any],
+    sort_column: InstrumentedAttribute[Any] | ColumnElement[Any],
     id_column: InstrumentedAttribute[Any],
     ascending: bool,
     cursor: str | None,
     limit: int,
     instance: str,
+    sort_value: Callable[[Any], Any] | None = None,
 ) -> tuple[list[T], str | None, bool]:
     """Generic keyset pagination (docs/04 API-2). Only forward pagination is implemented this
     sprint — `page.prev_cursor` is always null; reverse iteration is an open decision in
@@ -184,6 +186,11 @@ def paginate(
     `(sort, id) > (v, t)` instead of an `OR` with a dead `IS NULL` arm, so an index on
     `(sort, id)` can start the page at the cursor (backend audit 2026-10-07, PERF-3; migration
     0035). The rows and their order are the same either way.
+
+    `sort_column` may be an expression rather than a mapped column (2026-10-22, lane rfp-value: an
+    opportunity's USD equivalent is a JSON path, `services/api/opportunity_value.py`); it is then
+    nullable, and `sort_value` reads the last row's value for the next cursor, since the row has no
+    attribute named after it.
     """
     not_null = _is_not_null(sort_column)
     if cursor:
@@ -229,7 +236,7 @@ def paginate(
     next_cursor = None
     if has_more and page_rows:
         last = page_rows[-1]
-        last_sort_value = getattr(last, sort_column.key)
+        last_sort_value = sort_value(last) if sort_value is not None else getattr(last, str(sort_column.key))
         if isinstance(last_sort_value, (dt.datetime, dt.date)):
             last_sort_value = last_sort_value.isoformat()
         elif isinstance(last_sort_value, decimal.Decimal):

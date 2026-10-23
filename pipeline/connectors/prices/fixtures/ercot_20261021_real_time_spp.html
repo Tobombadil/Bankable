@@ -1,0 +1,1897 @@
+<!DOCTYPE html><html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="x-ua-compatible" content="IE=8" >
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv='pragma'  content='no-cache'>
+<script type="text/javascript" src="/ruxitagentjs_ICA7NQVfqrux_10345260810170330.js" data-dtconfig="rid=RID_513096140|rpid=531535447|domain=ercot.com|reportUrl=/rb_b41ed366-424d-4b61-8d7a-8b07c2fd7a11|app=b4c8ff390fce92cc|owasp=1|featureHash=ICA7NQVfqrux|msl=153600|srsr=1000|rdnt=1|uxrgce=1|cuc=1o2mss9s|srms=2,1,0,0%2Ftextarea%2Cinput%2Cselect%2Coption;0%2Fdatalist;0%2Fform%20button;0%2F%5Bdata-dtrum-input%5D;0%2F.data-dtrum-input;0%2F%5Bcontenteditable%5D%3Anot%28%5Bcontenteditable%3D%22false%22%5D%29;0%2F%5Brole%3D%22textbox%22%5D%2C%5Brole%3D%22checkbox%22%5D%2C%5Brole%3D%22radio%22%5D%2C%5Brole%3D%22option%22%5D%2C%5Brole%3D%22combobox%22%5D%2C%5Brole%3D%22slider%22%5D%2C%5Brole%3D%22searchbox%22%5D%2C%5Brole%3D%22switch%22%5D%2C%5Brole%3D%22spinbutton%22%5D;1%2F%5Edata%28%28%5C-.%2B%24%29%7C%24%29|mel=100000|expw=1|dpvc=1|lastModification=1791571832492|tp=500,50,0|srbbv=2|agentUri=/ruxitagentjs_ICA7NQVfqrux_10345260810170330.js"></script><script type="text/javascript" src="/static-assets/data/analytics.js"></script>
+<script type="text/javascript" src="/static-assets/data/scripts/agreement.js"></script>
+<title>Real-Time Settlement Point Prices Display</title>
+<link rel='stylesheet' type='text/css' href='/content/styles/cdr_reports.css' />
+    <script>
+      setTimeout("window.location.reload(true);",300000);
+    </script>
+
+<script>
+function open_window(url) {
+  window.open(url,"help",'toolbar=0,location=0,directories=0,status=0,menubar=0,scrollbars=yes,resizable=0,width=750,height=825');
+};
+</script>
+</head>
+<body class='bodyStyle'>
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PH5D2W5" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<div style="display: inline-block;">
+<div>
+<div class='header1'>Real-Time Settlement Point Prices Display</div>
+<div class='helpLink rightAlign'><a href="javascript:open_window('/help/popup/rtSppHelp')">Help?</a></div>
+<br>
+<span style="color:gray;font-size:80%;font-style:italic;font-weight:normal">SPP values include the Real-Time Reliability Deployment Price Adders.</span>
+</div>
+<br>
+<div class="header2">
+<form style="margin:0">
+Operating Day:
+<select name="dates" id="dates" onChange="switchPageDate(this.form);">
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="history">History</option>
+<option value="today">Today</option></select></form></div>
+<br>
+<input type="hidden" id="currentDate" value="10/21/2026" />
+<div class="schedTime rightAlign">
+Last Updated: Oct 22, 2026 16:47
+</div>
+<div id="yesterday">
+<table class='tableStyle'>
+	<tr>
+	<th class='headerValueClass'>Oper Day</th>
+	<th class='headerValueClass'>Interval Ending</th>
+	<th class='headerValueClass'>HB_BUSAVG</th>
+	<th class='headerValueClass'>HB_HOUSTON</th>
+	<th class='headerValueClass'>HB_HUBAVG</th>
+	<th class='headerValueClass'>HB_NORTH</th>
+	<th class='headerValueClass'>HB_PAN</th>
+	<th class='headerValueClass'>HB_SOUTH</th>
+	<th class='headerValueClass'>HB_WEST</th>
+	<th class='headerValueClass'>LZ_AEN</th>
+	<th class='headerValueClass'>LZ_CPS</th>
+	<th class='headerValueClass'>LZ_HOUSTON</th>
+	<th class='headerValueClass'>LZ_LCRA</th>
+	<th class='headerValueClass'>LZ_NORTH</th>
+	<th class='headerValueClass'>LZ_RAYBN</th>
+	<th class='headerValueClass'>LZ_SOUTH</th>
+	<th class='headerValueClass'>LZ_WEST</th>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0015</td>
+		<td class='labelClassCenter'>25.37</td>
+		<td class='labelClassCenter'>24.57</td>
+		<td class='labelClassCenter'>28.21</td>
+		<td class='labelClassCenter'>21.39</td>
+		<td class='labelClassCenter'>2.36</td>
+		<td class='labelClassCenter'>28.07</td>
+		<td class='labelClassCenter'>38.81</td>
+		<td class='labelClassCenter'>27.62</td>
+		<td class='labelClassCenter'>29.16</td>
+		<td class='labelClassCenter'>24.79</td>
+		<td class='labelClassCenter'>28.30</td>
+		<td class='labelClassCenter'>21.40</td>
+		<td class='labelClassCenter'>20.78</td>
+		<td class='labelClassCenter'>27.91</td>
+		<td class='labelClassCenter'>52.42</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0030</td>
+		<td class='labelClassCenter'>25.98</td>
+		<td class='labelClassCenter'>25.20</td>
+		<td class='labelClassCenter'>28.26</td>
+		<td class='labelClassCenter'>22.83</td>
+		<td class='labelClassCenter'>12.96</td>
+		<td class='labelClassCenter'>27.99</td>
+		<td class='labelClassCenter'>37.04</td>
+		<td class='labelClassCenter'>27.64</td>
+		<td class='labelClassCenter'>28.86</td>
+		<td class='labelClassCenter'>25.48</td>
+		<td class='labelClassCenter'>28.20</td>
+		<td class='labelClassCenter'>22.86</td>
+		<td class='labelClassCenter'>22.41</td>
+		<td class='labelClassCenter'>27.99</td>
+		<td class='labelClassCenter'>47.38</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0045</td>
+		<td class='labelClassCenter'>25.11</td>
+		<td class='labelClassCenter'>24.46</td>
+		<td class='labelClassCenter'>27.10</td>
+		<td class='labelClassCenter'>22.38</td>
+		<td class='labelClassCenter'>14.64</td>
+		<td class='labelClassCenter'>26.78</td>
+		<td class='labelClassCenter'>34.80</td>
+		<td class='labelClassCenter'>26.49</td>
+		<td class='labelClassCenter'>27.55</td>
+		<td class='labelClassCenter'>24.77</td>
+		<td class='labelClassCenter'>27.01</td>
+		<td class='labelClassCenter'>22.40</td>
+		<td class='labelClassCenter'>22.02</td>
+		<td class='labelClassCenter'>27.06</td>
+		<td class='labelClassCenter'>43.71</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0100</td>
+		<td class='labelClassCenter'>24.25</td>
+		<td class='labelClassCenter'>23.27</td>
+		<td class='labelClassCenter'>26.21</td>
+		<td class='labelClassCenter'>21.49</td>
+		<td class='labelClassCenter'>13.85</td>
+		<td class='labelClassCenter'>26.22</td>
+		<td class='labelClassCenter'>33.88</td>
+		<td class='labelClassCenter'>25.75</td>
+		<td class='labelClassCenter'>27.03</td>
+		<td class='labelClassCenter'>23.65</td>
+		<td class='labelClassCenter'>26.38</td>
+		<td class='labelClassCenter'>21.52</td>
+		<td class='labelClassCenter'>21.14</td>
+		<td class='labelClassCenter'>27.39</td>
+		<td class='labelClassCenter'>42.70</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0115</td>
+		<td class='labelClassCenter'>23.95</td>
+		<td class='labelClassCenter'>22.93</td>
+		<td class='labelClassCenter'>25.39</td>
+		<td class='labelClassCenter'>21.89</td>
+		<td class='labelClassCenter'>16.31</td>
+		<td class='labelClassCenter'>25.69</td>
+		<td class='labelClassCenter'>31.05</td>
+		<td class='labelClassCenter'>25.18</td>
+		<td class='labelClassCenter'>26.32</td>
+		<td class='labelClassCenter'>23.31</td>
+		<td class='labelClassCenter'>25.76</td>
+		<td class='labelClassCenter'>21.91</td>
+		<td class='labelClassCenter'>21.63</td>
+		<td class='labelClassCenter'>27.48</td>
+		<td class='labelClassCenter'>37.60</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0130</td>
+		<td class='labelClassCenter'>23.45</td>
+		<td class='labelClassCenter'>22.68</td>
+		<td class='labelClassCenter'>25.04</td>
+		<td class='labelClassCenter'>21.23</td>
+		<td class='labelClassCenter'>15.05</td>
+		<td class='labelClassCenter'>25.00</td>
+		<td class='labelClassCenter'>31.23</td>
+		<td class='labelClassCenter'>24.64</td>
+		<td class='labelClassCenter'>25.66</td>
+		<td class='labelClassCenter'>23.03</td>
+		<td class='labelClassCenter'>25.15</td>
+		<td class='labelClassCenter'>21.25</td>
+		<td class='labelClassCenter'>20.94</td>
+		<td class='labelClassCenter'>26.11</td>
+		<td class='labelClassCenter'>38.39</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0145</td>
+		<td class='labelClassCenter'>23.20</td>
+		<td class='labelClassCenter'>22.42</td>
+		<td class='labelClassCenter'>24.39</td>
+		<td class='labelClassCenter'>21.50</td>
+		<td class='labelClassCenter'>16.56</td>
+		<td class='labelClassCenter'>24.56</td>
+		<td class='labelClassCenter'>29.06</td>
+		<td class='labelClassCenter'>24.18</td>
+		<td class='labelClassCenter'>25.09</td>
+		<td class='labelClassCenter'>22.78</td>
+		<td class='labelClassCenter'>24.66</td>
+		<td class='labelClassCenter'>21.52</td>
+		<td class='labelClassCenter'>21.29</td>
+		<td class='labelClassCenter'>26.10</td>
+		<td class='labelClassCenter'>34.49</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0200</td>
+		<td class='labelClassCenter'>23.00</td>
+		<td class='labelClassCenter'>22.43</td>
+		<td class='labelClassCenter'>24.43</td>
+		<td class='labelClassCenter'>21.01</td>
+		<td class='labelClassCenter'>13.79</td>
+		<td class='labelClassCenter'>24.38</td>
+		<td class='labelClassCenter'>29.88</td>
+		<td class='labelClassCenter'>24.10</td>
+		<td class='labelClassCenter'>24.96</td>
+		<td class='labelClassCenter'>22.65</td>
+		<td class='labelClassCenter'>24.50</td>
+		<td class='labelClassCenter'>21.02</td>
+		<td class='labelClassCenter'>20.73</td>
+		<td class='labelClassCenter'>24.92</td>
+		<td class='labelClassCenter'>36.48</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0215</td>
+		<td class='labelClassCenter'>24.20</td>
+		<td class='labelClassCenter'>22.87</td>
+		<td class='labelClassCenter'>25.92</td>
+		<td class='labelClassCenter'>21.69</td>
+		<td class='labelClassCenter'>15.06</td>
+		<td class='labelClassCenter'>26.46</td>
+		<td class='labelClassCenter'>32.66</td>
+		<td class='labelClassCenter'>25.78</td>
+		<td class='labelClassCenter'>27.18</td>
+		<td class='labelClassCenter'>23.03</td>
+		<td class='labelClassCenter'>26.41</td>
+		<td class='labelClassCenter'>21.73</td>
+		<td class='labelClassCenter'>21.38</td>
+		<td class='labelClassCenter'>28.07</td>
+		<td class='labelClassCenter'>40.47</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0230</td>
+		<td class='labelClassCenter'>24.53</td>
+		<td class='labelClassCenter'>23.27</td>
+		<td class='labelClassCenter'>25.97</td>
+		<td class='labelClassCenter'>22.41</td>
+		<td class='labelClassCenter'>16.88</td>
+		<td class='labelClassCenter'>26.57</td>
+		<td class='labelClassCenter'>31.62</td>
+		<td class='labelClassCenter'>25.92</td>
+		<td class='labelClassCenter'>27.19</td>
+		<td class='labelClassCenter'>23.42</td>
+		<td class='labelClassCenter'>26.50</td>
+		<td class='labelClassCenter'>22.44</td>
+		<td class='labelClassCenter'>22.15</td>
+		<td class='labelClassCenter'>28.29</td>
+		<td class='labelClassCenter'>38.15</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0245</td>
+		<td class='labelClassCenter'>24.97</td>
+		<td class='labelClassCenter'>23.85</td>
+		<td class='labelClassCenter'>26.33</td>
+		<td class='labelClassCenter'>22.97</td>
+		<td class='labelClassCenter'>17.73</td>
+		<td class='labelClassCenter'>26.83</td>
+		<td class='labelClassCenter'>31.68</td>
+		<td class='labelClassCenter'>26.25</td>
+		<td class='labelClassCenter'>27.41</td>
+		<td class='labelClassCenter'>23.98</td>
+		<td class='labelClassCenter'>26.78</td>
+		<td class='labelClassCenter'>23.00</td>
+		<td class='labelClassCenter'>22.73</td>
+		<td class='labelClassCenter'>28.27</td>
+		<td class='labelClassCenter'>37.92</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0300</td>
+		<td class='labelClassCenter'>25.30</td>
+		<td class='labelClassCenter'>24.68</td>
+		<td class='labelClassCenter'>26.45</td>
+		<td class='labelClassCenter'>23.65</td>
+		<td class='labelClassCenter'>21.08</td>
+		<td class='labelClassCenter'>26.71</td>
+		<td class='labelClassCenter'>30.76</td>
+		<td class='labelClassCenter'>26.21</td>
+		<td class='labelClassCenter'>27.19</td>
+		<td class='labelClassCenter'>24.77</td>
+		<td class='labelClassCenter'>26.64</td>
+		<td class='labelClassCenter'>23.64</td>
+		<td class='labelClassCenter'>23.45</td>
+		<td class='labelClassCenter'>27.40</td>
+		<td class='labelClassCenter'>38.09</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0315</td>
+		<td class='labelClassCenter'>27.22</td>
+		<td class='labelClassCenter'>24.47</td>
+		<td class='labelClassCenter'>28.30</td>
+		<td class='labelClassCenter'>25.33</td>
+		<td class='labelClassCenter'>21.34</td>
+		<td class='labelClassCenter'>30.61</td>
+		<td class='labelClassCenter'>32.79</td>
+		<td class='labelClassCenter'>29.10</td>
+		<td class='labelClassCenter'>31.25</td>
+		<td class='labelClassCenter'>24.75</td>
+		<td class='labelClassCenter'>30.17</td>
+		<td class='labelClassCenter'>25.37</td>
+		<td class='labelClassCenter'>25.13</td>
+		<td class='labelClassCenter'>36.35</td>
+		<td class='labelClassCenter'>38.07</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0330</td>
+		<td class='labelClassCenter'>26.97</td>
+		<td class='labelClassCenter'>24.92</td>
+		<td class='labelClassCenter'>28.03</td>
+		<td class='labelClassCenter'>25.23</td>
+		<td class='labelClassCenter'>21.23</td>
+		<td class='labelClassCenter'>29.62</td>
+		<td class='labelClassCenter'>32.36</td>
+		<td class='labelClassCenter'>28.51</td>
+		<td class='labelClassCenter'>30.19</td>
+		<td class='labelClassCenter'>25.21</td>
+		<td class='labelClassCenter'>29.36</td>
+		<td class='labelClassCenter'>25.27</td>
+		<td class='labelClassCenter'>25.04</td>
+		<td class='labelClassCenter'>33.85</td>
+		<td class='labelClassCenter'>37.40</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0345</td>
+		<td class='labelClassCenter'>28.23</td>
+		<td class='labelClassCenter'>27.42</td>
+		<td class='labelClassCenter'>29.34</td>
+		<td class='labelClassCenter'>26.63</td>
+		<td class='labelClassCenter'>22.34</td>
+		<td class='labelClassCenter'>29.61</td>
+		<td class='labelClassCenter'>33.69</td>
+		<td class='labelClassCenter'>29.20</td>
+		<td class='labelClassCenter'>30.09</td>
+		<td class='labelClassCenter'>27.61</td>
+		<td class='labelClassCenter'>29.63</td>
+		<td class='labelClassCenter'>26.65</td>
+		<td class='labelClassCenter'>26.43</td>
+		<td class='labelClassCenter'>30.80</td>
+		<td class='labelClassCenter'>38.81</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0400</td>
+		<td class='labelClassCenter'>25.67</td>
+		<td class='labelClassCenter'>25.13</td>
+		<td class='labelClassCenter'>27.56</td>
+		<td class='labelClassCenter'>23.08</td>
+		<td class='labelClassCenter'>15.70</td>
+		<td class='labelClassCenter'>27.16</td>
+		<td class='labelClassCenter'>34.88</td>
+		<td class='labelClassCenter'>26.94</td>
+		<td class='labelClassCenter'>27.89</td>
+		<td class='labelClassCenter'>25.38</td>
+		<td class='labelClassCenter'>27.37</td>
+		<td class='labelClassCenter'>23.10</td>
+		<td class='labelClassCenter'>22.74</td>
+		<td class='labelClassCenter'>27.11</td>
+		<td class='labelClassCenter'>43.53</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0415</td>
+		<td class='labelClassCenter'>23.47</td>
+		<td class='labelClassCenter'>22.72</td>
+		<td class='labelClassCenter'>25.55</td>
+		<td class='labelClassCenter'>20.57</td>
+		<td class='labelClassCenter'>12.49</td>
+		<td class='labelClassCenter'>25.32</td>
+		<td class='labelClassCenter'>33.61</td>
+		<td class='labelClassCenter'>24.98</td>
+		<td class='labelClassCenter'>26.12</td>
+		<td class='labelClassCenter'>22.84</td>
+		<td class='labelClassCenter'>25.45</td>
+		<td class='labelClassCenter'>20.61</td>
+		<td class='labelClassCenter'>20.21</td>
+		<td class='labelClassCenter'>25.18</td>
+		<td class='labelClassCenter'>43.15</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0430</td>
+		<td class='labelClassCenter'>24.23</td>
+		<td class='labelClassCenter'>23.48</td>
+		<td class='labelClassCenter'>26.32</td>
+		<td class='labelClassCenter'>21.33</td>
+		<td class='labelClassCenter'>13.23</td>
+		<td class='labelClassCenter'>26.09</td>
+		<td class='labelClassCenter'>34.39</td>
+		<td class='labelClassCenter'>25.74</td>
+		<td class='labelClassCenter'>26.89</td>
+		<td class='labelClassCenter'>23.60</td>
+		<td class='labelClassCenter'>26.22</td>
+		<td class='labelClassCenter'>21.37</td>
+		<td class='labelClassCenter'>20.96</td>
+		<td class='labelClassCenter'>25.95</td>
+		<td class='labelClassCenter'>43.94</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0445</td>
+		<td class='labelClassCenter'>26.18</td>
+		<td class='labelClassCenter'>25.43</td>
+		<td class='labelClassCenter'>28.27</td>
+		<td class='labelClassCenter'>23.29</td>
+		<td class='labelClassCenter'>15.20</td>
+		<td class='labelClassCenter'>28.04</td>
+		<td class='labelClassCenter'>36.33</td>
+		<td class='labelClassCenter'>27.69</td>
+		<td class='labelClassCenter'>28.83</td>
+		<td class='labelClassCenter'>25.55</td>
+		<td class='labelClassCenter'>28.17</td>
+		<td class='labelClassCenter'>23.32</td>
+		<td class='labelClassCenter'>22.92</td>
+		<td class='labelClassCenter'>27.90</td>
+		<td class='labelClassCenter'>45.88</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0500</td>
+		<td class='labelClassCenter'>27.78</td>
+		<td class='labelClassCenter'>27.04</td>
+		<td class='labelClassCenter'>29.85</td>
+		<td class='labelClassCenter'>24.91</td>
+		<td class='labelClassCenter'>17.03</td>
+		<td class='labelClassCenter'>29.63</td>
+		<td class='labelClassCenter'>37.83</td>
+		<td class='labelClassCenter'>29.23</td>
+		<td class='labelClassCenter'>30.44</td>
+		<td class='labelClassCenter'>27.16</td>
+		<td class='labelClassCenter'>29.57</td>
+		<td class='labelClassCenter'>24.94</td>
+		<td class='labelClassCenter'>24.56</td>
+		<td class='labelClassCenter'>29.44</td>
+		<td class='labelClassCenter'>47.52</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0515</td>
+		<td class='labelClassCenter'>33.47</td>
+		<td class='labelClassCenter'>32.78</td>
+		<td class='labelClassCenter'>35.37</td>
+		<td class='labelClassCenter'>30.82</td>
+		<td class='labelClassCenter'>23.58</td>
+		<td class='labelClassCenter'>35.18</td>
+		<td class='labelClassCenter'>42.72</td>
+		<td class='labelClassCenter'>34.79</td>
+		<td class='labelClassCenter'>35.93</td>
+		<td class='labelClassCenter'>32.89</td>
+		<td class='labelClassCenter'>35.08</td>
+		<td class='labelClassCenter'>30.85</td>
+		<td class='labelClassCenter'>30.49</td>
+		<td class='labelClassCenter'>35.00</td>
+		<td class='labelClassCenter'>51.75</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0530</td>
+		<td class='labelClassCenter'>29.43</td>
+		<td class='labelClassCenter'>28.84</td>
+		<td class='labelClassCenter'>31.04</td>
+		<td class='labelClassCenter'>27.19</td>
+		<td class='labelClassCenter'>20.93</td>
+		<td class='labelClassCenter'>30.86</td>
+		<td class='labelClassCenter'>37.28</td>
+		<td class='labelClassCenter'>30.60</td>
+		<td class='labelClassCenter'>31.48</td>
+		<td class='labelClassCenter'>28.94</td>
+		<td class='labelClassCenter'>30.96</td>
+		<td class='labelClassCenter'>27.21</td>
+		<td class='labelClassCenter'>26.90</td>
+		<td class='labelClassCenter'>30.76</td>
+		<td class='labelClassCenter'>44.67</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0545</td>
+		<td class='labelClassCenter'>32.61</td>
+		<td class='labelClassCenter'>31.91</td>
+		<td class='labelClassCenter'>34.75</td>
+		<td class='labelClassCenter'>29.61</td>
+		<td class='labelClassCenter'>17.98</td>
+		<td class='labelClassCenter'>34.61</td>
+		<td class='labelClassCenter'>42.87</td>
+		<td class='labelClassCenter'>34.25</td>
+		<td class='labelClassCenter'>35.44</td>
+		<td class='labelClassCenter'>32.03</td>
+		<td class='labelClassCenter'>34.72</td>
+		<td class='labelClassCenter'>29.64</td>
+		<td class='labelClassCenter'>29.20</td>
+		<td class='labelClassCenter'>34.47</td>
+		<td class='labelClassCenter'>53.01</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0600</td>
+		<td class='labelClassCenter'>33.49</td>
+		<td class='labelClassCenter'>33.10</td>
+		<td class='labelClassCenter'>35.09</td>
+		<td class='labelClassCenter'>31.19</td>
+		<td class='labelClassCenter'>15.80</td>
+		<td class='labelClassCenter'>35.18</td>
+		<td class='labelClassCenter'>40.90</td>
+		<td class='labelClassCenter'>34.91</td>
+		<td class='labelClassCenter'>35.81</td>
+		<td class='labelClassCenter'>33.20</td>
+		<td class='labelClassCenter'>35.27</td>
+		<td class='labelClassCenter'>31.19</td>
+		<td class='labelClassCenter'>30.80</td>
+		<td class='labelClassCenter'>35.08</td>
+		<td class='labelClassCenter'>49.23</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0615</td>
+		<td class='labelClassCenter'>33.40</td>
+		<td class='labelClassCenter'>33.19</td>
+		<td class='labelClassCenter'>34.54</td>
+		<td class='labelClassCenter'>31.76</td>
+		<td class='labelClassCenter'>17.91</td>
+		<td class='labelClassCenter'>34.69</td>
+		<td class='labelClassCenter'>38.52</td>
+		<td class='labelClassCenter'>34.49</td>
+		<td class='labelClassCenter'>35.14</td>
+		<td class='labelClassCenter'>33.26</td>
+		<td class='labelClassCenter'>34.75</td>
+		<td class='labelClassCenter'>31.74</td>
+		<td class='labelClassCenter'>31.44</td>
+		<td class='labelClassCenter'>34.62</td>
+		<td class='labelClassCenter'>44.70</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0630</td>
+		<td class='labelClassCenter'>34.88</td>
+		<td class='labelClassCenter'>34.57</td>
+		<td class='labelClassCenter'>36.18</td>
+		<td class='labelClassCenter'>33.04</td>
+		<td class='labelClassCenter'>20.94</td>
+		<td class='labelClassCenter'>36.24</td>
+		<td class='labelClassCenter'>40.85</td>
+		<td class='labelClassCenter'>36.02</td>
+		<td class='labelClassCenter'>36.74</td>
+		<td class='labelClassCenter'>34.64</td>
+		<td class='labelClassCenter'>36.31</td>
+		<td class='labelClassCenter'>33.04</td>
+		<td class='labelClassCenter'>32.73</td>
+		<td class='labelClassCenter'>36.16</td>
+		<td class='labelClassCenter'>47.47</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0645</td>
+		<td class='labelClassCenter'>33.47</td>
+		<td class='labelClassCenter'>32.95</td>
+		<td class='labelClassCenter'>35.25</td>
+		<td class='labelClassCenter'>30.96</td>
+		<td class='labelClassCenter'>18.24</td>
+		<td class='labelClassCenter'>35.22</td>
+		<td class='labelClassCenter'>41.86</td>
+		<td class='labelClassCenter'>34.92</td>
+		<td class='labelClassCenter'>35.90</td>
+		<td class='labelClassCenter'>33.05</td>
+		<td class='labelClassCenter'>35.33</td>
+		<td class='labelClassCenter'>30.98</td>
+		<td class='labelClassCenter'>30.58</td>
+		<td class='labelClassCenter'>35.12</td>
+		<td class='labelClassCenter'>50.49</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0700</td>
+		<td class='labelClassCenter'>32.83</td>
+		<td class='labelClassCenter'>32.45</td>
+		<td class='labelClassCenter'>34.49</td>
+		<td class='labelClassCenter'>30.47</td>
+		<td class='labelClassCenter'>14.22</td>
+		<td class='labelClassCenter'>34.59</td>
+		<td class='labelClassCenter'>40.44</td>
+		<td class='labelClassCenter'>34.31</td>
+		<td class='labelClassCenter'>35.24</td>
+		<td class='labelClassCenter'>32.54</td>
+		<td class='labelClassCenter'>34.69</td>
+		<td class='labelClassCenter'>30.47</td>
+		<td class='labelClassCenter'>30.06</td>
+		<td class='labelClassCenter'>34.50</td>
+		<td class='labelClassCenter'>48.93</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0715</td>
+		<td class='labelClassCenter'>31.18</td>
+		<td class='labelClassCenter'>30.78</td>
+		<td class='labelClassCenter'>32.36</td>
+		<td class='labelClassCenter'>29.46</td>
+		<td class='labelClassCenter'>15.37</td>
+		<td class='labelClassCenter'>32.68</td>
+		<td class='labelClassCenter'>36.51</td>
+		<td class='labelClassCenter'>32.40</td>
+		<td class='labelClassCenter'>33.22</td>
+		<td class='labelClassCenter'>30.85</td>
+		<td class='labelClassCenter'>32.72</td>
+		<td class='labelClassCenter'>29.45</td>
+		<td class='labelClassCenter'>29.13</td>
+		<td class='labelClassCenter'>32.87</td>
+		<td class='labelClassCenter'>42.84</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0730</td>
+		<td class='labelClassCenter'>31.38</td>
+		<td class='labelClassCenter'>30.62</td>
+		<td class='labelClassCenter'>32.52</td>
+		<td class='labelClassCenter'>29.61</td>
+		<td class='labelClassCenter'>13.56</td>
+		<td class='labelClassCenter'>33.32</td>
+		<td class='labelClassCenter'>36.54</td>
+		<td class='labelClassCenter'>32.83</td>
+		<td class='labelClassCenter'>33.96</td>
+		<td class='labelClassCenter'>30.72</td>
+		<td class='labelClassCenter'>33.26</td>
+		<td class='labelClassCenter'>29.59</td>
+		<td class='labelClassCenter'>29.26</td>
+		<td class='labelClassCenter'>34.21</td>
+		<td class='labelClassCenter'>43.02</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0745</td>
+		<td class='labelClassCenter'>31.91</td>
+		<td class='labelClassCenter'>31.46</td>
+		<td class='labelClassCenter'>33.18</td>
+		<td class='labelClassCenter'>29.98</td>
+		<td class='labelClassCenter'>9.39</td>
+		<td class='labelClassCenter'>33.83</td>
+		<td class='labelClassCenter'>37.45</td>
+		<td class='labelClassCenter'>33.45</td>
+		<td class='labelClassCenter'>34.47</td>
+		<td class='labelClassCenter'>31.55</td>
+		<td class='labelClassCenter'>33.84</td>
+		<td class='labelClassCenter'>29.95</td>
+		<td class='labelClassCenter'>29.56</td>
+		<td class='labelClassCenter'>34.24</td>
+		<td class='labelClassCenter'>44.97</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0800</td>
+		<td class='labelClassCenter'>32.14</td>
+		<td class='labelClassCenter'>31.93</td>
+		<td class='labelClassCenter'>33.53</td>
+		<td class='labelClassCenter'>30.09</td>
+		<td class='labelClassCenter'>7.84</td>
+		<td class='labelClassCenter'>33.94</td>
+		<td class='labelClassCenter'>38.14</td>
+		<td class='labelClassCenter'>33.67</td>
+		<td class='labelClassCenter'>34.57</td>
+		<td class='labelClassCenter'>32.01</td>
+		<td class='labelClassCenter'>34.02</td>
+		<td class='labelClassCenter'>30.05</td>
+		<td class='labelClassCenter'>29.63</td>
+		<td class='labelClassCenter'>33.85</td>
+		<td class='labelClassCenter'>46.30</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0815</td>
+		<td class='labelClassCenter'>38.38</td>
+		<td class='labelClassCenter'>37.08</td>
+		<td class='labelClassCenter'>39.93</td>
+		<td class='labelClassCenter'>35.86</td>
+		<td class='labelClassCenter'>6.82</td>
+		<td class='labelClassCenter'>41.69</td>
+		<td class='labelClassCenter'>45.09</td>
+		<td class='labelClassCenter'>40.76</td>
+		<td class='labelClassCenter'>42.68</td>
+		<td class='labelClassCenter'>37.26</td>
+		<td class='labelClassCenter'>41.50</td>
+		<td class='labelClassCenter'>35.82</td>
+		<td class='labelClassCenter'>35.29</td>
+		<td class='labelClassCenter'>43.75</td>
+		<td class='labelClassCenter'>54.92</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0830</td>
+		<td class='labelClassCenter'>30.36</td>
+		<td class='labelClassCenter'>30.31</td>
+		<td class='labelClassCenter'>31.01</td>
+		<td class='labelClassCenter'>29.34</td>
+		<td class='labelClassCenter'>14.42</td>
+		<td class='labelClassCenter'>31.38</td>
+		<td class='labelClassCenter'>33.02</td>
+		<td class='labelClassCenter'>31.22</td>
+		<td class='labelClassCenter'>31.69</td>
+		<td class='labelClassCenter'>30.35</td>
+		<td class='labelClassCenter'>31.40</td>
+		<td class='labelClassCenter'>29.31</td>
+		<td class='labelClassCenter'>29.07</td>
+		<td class='labelClassCenter'>31.40</td>
+		<td class='labelClassCenter'>37.44</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0845</td>
+		<td class='labelClassCenter'>21.01</td>
+		<td class='labelClassCenter'>20.86</td>
+		<td class='labelClassCenter'>21.14</td>
+		<td class='labelClassCenter'>20.80</td>
+		<td class='labelClassCenter'>20.06</td>
+		<td class='labelClassCenter'>21.24</td>
+		<td class='labelClassCenter'>21.67</td>
+		<td class='labelClassCenter'>21.16</td>
+		<td class='labelClassCenter'>21.32</td>
+		<td class='labelClassCenter'>20.88</td>
+		<td class='labelClassCenter'>21.23</td>
+		<td class='labelClassCenter'>20.81</td>
+		<td class='labelClassCenter'>20.78</td>
+		<td class='labelClassCenter'>21.41</td>
+		<td class='labelClassCenter'>22.30</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0900</td>
+		<td class='labelClassCenter'>18.29</td>
+		<td class='labelClassCenter'>17.55</td>
+		<td class='labelClassCenter'>18.50</td>
+		<td class='labelClassCenter'>17.90</td>
+		<td class='labelClassCenter'>17.16</td>
+		<td class='labelClassCenter'>19.15</td>
+		<td class='labelClassCenter'>19.39</td>
+		<td class='labelClassCenter'>18.76</td>
+		<td class='labelClassCenter'>19.39</td>
+		<td class='labelClassCenter'>17.62</td>
+		<td class='labelClassCenter'>19.01</td>
+		<td class='labelClassCenter'>17.91</td>
+		<td class='labelClassCenter'>17.86</td>
+		<td class='labelClassCenter'>20.35</td>
+		<td class='labelClassCenter'>20.37</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0915</td>
+		<td class='labelClassCenter'>17.39</td>
+		<td class='labelClassCenter'>19.88</td>
+		<td class='labelClassCenter'>18.95</td>
+		<td class='labelClassCenter'>13.84</td>
+		<td class='labelClassCenter'>13.68</td>
+		<td class='labelClassCenter'>24.58</td>
+		<td class='labelClassCenter'>17.48</td>
+		<td class='labelClassCenter'>29.66</td>
+		<td class='labelClassCenter'>24.06</td>
+		<td class='labelClassCenter'>21.18</td>
+		<td class='labelClassCenter'>27.92</td>
+		<td class='labelClassCenter'>14.13</td>
+		<td class='labelClassCenter'>13.93</td>
+		<td class='labelClassCenter'>28.44</td>
+		<td class='labelClassCenter'>19.21</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0930</td>
+		<td class='labelClassCenter'>16.70</td>
+		<td class='labelClassCenter'>21.13</td>
+		<td class='labelClassCenter'>18.67</td>
+		<td class='labelClassCenter'>12.15</td>
+		<td class='labelClassCenter'>12.56</td>
+		<td class='labelClassCenter'>25.64</td>
+		<td class='labelClassCenter'>15.77</td>
+		<td class='labelClassCenter'>32.93</td>
+		<td class='labelClassCenter'>24.63</td>
+		<td class='labelClassCenter'>23.52</td>
+		<td class='labelClassCenter'>29.92</td>
+		<td class='labelClassCenter'>12.53</td>
+		<td class='labelClassCenter'>12.31</td>
+		<td class='labelClassCenter'>30.39</td>
+		<td class='labelClassCenter'>17.28</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>0945</td>
+		<td class='labelClassCenter'>16.29</td>
+		<td class='labelClassCenter'>22.64</td>
+		<td class='labelClassCenter'>18.71</td>
+		<td class='labelClassCenter'>10.46</td>
+		<td class='labelClassCenter'>12.13</td>
+		<td class='labelClassCenter'>28.14</td>
+		<td class='labelClassCenter'>13.59</td>
+		<td class='labelClassCenter'>38.24</td>
+		<td class='labelClassCenter'>26.61</td>
+		<td class='labelClassCenter'>26.03</td>
+		<td class='labelClassCenter'>33.96</td>
+		<td class='labelClassCenter'>10.99</td>
+		<td class='labelClassCenter'>10.74</td>
+		<td class='labelClassCenter'>34.55</td>
+		<td class='labelClassCenter'>14.42</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1000</td>
+		<td class='labelClassCenter'>17.21</td>
+		<td class='labelClassCenter'>22.76</td>
+		<td class='labelClassCenter'>19.66</td>
+		<td class='labelClassCenter'>11.17</td>
+		<td class='labelClassCenter'>13.03</td>
+		<td class='labelClassCenter'>30.15</td>
+		<td class='labelClassCenter'>14.55</td>
+		<td class='labelClassCenter'>40.22</td>
+		<td class='labelClassCenter'>28.82</td>
+		<td class='labelClassCenter'>25.45</td>
+		<td class='labelClassCenter'>36.53</td>
+		<td class='labelClassCenter'>11.72</td>
+		<td class='labelClassCenter'>11.46</td>
+		<td class='labelClassCenter'>37.04</td>
+		<td class='labelClassCenter'>15.42</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1015</td>
+		<td class='labelClassCenter'>18.35</td>
+		<td class='labelClassCenter'>23.78</td>
+		<td class='labelClassCenter'>20.63</td>
+		<td class='labelClassCenter'>12.78</td>
+		<td class='labelClassCenter'>14.49</td>
+		<td class='labelClassCenter'>30.07</td>
+		<td class='labelClassCenter'>15.90</td>
+		<td class='labelClassCenter'>40.02</td>
+		<td class='labelClassCenter'>28.99</td>
+		<td class='labelClassCenter'>26.41</td>
+		<td class='labelClassCenter'>36.74</td>
+		<td class='labelClassCenter'>13.29</td>
+		<td class='labelClassCenter'>13.04</td>
+		<td class='labelClassCenter'>37.05</td>
+		<td class='labelClassCenter'>16.70</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1030</td>
+		<td class='labelClassCenter'>18.46</td>
+		<td class='labelClassCenter'>23.76</td>
+		<td class='labelClassCenter'>20.76</td>
+		<td class='labelClassCenter'>12.82</td>
+		<td class='labelClassCenter'>14.56</td>
+		<td class='labelClassCenter'>30.45</td>
+		<td class='labelClassCenter'>16.00</td>
+		<td class='labelClassCenter'>40.37</td>
+		<td class='labelClassCenter'>29.36</td>
+		<td class='labelClassCenter'>26.13</td>
+		<td class='labelClassCenter'>37.05</td>
+		<td class='labelClassCenter'>13.35</td>
+		<td class='labelClassCenter'>13.09</td>
+		<td class='labelClassCenter'>37.23</td>
+		<td class='labelClassCenter'>16.81</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1045</td>
+		<td class='labelClassCenter'>18.26</td>
+		<td class='labelClassCenter'>23.46</td>
+		<td class='labelClassCenter'>20.58</td>
+		<td class='labelClassCenter'>12.52</td>
+		<td class='labelClassCenter'>14.30</td>
+		<td class='labelClassCenter'>30.59</td>
+		<td class='labelClassCenter'>15.76</td>
+		<td class='labelClassCenter'>40.48</td>
+		<td class='labelClassCenter'>29.46</td>
+		<td class='labelClassCenter'>25.78</td>
+		<td class='labelClassCenter'>37.11</td>
+		<td class='labelClassCenter'>13.05</td>
+		<td class='labelClassCenter'>12.79</td>
+		<td class='labelClassCenter'>37.44</td>
+		<td class='labelClassCenter'>16.58</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1100</td>
+		<td class='labelClassCenter'>19.02</td>
+		<td class='labelClassCenter'>24.46</td>
+		<td class='labelClassCenter'>21.41</td>
+		<td class='labelClassCenter'>13.12</td>
+		<td class='labelClassCenter'>14.96</td>
+		<td class='labelClassCenter'>31.60</td>
+		<td class='labelClassCenter'>16.46</td>
+		<td class='labelClassCenter'>41.97</td>
+		<td class='labelClassCenter'>30.49</td>
+		<td class='labelClassCenter'>26.89</td>
+		<td class='labelClassCenter'>38.59</td>
+		<td class='labelClassCenter'>13.67</td>
+		<td class='labelClassCenter'>13.40</td>
+		<td class='labelClassCenter'>38.80</td>
+		<td class='labelClassCenter'>17.29</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1115</td>
+		<td class='labelClassCenter'>18.92</td>
+		<td class='labelClassCenter'>23.69</td>
+		<td class='labelClassCenter'>21.00</td>
+		<td class='labelClassCenter'>13.80</td>
+		<td class='labelClassCenter'>15.40</td>
+		<td class='labelClassCenter'>29.83</td>
+		<td class='labelClassCenter'>16.70</td>
+		<td class='labelClassCenter'>38.97</td>
+		<td class='labelClassCenter'>28.90</td>
+		<td class='labelClassCenter'>25.82</td>
+		<td class='labelClassCenter'>36.09</td>
+		<td class='labelClassCenter'>14.27</td>
+		<td class='labelClassCenter'>14.04</td>
+		<td class='labelClassCenter'>36.19</td>
+		<td class='labelClassCenter'>17.42</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1130</td>
+		<td class='labelClassCenter'>19.78</td>
+		<td class='labelClassCenter'>25.27</td>
+		<td class='labelClassCenter'>22.05</td>
+		<td class='labelClassCenter'>14.27</td>
+		<td class='labelClassCenter'>15.99</td>
+		<td class='labelClassCenter'>31.26</td>
+		<td class='labelClassCenter'>17.38</td>
+		<td class='labelClassCenter'>41.57</td>
+		<td class='labelClassCenter'>30.32</td>
+		<td class='labelClassCenter'>27.71</td>
+		<td class='labelClassCenter'>38.47</td>
+		<td class='labelClassCenter'>14.78</td>
+		<td class='labelClassCenter'>14.54</td>
+		<td class='labelClassCenter'>38.24</td>
+		<td class='labelClassCenter'>18.14</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1145</td>
+		<td class='labelClassCenter'>19.93</td>
+		<td class='labelClassCenter'>25.72</td>
+		<td class='labelClassCenter'>22.28</td>
+		<td class='labelClassCenter'>14.25</td>
+		<td class='labelClassCenter'>16.02</td>
+		<td class='labelClassCenter'>31.70</td>
+		<td class='labelClassCenter'>17.44</td>
+		<td class='labelClassCenter'>42.47</td>
+		<td class='labelClassCenter'>30.74</td>
+		<td class='labelClassCenter'>28.28</td>
+		<td class='labelClassCenter'>39.29</td>
+		<td class='labelClassCenter'>14.78</td>
+		<td class='labelClassCenter'>14.52</td>
+		<td class='labelClassCenter'>38.95</td>
+		<td class='labelClassCenter'>18.23</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1200</td>
+		<td class='labelClassCenter'>19.44</td>
+		<td class='labelClassCenter'>25.28</td>
+		<td class='labelClassCenter'>21.93</td>
+		<td class='labelClassCenter'>13.32</td>
+		<td class='labelClassCenter'>15.17</td>
+		<td class='labelClassCenter'>32.48</td>
+		<td class='labelClassCenter'>16.66</td>
+		<td class='labelClassCenter'>43.09</td>
+		<td class='labelClassCenter'>30.88</td>
+		<td class='labelClassCenter'>27.94</td>
+		<td class='labelClassCenter'>39.70</td>
+		<td class='labelClassCenter'>13.89</td>
+		<td class='labelClassCenter'>13.60</td>
+		<td class='labelClassCenter'>40.43</td>
+		<td class='labelClassCenter'>17.46</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1215</td>
+		<td class='labelClassCenter'>17.95</td>
+		<td class='labelClassCenter'>22.83</td>
+		<td class='labelClassCenter'>19.86</td>
+		<td class='labelClassCenter'>13.36</td>
+		<td class='labelClassCenter'>14.82</td>
+		<td class='labelClassCenter'>27.29</td>
+		<td class='labelClassCenter'>15.98</td>
+		<td class='labelClassCenter'>36.32</td>
+		<td class='labelClassCenter'>26.58</td>
+		<td class='labelClassCenter'>25.03</td>
+		<td class='labelClassCenter'>33.76</td>
+		<td class='labelClassCenter'>13.83</td>
+		<td class='labelClassCenter'>13.57</td>
+		<td class='labelClassCenter'>33.16</td>
+		<td class='labelClassCenter'>16.62</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1230</td>
+		<td class='labelClassCenter'>18.54</td>
+		<td class='labelClassCenter'>23.65</td>
+		<td class='labelClassCenter'>20.66</td>
+		<td class='labelClassCenter'>13.37</td>
+		<td class='labelClassCenter'>14.99</td>
+		<td class='labelClassCenter'>29.35</td>
+		<td class='labelClassCenter'>16.29</td>
+		<td class='labelClassCenter'>38.93</td>
+		<td class='labelClassCenter'>28.45</td>
+		<td class='labelClassCenter'>25.95</td>
+		<td class='labelClassCenter'>36.06</td>
+		<td class='labelClassCenter'>13.87</td>
+		<td class='labelClassCenter'>13.62</td>
+		<td class='labelClassCenter'>35.47</td>
+		<td class='labelClassCenter'>17.00</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1245</td>
+		<td class='labelClassCenter'>18.27</td>
+		<td class='labelClassCenter'>22.88</td>
+		<td class='labelClassCenter'>20.22</td>
+		<td class='labelClassCenter'>13.52</td>
+		<td class='labelClassCenter'>15.06</td>
+		<td class='labelClassCenter'>28.23</td>
+		<td class='labelClassCenter'>16.26</td>
+		<td class='labelClassCenter'>37.02</td>
+		<td class='labelClassCenter'>27.45</td>
+		<td class='labelClassCenter'>24.98</td>
+		<td class='labelClassCenter'>34.38</td>
+		<td class='labelClassCenter'>14.00</td>
+		<td class='labelClassCenter'>13.74</td>
+		<td class='labelClassCenter'>33.83</td>
+		<td class='labelClassCenter'>16.93</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1300</td>
+		<td class='labelClassCenter'>18.89</td>
+		<td class='labelClassCenter'>22.12</td>
+		<td class='labelClassCenter'>20.80</td>
+		<td class='labelClassCenter'>13.95</td>
+		<td class='labelClassCenter'>15.61</td>
+		<td class='labelClassCenter'>30.26</td>
+		<td class='labelClassCenter'>16.86</td>
+		<td class='labelClassCenter'>37.29</td>
+		<td class='labelClassCenter'>29.18</td>
+		<td class='labelClassCenter'>23.67</td>
+		<td class='labelClassCenter'>34.52</td>
+		<td class='labelClassCenter'>14.43</td>
+		<td class='labelClassCenter'>14.16</td>
+		<td class='labelClassCenter'>34.71</td>
+		<td class='labelClassCenter'>17.57</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1315</td>
+		<td class='labelClassCenter'>19.41</td>
+		<td class='labelClassCenter'>22.36</td>
+		<td class='labelClassCenter'>21.57</td>
+		<td class='labelClassCenter'>13.67</td>
+		<td class='labelClassCenter'>15.62</td>
+		<td class='labelClassCenter'>33.20</td>
+		<td class='labelClassCenter'>17.06</td>
+		<td class='labelClassCenter'>40.34</td>
+		<td class='labelClassCenter'>31.78</td>
+		<td class='labelClassCenter'>23.77</td>
+		<td class='labelClassCenter'>37.12</td>
+		<td class='labelClassCenter'>14.20</td>
+		<td class='labelClassCenter'>13.91</td>
+		<td class='labelClassCenter'>37.28</td>
+		<td class='labelClassCenter'>17.89</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1330</td>
+		<td class='labelClassCenter'>18.95</td>
+		<td class='labelClassCenter'>21.72</td>
+		<td class='labelClassCenter'>20.85</td>
+		<td class='labelClassCenter'>14.03</td>
+		<td class='labelClassCenter'>15.80</td>
+		<td class='labelClassCenter'>30.53</td>
+		<td class='labelClassCenter'>17.13</td>
+		<td class='labelClassCenter'>37.32</td>
+		<td class='labelClassCenter'>29.54</td>
+		<td class='labelClassCenter'>23.13</td>
+		<td class='labelClassCenter'>34.55</td>
+		<td class='labelClassCenter'>14.60</td>
+		<td class='labelClassCenter'>14.20</td>
+		<td class='labelClassCenter'>34.28</td>
+		<td class='labelClassCenter'>17.86</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1345</td>
+		<td class='labelClassCenter'>17.69</td>
+		<td class='labelClassCenter'>21.10</td>
+		<td class='labelClassCenter'>19.39</td>
+		<td class='labelClassCenter'>13.53</td>
+		<td class='labelClassCenter'>15.06</td>
+		<td class='labelClassCenter'>26.64</td>
+		<td class='labelClassCenter'>16.29</td>
+		<td class='labelClassCenter'>34.13</td>
+		<td class='labelClassCenter'>26.16</td>
+		<td class='labelClassCenter'>22.87</td>
+		<td class='labelClassCenter'>31.79</td>
+		<td class='labelClassCenter'>14.13</td>
+		<td class='labelClassCenter'>13.66</td>
+		<td class='labelClassCenter'>31.00</td>
+		<td class='labelClassCenter'>16.92</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1400</td>
+		<td class='labelClassCenter'>18.01</td>
+		<td class='labelClassCenter'>21.95</td>
+		<td class='labelClassCenter'>19.87</td>
+		<td class='labelClassCenter'>13.47</td>
+		<td class='labelClassCenter'>15.11</td>
+		<td class='labelClassCenter'>27.64</td>
+		<td class='labelClassCenter'>16.43</td>
+		<td class='labelClassCenter'>36.03</td>
+		<td class='labelClassCenter'>27.12</td>
+		<td class='labelClassCenter'>23.95</td>
+		<td class='labelClassCenter'>33.48</td>
+		<td class='labelClassCenter'>14.12</td>
+		<td class='labelClassCenter'>13.63</td>
+		<td class='labelClassCenter'>32.59</td>
+		<td class='labelClassCenter'>17.11</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1415</td>
+		<td class='labelClassCenter'>18.50</td>
+		<td class='labelClassCenter'>22.45</td>
+		<td class='labelClassCenter'>20.59</td>
+		<td class='labelClassCenter'>13.34</td>
+		<td class='labelClassCenter'>15.29</td>
+		<td class='labelClassCenter'>29.71</td>
+		<td class='labelClassCenter'>16.84</td>
+		<td class='labelClassCenter'>38.70</td>
+		<td class='labelClassCenter'>29.14</td>
+		<td class='labelClassCenter'>24.54</td>
+		<td class='labelClassCenter'>35.90</td>
+		<td class='labelClassCenter'>14.13</td>
+		<td class='labelClassCenter'>13.48</td>
+		<td class='labelClassCenter'>34.69</td>
+		<td class='labelClassCenter'>17.62</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1430</td>
+		<td class='labelClassCenter'>20.55</td>
+		<td class='labelClassCenter'>26.41</td>
+		<td class='labelClassCenter'>23.44</td>
+		<td class='labelClassCenter'>13.35</td>
+		<td class='labelClassCenter'>15.81</td>
+		<td class='labelClassCenter'>36.28</td>
+		<td class='labelClassCenter'>17.72</td>
+		<td class='labelClassCenter'>48.33</td>
+		<td class='labelClassCenter'>35.06</td>
+		<td class='labelClassCenter'>29.26</td>
+		<td class='labelClassCenter'>44.49</td>
+		<td class='labelClassCenter'>14.19</td>
+		<td class='labelClassCenter'>13.61</td>
+		<td class='labelClassCenter'>43.09</td>
+		<td class='labelClassCenter'>18.73</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1445</td>
+		<td class='labelClassCenter'>25.54</td>
+		<td class='labelClassCenter'>33.41</td>
+		<td class='labelClassCenter'>28.47</td>
+		<td class='labelClassCenter'>18.60</td>
+		<td class='labelClassCenter'>20.71</td>
+		<td class='labelClassCenter'>39.43</td>
+		<td class='labelClassCenter'>22.43</td>
+		<td class='labelClassCenter'>53.50</td>
+		<td class='labelClassCenter'>38.36</td>
+		<td class='labelClassCenter'>37.02</td>
+		<td class='labelClassCenter'>49.78</td>
+		<td class='labelClassCenter'>19.30</td>
+		<td class='labelClassCenter'>18.90</td>
+		<td class='labelClassCenter'>47.69</td>
+		<td class='labelClassCenter'>23.36</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1500</td>
+		<td class='labelClassCenter'>25.49</td>
+		<td class='labelClassCenter'>34.91</td>
+		<td class='labelClassCenter'>28.39</td>
+		<td class='labelClassCenter'>18.98</td>
+		<td class='labelClassCenter'>20.92</td>
+		<td class='labelClassCenter'>37.08</td>
+		<td class='labelClassCenter'>22.59</td>
+		<td class='labelClassCenter'>53.17</td>
+		<td class='labelClassCenter'>36.52</td>
+		<td class='labelClassCenter'>39.34</td>
+		<td class='labelClassCenter'>49.65</td>
+		<td class='labelClassCenter'>19.73</td>
+		<td class='labelClassCenter'>19.26</td>
+		<td class='labelClassCenter'>46.94</td>
+		<td class='labelClassCenter'>23.45</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1515</td>
+		<td class='labelClassCenter'>21.13</td>
+		<td class='labelClassCenter'>27.05</td>
+		<td class='labelClassCenter'>23.63</td>
+		<td class='labelClassCenter'>15.15</td>
+		<td class='labelClassCenter'>17.19</td>
+		<td class='labelClassCenter'>33.47</td>
+		<td class='labelClassCenter'>18.84</td>
+		<td class='labelClassCenter'>45.07</td>
+		<td class='labelClassCenter'>32.73</td>
+		<td class='labelClassCenter'>29.94</td>
+		<td class='labelClassCenter'>41.85</td>
+		<td class='labelClassCenter'>15.94</td>
+		<td class='labelClassCenter'>15.35</td>
+		<td class='labelClassCenter'>40.17</td>
+		<td class='labelClassCenter'>19.69</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1530</td>
+		<td class='labelClassCenter'>22.50</td>
+		<td class='labelClassCenter'>29.17</td>
+		<td class='labelClassCenter'>25.42</td>
+		<td class='labelClassCenter'>15.45</td>
+		<td class='labelClassCenter'>17.92</td>
+		<td class='labelClassCenter'>37.16</td>
+		<td class='labelClassCenter'>19.91</td>
+		<td class='labelClassCenter'>50.55</td>
+		<td class='labelClassCenter'>36.35</td>
+		<td class='labelClassCenter'>32.48</td>
+		<td class='labelClassCenter'>46.76</td>
+		<td class='labelClassCenter'>16.44</td>
+		<td class='labelClassCenter'>15.68</td>
+		<td class='labelClassCenter'>44.79</td>
+		<td class='labelClassCenter'>20.92</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1545</td>
+		<td class='labelClassCenter'>27.25</td>
+		<td class='labelClassCenter'>34.82</td>
+		<td class='labelClassCenter'>30.75</td>
+		<td class='labelClassCenter'>19.13</td>
+		<td class='labelClassCenter'>22.74</td>
+		<td class='labelClassCenter'>43.42</td>
+		<td class='labelClassCenter'>25.63</td>
+		<td class='labelClassCenter'>61.00</td>
+		<td class='labelClassCenter'>43.76</td>
+		<td class='labelClassCenter'>39.17</td>
+		<td class='labelClassCenter'>56.73</td>
+		<td class='labelClassCenter'>21.02</td>
+		<td class='labelClassCenter'>19.20</td>
+		<td class='labelClassCenter'>52.66</td>
+		<td class='labelClassCenter'>26.98</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1600</td>
+		<td class='labelClassCenter'>26.92</td>
+		<td class='labelClassCenter'>34.38</td>
+		<td class='labelClassCenter'>30.17</td>
+		<td class='labelClassCenter'>19.26</td>
+		<td class='labelClassCenter'>22.25</td>
+		<td class='labelClassCenter'>42.38</td>
+		<td class='labelClassCenter'>24.66</td>
+		<td class='labelClassCenter'>58.17</td>
+		<td class='labelClassCenter'>42.09</td>
+		<td class='labelClassCenter'>38.39</td>
+		<td class='labelClassCenter'>54.08</td>
+		<td class='labelClassCenter'>20.66</td>
+		<td class='labelClassCenter'>19.42</td>
+		<td class='labelClassCenter'>51.23</td>
+		<td class='labelClassCenter'>25.85</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1615</td>
+		<td class='labelClassCenter'>36.87</td>
+		<td class='labelClassCenter'>39.79</td>
+		<td class='labelClassCenter'>40.85</td>
+		<td class='labelClassCenter'>27.01</td>
+		<td class='labelClassCenter'>32.66</td>
+		<td class='labelClassCenter'>59.57</td>
+		<td class='labelClassCenter'>37.03</td>
+		<td class='labelClassCenter'>75.92</td>
+		<td class='labelClassCenter'>60.69</td>
+		<td class='labelClassCenter'>43.02</td>
+		<td class='labelClassCenter'>70.91</td>
+		<td class='labelClassCenter'>30.28</td>
+		<td class='labelClassCenter'>26.74</td>
+		<td class='labelClassCenter'>66.27</td>
+		<td class='labelClassCenter'>38.98</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1630</td>
+		<td class='labelClassCenter'>41.79</td>
+		<td class='labelClassCenter'>45.61</td>
+		<td class='labelClassCenter'>45.80</td>
+		<td class='labelClassCenter'>32.39</td>
+		<td class='labelClassCenter'>38.47</td>
+		<td class='labelClassCenter'>61.90</td>
+		<td class='labelClassCenter'>43.31</td>
+		<td class='labelClassCenter'>81.29</td>
+		<td class='labelClassCenter'>64.49</td>
+		<td class='labelClassCenter'>49.79</td>
+		<td class='labelClassCenter'>76.60</td>
+		<td class='labelClassCenter'>36.32</td>
+		<td class='labelClassCenter'>31.92</td>
+		<td class='labelClassCenter'>69.85</td>
+		<td class='labelClassCenter'>45.32</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1645</td>
+		<td class='labelClassCenter'>39.62</td>
+		<td class='labelClassCenter'>41.57</td>
+		<td class='labelClassCenter'>43.82</td>
+		<td class='labelClassCenter'>29.46</td>
+		<td class='labelClassCenter'>36.23</td>
+		<td class='labelClassCenter'>62.70</td>
+		<td class='labelClassCenter'>41.55</td>
+		<td class='labelClassCenter'>81.13</td>
+		<td class='labelClassCenter'>65.31</td>
+		<td class='labelClassCenter'>45.15</td>
+		<td class='labelClassCenter'>76.12</td>
+		<td class='labelClassCenter'>33.84</td>
+		<td class='labelClassCenter'>28.91</td>
+		<td class='labelClassCenter'>69.84</td>
+		<td class='labelClassCenter'>43.75</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1700</td>
+		<td class='labelClassCenter'>34.97</td>
+		<td class='labelClassCenter'>37.94</td>
+		<td class='labelClassCenter'>38.99</td>
+		<td class='labelClassCenter'>25.25</td>
+		<td class='labelClassCenter'>31.26</td>
+		<td class='labelClassCenter'>56.81</td>
+		<td class='labelClassCenter'>35.96</td>
+		<td class='labelClassCenter'>74.48</td>
+		<td class='labelClassCenter'>58.73</td>
+		<td class='labelClassCenter'>41.54</td>
+		<td class='labelClassCenter'>69.63</td>
+		<td class='labelClassCenter'>29.01</td>
+		<td class='labelClassCenter'>24.85</td>
+		<td class='labelClassCenter'>64.20</td>
+		<td class='labelClassCenter'>37.96</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1715</td>
+		<td class='labelClassCenter'>29.40</td>
+		<td class='labelClassCenter'>32.66</td>
+		<td class='labelClassCenter'>31.76</td>
+		<td class='labelClassCenter'>24.09</td>
+		<td class='labelClassCenter'>27.57</td>
+		<td class='labelClassCenter'>39.92</td>
+		<td class='labelClassCenter'>30.39</td>
+		<td class='labelClassCenter'>52.63</td>
+		<td class='labelClassCenter'>41.74</td>
+		<td class='labelClassCenter'>35.63</td>
+		<td class='labelClassCenter'>49.99</td>
+		<td class='labelClassCenter'>26.54</td>
+		<td class='labelClassCenter'>23.81</td>
+		<td class='labelClassCenter'>45.62</td>
+		<td class='labelClassCenter'>31.54</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1730</td>
+		<td class='labelClassCenter'>41.32</td>
+		<td class='labelClassCenter'>43.42</td>
+		<td class='labelClassCenter'>42.97</td>
+		<td class='labelClassCenter'>38.35</td>
+		<td class='labelClassCenter'>41.83</td>
+		<td class='labelClassCenter'>45.32</td>
+		<td class='labelClassCenter'>44.80</td>
+		<td class='labelClassCenter'>57.89</td>
+		<td class='labelClassCenter'>49.18</td>
+		<td class='labelClassCenter'>46.49</td>
+		<td class='labelClassCenter'>56.61</td>
+		<td class='labelClassCenter'>41.44</td>
+		<td class='labelClassCenter'>37.75</td>
+		<td class='labelClassCenter'>50.66</td>
+		<td class='labelClassCenter'>45.81</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1745</td>
+		<td class='labelClassCenter'>57.04</td>
+		<td class='labelClassCenter'>58.92</td>
+		<td class='labelClassCenter'>57.90</td>
+		<td class='labelClassCenter'>56.10</td>
+		<td class='labelClassCenter'>58.45</td>
+		<td class='labelClassCenter'>56.02</td>
+		<td class='labelClassCenter'>60.57</td>
+		<td class='labelClassCenter'>65.92</td>
+		<td class='labelClassCenter'>59.82</td>
+		<td class='labelClassCenter'>61.55</td>
+		<td class='labelClassCenter'>65.70</td>
+		<td class='labelClassCenter'>58.60</td>
+		<td class='labelClassCenter'>55.48</td>
+		<td class='labelClassCenter'>60.69</td>
+		<td class='labelClassCenter'>61.21</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1800</td>
+		<td class='labelClassCenter'>75.40</td>
+		<td class='labelClassCenter'>77.85</td>
+		<td class='labelClassCenter'>75.32</td>
+		<td class='labelClassCenter'>76.20</td>
+		<td class='labelClassCenter'>75.83</td>
+		<td class='labelClassCenter'>71.54</td>
+		<td class='labelClassCenter'>75.67</td>
+		<td class='labelClassCenter'>74.45</td>
+		<td class='labelClassCenter'>72.29</td>
+		<td class='labelClassCenter'>78.98</td>
+		<td class='labelClassCenter'>74.81</td>
+		<td class='labelClassCenter'>76.19</td>
+		<td class='labelClassCenter'>76.05</td>
+		<td class='labelClassCenter'>73.70</td>
+		<td class='labelClassCenter'>75.53</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1815</td>
+		<td class='labelClassCenter'>57.07</td>
+		<td class='labelClassCenter'>57.21</td>
+		<td class='labelClassCenter'>57.07</td>
+		<td class='labelClassCenter'>57.12</td>
+		<td class='labelClassCenter'>57.10</td>
+		<td class='labelClassCenter'>56.85</td>
+		<td class='labelClassCenter'>57.08</td>
+		<td class='labelClassCenter'>57.01</td>
+		<td class='labelClassCenter'>56.89</td>
+		<td class='labelClassCenter'>57.28</td>
+		<td class='labelClassCenter'>57.03</td>
+		<td class='labelClassCenter'>57.12</td>
+		<td class='labelClassCenter'>57.07</td>
+		<td class='labelClassCenter'>56.96</td>
+		<td class='labelClassCenter'>57.08</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1830</td>
+		<td class='labelClassCenter'>63.56</td>
+		<td class='labelClassCenter'>62.03</td>
+		<td class='labelClassCenter'>63.53</td>
+		<td class='labelClassCenter'>63.35</td>
+		<td class='labelClassCenter'>63.57</td>
+		<td class='labelClassCenter'>65.08</td>
+		<td class='labelClassCenter'>63.67</td>
+		<td class='labelClassCenter'>64.29</td>
+		<td class='labelClassCenter'>65.42</td>
+		<td class='labelClassCenter'>62.17</td>
+		<td class='labelClassCenter'>64.68</td>
+		<td class='labelClassCenter'>63.38</td>
+		<td class='labelClassCenter'>63.35</td>
+		<td class='labelClassCenter'>67.66</td>
+		<td class='labelClassCenter'>63.75</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1845</td>
+		<td class='labelClassCenter'>68.19</td>
+		<td class='labelClassCenter'>67.91</td>
+		<td class='labelClassCenter'>69.00</td>
+		<td class='labelClassCenter'>67.07</td>
+		<td class='labelClassCenter'>63.91</td>
+		<td class='labelClassCenter'>68.93</td>
+		<td class='labelClassCenter'>72.08</td>
+		<td class='labelClassCenter'>68.76</td>
+		<td class='labelClassCenter'>69.26</td>
+		<td class='labelClassCenter'>68.48</td>
+		<td class='labelClassCenter'>68.97</td>
+		<td class='labelClassCenter'>67.09</td>
+		<td class='labelClassCenter'>66.92</td>
+		<td class='labelClassCenter'>69.11</td>
+		<td class='labelClassCenter'>75.22</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1900</td>
+		<td class='labelClassCenter'>63.89</td>
+		<td class='labelClassCenter'>60.46</td>
+		<td class='labelClassCenter'>64.65</td>
+		<td class='labelClassCenter'>62.86</td>
+		<td class='labelClassCenter'>58.29</td>
+		<td class='labelClassCenter'>65.27</td>
+		<td class='labelClassCenter'>70.01</td>
+		<td class='labelClassCenter'>65.15</td>
+		<td class='labelClassCenter'>65.70</td>
+		<td class='labelClassCenter'>64.27</td>
+		<td class='labelClassCenter'>65.41</td>
+		<td class='labelClassCenter'>62.88</td>
+		<td class='labelClassCenter'>62.65</td>
+		<td class='labelClassCenter'>65.25</td>
+		<td class='labelClassCenter'>74.53</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1915</td>
+		<td class='labelClassCenter'>55.95</td>
+		<td class='labelClassCenter'>51.36</td>
+		<td class='labelClassCenter'>56.51</td>
+		<td class='labelClassCenter'>55.17</td>
+		<td class='labelClassCenter'>50.89</td>
+		<td class='labelClassCenter'>57.60</td>
+		<td class='labelClassCenter'>61.91</td>
+		<td class='labelClassCenter'>57.42</td>
+		<td class='labelClassCenter'>58.01</td>
+		<td class='labelClassCenter'>55.42</td>
+		<td class='labelClassCenter'>57.69</td>
+		<td class='labelClassCenter'>55.19</td>
+		<td class='labelClassCenter'>54.97</td>
+		<td class='labelClassCenter'>57.77</td>
+		<td class='labelClassCenter'>66.17</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1930</td>
+		<td class='labelClassCenter'>52.93</td>
+		<td class='labelClassCenter'>50.64</td>
+		<td class='labelClassCenter'>53.77</td>
+		<td class='labelClassCenter'>51.73</td>
+		<td class='labelClassCenter'>47.65</td>
+		<td class='labelClassCenter'>54.41</td>
+		<td class='labelClassCenter'>58.29</td>
+		<td class='labelClassCenter'>54.08</td>
+		<td class='labelClassCenter'>54.83</td>
+		<td class='labelClassCenter'>52.27</td>
+		<td class='labelClassCenter'>54.40</td>
+		<td class='labelClassCenter'>51.76</td>
+		<td class='labelClassCenter'>51.54</td>
+		<td class='labelClassCenter'>55.14</td>
+		<td class='labelClassCenter'>62.39</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>1945</td>
+		<td class='labelClassCenter'>49.75</td>
+		<td class='labelClassCenter'>49.23</td>
+		<td class='labelClassCenter'>50.81</td>
+		<td class='labelClassCenter'>48.26</td>
+		<td class='labelClassCenter'>44.04</td>
+		<td class='labelClassCenter'>50.80</td>
+		<td class='labelClassCenter'>54.96</td>
+		<td class='labelClassCenter'>50.56</td>
+		<td class='labelClassCenter'>51.22</td>
+		<td class='labelClassCenter'>49.30</td>
+		<td class='labelClassCenter'>50.84</td>
+		<td class='labelClassCenter'>48.28</td>
+		<td class='labelClassCenter'>48.06</td>
+		<td class='labelClassCenter'>51.06</td>
+		<td class='labelClassCenter'>59.19</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2000</td>
+		<td class='labelClassCenter'>46.84</td>
+		<td class='labelClassCenter'>45.50</td>
+		<td class='labelClassCenter'>47.59</td>
+		<td class='labelClassCenter'>45.63</td>
+		<td class='labelClassCenter'>42.74</td>
+		<td class='labelClassCenter'>48.59</td>
+		<td class='labelClassCenter'>50.63</td>
+		<td class='labelClassCenter'>47.86</td>
+		<td class='labelClassCenter'>48.97</td>
+		<td class='labelClassCenter'>45.68</td>
+		<td class='labelClassCenter'>48.33</td>
+		<td class='labelClassCenter'>45.66</td>
+		<td class='labelClassCenter'>45.49</td>
+		<td class='labelClassCenter'>50.97</td>
+		<td class='labelClassCenter'>53.74</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2015</td>
+		<td class='labelClassCenter'>44.37</td>
+		<td class='labelClassCenter'>41.42</td>
+		<td class='labelClassCenter'>44.92</td>
+		<td class='labelClassCenter'>43.16</td>
+		<td class='labelClassCenter'>41.19</td>
+		<td class='labelClassCenter'>47.69</td>
+		<td class='labelClassCenter'>47.40</td>
+		<td class='labelClassCenter'>46.02</td>
+		<td class='labelClassCenter'>48.17</td>
+		<td class='labelClassCenter'>41.81</td>
+		<td class='labelClassCenter'>46.95</td>
+		<td class='labelClassCenter'>43.22</td>
+		<td class='labelClassCenter'>43.06</td>
+		<td class='labelClassCenter'>53.93</td>
+		<td class='labelClassCenter'>49.90</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2030</td>
+		<td class='labelClassCenter'>42.45</td>
+		<td class='labelClassCenter'>41.28</td>
+		<td class='labelClassCenter'>43.07</td>
+		<td class='labelClassCenter'>41.44</td>
+		<td class='labelClassCenter'>39.05</td>
+		<td class='labelClassCenter'>43.97</td>
+		<td class='labelClassCenter'>45.60</td>
+		<td class='labelClassCenter'>43.33</td>
+		<td class='labelClassCenter'>44.30</td>
+		<td class='labelClassCenter'>41.43</td>
+		<td class='labelClassCenter'>43.74</td>
+		<td class='labelClassCenter'>41.47</td>
+		<td class='labelClassCenter'>41.32</td>
+		<td class='labelClassCenter'>46.12</td>
+		<td class='labelClassCenter'>48.20</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2045</td>
+		<td class='labelClassCenter'>37.96</td>
+		<td class='labelClassCenter'>36.99</td>
+		<td class='labelClassCenter'>38.54</td>
+		<td class='labelClassCenter'>37.04</td>
+		<td class='labelClassCenter'>34.81</td>
+		<td class='labelClassCenter'>39.25</td>
+		<td class='labelClassCenter'>40.87</td>
+		<td class='labelClassCenter'>38.72</td>
+		<td class='labelClassCenter'>39.54</td>
+		<td class='labelClassCenter'>37.12</td>
+		<td class='labelClassCenter'>39.07</td>
+		<td class='labelClassCenter'>37.07</td>
+		<td class='labelClassCenter'>36.94</td>
+		<td class='labelClassCenter'>40.99</td>
+		<td class='labelClassCenter'>43.28</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2100</td>
+		<td class='labelClassCenter'>36.60</td>
+		<td class='labelClassCenter'>35.19</td>
+		<td class='labelClassCenter'>37.27</td>
+		<td class='labelClassCenter'>35.48</td>
+		<td class='labelClassCenter'>32.90</td>
+		<td class='labelClassCenter'>38.38</td>
+		<td class='labelClassCenter'>40.02</td>
+		<td class='labelClassCenter'>37.60</td>
+		<td class='labelClassCenter'>38.74</td>
+		<td class='labelClassCenter'>35.37</td>
+		<td class='labelClassCenter'>38.10</td>
+		<td class='labelClassCenter'>35.51</td>
+		<td class='labelClassCenter'>35.35</td>
+		<td class='labelClassCenter'>41.02</td>
+		<td class='labelClassCenter'>42.85</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2115</td>
+		<td class='labelClassCenter'>36.64</td>
+		<td class='labelClassCenter'>35.32</td>
+		<td class='labelClassCenter'>37.29</td>
+		<td class='labelClassCenter'>35.56</td>
+		<td class='labelClassCenter'>33.05</td>
+		<td class='labelClassCenter'>38.32</td>
+		<td class='labelClassCenter'>39.96</td>
+		<td class='labelClassCenter'>37.60</td>
+		<td class='labelClassCenter'>38.67</td>
+		<td class='labelClassCenter'>35.49</td>
+		<td class='labelClassCenter'>38.06</td>
+		<td class='labelClassCenter'>35.59</td>
+		<td class='labelClassCenter'>35.44</td>
+		<td class='labelClassCenter'>40.78</td>
+		<td class='labelClassCenter'>42.71</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2130</td>
+		<td class='labelClassCenter'>33.34</td>
+		<td class='labelClassCenter'>31.65</td>
+		<td class='labelClassCenter'>33.83</td>
+		<td class='labelClassCenter'>32.41</td>
+		<td class='labelClassCenter'>30.56</td>
+		<td class='labelClassCenter'>35.32</td>
+		<td class='labelClassCenter'>35.94</td>
+		<td class='labelClassCenter'>34.38</td>
+		<td class='labelClassCenter'>35.66</td>
+		<td class='labelClassCenter'>31.86</td>
+		<td class='labelClassCenter'>34.93</td>
+		<td class='labelClassCenter'>32.44</td>
+		<td class='labelClassCenter'>32.31</td>
+		<td class='labelClassCenter'>38.75</td>
+		<td class='labelClassCenter'>38.12</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2145</td>
+		<td class='labelClassCenter'>30.78</td>
+		<td class='labelClassCenter'>27.64</td>
+		<td class='labelClassCenter'>30.91</td>
+		<td class='labelClassCenter'>30.07</td>
+		<td class='labelClassCenter'>29.78</td>
+		<td class='labelClassCenter'>34.13</td>
+		<td class='labelClassCenter'>31.79</td>
+		<td class='labelClassCenter'>32.25</td>
+		<td class='labelClassCenter'>34.42</td>
+		<td class='labelClassCenter'>28.01</td>
+		<td class='labelClassCenter'>33.17</td>
+		<td class='labelClassCenter'>30.12</td>
+		<td class='labelClassCenter'>30.04</td>
+		<td class='labelClassCenter'>41.64</td>
+		<td class='labelClassCenter'>32.69</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2200</td>
+		<td class='labelClassCenter'>29.21</td>
+		<td class='labelClassCenter'>25.69</td>
+		<td class='labelClassCenter'>29.33</td>
+		<td class='labelClassCenter'>28.46</td>
+		<td class='labelClassCenter'>28.21</td>
+		<td class='labelClassCenter'>32.90</td>
+		<td class='labelClassCenter'>30.27</td>
+		<td class='labelClassCenter'>30.89</td>
+		<td class='labelClassCenter'>33.29</td>
+		<td class='labelClassCenter'>26.10</td>
+		<td class='labelClassCenter'>31.93</td>
+		<td class='labelClassCenter'>28.51</td>
+		<td class='labelClassCenter'>28.44</td>
+		<td class='labelClassCenter'>41.01</td>
+		<td class='labelClassCenter'>31.19</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2215</td>
+		<td class='labelClassCenter'>28.85</td>
+		<td class='labelClassCenter'>25.34</td>
+		<td class='labelClassCenter'>28.80</td>
+		<td class='labelClassCenter'>28.32</td>
+		<td class='labelClassCenter'>28.74</td>
+		<td class='labelClassCenter'>32.45</td>
+		<td class='labelClassCenter'>29.10</td>
+		<td class='labelClassCenter'>30.43</td>
+		<td class='labelClassCenter'>32.77</td>
+		<td class='labelClassCenter'>25.74</td>
+		<td class='labelClassCenter'>31.45</td>
+		<td class='labelClassCenter'>28.38</td>
+		<td class='labelClassCenter'>28.33</td>
+		<td class='labelClassCenter'>40.65</td>
+		<td class='labelClassCenter'>29.34</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2230</td>
+		<td class='labelClassCenter'>28.32</td>
+		<td class='labelClassCenter'>25.10</td>
+		<td class='labelClassCenter'>28.32</td>
+		<td class='labelClassCenter'>27.78</td>
+		<td class='labelClassCenter'>28.01</td>
+		<td class='labelClassCenter'>31.65</td>
+		<td class='labelClassCenter'>28.74</td>
+		<td class='labelClassCenter'>29.79</td>
+		<td class='labelClassCenter'>31.96</td>
+		<td class='labelClassCenter'>25.45</td>
+		<td class='labelClassCenter'>30.75</td>
+		<td class='labelClassCenter'>27.83</td>
+		<td class='labelClassCenter'>27.78</td>
+		<td class='labelClassCenter'>39.15</td>
+		<td class='labelClassCenter'>29.13</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2245</td>
+		<td class='labelClassCenter'>27.46</td>
+		<td class='labelClassCenter'>23.66</td>
+		<td class='labelClassCenter'>27.55</td>
+		<td class='labelClassCenter'>26.69</td>
+		<td class='labelClassCenter'>26.55</td>
+		<td class='labelClassCenter'>31.43</td>
+		<td class='labelClassCenter'>28.44</td>
+		<td class='labelClassCenter'>29.25</td>
+		<td class='labelClassCenter'>31.83</td>
+		<td class='labelClassCenter'>24.06</td>
+		<td class='labelClassCenter'>30.39</td>
+		<td class='labelClassCenter'>26.75</td>
+		<td class='labelClassCenter'>26.67</td>
+		<td class='labelClassCenter'>40.26</td>
+		<td class='labelClassCenter'>29.31</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2300</td>
+		<td class='labelClassCenter'>27.32</td>
+		<td class='labelClassCenter'>23.90</td>
+		<td class='labelClassCenter'>27.48</td>
+		<td class='labelClassCenter'>26.54</td>
+		<td class='labelClassCenter'>26.14</td>
+		<td class='labelClassCenter'>30.93</td>
+		<td class='labelClassCenter'>28.54</td>
+		<td class='labelClassCenter'>28.97</td>
+		<td class='labelClassCenter'>31.32</td>
+		<td class='labelClassCenter'>24.26</td>
+		<td class='labelClassCenter'>30.01</td>
+		<td class='labelClassCenter'>26.59</td>
+		<td class='labelClassCenter'>26.51</td>
+		<td class='labelClassCenter'>38.87</td>
+		<td class='labelClassCenter'>29.60</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2315</td>
+		<td class='labelClassCenter'>25.33</td>
+		<td class='labelClassCenter'>21.96</td>
+		<td class='labelClassCenter'>25.27</td>
+		<td class='labelClassCenter'>24.84</td>
+		<td class='labelClassCenter'>25.28</td>
+		<td class='labelClassCenter'>28.78</td>
+		<td class='labelClassCenter'>25.52</td>
+		<td class='labelClassCenter'>26.84</td>
+		<td class='labelClassCenter'>29.09</td>
+		<td class='labelClassCenter'>22.30</td>
+		<td class='labelClassCenter'>27.85</td>
+		<td class='labelClassCenter'>24.88</td>
+		<td class='labelClassCenter'>24.84</td>
+		<td class='labelClassCenter'>36.79</td>
+		<td class='labelClassCenter'>25.71</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2330</td>
+		<td class='labelClassCenter'>24.73</td>
+		<td class='labelClassCenter'>21.49</td>
+		<td class='labelClassCenter'>24.68</td>
+		<td class='labelClassCenter'>24.27</td>
+		<td class='labelClassCenter'>24.71</td>
+		<td class='labelClassCenter'>28.06</td>
+		<td class='labelClassCenter'>24.90</td>
+		<td class='labelClassCenter'>26.19</td>
+		<td class='labelClassCenter'>28.36</td>
+		<td class='labelClassCenter'>21.81</td>
+		<td class='labelClassCenter'>27.17</td>
+		<td class='labelClassCenter'>24.31</td>
+		<td class='labelClassCenter'>24.27</td>
+		<td class='labelClassCenter'>35.76</td>
+		<td class='labelClassCenter'>25.06</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2345</td>
+		<td class='labelClassCenter'>24.02</td>
+		<td class='labelClassCenter'>21.06</td>
+		<td class='labelClassCenter'>23.97</td>
+		<td class='labelClassCenter'>23.60</td>
+		<td class='labelClassCenter'>24.00</td>
+		<td class='labelClassCenter'>27.04</td>
+		<td class='labelClassCenter'>24.17</td>
+		<td class='labelClassCenter'>25.34</td>
+		<td class='labelClassCenter'>27.31</td>
+		<td class='labelClassCenter'>21.37</td>
+		<td class='labelClassCenter'>26.23</td>
+		<td class='labelClassCenter'>23.64</td>
+		<td class='labelClassCenter'>23.60</td>
+		<td class='labelClassCenter'>34.07</td>
+		<td class='labelClassCenter'>24.32</td>
+	</tr>
+	<tr>
+		<td class='labelClassCenter'>10/21/2026</td>
+		<td class='labelClassCenter'>2400</td>
+		<td class='labelClassCenter'>23.36</td>
+		<td class='labelClassCenter'>20.42</td>
+		<td class='labelClassCenter'>23.31</td>
+		<td class='labelClassCenter'>22.93</td>
+		<td class='labelClassCenter'>23.33</td>
+		<td class='labelClassCenter'>26.37</td>
+		<td class='labelClassCenter'>23.50</td>
+		<td class='labelClassCenter'>24.66</td>
+		<td class='labelClassCenter'>26.63</td>
+		<td class='labelClassCenter'>20.73</td>
+		<td class='labelClassCenter'>25.55</td>
+		<td class='labelClassCenter'>22.97</td>
+		<td class='labelClassCenter'>22.94</td>
+		<td class='labelClassCenter'>33.52</td>
+		<td class='labelClassCenter'>23.65</td>
+	</tr>
+</table>
+</div><script> function getFile(){var file_name = document.location.href; var end = (file_name.indexOf('?') == -1) ? file_name.length : file_name.indexOf('?'); ret=file_name.substring(file_name.lastIndexOf('/')+1, end); return ret.match(/^\d+_/) ? ret.substr(9) : ret;} var dateOption = document.getElementById("dates"); var numberOfOptions = dateOption.options.length; var optionHistoryLength = 0; for (var i=0; i < numberOfOptions; i++){if (dateOption[i].value == "history") optionHistoryLength++;} var currentDate = new Date(); var optionDate = new Date(); optionDate.setDate(optionDate.getDate() - optionHistoryLength); for (var i = 0; i < numberOfOptions; i++) {   var month = optionDate.getMonth() + 1;   var monthStr = (month < 10) ? '0' + month : month + '';   var dayOfMonth = optionDate.getDate();   var dayOfMonthStr = dayOfMonth < 10 ? '0' + dayOfMonth : dayOfMonth + '';   var dateString = monthStr + '/' + dayOfMonthStr + '/' + optionDate.getFullYear() + '';   dateOption[i].innerHTML = dateString;   dateOption[i].value = optionDate.getFullYear() + '' + monthStr + '' + dayOfMonthStr;   if (document.getElementById("currentDate").value == dateString) { dateOption[i].selected = true; }   optionDate.setDate(dayOfMonth + 1); } function switchPageDate(theForm) {   var uri= theForm.dates.options[theForm.dates.selectedIndex].value + '_' + getFile();   window.open(uri,'_self'); } </script>
+</div>
+<script type="text/javascript" src="/_Incapsula_Resource?SWJIYLWA=719d34d31c8e3a6e6fffd425f7e032f3&ns=3&cb=763032319" async></script></body>
+</html>

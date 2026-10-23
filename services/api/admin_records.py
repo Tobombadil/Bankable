@@ -96,6 +96,7 @@ from services.api.errors import ProblemError, not_found, validation_error
 from services.api.pagination import clamp_limit, paginate
 from services.api.params import check_allowed, csv_param, int_param
 from services.api.serialize import (
+    ORG_PROFILE_KEY,
     build_envelope,
     build_licence_summary,
     build_list_envelope,
@@ -128,6 +129,7 @@ from services.db.models import (
 )
 from services.ids import _CROCKFORD
 from services.ids import public_id as make_public_id
+from services.ingest.opportunity_value import value_identifiers
 from services.resolve.merge import merge_proposal, unmerge_proposal
 from services.resolve.models import ResolutionDecision
 
@@ -387,6 +389,7 @@ def _admin_organization_dict(db: Session, org: Organization) -> dict[str, Any]:
     the state, the event timeline and the last admin event -- the same admin fields the proposal
     and opportunity dicts carry that exist on this row."""
     data = serialize_organization(org)
+    data["website"] = org.website  # as stored, whatever its source's visibility (`organization_website`)
     data["publish_state"] = org.publish_state
     data["events"] = _admin_events(db, "organization", org)
     data["last_admin_event_id"] = _last_admin_event_id(db, "organization", org.id)
@@ -656,6 +659,16 @@ def admin_update_opportunity(
             after["issuer_org_id"] = new_issuer
         opportunity.issuer = issuer  # keeps the ORM relationship in sync, not just the FK column
 
+    if before.keys() & {"budget_amount", "budget_currency", "open_at", "identifiers"}:
+        # The stored value block follows the edited figure, so `sort=value` and `min_value` rank
+        # the amount the record now serves (services/ingest/opportunity_value.py, lane rfp-value).
+        opportunity.identifiers = value_identifiers(
+            opportunity.identifiers,
+            opportunity.budget_amount,
+            opportunity.budget_currency,
+            opportunity.open_at,
+        )
+
     if not before:
         raise validation_error("body", "no recognised field value actually changed", request.url.path)
 
@@ -733,6 +746,10 @@ def admin_update_organization(
         if field in body:
             old = getattr(org, field)
             new = body[field]
+            if field == "ids" and isinstance(new, dict) and isinstance(old, dict) and ORG_PROFILE_KEY in old:
+                # The company-facts profile (`services/ingest/org_enrich.py`) lives in `ids` but
+                # is never served in it, so an edit that echoes `ids` back keeps it.
+                new = {**new, ORG_PROFILE_KEY: old[ORG_PROFILE_KEY]}
             if old != new:
                 before[field] = old
                 after[field] = new

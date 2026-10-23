@@ -72,6 +72,7 @@ from services.api.serialize import (
     build_meta,
     build_page,
     event_licence_row,
+    organization_profile,
     serialize_event,
     serialize_licence,
     serialize_opportunity,
@@ -137,6 +138,7 @@ app.add_exception_handler(StarletteHTTPException, framework_http_exception_handl
 app.add_exception_handler(RequestValidationError, request_validation_handler)
 app.add_exception_handler(IdempotentReplay, replay_handler)
 # Any other exception is a 500 problem+json carrying the request id (backend audit 2026-09-30 F13).
+# The private routes' block below wraps it so a `/v1/my/` 500 carries the private headers too.
 app.add_exception_handler(Exception, unhandled_exception_handler)
 # Innermost on purpose (added first): commits the request's sessions when the route emits its status
 # line, before anything reaches the client (backend audit 2026-09-30 F3; services/api/request_context.py).
@@ -224,6 +226,7 @@ app.include_router(regions_router)
 # file into their own router. `records.py` never imports this module (it would cycle with the
 # `include_router` call below), so the handful of names this file's own routes still call
 # (the feeds and the organisation-scoped proposal/opportunity lists) are imported back from there.
+from services.api.opportunity_value import fx_licence_rows  # noqa: E402
 from services.api.records import (  # noqa: E402
     LIST_INCLUDES,
     OPPORTUNITY_FILTERS,
@@ -240,6 +243,7 @@ from services.api.records import (  # noqa: E402
     check_budget_sort,
     currency_values,
     exact_total,
+    opportunity_sort_key,
 )
 from services.api.records import router as records_router  # noqa: E402
 
@@ -278,6 +282,12 @@ from services.api.sites import router as sites_router  # noqa: E402
 
 app.include_router(sites_router)
 
+# Energy prices, slice 1 (docs/29; owner decision 2026-10-22): hub and zone statistics, the latest
+# readout and daily series where the terms allow raw rows, and EIA's state retail prices.
+from services.api.prices import router as prices_router  # noqa: E402
+
+app.include_router(prices_router)
+
 # Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
 # metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
 # this file's `list_events` share.
@@ -297,6 +307,21 @@ from services.api.resource_queries import subject_info as _subject_info  # noqa:
 app.include_router(exports_router)
 app.include_router(bulk_router)
 app.include_router(documents_router)
+
+# "My pipeline" (docs/19 §6.1; ADR 0009): the private projects under `/v1/my/`, session only, every
+# read and write through `services.projects.authz`. The only router that may import the private
+# package (`infra/importlinter.ini`, `private-projects-*`).
+from services.api.my_projects import (  # noqa: E402
+    PrivateHeadersMiddleware,
+    private_unhandled_exception_handler,
+)
+from services.api.my_projects import router as my_projects_router  # noqa: E402
+
+app.include_router(my_projects_router)
+# Replaces the `Exception` handler registered above, and calls it: Starlette's error middleware
+# sends a 500 from outside every user middleware, `PrivateHeadersMiddleware` included, so a
+# `/v1/my/` 500 gets the private headers here (docs/19 §5.2 item 6).
+app.add_exception_handler(Exception, private_unhandled_exception_handler)
 
 
 @app.middleware("http")
@@ -395,6 +420,9 @@ def _merged_vary(existing: str | None, *names: str) -> str:
 
 # Outermost (added last): one id per request, in `X-Request-Id`, `meta.request_id` and problem bodies.
 app.add_middleware(RequestContextMiddleware)
+# Outside even that, so it has the last word on a private response's headers (`no-store`, `noindex`,
+# `no-referrer`; docs/19 §5.2 item 6), whatever an inner middleware set.
+app.add_middleware(PrivateHeadersMiddleware)
 
 
 # ------------------------------------------------------------------------------------ organizations
@@ -444,8 +472,11 @@ def get_organization(public_id: str, request: Request, db: Session = Depends(get
     data["group_proposal_count"] = group_p
     data["group_opportunity_count"] = group_o
     data["group_scope"] = group.as_meta()
+    # Public company facts (website, headquarters, description, ticker, LEI, Wikipedia link), each
+    # with its own provenance, from `services/ingest/org_enrich.py`; attributed in the envelope too.
+    data["profile"], profile_licences = organization_profile(db, org)
     meta = build_meta(lag_days=0)
-    return build_envelope(data, meta=meta, licence_summary=build_licence_summary([]))
+    return build_envelope(data, meta=meta, licence_summary=build_licence_summary(profile_licences))
 
 
 @app.get("/v1/organizations/{public_id}/proposals")
@@ -552,22 +583,26 @@ def list_organization_opportunities(
         stmt = stmt.where(_opportunity_technologies_filter(db, csv_param(v)))
     if v := qp.get("budget_currency"):
         stmt = stmt.where(Opportunity.budget_currency.in_(currency_values(v, request.url.path)))
+    sort_column, sort_value = opportunity_sort_key(field)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
-        sort_column=getattr(Opportunity, field),
+        sort_column=sort_column,
         id_column=Opportunity.id,
         ascending=ascending,
         cursor=request.query_params.get("cursor"),
         limit=limit,
         instance=request.url.path,
+        sort_value=sort_value,
     )
     data = [serialize_opportunity(o, entitlement=ctx.entitlement) for o in rows]
     meta = build_meta("opportunity", tier=ctx.entitlement)
     return build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_opportunity_licence_rows(rows, ctx.entitlement)),
+        licence_summary=build_licence_summary(
+            _opportunity_licence_rows(rows, ctx.entitlement) + fx_licence_rows(data)
+        ),
         page=build_page(next_cursor, None, has_more),
     )
 

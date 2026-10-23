@@ -2311,11 +2311,44 @@ sources:
   license: public domain
   reuse: open
   publication: raw_ok
+  # The API's Terms of Service (https://www.grants.gov/api/terms-conditions, read 2026-10-22), quoted
+  # in `notes`, ask every service that uses the API to show this notice; it is the credit line the
+  # loader renders (a request of the API's terms, not a licence condition on the public-domain data).
+  attribution: "This product uses the Grants.gov API but is not endorsed or certified by the U.S. Department of Health and Human Services."
+  licence_url: "https://www.grants.gov/api/terms-conditions"
+  # The terms publish no numeric limit ("Right to Limit", quoted in `notes`); 1 request a second is
+  # shared by the search and the per-notice detail reads (same host).
+  rate_limit_rps: 1
   tier: 1
   effort: S
   probe: {method: POST, body: '{"keyword":"energy","oppStatuses":"forecasted|posted","rows":5}'}
-  verified: {date: 2026-09-12, result: ok, rows: 151, note: 'connector run: keyword energy, oppStatuses forecasted|posted, 151 hits over 2 pages, DQ pass'}
-  notes: Filter by agency (DOE-*, USDA-RD, EPA, DOT) and CFDA/ALN. Also fetchOpportunity endpoint for details.
+  verified: {date: 2026-09-12, result: ok, rows: 151, note: 'connector run: keyword energy, oppStatuses forecasted|posted, 151 hits over 2 pages, DQ pass. 2026-10-22: POST https://api.grants.gov/v1/api/fetchOpportunity read by hand for 6 notices in the store (279638, 322667, 356623, 361315, 361526, 363396), 6 of 6 errorcode 0, 2 s apart; 5 of them (all but 361315) recorded as tests/fixtures/grants_gov_fetch_opportunity.json with the contact fields and the publisher user id replaced'}
+  notes: >-
+    Filter by agency (DOE-*, USDA-RD, EPA, DOT) and CFDA/ALN. Detail endpoint (lane rfp-value,
+    2026-10-22): POST https://api.grants.gov/v1/api/fetchOpportunity {"opportunityId": <id>}, no
+    authentication ("Authentication and authorization is not required for fetchOpportunity",
+    https://www.grants.gov/api/common/fetchopportunity). It carries the funding figures the search
+    lacks (synopsis/forecast `estimatedFunding`, `awardCeiling`, `awardFloor`, `numberOfAwards`)
+    and also the programme officer's name, email and phone, which the connector never stores. The
+    connector reads it only for the notices its own search returned, reuses a reading for 7 days
+    while the hit's status and dates are unchanged, and reads at most 150 a run, one attempt each
+    with a 20 s timeout. Because of the "Right to Limit" clause below, the first failure, 429, 5xx,
+    challenge or other refusal stops the detail reads for the run (no retry, no backoff wait), as
+    do ten error bodies in a row, and no read starts more than 300 s into the run; what was not
+    read keeps its earlier reading and waits for the next run, and a notice whose own read failed
+    is not asked again for a day. A re-read with the same figures keeps the earlier reading, so it
+    changes no stored record. API Terms of
+    Service, read 2026-10-22, verbatim: "You may use the Grants.gov API to search, display,
+    analyze, retrieve, view and otherwise "get" information from grants data." "All services,
+    which utilize or access the API, should display the following notice prominently within the
+    application: "This product uses the Grants.gov API but is not endorsed or certified by the
+    U.S. Department of Health and Human Services."" "You may not modify or falsely represent
+    content accessed through the API and still claim the source is the U.S. Department of Health
+    and Human Services Office of Grants for Grants.gov System." "Your use of the API may be
+    subject to certain limitations on access, calls, or use as set forth within this Agreement or
+    otherwise provided by HHS. If Grants.gov reasonably believes that you have attempted to exceed
+    or circumvent these limits, your ability to use the API may be temporarily or permanently
+    blocked." No numeric limit is published.
 
 - id: us.sam_gov.opportunities
   name: SAM.gov Get Opportunities Public API (contracts, not grants)
@@ -2640,6 +2673,38 @@ sources:
   notes: >-
     Raw-ok. Credit the source; do not distort; the TED logo is not licensed; strip contracting-authority
     personal contact data at ingest (docs/13-legal-data-rights.md section 5).
+
+# Reference data, not records (lane rfp-value, 2026-10-22): read by pipeline/fx.py, never loaded as
+# proposals or opportunities, and so no connector directory. It converts a notice's stated value to
+# an approximate USD equivalent for sorting (GET /v1/opportunities?sort=-value).
+- id: eu.ecb.eurofxref
+  name: ECB euro foreign exchange reference rates
+  jurisdiction: EU
+  category: registry
+  operator: European Central Bank
+  url: https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip
+  access: bulk_file
+  auth: none
+  format: csv in zip (one row per TARGET business day since 1999-01-04, units per euro, N/A where not quoted)
+  cadence: daily
+  license: 'ECB "Disclaimer & Copyright" (https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html), read 2026-10-22 — "Subject to the exception below, users of this website may make free use of the information obtained directly from it subject to the following conditions: When such information is distributed or reproduced, it must appear accurately and the ECB must be cited as the source. Where the information is incorporated in documents that are sold (regardless of the medium), the natural or legal person publishing the information must inform buyers, both before they pay any subscription or fee and each time they access the information taken from this website, that the information may be obtained free of charge through this website. If the information is modified by the user (e.g. by seasonal adjustment of statistical data or calculation of growth rates) this must be stated explicitly." The rates page (https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html), same day: "The reference rates are published for information purposes only. Using the rates for transaction purposes is strongly discouraged."'
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Source: European Central Bank, euro foreign exchange reference rates"
+  changes_statement: "USD equivalents are calculated by Inframation from the ECB's euro reference rates (US dollars per euro divided by the currency's units per euro, on one fixing date); they are approximate and are not published by the ECB"
+  licence_url: "https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html"
+  tier: 1
+  effort: S
+  probe: {method: GET, url: "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"}
+  verified: {date: 2026-10-22, result: ok, rows: 7119, note: 'GET eurofxref-hist.zip, HTTP 200, 641,589 bytes (sha256 93bac351...3eda), Last-Modified Wed, 21 Oct 2026 13:56:26 GMT; 7,119 fixings from 1999-01-04 to 2026-10-21; vendored from 2025-01-01 as data/vendored/fx/eurofxref-hist-from-2025.csv'}
+  notes: >-
+    Rates are units per euro; the USD rate of a currency is our cross rate, stated as a change
+    (changes_statement). Of the store's notice currencies, every one but MKD is quoted (2026-10-22):
+    an MKD notice has no USD equivalent and nothing is substituted. A sold product must also tell
+    buyers the rates are free from the ECB's website (license quote); no tier is sold today
+    (docs/26). robots.txt (read 2026-10-22) allows /stats/eurofxref/ and sets Crawl-delay 5, that is
+    1 request per 5 s; the daily refresh is one conditional GET, run by the scheduler's value_tick
+    at 16:19 UTC (infra/scheduler/app.py; by hand, python -m pipeline.fx refresh).
 
 - id: eu.entsoe.tyndp
   name: ENTSO-E TYNDP 2026 project portfolio (199 transmission + 69 storage)
@@ -3683,6 +3748,131 @@ sources:
     subsidiaries; many project LLCs do not). Match on legal name plus jurisdiction; store the LEI on
     organization.identifiers. Coverage of small RNG and ethanol owners will be thin; that is expected.
 
+- id: global.wikidata
+  name: Wikidata — company items (official website, headquarters, description, LEI, stock listing, English Wikipedia link)
+  jurisdiction: global
+  category: registry
+  operator: Wikimedia Foundation (Wikidata community)
+  url: https://query.wikidata.org/sparql
+  access: api
+  auth: none (unauthenticated Query Service and Action API; descriptive User-Agent with a URL and an email required)
+  format: 'json (SPARQL 1.1 query results from the Query Service; Action API wbsearchentities as a bounded fallback)'
+  cadence: monthly
+  rate_limit_rps: 1
+  license: >-
+    Wikidata:Copyright (https://www.wikidata.org/wiki/Wikidata:Copyright, read 2026-10-22): "All structured data
+    from the main, Property, Lexeme, and EntitySchema namespaces is available under the Creative Commons CC0
+    License; text in the other namespaces is available under the Creative Commons Attribution-ShareAlike License;
+    additional terms may apply." Wikidata:Licensing (read 2026-10-22): "All structured data (i.e. the main,
+    Property, Lexeme, and EntitySchema namespaces) is released into the public domain under Creative Commons
+    Zero." Access terms that bind us: Wikimedia Foundation User-Agent Policy (read 2026-10-22) "Scripts should use
+    an informative User-Agent string with contact information, or they may be blocked without notice." and "Do
+    not copy a browser's user agent for your bot, as bot-like behavior with a browser's user agent will be assumed
+    malicious."; Wikimedia Foundation API Usage Guidelines v1.0 (2024-08-26) "When using Wikimedia APIs, an
+    operator must: Follow the User-Agent policy ...; Follow rate limiting requests ...; Follow the requirements of
+    the content licenses when republishing downloaded or cached data" and must not "Spread Wikimedia API requests
+    over multiple user agents to hide excessive use by a single operator"; Robot policy (wikitech, read
+    2026-10-22) "Honor every directive in our robots.txt file.", "When we reply with a 429 Too Many Requests
+    status code respect the delay specified by the Retry-After header", and, Action API rules, "If
+    unauthenticated, keep the concurrency of your requests to 1 at a time, and below 5 requests per second
+    overall." and "if your request takes more than 1 second to serve, please wait 5 seconds before making another
+    request."; Wikidata Query Service User Manual (mediawiki.org, read 2026-10-22) "SPARQL queries can be
+    submitted directly to the SPARQL endpoint with a GET or POST request to https://query.wikidata.org/sparql",
+    "One client (user agent + IP) is allowed 60 seconds of processing time each 60 seconds", "Clients exceeding
+    the limits above are throttled with HTTP code 429. Use Retry-After header to see when the request can be
+    repeated." and "access to the service is limited to 5 parallel queries per IP."
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: Wikidata (CC0)"
+  licence_url: https://creativecommons.org/publicdomain/zero/1.0/
+  tier: 2
+  effort: M
+  probe: {method: GET, url: "https://query.wikidata.org/sparql?format=json&query=SELECT%20%3Fitem%20WHERE%20%7B%20%3Fitem%20wdt%3AP5531%20%220000753308%22%20%7D"}
+  verified:
+    date: 2026-10-22
+    result: ok
+    note: >-
+      Licensing, Copyright, User-Agent policy, API Usage Guidelines, Robot policy, Wikimedia APIs/Rate limits and
+      the Query Service User Manual read raw (action=raw) and quoted above. Query Service: the P5531 probe answered
+      200 (Q967868, NextEra Energy); batched queries of 400 name literals, 100 items' statements and terms, and 100
+      classes' P279* reach answered in 0.2-1.6 s each. Action API: from this sandbox's shared egress
+      wbsearchentities answered 429 ("You are making too many requests to the API", Retry-After 23-48 s) on the
+      first request of every minute for six minutes running, then 200 at 03:14 UTC; the per-client limit (200
+      requests a minute for a compliant User-Agent) is shared by every client behind that address. That is why
+      the Query Service does the bulk work and the Action API is a bounded fallback that stops for the run after
+      3 consecutive failures. robots.txt: query.wikidata.org has "User-agent: * Disallow: /sparql" and
+      www.wikidata.org "User-agent: * ... Disallow: /w/" (which covers /w/api.php) under the comment "Friendly,
+      low-speed bots are welcome viewing article pages, but not dynamically-generated pages please";
+      Special:EntityData/*. is allowed. Both endpoints are APIs that the Robot policy (its Action API rules), the
+      Query Service manual (its program access and limits) and the User-Agent Policy (its SPARQLWrapper example
+      for the Query Service) address to programs, and the platform treats API endpoints as not robots-relevant
+      (pipeline/connectors/http.py); the Robot policy's "Honor every directive in our robots.txt file" read
+      literally would exclude both, which is recorded as an open question for legal-compliance (lane org-enrich
+      caveat), not resolved here.
+  notes: >-
+    Used by services/ingest/org_enrich.py (lane org-enrich, 2026-10-22), monthly, for organisations that hold
+    assets, sponsor proposals or issue opportunities, never for natural persons. One User-Agent for both
+    Wikimedia hosts. Each fact is stored with the item URL as source_url and the fetch time as retrieved_at in
+    organization.ids["profile"], and served on GET /v1/organizations/{id} as `profile`. Descriptions, labels and
+    sitelinks are main-namespace structured data (CC0); Wikipedia article text (CC BY-SA) is never fetched, only
+    the link. Places are read too (P131 located-in up to three levels, P300 ISO 3166-2 code), to put a
+    headquarters in its city and a city or county government in its state. Measured 2026-10-22 on the
+    2026-10-20 store (8,437 organisations): 252 Query Service queries in 17 min 47 s with the pause after each
+    (80 name searches replayed from an earlier recording, not sent).
+    No connector module: the scheduler's run_connector refuses the id as unimplemented, as it does for
+    global.gleif.lei; the infra/scheduler org_enrich_fetch job reads it.
+
+- id: us.sec.company_tickers
+  name: SEC EDGAR company tickers with exchange (company_tickers_exchange.json — CIK, EDGAR conformed name, ticker, exchange)
+  jurisdiction: US
+  category: registry
+  operator: US Securities and Exchange Commission
+  url: https://www.sec.gov/files/company_tickers_exchange.json
+  access: bulk_file
+  auth: none (declared User-Agent naming the company and an email address; 10 requests/second maximum)
+  format: 'json, {"fields": ["cik","name","ticker","exchange"], "data": [...]}, one row per ticker'
+  cadence: monthly
+  rate_limit_rps: 5
+  license: >-
+    SEC website, "Privacy and Information Security" (https://www.sec.gov/about/privacy-information, read
+    2026-10-22), Website Dissemination: "Information presented on sec.gov is considered public information and may
+    be copied or further distributed by users of the web site without the SEC’s permission. Please consider
+    appropriate citation to the SEC as the source." SEC "Accessing EDGAR Data"
+    (https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data, read 2026-10-22): "Current
+    max request rate: 10 requests/second."; "Please declare your user agent in request headers: Sample Declared Bot
+    Request Headers: User-Agent: Sample Company Name AdminContact@<sample company domain>.com"; on this file: "We
+    periodically update these files to provide functionality for EDGAR searches, but do not guarantee accuracy or
+    scope." A compilation by a federal agency (17 U.S.C. §105).
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Securities and Exchange Commission, EDGAR"
+  licence_url: https://www.sec.gov/about/privacy-information
+  tier: 2
+  effort: S
+  probe: {method: GET, url: "https://www.sec.gov/files/company_tickers_exchange.json"}
+  verified:
+    date: 2026-10-22
+    result: ok
+    rows: 10443
+    note: >-
+      200, 523,851 bytes uncompressed, sha256 6c29e2e3db973d4479875164603c2434f81ad22e14c9f1694999aca9cca246cb,
+      Last-Modified Fri, 16 Oct 2026 11:53:51 GMT; 10,443 ticker rows for 8,029 CIKs; exchanges NYSE, Nasdaq,
+      CBOE, TXSE, OTC and null; 6 org keys (pipeline.normalize.org_key) name more than one CIK. www.sec.gov
+      robots.txt has no rule on /files/. Fetched with User-Agent "Inframation hello@<domain>". The privacy page's
+      dissemination clause and the access page are quoted above.
+  notes: >-
+    One request per monthly run of services/ingest/org_enrich.py (lane org-enrich, 2026-10-22). Used to find an
+    organisation's CIK by exact org_key of the conformed name without its EDGAR tags (/DE/, /NEW/, /ADR; US
+    evidence required), to check a CIK a Wikidata item carries (kept only when SEC names that registrant with the
+    organisation's key: Southwest Gas Corp's item carries Southwest Gas Holdings' CIK), and to show a ticker and
+    exchange. A ticker needs two sources: an SEC main-board symbol plus the matched Wikidata item's listing (P414)
+    under that same symbol (P249), or under no symbol at all; when the two name different symbols nothing is shown,
+    because the file associates preferreds and notes with a utility subsidiary's or a federal corporation's CIK
+    (Entergy Louisiana ELC, Georgia Power GPJA, TVA TVE); and for a US organisation a Wikidata listing is shown only
+    when SEC lists that symbol under a registrant of the organisation's name (Wikidata gives Georgia Power GAR,
+    PG&E's utility its parent's PCG, and Southern Company Gas the GAS that AGL Resources delisted in 2016). Not
+    us.sec.edgar_fts: no filing text is read.
+
 - id: us.census.cartographic_boundaries
   name: US Census Bureau Cartographic Boundary Files — counties and states, 1:20,000,000 (region polygons for the map's region-grade proposals)
   jurisdiction: US
@@ -3944,11 +4134,14 @@ sources:
   publication: raw_ok
   attribution: "Source: ERCOT"
   licence_url: "https://www.ercot.com/help/terms"
-  status: pending
+  # Built 2026-10-22 (lane price-hubs, docs/29 slice 1): the seven hubs and eight load zones. Run by
+  # pipeline/connectors/prices (not the record runner); scheduled by infra/scheduler/prices.py.
+  runner: prices
+  connector: pipeline.connectors.prices.ercot (annual workbooks parsed by pipeline.vendor.gridstatus.prices, gridstatus main 5c48466)
   tier: 1
   effort: M
   probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=12301"}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.1. Public API limit "30 requests per minute" and "regions outside the United States of America are restricted" (developer.ercot.com/applications/pubapi/known-limits/, 19:08:58Z); archive "retained for at least 7 years". Settlement point list (doc 1288962582, CIM_Oct_ML3, 254,175 bytes, sha256 aad449c0…d0abb2): 19,514 electrical buses, 1,043 resource nodes at 710 substations, hubs HB_HOUSTON/NORTH/PAN/SOUTH/WEST plus HB_BUSAVG and HB_HUBAVG, load zones; no coordinates.'}
+  verified: {date: 2026-10-22, result: ok, rows: 1186845, note: 'Price run 2026-10-22 (lane price-hubs, public routes, no key). Backfill: 2 document lists, the 4 annual workbooks (RTMLZHBSPP and DAMLZHBSPP 2025 and 2026 year to date; each downloaded once that day and stored by DocID, so each report''s three-a-year count stands at 1), then 10 dated cdr pages for the days after the year-to-date file: 28,984,615 bytes, 1,186,845 interval rows (2025-01-01 to 2026-10-23), 475 s, most of it parsing the two real-time workbooks. Daily: no request once the store is complete; latest: one 60 KB page, 304 when unchanged. The 2025-11-02 workbook rows and that day''s cdr page agree on all 1,500 intervals. Re-parsed 2026-10-23 from the stored snapshots, no request to ERCOT (review fixes, docs/29 §9.1): a backfill now keeps the trailing 366 days, 659,520 interval rows (21 MB of parquet), in 195-225 s; the whole run peaks at 359 MB in a memory cgroup (was 2,073 MB RSS); each workbook download is on the download ledger before it is sent, so the count of 1 per report survives a run that dies mid-parse. Terms: docs/29 §2.1. Public API limit "30 requests per minute" and "regions outside the United States of America are restricted" (developer.ercot.com/applications/pubapi/known-limits/, 19:08:58Z); archive "retained for at least 7 years". Settlement point list (doc 1288962582, CIM_Oct_ML3, 254,175 bytes, sha256 aad449c0…d0abb2): 19,514 electrical buses, 1,043 resource nodes at 710 substations, hubs HB_HOUSTON/NORTH/PAN/SOUTH/WEST plus HB_BUSAVG and HB_HUBAVG, load zones; no coordinates.'}
   notes: >-
     The cleanest ISO grant: raw data may be redistributed in compilations and analyses with no delay, so the
     trailing statistics and a latest-price readout are both allowed. Store every downloaded file once
@@ -3981,11 +4174,14 @@ sources:
   publication: derived_only
   attribution: "Source: California ISO"
   licence_url: "https://www.caiso.com/privacy-terms-of-use"
-  status: pending
+  # Built 2026-10-22 (lane price-hubs): the three trading hubs and four DLAPs, day-ahead and
+  # fifteen-minute; statistics only leave the building (derived-only).
+  runner: prices
+  connector: pipeline.connectors.prices.caiso (OASIS parse vendored from gridstatus main 5c48466)
   tier: 1
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.2. OASIS Interface Specification v5.1.2: an ALL or ALL_APNODES query "will return only 1-days'' worth of data for all nodes at a time"; error 1004 "Data can be requested for period of 31 days only"; error 1017 "Please select a maximum of 10 nodes or use the ALL option". No published request rate; 1 request per 5 s (gridstatus default) assumed. Not fetched: no OASIS price file was requested by this lane.'}
+  verified: {date: 2026-10-22, result: ok, rows: 307776, note: 'Price run 2026-10-22 (lane price-hubs): backfill 24 SingleZip requests (PRC_LMP DAM and PRC_RTPD_LMP, seven nodes, 31-day windows) at 1 per 5 s, 14,557,357 bytes, 307,776 rows (61,824 day-ahead, 245,952 fifteen-minute), 526 s; daily is two requests. Derived-only: statistics publish, no raw price. Terms: docs/29 §2.2. OASIS Interface Specification v5.1.2: an ALL or ALL_APNODES query "will return only 1-days'' worth of data for all nodes at a time"; error 1004 "Data can be requested for period of 31 days only"; error 1017 "Please select a maximum of 10 nodes or use the ALL option". No published request rate; 1 request per 5 s (gridstatus default) assumed. Not fetched: no OASIS price file was requested by this lane.'}
   notes: >-
     Same terms and the same register reading as us.iso.caiso.gen_queue (docs/13 §1.2): derived-only with the
     credit, so twelve-month statistics publish and the raw interval price (a latest-price readout) does not
@@ -4043,11 +4239,14 @@ sources:
   publication: derived_only
   attribution: "Source: NYISO"
   licence_url: "https://www.nyiso.com/legal-notice"
-  status: pending
+  # Built 2026-10-22 (lane price-hubs): the eleven zones, day-ahead and real-time hourly;
+  # statistics only leave the building (derived-only). Generator nodes are tranche 2.
+  runner: prices
+  connector: pipeline.connectors.prices.nyiso (csv parse vendored from gridstatus main 5c48466)
   tier: 1
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-10-22, result: ok, rows: 832, note: 'docs/29 §2.5. generator.csv (20:21:12Z): 832 rows, 813 active, 563 active with NYISO latitude/longitude; 162 of the 250 without are external proxy buses (zones PJM, NPX, H Q, O H). Archives start 1999-11 (P-2A, P-2B, P-24A index pages, 20:43Z).'}
+  verified: {date: 2026-10-22, result: ok, rows: 199540, note: 'Price run 2026-10-22 (lane price-hubs): backfill 68 requests (24 monthly zips plus daily csv files), 3,087,239 bytes, 193,512 zone rows, 145 s; then a daily of 2 requests (the current month''s zips, 164,822 bytes, 6,028 rows). The daily csv files are kept about ten days only (2026-10-11 gone on 2026-10-22), so days older than that are read from the month zip, which NYISO rewrites each morning (23 files on 2026-10-22); a backfill is now 26 requests. The July 2026 real-time zip holds 12 days (07-19, 07-21 to 07-31), so real-time coverage of the trailing year is 91.8% and those days cannot be filled from the public tree. Earlier: docs/29 §2.5. generator.csv (20:21:12Z): 832 rows, 813 active, 563 active with NYISO latitude/longitude; 162 of the 250 without are external proxy buses (zones PJM, NPX, H Q, O H). Archives start 1999-11 (P-2A, P-2B, P-24A index pages, 20:43Z).'}
   notes: >-
     Same register reading as us.iso.nyiso.gen_queue: derived-only with credit, raw-ok candidate after counsel.
     Zonal statistics for the eleven zones are tranche 1; generator-node statistics are tranche 2 (placement
@@ -4101,18 +4300,28 @@ sources:
     of SPP." External Systems Acceptable Use Policy (v3.0, latest revision 6/27/2014), retrieved
     2026-10-22T20:20:25Z, sha256 641ba7ff…2c9a2658: users must get approval in advance for "polling of systems
     at a frequency higher than necessary for basic reconciliation of data".
-  reuse: restricted
-  publication: none
-  status: pending
+  # Owner decision 2026-10-22: SPP prices are treated as noncommercial (the grant permits copying
+  # "with appropriate citation" except in a commercial publication); published only while
+  # PLATFORM_POSTURE=noncommercial and withdrawn at a flip (docs/26 §5). The register row
+  # (docs/13 §6) says the same. Not fetched at all under the commercial posture.
+  reuse: noncommercial
+  publication: raw_ok
+  attribution: "Source: Southwest Power Pool"
+  licence_url: "https://www.spp.org/terms-conditions/"
+  rate_limit_rps: 0.2
+  runner: prices
+  connector: pipeline.connectors.prices.spp (hubs only; price contour map daily and hourly, portal day-ahead files for backfill)
   tier: 2
   effort: M
   probe: {method: GET, url: "https://pricecontourmap.spp.org/arcgis/rest/services/PCM?f=json"}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.4. The price contour map services answered 200: PCM/DA_Features and PCM/RTBM_Features carry point features for hubs (SPPNORTH_HUB, SPPSOUTH_HUB, SWPW_HUB), interfaces and DC ties only, not nodes. portal.spp.org is a JavaScript app; the file-browser API is the one gridstatus uses.'}
+  verified: {date: 2026-10-22, result: ok, rows: 2235, note: 'Price run 2026-10-22 (lane price-hubs, PLATFORM_POSTURE=noncommercial): backfill 30 portal day-ahead files at 1 per 5 s, 127,667,586 bytes (about 4.3 MB each, every settlement location; hub rows kept), 2,160 hub rows, 151 s; daily one 23,669-byte map query (72 rows); latest one 2,543-byte real-time readout (3 rows); placement_drift pass. Real-time statistics are not built (acceptable-use policy). Terms: docs/29 §2.4. The price contour map services answered 200: PCM/DA_Features and PCM/RTBM_Features carry point features for hubs (SPPNORTH_HUB, SPPSOUTH_HUB, SWPW_HUB), interfaces and DC ties only, not nodes. portal.spp.org is a JavaScript app; the file-browser API is the one gridstatus uses.'}
   notes: >-
-    Kept `restricted` to match us.iso.spp.gen_queue, whose register row reads the same clause. The clause is a
-    noncommercial grant in substance; whether SPP rows move to the `noncommercial` class under the platform's
-    posture is an owner decision for both SPP rows together, and moving them adds SPP to the sources that must
-    grant commercial reuse before the posture flips (docs/29 §6). Link out meanwhile.
+    Noncommercial since the owner's decision of 2026-10-22, which moves this prices row only:
+    us.iso.spp.gen_queue keeps `restricted` until the owner decides it too (docs/29 §2.4 recommended moving both
+    together). SPP joins the sources that must grant commercial reuse before the posture flips (docs/29 §6).
+    Hubs only (SPPNORTH_HUB, SPPSOUTH_HUB, SWPW_HUB): day-ahead statistics and latest day-ahead and real-time
+    readouts; real-time statistics would need SPP's daily real-time files, a heavier pull than the acceptable-use
+    policy's "basic reconciliation", and are not built.
 
 - id: us.iso.isone.prices
   name: ISO New England LMPs — day-ahead hourly and real-time five-minute and hourly, pricing nodes, hub and load zones
@@ -4197,13 +4406,16 @@ sources:
     in a half hour period for data that is only updated on a half hourly basis".
   reuse: attribution
   publication: raw_ok
+  # The [year] in the licence's statement is the year of the data shown: the API renders this line
+  # with the years of the rows it serves (services/api/prices.py `elexon_credit`).
   attribution: "Contains BMRS data © Elexon Limited copyright and database right 2026"
   licence_url: "https://www.elexon.co.uk/bsc/data/balancing-mechanism-reporting-agent/copyright-licence-bmrs-data/"
-  status: pending
+  runner: prices
+  connector: pipeline.connectors.prices.elexon (system sell price per half-hour; never MID)
   tier: 2
   effort: S
   probe: {method: GET, url: "https://data.elexon.co.uk/bmrs/api/v1/balancing/settlement/system-prices/2026-10-21?format=json"}
-  verified: {date: 2026-10-22, result: ok, rows: 48, note: 'docs/29 §2.8. 48 settlement periods for 2026-10-21 (systemSellPrice, systemBuyPrice, netImbalanceVolume). The licence ends automatically if the attribution or the no-endorsement and no-misrepresentation conditions are not met.'}
+  verified: {date: 2026-10-22, result: ok, rows: 17615, note: 'Price run 2026-10-22 (lane price-hubs): backfill 366 requests (one settlement date each) at 0.5 a second, 15,592,994 bytes, 17,568 half-hour rows (2025-10-20T23:00Z to 2026-10-21T22:30Z), 736 s; latest one request (41 KB, 47 periods of today so far). docs/29 §2.8. 48 settlement periods for 2026-10-21 (systemSellPrice, systemBuyPrice, netImbalanceVolume). The licence ends automatically if the attribution or the no-endorsement and no-misrepresentation conditions are not met.'}
   notes: >-
     GB has one wholesale price zone, so this is a national readout, not a node layer. The [year] in the
     credit is the year of the data shown. Market Index Data is a separate row (gb.elexon.market_index_data).
@@ -4388,15 +4600,19 @@ sources:
     tariff quote or a delivered price for a new load; the page says so.
 
 - id: us.eia.retail_sales
-  name: EIA retail sales of electricity — average price by state and sector, monthly (EIA-861M; Electric Power Monthly Table 5.6.A; API v2 electricity/retail-sales)
+  name: EIA retail sales of electricity — average price by state and sector, monthly (EIA-861M sales and revenue file, the data behind Electric Power Monthly Tables 5.6.A and 5.6.B)
   jurisdiction: US
   category: market_price
   operator: US EIA
-  url: https://api.eia.gov/v2/electricity/retail-sales/
-  access: api
-  auth: api_key (free)
-  format: json
+  # 2026-10-22 (lane price-hubs): the public file needs no key; the API v2 route
+  # (https://api.eia.gov/v2/electricity/retail-sales/) needs one and is not used.
+  url: https://www.eia.gov/electricity/data/eia861m/xls/sales_revenue.xlsx
+  access: bulk_file
+  auth: none
+  format: xlsx (sheet Monthly-States, 2010 to the latest month)
   cadence: monthly
+  runner: prices
+  connector: pipeline.connectors.prices.eia_retail
   license: >-
     public domain (17 U.S.C. §105); EIA Copyrights and Reuse as us.eia.861 (retrieved 2026-10-22T20:33:56Z).
     API documentation, https://www.eia.gov/opendata/documentation.php (20:33:59Z): "our API only returns a
@@ -4404,12 +4620,11 @@ sources:
     hour".
   reuse: open
   publication: raw_ok
-  attribution: "Source: U.S. Energy Information Administration, Electric Power Monthly"
-  status: pending
+  attribution: "Source: U.S. Energy Information Administration, Form EIA-861M and Electric Power Monthly"
   tier: 2
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-10-22, result: terms_read, note: 'docs/29 §2.12. EIA-861M: July 2026 data released 2026-09-24, August 2026 due end of October 2026.'}
+  verified: {date: 2026-10-22, result: ok, rows: 50745, note: 'Price run 2026-10-22 (lane price-hubs): one GET, 2,269,132 bytes, Last-Modified Thu, 24 Sep 2026 13:48:22 GMT; 50,745 rows (50 states and DC, five sectors, 2010-01 to 2026-07; the sheet has no US row), 15 s; the next run was a 304. docs/29 §2.12. EIA-861M: July 2026 data released 2026-09-24, August 2026 due end of October 2026.'}
 
 - id: us.openei.urdb
   name: OpenEI Utility Rate Database (URDB) — utility tariffs (energy, demand and fixed charges) for over 3,700 US utilities

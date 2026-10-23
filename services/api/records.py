@@ -51,6 +51,13 @@ from services.api.opportunity_relevance import (
     energy_relevant_clause,
     relevance_param,
 )
+from services.api.opportunity_value import (
+    VALUE_FILTERS,
+    VALUE_SORT,
+    fx_licence_rows,
+    stored_usd,
+    usd_sort_expression,
+)
 from services.api.orgtree import scope_ids_select, scope_param
 from services.api.pagination import paginate
 from services.api.params import (
@@ -1161,7 +1168,34 @@ OPPORTUNITY_FILTERS = {
     "last_changed[from]",
     "last_changed[to]",
 }
-OPPORTUNITY_SORT_ALLOWLIST = {"due_at", "open_at", "last_changed", "budget_amount"}
+#: `value` orders by the approximate USD equivalent of each notice's stated value, so it ranks
+#: across currencies where `budget_amount` may not (lane rfp-value, 2026-10-22;
+#: services/api/opportunity_value.py). Nulls last both ways.
+OPPORTUNITY_SORT_ALLOWLIST = {"due_at", "open_at", "last_changed", "budget_amount", VALUE_SORT}
+
+
+def opportunity_sort_key(field: str) -> tuple[Any, Callable[[Any], Any] | None]:
+    """The column (or expression) an opportunity sort token orders by, and, for an expression, how
+    `paginate` reads a row's value for the next cursor. Every surface that orders opportunities
+    (the list, `/v1/organizations/{id}/opportunities`, exports) goes through here."""
+    if field == VALUE_SORT:
+        return usd_sort_expression(), stored_usd
+    return getattr(Opportunity, field), None
+
+
+def value_bounds(
+    raw_min: str | None, raw_max: str | None, instance: str
+) -> tuple[float | None, float | None]:
+    """`min_value`/`max_value`: inclusive bounds on the USD equivalent, non-negative numbers;
+    `min_value` above `max_value` is a `400 validation_error` naming `max_value`."""
+    low = number_filter("min_value", raw_min, instance) if raw_min else None
+    high = number_filter("max_value", raw_max, instance) if raw_max else None
+    for name, bound in (("min_value", low), ("max_value", high)):
+        if bound is not None and bound < 0:
+            raise validation_error(name, f"{name} is a US dollar amount and cannot be negative", instance)
+    if low is not None and high is not None and low > high:
+        raise validation_error("max_value", "max_value must be at least min_value", instance)
+    return low, high
 
 
 def _opportunity_technologies_filter(db: Session, values: list[str]) -> ColumnElement[bool]:
@@ -1235,6 +1269,12 @@ def _opportunity_query_with_filters(
     if budget is not None:
         amount, currency = budget
         stmt = stmt.where(Opportunity.budget_currency == currency, Opportunity.budget_amount >= amount)
+    # Reached only from the surfaces that admit them (`VALUE_FILTERS`): the list and its CSV twin.
+    low, high = value_bounds(qp.get("min_value"), qp.get("max_value"), request.url.path)
+    if low is not None:
+        stmt = stmt.where(usd_sort_expression() >= low)
+    if high is not None:
+        stmt = stmt.where(usd_sort_expression() <= high)
     stmt = _apply_record_time_filters(stmt, request, Opportunity.first_seen, Opportunity.last_changed)
     if v := qp.get("slug"):
         stmt = stmt.where(Opportunity.slug == v)
@@ -1273,7 +1313,9 @@ def list_opportunities(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, LIST_COMMON | OPPORTUNITY_FILTERS | OPPORTUNITY_VIEW_FILTERS | SYNC_FILTERS)
+    check_allowed(
+        request, LIST_COMMON | OPPORTUNITY_FILTERS | OPPORTUNITY_VIEW_FILTERS | SYNC_FILTERS | VALUE_FILTERS
+    )
     # Before the CSV branch, so `Accept: text/csv` refuses a cross-currency budget sort with the
     # same 400 instead of a failed export.
     check_budget_sort(
@@ -1301,15 +1343,17 @@ def list_opportunities(
     relevant = energy_relevant_clause(db, stmt) if relevance == "energy" else None
     if relevant is not None:
         stmt = stmt.where(relevant)
+    sort_column, sort_value = opportunity_sort_key(field)
     rows, next_cursor, has_more = paginate(
         db,
         stmt,
-        sort_column=getattr(Opportunity, field),
+        sort_column=sort_column,
         id_column=Opportunity.id,
         ascending=ascending,
         cursor=request.query_params.get("cursor"),
         limit=limit,
         instance=request.url.path,
+        sort_value=sort_value,
     )
     data = [serialize_opportunity(o, entitlement=ctx.entitlement) for o in rows]
     meta = build_meta("opportunity", tier=ctx.entitlement)
@@ -1319,7 +1363,9 @@ def list_opportunities(
     return build_list_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_opportunity_licence_rows(rows, ctx.entitlement)),
+        licence_summary=build_licence_summary(
+            _opportunity_licence_rows(rows, ctx.entitlement) + fx_licence_rows(data)
+        ),
         page=build_page(next_cursor, None, has_more),
     )
 
@@ -1396,7 +1442,9 @@ def get_opportunity(
     return build_envelope(
         data,
         meta=meta,
-        licence_summary=build_licence_summary(_opportunity_licence_rows([opp], ctx.entitlement)),
+        licence_summary=build_licence_summary(
+            _opportunity_licence_rows([opp], ctx.entitlement) + fx_licence_rows([data])
+        ),
         redactions=record_redactions(opp, ctx.entitlement),
     )
 

@@ -31,10 +31,14 @@ from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
 from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import (
+    StatedFigure,
+    StatedValue,
     classify_technologies,
+    currency_code,
     deadline_passed,
     iso2,
-    known_budget,
+    parse_amount,
+    stated_value_of,
     technologies_str,
     to_utc,
 )
@@ -113,6 +117,50 @@ def first_text(v: Any) -> str | None:
     if isinstance(v, list):
         v = v[0] if v else None
     return None if v is None else str(v).strip()
+
+
+#: eForms forms whose `total-value` is what was awarded (BT-161 "Notice Value", which exists only
+#: in a result notice) or the value of one contract awarded directly or modified; on every other
+#: form (competition, planning, consultation) the only value a buyer can state is BT-27
+#: "Estimated Value". TED's search API documents no field definitions (docs.ted.europa.eu
+#: /api/latest/search.html, read 2026-10-22), so the kind follows the notice's own form type.
+RESULT_FORMS = frozenset({"result"})
+CONTRACT_FORMS = frozenset({"dir-awa-pre", "cont-modif"})
+
+
+def stated_value(row: dict[str, Any]) -> StatedValue | None:
+    """The notice's value as it states it (lane rfp-value): `total-value` labelled by the form
+    type (above), and `estimated-value-glo` as an estimate. On a result or contract form the
+    total comes first; otherwise the estimate does. Before 2026-10-22 the estimate was read only
+    when the API returned it as a number, and it returns a one-element list of strings, so both
+    notices of the 2026-10-20 store that stated one had no budget."""
+    form = first_text(row.get("form-type")) or ""
+    figures: list[StatedFigure] = []
+    estimate = parse_amount(row.get("estimated-value-glo"))
+    if estimate is not None:
+        figures.append(
+            StatedFigure(
+                "estimated_value",
+                estimate,
+                currency_code(row.get("estimated-value-cur-glo")),
+                "estimated-value-glo",
+            )
+        )
+    total = parse_amount(row.get("total-value"))
+    if total is not None:
+        kind = (
+            "awarded_value"
+            if form in RESULT_FORMS
+            else "contract_value"
+            if form in CONTRACT_FORMS
+            else "estimated_value"
+        )
+        figure = StatedFigure(kind, total, currency_code(row.get("total-value-cur")), "total-value")
+        if form in RESULT_FORMS | CONTRACT_FORMS:
+            figures.insert(0, figure)
+        else:
+            figures.append(figure)
+    return stated_value_of(figures)
 
 
 def cpv_technologies(codes: list[str]) -> list[str]:
@@ -223,8 +271,15 @@ class Connector(BaseConnector):
             for t in cpv_technologies(cpv):
                 if t not in techs:
                     techs.append(t)
-            amount = r.get("estimated-value-glo") or r.get("total-value")
-            currency = first_text(r.get("estimated-value-cur-glo") or r.get("total-value-cur"))
+            value = stated_value(r)
+            identifiers: dict[str, Any] = {
+                "ted_notice_id": r.get("publication-number"),
+                "cpv": sorted(set(cpv)),
+                "procedure_type": r.get("procedure-type"),
+                "contract_nature": sorted(set(r.get("contract-nature") or [])),
+            }
+            if value is not None:
+                identifiers["value"] = value.identifiers()
             recs.append(
                 {
                     "source_record_id": str(r.get("publication-number")),
@@ -236,21 +291,17 @@ class Connector(BaseConnector):
                     "jurisdiction": iso2(first_text(r.get("buyer-country"))) or "EU",
                     "technologies": technologies_str(techs),
                     "capacity_sought_mw": None,
-                    "budget_amount": known_budget(amount) if isinstance(amount, int | float) else None,
-                    "budget_currency": currency,
+                    "budget_amount": value.amount if value else None,
+                    # The notice's own code, as before, when it states no amount.
+                    "budget_currency": value.currency
+                    if value
+                    else first_text(r.get("estimated-value-cur-glo") or r.get("total-value-cur")),
                     "open_at": to_utc(str(r.get("publication-date") or "")[:10]),
                     "due_at": due,
                     "status": state,
                     "status_raw": ntype,
                     "status_rule": rule,
-                    "identifiers": json.dumps(
-                        {
-                            "ted_notice_id": r.get("publication-number"),
-                            "cpv": sorted(set(cpv)),
-                            "procedure_type": r.get("procedure-type"),
-                            "contract_nature": sorted(set(r.get("contract-nature") or [])),
-                        }
-                    ),
+                    "identifiers": json.dumps(identifiers),
                 }
             )
         df = pd.DataFrame(recs, columns=list(recs[0]) if recs else ["source_record_id"])

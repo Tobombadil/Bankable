@@ -185,6 +185,10 @@ def _network_marker(request: pytest.FixtureRequest) -> Iterator[None]:
 #: `perf` job (`make test-perf`); the parallel, coverage-instrumented `test-core` job deselects
 #: them (`-m "not latency"`), because their timings mean nothing on a loaded, traced process.
 #: Marked here rather than in each module so the list of timing tests is one reviewable place.
+#: My pipeline's launch switch (services/api/my_projects.py): on for the test suite, which exercises the
+#: private routes; `services/api/test_my_projects.py` pins that it is off when unset.
+os.environ.setdefault("MY_PIPELINE", "on")
+
 LATENCY_TESTS = (
     "tests/test_api_geo_performance.py",
     "tests/test_api_geo_performance_full_store.py",
@@ -199,7 +203,12 @@ LATENCY_TESTS = (
 #: Under `pytest -n N --dist loadgroup` they share one worker, so two browsers and two app servers
 #: never compete for the same CPUs (or ports: the PMTiles proof server and the alerts e2e server
 #: both default to 8798).
-BROWSER_TESTS = ("web/test_e2e.py", "web/test_e2e_alerts.py", "web/test_csp_browser.py")
+BROWSER_TESTS = (
+    "web/test_e2e.py",
+    "web/test_e2e_alerts.py",
+    "web/test_e2e_companies.py",
+    "web/test_csp_browser.py",
+)
 
 
 @pytest.hookimpl(tryfirst=True)
