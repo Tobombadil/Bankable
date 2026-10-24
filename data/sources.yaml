@@ -282,17 +282,16 @@ sources:
   auth: none
   format: biweekly text PDF (e.g. https://epd.georgia.gov/document/document/pa1225-3/download, 3 pages, one block per application)
   cadence: biweekly
-  license: 'NOT RETRIEVED — no reuse clause found. epd.georgia.gov links only accessibility and privacy pages; https://georgia.gov/privacy-and-security (read 2026-09-28) covers submitted information and the Georgia Open Records Act, not reuse of published content.'
-  reuse: unknown
-  publication: none
+  license: 'No reuse terms published (read 2026-10-24, docs/07 §1.2). epd.georgia.gov links only accessibility, privacy and platform pages; the Georgia.gov privacy statement (https://georgia.gov/privacy-and-security) "applies to Georgia.gov websites that link to it in the footer" and covers visitor information and the Georgia Open Records Act. Footer: "© Georgia.gov".'
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://georgia.gov/privacy-and-security
+  attribution: 'Source: Georgia Environmental Protection Division, Air Protection Branch'
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-09-28, result: ok, note: 'pa1225-3 PDF 200, 101,871 bytes, text layer present (County / Facility Name / Application No / Facility Address / Description of Operation / Reason for Application); one data-centre application in that issue; epd.georgia.gov robots.txt allows /document/.'}
-  notes: >-
-    The best pre-construction signal found after Virginia: each advisory lists applications received and still
-    under review, with county, address and a description that names generator counts (e.g. "seventy-six
-    emergency generators"). Gated until the State of Georgia's reuse terms are read and recorded (docs/13 §6).
+  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.2: no terms, copyright or disclaimer page exists on epd.georgia.gov or georgia.gov beyond the privacy statement; silent-site rule (docs/07 §2).'}
+  notes: 'Silent-site rule (docs/07 §2): derived facts only (county, facility organisation, application number, described operation, received date), credited and linked to the advisory PDF; never the PDF itself. Hold before paid use: counsel confirms the silent-site reading (docs/07 §5 item 1) or EPD confirms in writing before PLATFORM_POSTURE=commercial or a Pro sale with these rows (docs/26 §5).'
 
 - id: us.tx.tceq.air_permits
   name: TCEQ New Source Review air permits database
@@ -304,17 +303,16 @@ sources:
   auth: none
   format: html query application
   cadence: daily
-  license: 'NOT RETRIEVED — TCEQ site policies page not located (www.tceq.texas.gov/site-policies/ answered 404 on 2026-09-28).'
-  reuse: unknown
+  license: 'TCEQ, Public Domain and TCEQ Linking Policy (https://www.tceq.texas.gov/help/policies/linking_policy.html, retrieved 2026-10-24T01:39:32Z): "Unless otherwise noted, content of our site is considered “public domain.”" and "We have no restrictions on linking to our site as long as a fee is not charged to access our material. However, we would appreciate acknowledgment on your site of any items you use and to link to us in the proper context." The TCEQ logo is excepted.'
+  reuse: open
   publication: none
+  licence_url: https://www.tceq.texas.gov/help/policies/linking_policy.html
+  attribution: 'Source: Texas Commission on Environmental Quality'
   tier: 3
   effort: L
   probe: {method: GET, url: "https://www2.tceq.texas.gov/robots.txt"}
-  verified: {date: 2026-09-28, result: blocked, note: 'www2.tceq.texas.gov/robots.txt and www15.tceq.texas.gov/robots.txt both answer "User-agent: * / Disallow: /"; not fetched.'}
-  notes: >-
-    Not usable: the permit database is robots-excluded, and most Texas data-centre emergency engines are
-    authorised by Permit by Rule 30 TAC §106.511, which needs no registration and so leaves no record here.
-    Texas data-centre demand is better approached through ERCOT (us.iso.ercot.large_load_queue).
+  verified: {date: 2026-10-24, result: terms_ok_route_closed, note: 'docs/07 §1.1: terms read (public domain unless otherwise noted). www2.tceq.texas.gov/robots.txt and www15.tceq.texas.gov/robots.txt answered HTTP 401 "Page Not Found" (were Disallow: / on 2026-09-28); the permit database was not requested. A 401 is not read as permission.'}
+  notes: Terms clear; the route does not. Do not build until the www2 robots.txt is readable and allows the NSR pages (re-check after 2026-11-24). Most Texas data-centre emergency engines are authorised by Permit by Rule 30 TAC §106.511 and leave no record here; ERCOT (us.iso.ercot.large_load_queue) is the better Texas demand route. "As long as a fee is not charged to access our material" is a counsel question before paid use (docs/07 §5 item 2).
 
 - id: us.iso.spp.gen_queue
   name: SPP Generator Interconnection Active/Withdrawn/Completed Requests
@@ -527,7 +525,7 @@ sources:
   name: OurGridFuture planned transmission projects database (GIS shapefile)
   jurisdiction: US
   category: planning
-  operator: Horizon Energy Systems, in association with the Great Plains Institute (per web search; not primary-source verified)
+  operator: Horizon Energy Systems (named in the citation "Abramson, E., Ramsay, E., McFarlane, D., Prorok, M., Our Grid Future Planned Transmission Projects National Database, Horizon Energy Systems, March 2026", read from a third-party ArcGIS copy on 2026-10-24), with the Great Plains Institute (secondary sources only)
   url: https://ourgridfuture.org/
   access: html
   auth: registration gate (contact info requested before download, per web search; not primary-source verified)
@@ -540,12 +538,7 @@ sources:
   effort: M
   probe: {method: GET}
   verified: {date: 2026-09-15, result: blocked, note: '403 Cloudflare "Just a moment..." challenge on ourgridfuture.org (root + /terms, /license, /licence, /about, /data, /faq, /terms-of-use, /data-use, /privacy, all 403); robots.txt returned 404 (no robots file, confirms app-level challenge not outage); opengridworks.com/attribution returned 429 on 3 attempts'}
-  notes: >-
-    Candidate source for the built-infrastructure context layer's transmission layer (owner decision,
-    00-PLAN.md 2026-09-14/09-15). NOT RETRIEVED: no operative licence clause obtained; do not ingest or publish
-    until a human retrieves the terms in a real browser (passes the interactive Cloudflare challenge that this
-    sandbox's clients fail) and records the operative clause here verbatim with a retrieval date. See
-    docs/13-legal-data-rights.md section 2.9.
+  notes: 'Not ingested. Owner browser task docs/62 §9: read the terms, the download form''s conditions and the source list. If the source list names any private aggregator in CLAUDE.md, the row is closed as not usable whatever the terms say. Third-party copies (ArcGIS items 146d187d61544a2a8dab9bc3bcb84a6b, fa2f42d17b494ed08ce5333c0fbc8d44) carry no licence and are not a route.'
 
 - id: us.gridtracker.interconnection_fyi
   name: Interconnection.fyi (GridTracker)
@@ -1706,10 +1699,7 @@ sources:
       managed-challenge interstitial ("Just a moment... Enable JavaScript and cookies to continue", 5,814 and
       5,835 bytes). Reported as a block, not retried, not worked around - no UA spoofing, no challenge bypass
       (CLAUDE.md; docs/02 section 7). robots.txt could not be read, so no robots permission can be claimed either.
-  notes: >-
-    The state EPA's page omitted from the previous manifest note. Nothing is known about Arizona's Class VI
-    inventory from this probe: the page is not retrievable headlessly. Needs the browser-worker egress path
-    (docs/40 section 0) or a human read before anything else can be said. Do not ingest.
+  notes: Owner browser task docs/62 §11 (Cloudflare challenge). EPA granted Arizona primacy over all well classes in September 2025; one law-firm note says no Class VI application was pending then, so low value today. Do not ingest.
 
 - id: us.la.dce.class_vi
   name: Louisiana Dept of Conservation & Energy — Class VI permits and applications
@@ -1722,34 +1712,17 @@ sources:
   format: Oracle APEX (SONRIS) interactive report, rows loaded by XHR; plus per-application PDFs and a
     PDF/PNG project-location map on the DCE page
   cadence: unknown
-  license: state agency site; terms not retrieved
-  reuse: unknown
-  publication: none
+  license: No reuse terms published (read 2026-10-24, docs/07 §1.3). The only policy page, https://www.dce.louisiana.gov/page/privacy-policy, "applies solely to the direct use of dce.louisiana.gov" and covers collected information. SONRIS (sonlite.dnr.state.la.us) is robots-disallowed and is never fetched.
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://www.dce.louisiana.gov/page/privacy-policy
+  attribution: 'Source: Louisiana Department of Conservation and Energy, Class VI Permits and Applications'
   tier: 3
   effort: L
   egress: browser
   probe: {method: GET}
-  verified:
-    date: 2026-09-22
-    result: partial_blocked_robots
-    note: >-
-      EPA's own link (https://www.dnr.louisiana.gov/index.cfm/page/1694) is STALE: dnr.louisiana.gov 301s to
-      https://www.dce.louisiana.gov/ (the department was renamed on 2025-10-01). The live page is
-      /page/class-vi-permits-and-applications (200, 13,788 bytes); www.dce.louisiana.gov/robots.txt (200)
-      disallows only /admin. The actual application list is NOT on that page - it links out to
-      https://sonlite.dnr.state.la.us/ords/r/sonris_pub/ucm_customsearches/class-vi-applications, and
-      sonlite.dnr.state.la.us/robots.txt reads "User-agent: * / Disallow: /" (allowing only `siteimprove`).
-      SONRIS is therefore off-limits to this platform's fetchers. One GET reached that URL during this probe
-      before its robots.txt was read (200, 16,799 bytes, an APEX shell containing no rows); no further request
-      was made and none will be.
-  notes: >-
-    DO NOT FETCH sonlite.dnr.state.la.us - its robots.txt disallows every agent but `siteimprove`, and the
-    connector layer honours robots (pipeline/connectors/http.py). Louisiana is the single largest Class VI
-    primacy state by application count, so this is a real coverage hole, not a rounding error. Routes worth
-    asking about, in order: a data-sharing request to DCE; the department's own open-data or bulk export, if
-    one exists; the static assets already on the DCE page (Class V and VI online map PDF, project-locations
-    PNG), which robots does allow but which are pictures, not rows. Do not ingest until a route is both
-    robots-permitted and terms-cleared.
+  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.3: the DCE page now carries a 30-project Site ID to Project Name list and a 27-row "Class V Stratigraphic Test Wells Associated with Potential Class VI Projects" table ("Last updated 5/13/2026") as HTML; the Class VI applications table is still a SONRIS iframe, not requested.'}
+  notes: 'Silent-site rule (docs/07 §2): publish derived facts from www.dce.louisiana.gov pages only (project names by Site ID; stratigraphic test wells with operator organisation, parish and status), credited and linked; never SONRIS. SONRIS rows wait for DCE''s answer to docs/35. Hold before paid use (docs/07 §2). Louisiana is the largest Class VI primacy state by application count.'
 
 - id: us.nd.dmr.class_vi
   name: North Dakota DMR — Class VI geologic sequestration wells
@@ -1761,28 +1734,16 @@ sources:
   auth: none
   format: HTML page of per-project PDF document folders (orders, certificates, permits, CO2 volume reports)
   cadence: unknown (updated per case)
-  license: state agency site; terms not retrieved
-  reuse: unknown
-  publication: none
+  license: 'State disclaimer only (https://www.nd.gov/disclaimer, linked from the Class VI page, read 2026-10-24): "neither the State of North Dakota, nor any agency, officer, or employee of the State of North Dakota warrants the accuracy, reliability or timeliness of any information published by this system ..." Footer: "Copyright © 2020 State of North Dakota". No reuse clause.'
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://www.nd.gov/disclaimer
+  attribution: 'Source: North Dakota Industrial Commission, Department of Mineral Resources, Oil and Gas Division'
   tier: 3
   effort: M
   probe: {method: GET}
-  verified:
-    date: 2026-09-22
-    result: ok
-    note: >-
-      200, 186,730 bytes (https://www.dmr.nd.gov/dmr/oilgas/classvi redirects to .../ClassVI);
-      www.dmr.nd.gov/robots.txt answers 404, which the standard interpretation treats as permissive. 67
-      Class VI document links across seven named storage-facility folders - BlueFlint, DCCEast-Minnkota,
-      DCCWest, DGC, RedTrail and Summit SCS1/SCS2/SCS3 - plus a CO2Reporting folder of per-facility injected
-      volume PDFs and a Forms folder (Form 26 "Carbon Dioxide Storage Report", Form 26A "Carbon Dioxide Source
-      Report", both xlsx). No table, no CSV, no API on the page.
-  notes: >-
-    Structured as a document library, not a register: the project list is the set of folder names, and each
-    project's state is only readable from its orders and permit PDFs (NDIC case and order numbers are in the
-    link text, e.g. "Case 30122", "Order 32806"). A connector here is a document-ingest job feeding
-    docs/21 `document` rows, closer to us.ferc.elibrary than to a queue parser. ND also publishes injected-CO2
-    volumes per facility, which no other state in this set does. Terms unread; do not ingest yet.
+  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.3: Class VI page 200 (186,229 bytes) links only nd.gov Disclaimer and Privacy; the paid subscription agreement (us.nd.dmr.oilgas) does not cover these free folders.'}
+  notes: 'Silent-site rule (docs/07 §2): derived facts (facility, operator organisation, NDIC case and order numbers, permit dates, injected CO2 volumes per facility) from the free Class VI folders, credited and linked to the PDF; never the PDFs. A document-ingest job (docs/21 document rows). Hold before paid use (docs/07 §2).'
 
 - id: us.tx.rrc.class_vi
   name: Texas RRC — geologic storage of CO2 (Class VI) application list
@@ -2057,26 +2018,15 @@ sources:
   auth: Basic Services free; Premium Services subscription (per the page's own menu)
   format: HTML well search, per-well file pages, GIS map server; Class VI folders are us.nd.dmr.class_vi
   cadence: daily (daily activity reports)
-  license: state agency site; terms not retrieved
-  reuse: unknown
+  license: 'Paid service under the Oil and Gas Division Website User Agreement (https://www.dmr.nd.gov/oilgas/agreement.pdf, retrieved 2026-10-24, Last-Modified 2026-06-19): Basic Subscription ($100/year), Premium Subscription ($500/year); "Only User is entitled to use the USERID and password." and "any business practices that substantially duplicate OGD subscription services without adequately defraying the costs of providing such data under NDCC 38-08-04.6 may result in suspension of user access to our web site."'
+  reuse: restricted
   publication: none
+  licence_url: https://www.dmr.nd.gov/oilgas/agreement.pdf
   tier: 3
   effort: L
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok
-    note: >-
-      200, 28,027 bytes; www.dmr.nd.gov/robots.txt 404 (permissive by the standard interpretation).
-      Menu names Hearing Dockets, Daily Activity Reports, Confidential Well List, Seismic, Well Search,
-      GIS Map Server, Basic Services, Premium Services, and a banner "Rules approved for Geologic
-      Storage of Carbon Dioxide". No terms page was found from the landing page; no data was fetched.
-  notes: >-
-    ND is the one primacy state that publishes injected-CO2 volumes per storage facility
-    (us.nd.dmr.class_vi CO2Reporting folder) and its stratigraphic test wells for storage projects
-    (Summit, DGC, Blue Flint, Red Trail) are ordinary NDIC-permitted wells findable in the well
-    search. The hearing dockets are where storage-facility permit cases (NDIC case numbers) are
-    noticed before the order PDFs appear. Terms unread; do not ingest.
+  verified: {date: 2026-10-24, result: ok_restricted, note: 'docs/07 §1.4: well index, scout tickets, well files and production are in both paid tiers; no free well data. N.D.C.C. 38-08-04.6 read (oil and gas reservoir data fund).'}
+  notes: 'Restricted: do not subscribe for publication. The free hearing dockets and daily activity reports are silent like us.nd.dmr.class_vi and could become their own source id under the docs/07 §2 rule if wanted. Class VI folders are us.nd.dmr.class_vi.'
 
 - id: us.wy.ogcc.data
   name: Wyoming Oil and Gas Conservation Commission — well and permit data (DataExplorer, legacy data site)
@@ -2088,27 +2038,17 @@ sources:
   auth: none
   format: DataExplorer (JS application) and a legacy data site at pipeline.wyo.gov
   cadence: unknown
-  license: state agency site; terms not retrieved
-  reuse: unknown
-  publication: none
+  license: 'No reuse terms published (read 2026-10-24, docs/07 §1.4). wogcc.wyo.gov footer: "Copyright © 2019 State of Wyoming.  All Rights Reserved"; DataExplorer (https://dataexplorer.wogcc.wyo.gov/) carries no terms. pipeline.wyo.gov is robots-disallowed and is never fetched.'
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://wogcc.wyo.gov/
+  attribution: 'Source: Wyoming Oil and Gas Conservation Commission'
   tier: 3
   effort: L
   egress: browser
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: partial_blocked_robots
-    note: >-
-      wogcc.wyo.gov 200, 229,735 bytes (a Google Sites page), banner "We apologize, DataExplorer is
-      currently offline"; dataexplorer.wogcc.wyo.gov answered 404 (315 bytes). The legacy data site
-      pipeline.wyo.gov/robots.txt (200, 300 bytes) reads "User-agent: * / Disallow: /" with a
-      second group allowing only the agent "Wyo-Google" seven specific paths - so pipeline.wyo.gov is
-      off-limits to this platform's fetchers and nothing was requested from it beyond robots.txt.
-  notes: >-
-    Wyoming holds 4,292 Class II recovery wells (EPA FY2024) and the Class VI primacy programme sits
-    at DEQ (us.wy.deq.class_vi), but well-level EOR and stratigraphic-test data is WOGCC's and the
-    only robots-permitted route is a JS application that was offline on the probe day. Browser-worker
-    task (docs/40 section 0) plus terms; do not ingest.
+  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.4: wogcc.wyo.gov 200 ("UPDATES have arrived to eForm, WYSTAR, and Data Explorer"); dataexplorer.wogcc.wyo.gov 200, robots.txt 404.'}
+  notes: 'Silent site with a reservation of rights, as NYISO (docs/13 §1.5; docs/07 §2): derived facts only, from DataExplorer or its public map services with robots honoured, never pipeline.wyo.gov. JavaScript application: browser worker or the map''s REST services. Hold before paid use (docs/07 §2).'
 
 - id: us.ok.occ.well_data
   name: Oklahoma Corporation Commission — RBDMS well data (zip/csv) and annual UIC injection volumes (xlsx)
@@ -2120,25 +2060,16 @@ sources:
   auth: none
   format: RBDMS_WELLS.zip (csv), yearly <year>-uic-injection-volumes.xlsx (2011-2025), ITD wells/formations xlsx
   cadence: annual (injection volumes); RBDMS updated per page
-  license: state site; the only notice found is a DMCA/copyright-infringement procedure for the site vendor (Tyler Technologies) — no reuse grant
-  reuse: unknown
-  publication: none
+  license: No reuse terms published (read 2026-10-24, docs/07 §1.4). oklahoma.gov Policy Disclaimers lists privacy, accessibility, linking, security, payment and a DMCA procedure; footer "Copyright ©State of Oklahoma".
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://oklahoma.gov/about/policy-disclaimers.html
+  attribution: 'Source: Oklahoma Corporation Commission, Oil and Gas Conservation Division'
   tier: 3
   effort: M
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok
-    note: >-
-      200, 166,566 bytes; links RBDMS_WELLS.zip and fifteen yearly UIC injection-volume workbooks
-      (2011-2025). oklahoma.gov/about/copyright-and-protection-acts.html (200, 61,079 bytes) is a DMCA
-      notice-and-takedown procedure naming Tyler Technologies, Inc. as the site operator; it grants
-      nothing and prohibits nothing about reuse. No file was downloaded.
-  notes: >-
-    Machine-readable per-well UIC injection volumes are rare; Oklahoma publishes them yearly. OK has
-    6,251 Class II recovery wells (EPA FY2024) and two Subpart RR EOR reporters (Camrick, North
-    Burbank - CapturePoint). Terms unknown, not unread-restrictive: a reasonable candidate for the
-    owner's state-terms round.
+  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.4: data page, Policy Disclaimers and Linking Policy read; none grants or restricts reuse.'}
+  notes: 'Silent-site rule (docs/07 §2): derived facts (well, operator organisation, county, status, yearly UIC injection volumes) from RBDMS_WELLS.zip and the yearly injection workbooks, credited and linked. Hold before paid use (docs/07 §2).'
 
 - id: us.nm.ocd.data
   name: New Mexico Oil Conservation Division — OCD data (FTP bulk data sets, imaging, statistics)
@@ -2150,23 +2081,16 @@ sources:
   auth: none
   format: FTP server of data sets (FTPDataSetDescriptions.pdf on the page), OCD imaging, statistics pages
   cadence: unknown
-  license: state agency site; terms not retrieved
-  reuse: unknown
-  publication: none
+  license: 'EMNRD Legal Disclaimer (https://www.emnrd.nm.gov/officeofsecretary/legal-disclaimer/, read 2026-10-24): "This website includes information maintained by the State of New Mexico, Energy, Minerals and Natural Resources Department (“EMNRD”) ... as a public service." and a no-responsibility clause; no reuse clause. Data offered as "Publicly available OCD Documents and Files" by anonymous FTP.'
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://www.emnrd.nm.gov/officeofsecretary/legal-disclaimer/
+  attribution: 'Source: New Mexico Energy, Minerals and Natural Resources Department, Oil Conservation Division'
   tier: 3
   effort: M
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok
-    note: >-
-      200, 414,232 bytes; links /ocd/ocd-data/ftp-server/, /ocd/ocd-data/ocd-imaging/, /ocd/ocd-data/statistics/
-      and wp-content/uploads/sites/6/FTPDataSetDescriptions.pdf. No terms page found from here; nothing
-      downloaded.
-  notes: >-
-    NM holds the Permian's other half: 2,837 Class II recovery wells, 9 Subpart UU injectors and 2 RR
-    reporters (Hobbs Field - the largest RR sequestration mass in RY2023 at 5.2 Mt; Red Hills gas
-    plant). Terms unread; do not ingest.
+  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.4: legal disclaimer, data page, FTP page and FTPDataSetDescriptions.pdf read (monthly XML extracts of T_WELL, T_WC, T_POOL and volume tables).'}
+  notes: 'Silent-site rule (docs/07 §2): derived facts only, credited and linked. Hold before paid use (docs/07 §2).'
 
 - id: us.ks.kgs.wells
   name: Kansas Geological Survey — master well list (ks_wells.zip), tops, production, CarbonSAFE Phase II pages
@@ -2178,22 +2102,16 @@ sources:
   auth: none
   format: ks_wells.zip, ks_tops.zip (Oracle archive dumps), ORDS query endpoints (chasm.kgs.ku.edu/ords)
   cadence: monthly (production "through May 2026 added September 11, 2026")
-  license: university site; "The Kansas Geological Survey does not purport to certify the completeness or accuracy of production records" — no reuse clause found
-  reuse: unknown
-  publication: none
+  license: 'KGS Use of this Website (https://www.kgs.ku.edu/General/copyright.html, retrieved 2026-10-24): "The user is granted the right, without any fee or cost, to access, link to and use, publish, distribute, disseminate, transfer, or in any manner alter, modify, revise, copy, edit, or digitize this information." and "The user must include an appropriate citation crediting the source of all or any portion of this website and its contents as follows: "The source of this material is the Kansas Geological Survey website at http://www.kgs.ku.edu/. All Rights Reserved."" The KGS name may not be used to endorse products.'
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://www.kgs.ku.edu/General/copyright.html
+  attribution: The source of this material is the Kansas Geological Survey website at http://www.kgs.ku.edu/. All Rights Reserved.
   tier: 3
   effort: M
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok
-    note: >-
-      200, 20,089 bytes; links /PRS/Ora_Archive/ks_wells.zip and ks_tops.zip and a CarbonSAFE Phase II
-      section (KGS was the Kansas CarbonSAFE lead). Nothing downloaded.
-  notes: >-
-    Kansas has 11,336 Class II recovery wells (EPA FY2024), second only to Texas and California, and
-    the Kansas Class II programme is at the Kansas Corporation Commission, not KGS; KGS is the data
-    publisher. Terms unread; do not ingest.
+  verified: {date: 2026-10-24, result: ok, note: 'docs/07 §1.4: terms page and database page read; production data "received monthly from the Kansas Department of Revenue".'}
+  notes: 'Open grant with a fixed citation, rendered verbatim. Derived-only for privacy only (operators and lessors include natural persons, docs/13 §5.5): organisation names only. Operator names never feed outreach (K.S.A. 45-230, docs/07 §5 item 9). The Kansas Class II programme is at the KCC; KGS is the data publisher.'
 
 - id: us.il.dnr.oilgas
   name: Illinois DNR Office of Oil and Gas Resource Management — UIC programme (no data links on the landing page)
@@ -2205,24 +2123,15 @@ sources:
   auth: none
   format: HTML; the well database is the ISGS ILOIL system, not linked from this page
   cadence: unknown
-  license: state agency site; terms not retrieved
-  reuse: unknown
+  license: 'The well data is ISGS''s. ISGS Terms of Use (https://isgs.illinois.edu/terms-of-use/, retrieved 2026-10-24): "If you use ISGS electronic services, you agree to the terms of this Terms of Use document" and "To reproduce ISGS information beyond the fair use standard, permission must be obtained from the ISGS Information Office, 615 East Peabody Drive, Champaign, Illinois 61820, 217-333-4747, info@isgs.illinois.edu. License fees and a license agreement may be required, depending on the proposed usage."'
+  reuse: restricted
   publication: none
+  licence_url: https://isgs.illinois.edu/terms-of-use/
   tier: 3
   effort: L
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok_no_data
-    note: >-
-      200, 93,497 bytes; the page describes the UIC programme and links no well data, permit list or
-      download. Illinois has 6,656 Class II recovery wells and 22 Class VI wells in the FY2024
-      inventory (the ADM Decatur and the EPA-permitted Illinois Basin projects); the ISGS well
-      database (ILOIL) was not probed.
-  notes: >-
-    Registered as a measured gap. Illinois is an EPA-direct Class VI state, so its Class VI rows are
-    already in us.epa.class_vi; what is missing is the Class II / stratigraphic well layer. Next
-    step is the ISGS ILOIL system and its terms.
+  verified: {date: 2026-10-24, result: ok_restricted, note: 'docs/07 §1.4: ISGS terms read; clearinghouse.isgs.illinois.edu reset both connections, so layer metadata was not read.'}
+  notes: 'Restricted: assent clause plus permission beyond fair use; forbidden uses include "use of services for commercial or profit-making purposes". Illinois Class VI rows are in us.epa.class_vi already; this would add Class II and stratigraphic wells. Optional permission email to info@isgs.illinois.edu (not drafted).'
 
 - id: us.sd.puc.co2_pipeline_dockets
   name: South Dakota PUC — Hydrocarbon and Carbon Dioxide Pipeline Dockets (HP dockets; Summit SCS Carbon Transport, Navigator Heartland Greenway)
@@ -2240,16 +2149,7 @@ sources:
   tier: 3
   effort: S
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok
-    note: >-
-      Index 200, 10,535 bytes: year folders 2007, 2009, 2014, 2022, 2024 (and "No Hydrocarbon Pipeline
-      Dockets Filed in 2023"). 2022 page 200, 10,164 bytes, two rows: "HP22-001 - In the Matter of the
-      Application by SCS Carbon Transport LLC for a Permit to Construct A Carbon Dioxide Transmission
-      Pipeline, Date Filed: 02/07/22, Closed: 10/13/23" and "HP22-002 - ... Navigator Heartland
-      Greenway, LLC ... Heartland Greenway Pipeline ..., Date Filed: 09/27/22, Closed: 10/26/23".
-      Earlier URL guesses under /Dockets/Hydrocarbon/ answered 404 - the path is /dockets/HydrocarbonPipeline/.
+  verified: {date: 2026-10-24, result: blocked_login, note: 'docs/07 §1.5: the footer Disclaimer (https://sd.gov/disclaim.aspx) redirects to a Microsoft sign-in; host stopped. Browser task docs/62 §13.'}
   notes: >-
     The cleanest state CO2-pipeline docket index found: a plain HTML list with filed/closed dates, i.e.
     a lifecycle signal per pipeline proposal at the state that decides siting. Small (a handful of
@@ -2265,24 +2165,16 @@ sources:
   auth: none
   format: HTML search form (jurisdiction, case number, status, type) and case-detail pages listing every docket entry with filer, type, page count and date
   cadence: per filing
-  license: state agency site; terms not retrieved
-  reuse: unknown
-  publication: none
+  license: 'State disclaimer only (https://www.psc.nd.gov/disclaimer, read 2026-10-24), the nd.gov text: "neither the State of North Dakota, nor any agency, officer, or employee of the State of North Dakota warrants the accuracy, reliability or timeliness of any information published by this system ..." No reuse clause.'
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://www.psc.nd.gov/disclaimer
+  attribution: 'Source: North Dakota Public Service Commission'
   tier: 3
   effort: M
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok
-    note: >-
-      psc.nd.gov 200, 72,459 bytes (hot topics link apps.psc.nd.gov/cases/pscasedetail?getId=<yy>&getId2=<n>);
-      case search 200, 19,449 bytes; one case-detail page fetched to learn the shape (PU-22-388, 200,
-      12,696 bytes: 16 docket rows with description, type, page count, filer, date - it is a telecom
-      case, chosen only for its shape). robots.txt not present on apps.psc.nd.gov (treated as permissive).
-  notes: >-
-    ND PSC sited the Summit pipeline (route permit, 2024) and the case pages carry the whole filing
-    ladder. Filer names on docket entries are natural persons at times: store organisation names only.
-    Terms unread; do not ingest.
+  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.5: PSC disclaimer read; footer links only Contact, Accessibility, Disclaimer, Privacy Policy and Security Policy.'}
+  notes: 'Silent-site rule (docs/07 §2): case number, type, status, filing dates and organisation filers only; natural-person filers never stored. Hold before paid use (docs/07 §2).'
 
 - id: us.ia.iuc.efs
   name: 'Iowa Utilities Commission — Electronic Filing System (HLP hazardous-liquid pipeline dockets: Summit HLP-2021-0001, Navigator, Wolf)'
@@ -2294,25 +2186,16 @@ sources:
   auth: none
   format: EFS web application (docket pages by number); the agency site itself carries no docket list
   cadence: per filing
-  license: state agency site; terms not retrieved
-  reuse: unknown
+  license: 'Iowa policies (https://www.iowa.gov/policies, read 2026-10-24): a DMCA notice procedure, an as-is warranty disclaimer and "The State reserves the right to modify these terms at any time without notice to you."; no reuse clause. efs.iowa.gov is robots-disallowed (User-agent: * / Disallow: / / Allow: /$) and is never fetched.'
+  reuse: attribution
   publication: none
+  licence_url: https://www.iowa.gov/policies
+  attribution: 'Source: Iowa Utilities Commission'
   tier: 3
   effort: L
   probe: {method: GET, url: "https://efs.iowa.gov/robots.txt"}
-  verified:
-    date: 2026-09-25
-    result: blocked_robots
-    note: >-
-      iub.iowa.gov 301 -> iuc.iowa.gov, 200, 98,983 bytes; pipelines page 200, 167,696 bytes, no docket
-      list. efs.iowa.gov/robots.txt (200, 36 bytes) reads "User-agent: * / Disallow: / / Allow: /$" -
-      only the root is crawlable. The docket URL (ShowDocketAsync/?docketNumber=HLP-2021-0001) was
-      refused by the connector's robots check before any request was sent; nothing was fetched from EFS.
-  notes: >-
-    Iowa carried the Summit, Navigator and Wolf Carbon Solutions dockets, the most litigated CO2
-    pipeline record in the country, and it is robots-disallowed to every agent like Louisiana's
-    SONRIS. Routes: an IUC data request (owner action), or the commission's public orders as
-    published elsewhere. Do not fetch EFS.
+  verified: {date: 2026-10-24, result: ok_terms_silent_route_closed, note: 'docs/07 §1.5: iuc.iowa.gov footer and iowa.gov/policies read; EFS not requested.'}
+  notes: Terms are silent (docs/07 §2); robots is the block. publication stays none until the IUC gives a permitted route (an owner data request, not drafted). Then derived-only, credited.
 
 - id: us.il.icc.edocket
   name: Illinois Commerce Commission — carbon dioxide pipelines programme page and e-Docket (Navigator, Wolf, One Earth dockets)
@@ -2358,12 +2241,7 @@ sources:
   tier: 3
   effort: L
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: blocked_403
-    note: >-
-      HTTP 403, 520 bytes, a bare nginx "403 Forbidden" page (not a challenge). Honoured as a block; no
-      retry, no alternate agent.
+  verified: {date: 2026-10-24, result: blocked_login, note: 'docs/07 §1.5: https://www.edockets.state.mn.us/edockets/ redirects to an eApps (Keycloak) sign-in; host stopped. Browser task docs/62 §14.'}
   notes: >-
     Registered as a measured block. Minnesota's CO2 pipeline record (Summit, docket PL-9/CN-22-472 family)
     is unreachable from this egress; browser worker or an owner request.
@@ -2792,12 +2670,15 @@ sources:
   auth: none
   format: json/geojson behind map app
   cadence: biennial + amendments
-  license: ENTSO-E terms; attribution
+  license: 'ENTSO-E Terms of Use (https://www.entsoe.eu/about/legal-and-regulatory/disclaimer/, retrieved 2026-10-24): "you may download Content, but only for non-commercial, personal use" and "you may not distribute, modify, copy (except as set forth above), transmit, display, reuse, reproduce, publish, license, create derivative works from, transfer, sell or otherwise use Content without ENTSO-E’s written permission". The TYNDP 2026 site''s served HTML carries no terms of its own.'
   # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1295) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
-  reuse: unknown
+  reuse: restricted
   publication: none
+  licence_url: https://www.entsoe.eu/about/legal-and-regulatory/disclaimer/
   tier: 2
   effort: M
+  verified: {date: 2026-10-24, result: ok_restricted, note: 'docs/07 §1.8: tyndp2026.entsoe.eu/projects-map/ is a 3,611-byte JavaScript shell; ENTSO-E site terms read.'}
+  notes: 'Restricted; the EU database right also applies (docs/13 §4.1). Cheaper route for the headline projects: the Union list of PCIs and PMIs on EUR-Lex (Decision 2011/833/EU reuse; EUR-Lex notice to be read). Optional permission letter to ENTSO-E (not drafted).'
 
 - id: eu.pci_pmi_list
   name: 'EU PCI/PMI Union list (Dec 2025: 113 electricity, 100 hydrogen, 17 CO2, 5 gas)'
@@ -2982,29 +2863,58 @@ sources:
   auth: none
   format: html/pdf
   cadence: weekly
-  license: GoI open data (attribution)
+  license: 'SECI Website Policies (https://www.seci.co.in/website-policy, retrieved 2026-10-24): "No material from this site may be copied, modified, reproduced, republished, uploaded, transmitted, posted or distributed in any form without prior written permission from SECI." and "Prior permission is required before hyperlinks are directed from any website/portal to this site." MNRE''s policy page is client-rendered and was not read.'
   # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1304) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
-  reuse: unknown
+  reuse: restricted
   publication: none
+  licence_url: https://www.seci.co.in/website-policy
   tier: 3
   effort: M
+  verified: {date: 2026-10-24, result: ok_restricted, note: 'docs/07 §1.8: SECI terms read (assent by use).'}
+  notes: Restricted, and no link-out to seci.co.in without SECI's permission. Optional permission letter (not drafted).
 
 - id: br.aneel.leiloes
   name: Brazil ANEEL/CCEE energy & transmission auctions
   jurisdiction: BR
   category: procurement
   operator: ANEEL
-  url: https://leilao.aneel.gov.br/
-  access: html
+  url: https://dadosabertos.aneel.gov.br/dataset/resultado-de-leiloes
+  access: bulk_file
   auth: none
-  format: html/pdf
-  cadence: per-auction
-  license: gov.br open data
+  format: csv (resultado-leiloes-geracao.csv, resultado-leiloes-transmissao.csv) with PDF data dictionaries
+  cadence: monthly
+  license: 'ANEEL open-data portal, dataset "Resultado de leilões de geração e transmissão de energia elétrica" (CKAN package_show, retrieved 2026-10-24): license_title "Open Data Commons Open Database License (ODbL)", license_url http://www.opendefinition.org/licenses/odc-odbl; organisation Agência Nacional de Energia Elétrica; maintainer dadosabertos@aneel.gov.br.'
   # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1305) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
-  reuse: unknown
-  publication: none
+  reuse: attribution
+  publication: derived_only
+  licence_url: https://opendatacommons.org/licenses/odbl/1-0/
+  attribution: 'Source: Agência Nacional de Energia Elétrica (ANEEL), Dados Abertos, under the Open Database License 1.0'
+  changes_statement: Auction results normalised, translated and linked to projects by Inframation from ANEEL's open data; the derived records are offered under the Open Database License 1.0.
   tier: 3
   effort: M
+  verified: {date: 2026-10-24, result: ok, note: 'docs/07 §1.8: package_show read; files updated 2026-10-01; nothing downloaded.'}
+  notes: ODbL 1.0, as us.osm.power. Share-alike on a Derivative Database is a counsel question before fused ANEEL rows are published (docs/07 §5 item 4; docs/66 row 13).
+
+- id: br.aneel.ralie
+  name: ANEEL RALIE — monitoring of generation expansion (every generation plant under implementation in Brazil)
+  jurisdiction: BR
+  category: generation_queue
+  operator: Agência Nacional de Energia Elétrica (ANEEL), Superintendência de Fiscalização dos Serviços de Geração
+  url: https://dadosabertos.aneel.gov.br/dataset/ralie-relatorio-de-acompanhamento-da-expansao-da-oferta-de-geracao-de-energia-eletrica
+  access: bulk_file
+  auth: none
+  format: csv (ralie-usina-atual.csv, ralie-unidade-geradora-atual.csv, ralie-leilao-atual.csv), history as zip and parquet, PDF data dictionaries
+  cadence: fortnightly
+  license: 'ANEEL open-data portal, dataset "RALIE – Relatório de Acompanhamento da Expansão da Oferta de Geração de Energia Elétrica" (CKAN package_show, retrieved 2026-10-24): license_title "Licença Aberta para Bases de Dados (ODbL) do Open Data Commons", license_url http://www.opendefinition.org/licenses/odc-odbl; author SFG/ANEEL. Notes: "O acompanhamento da expansão da oferta de geração de energia elétrica abrange todos os empreendimentos em implantação no território nacional, qualquer que seja a fonte de energia."'
+  licence_url: https://opendatacommons.org/licenses/odbl/1-0/
+  reuse: attribution
+  publication: derived_only
+  attribution: 'Source: Agência Nacional de Energia Elétrica (ANEEL), RALIE, Dados Abertos, under the Open Database License 1.0'
+  changes_statement: Plant records normalised, translated and linked to projects by Inframation from ANEEL's RALIE open data; the derived records are offered under the Open Database License 1.0.
+  tier: 2
+  effort: M
+  verified: {date: 2026-10-24, result: ok, note: 'docs/07 §1.8: package_show read; files updated 2026-10-23; nothing downloaded.'}
+  notes: 'A national supply pipeline for Brazil: every plant under implementation, any source, with ANEEL''s assessment of works, schedule and expected start of operation. ODbL share-alike: counsel item docs/07 §5 item 4 before fused rows are published. No connector yet.'
 
 - id: za.ipp_office.reipppp
   name: South Africa IPP Office — REIPPPP / BESIPPPP bid windows
@@ -3016,12 +2926,15 @@ sources:
   auth: none
   format: html/pdf
   cadence: per-window
-  license: IPP Office terms
+  license: 'IPP Office Website Terms and Conditions, VERSION: May 2016 (https://www.ipp-projects.co.za/WebsiteDisclaimer/, retrieved 2026-10-24): "By accessing the website, the user agrees to be bound by these terms and conditions." "7.2 Any unauthorized use of the contents, information or materials on this website is prohibited." "9.1 The user is not entitled to provide a link to this website without the express written permission of the IPP Office." "9.2 The user is not permitted to "deep link" to this website or to "frame" any part of this website."'
   # 2026-09-18: docs/13-legal-data-rights.md §6 (line 1306) records this source `unknown` (terms not retrieved); reclassified from `attribution`. Gated until the terms are read and recorded.
-  reuse: unknown
+  reuse: restricted
   publication: none
+  licence_url: https://www.ipp-projects.co.za/WebsiteDisclaimer/
   tier: 3
   effort: M
+  verified: {date: 2026-10-24, result: ok_restricted, note: 'docs/07 §1.8: terms read.'}
+  notes: Restricted, and no link-out or deep link without the IPP Office's written permission. Optional permission letter (not drafted).
 
 
 - id: no.sodir.factpages_co2_storage
@@ -3065,31 +2978,22 @@ sources:
   jurisdiction: GB
   category: permit
   operator: North Sea Transition Authority
-  url: https://www.nstauthority.co.uk/data-and-insights/data/
-  access: js_app
+  url: https://www.arcgis.com/home/item.html?id=ae0b0c44c6214112a0612ee66cf493dc
+  access: api
   auth: none
-  format: ArcGIS Hub open-data site (client-rendered) and feature services; carbon storage licence areas are a published layer
+  format: ArcGIS feature service (UKCS carbon storage licences - current (WGS84)), https://services-eu1.arcgis.com/OZMfUznmLTnWccBc/arcgis/rest/services/UKCS_current_carbon_storage_licences_(WGS84)/FeatureServer; sibling layers for sites, complexes, areas offered and provisional awards
   cadence: per licensing round
-  license: NSTA data pages reached but the open-data licence clause was not located in the served HTML (the site links a "Licences" theme page); terms unread
-  reuse: unknown
-  publication: none
+  license: 'NSTA User Agreement (https://www.nstauthority.co.uk/media/u51lhvio/nsta-user-agreeement-june-2023.pdf, retrieved 2026-10-24; the item''s licenseInfo "NSTA Open User Licence" links https://www.nstauthority.co.uk/footer/access-to-information/, which names it): "You are free to: copy, publish, distribute and transmit the Information; adapt the Information; exploit the Information non-commercially." "You must ... acknowledge the source of the Information by including the following attribution statement: Contains information provided by the North Sea Transition Authority and/or other third parties." "if you fail to comply the rights granted to you under this User Agreement will end automatically."'
+  reuse: noncommercial
+  publication: raw_ok
+  licence_url: https://www.nstauthority.co.uk/media/u51lhvio/nsta-user-agreeement-june-2023.pdf
+  attribution: Contains information provided by the North Sea Transition Authority and/or other third parties.
   tier: 3
   effort: M
   egress: browser
   probe: {method: GET}
-  verified:
-    date: 2026-09-25
-    result: ok_terms_not_found
-    note: >-
-      nstauthority.co.uk/data-centre/nsta-open-data/ 301 -> /data-and-insights/data/, 200, 80,271
-      bytes; open-data-nstauthority.hub.arcgis.com 200, 5,579 bytes (JS shell, no content); the hub's
-      /api/v3/datasets?q=carbon%20storage answered 200, 169,208 bytes but is the global ArcGIS Hub
-      search (195,678 results, unrelated sites) rather than an NSTA-scoped listing; the carbon-storage
-      licensing page URL guessed from memory 404s. Nothing usable was retrieved.
-  notes: >-
-    GB carbon storage licences (2023 round: 21 licences) are the other large non-US planned-storage
-    register. NSTA publishes under the Open Government Licence for most open data, but that is
-    inference, not a read clause: browser task to find the layer and its licenseInfo. Do not ingest.
+  verified: {date: 2026-10-24, result: ok, note: 'docs/07 §1.7: item ae0b0c44c6214112a0612ee66cf493dc (owner NSTA_GIS, modified 2026-10-23) found through the ArcGIS Online catalogue; User Agreement PDF read (Last-Modified 2024-04-04). Closes docs/62 §4.'}
+  notes: 'Noncommercial grant: published only while PLATFORM_POSTURE=noncommercial; withdrawn at a commercial flip unless NSTA agrees otherwise (correspondence@nstauthority.co.uk). The attribution statement is a condition: without it the licence ends automatically. Personal data and third-party rights are excluded from the grant.'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # G. MULTILATERAL DEVELOPMENT BANKS (funding + procurement, global)
@@ -3312,11 +3216,7 @@ sources:
       Product page and https://www.iea.org/terms both answered a Cloudflare challenge (HTTP 403);
       reported as blocks, not retried, not worked around. Same host behaviour as
       global.iea.demo_projects.
-  notes: >-
-    A secondary compilation (IEA compiles from announcements and registers), so never a primary
-    source in the docs/02 section 11 sense, but a useful cross-check for the global capture/storage
-    project list if its terms allow. Browser task: read the product's licence (IEA moved most data to
-    CC BY 4.0 in 2023-24 - inference, unverified). Do not ingest until then.
+  notes: A secondary compilation, never a primary source (docs/02 §11). Owner browser task docs/62 §10. Search results (not a reading) say IEA's CC BY 4.0 excludes standalone datasets and databases, so do not assume CC BY. Do not ingest until the product's own licence line is recorded.
 
 - id: global.carbonstorage_io
   name: CarbonStorage (carbonstorage.io) — private CCUS project tracker
@@ -4432,11 +4332,8 @@ sources:
   tier: 3
   effort: S
   probe: {method: GET}
-  verified: {date: 2026-09-28, result: terms_conflict, note: 'Lane G2: InPort page 200 (fisheries.noaa.gov robots.txt disallows only Drupal core/profile paths); the zip was not fetched. Conflicting statements (CC0 vs a purpose-limited use constraint) and a lineage from a now-restricted layer; gated until the owner or counsel decides.'}
-  notes: >-
-    Coastal subset of the 2017 HIFLD substations layer, re-attributed by NOAA. Even if the CC0 statement governs,
-    republishing it would re-open a layer DHS has since restricted; recorded so it is not picked up by accident.
-    See docs/13 section 2.19.
+  verified: {date: 2026-10-24, result: terms_conflict, note: 'docs/07 §1.6: InPort unchanged ("Use Constraints: For coastal and ocean planning"); the Marine Cadastre terms (Hub page item a25a72b4f3034f04b3130321b7577037) say "public domain, unless specifically annotated otherwise" and bind users to "any guidelines for such services that may be posted ... by data providers".'}
+  notes: 'Recommend retiring this row: a 2017 coastal subset of the DHS HIFLD layer DHS has since restricted, superseded by us.osm.power; asking NOAA is not worth an owner letter. Never ingest.'
 
 - id: us.osm.power
   name: OpenStreetMap power network, US — transmission lines and cables (69 kV and up, or voltage not tagged) and substations, from Geofabrik's US state extracts
@@ -5404,7 +5301,7 @@ sources:
   tier: 3
   effort: M
   # No probe block: the listing page answers 404, so a probe would only report the known absence.
-  verified: {date: 2026-10-22, result: not_found, note: 'Resources lane: https://www.eia.gov/maps/maps-historical-oil-natural-gas.php and https://www.eia.gov/maps/maps.htm answer 404; the EIA Atlas ArcGIS org (79 services, listed 2026-10-22) has no field-boundary layer; the Atlas hub search for "oil gas field" returns only fire-hotspot services; ArcGIS Online''s catalogue lists 130 items owned by EIA.gov (searched 2026-10-22), of which the oil and gas ones are play extents, elevation and isopach surfaces, basins and storage regions, no field outlines. EIA''s historical field maps were year-end 2001 and EIA noted that some shapefiles may be unavailable because of the data source''s copyright. Not built.'}
+  verified: {date: 2026-10-24, result: not_found, note: 'docs/07 §1.6: maps-historical-oil-natural-gas.php still 404. California alternative: CalGEM Oil and Gas Field Administrative Boundaries, data.gov license cc-by (catalog record read 2026-10-24); a separate source id, terms to be read from CalGEM.'}
   notes: >-
     Requested in the prospecting tranche (field boundaries) and not available from EIA today. Recorded so the
     search is not repeated. reuse unknown and publication none (changed 2026-10-23 from open/raw_ok, which the
@@ -5552,13 +5449,15 @@ sources:
   auth: none
   format: per-state file geodatabase / shapefile zips (not fetched)
   cadence: irregular (continuous updates, released twice a year)
-  license: 'No licence statement found (READ 2026-10-22). The data download page (https://www.fws.gov/program/national-wetlands-inventory/data-download) says only: "Please read the Disclaimer, Data Limitations, Exclusions, and Precautions, and the Wetlands Geodatabase User Caution." The Wetlands Geodatabase Disclaimer (https://www.fws.gov/page/wetlands-geodatabase-disclaimer): "NWI data are developed using a biological definition of wetlands and may not be consistent with wetland boundaries established according to the federal regulatory definition of wetlands under the Clean Water Act." and "Base cartographic information used as part of the Wetlands Mapper has been provided through a license agreement with ESRI and the Department of the Interior." Data Limitations, Exclusions and Precautions (https://www.fws.gov/page/wetlands-data-limitations-exclusions-and-precautions): "Certain wetland habitats are excluded from the National mapping program because of the limitations of aerial imagery as the primary data source used to detect wetlands." A USFWS work would be public domain under 17 U.S.C. §105, but none of these pages says so and the NWI includes partner-contributed mapping, so reuse stays unknown until a licence statement (the data release metadata) is quoted.'
-  reuse: unknown
-  publication: none
+  license: 'FGDC metadata for the NWI wetlands layer (https://documentst.ecosphere.fws.gov/wetlands/data/metadata/FWS_Wetlands.xml, retrieved 2026-10-24, pubdate 20240501): accconst "None"; useconst "None. Precautions - Federal, state, and local regulatory agencies with jurisdiction over wetlands may define and describe wetlands in a different manner than that used in this inventory. ... Acknowledgement of the U.S. Fish and Wildlife Service and (or) the National Wetlands Inventory would be appreciated in products derived from these data." A USFWS work, 17 U.S.C. §105.'
+  reuse: open
+  publication: raw_ok
+  licence_url: https://documentst.ecosphere.fws.gov/wetlands/data/metadata/FWS_Wetlands.xml
+  attribution: U.S. Fish and Wildlife Service, National Wetlands Inventory
   tier: 3
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-10-22, result: not_fetched, note: 'Resources lane: priority 3, design and Actions steps only (docs/25 "Prospecting layers"); no data downloaded and no value served. www.fws.gov/robots.txt disallows only /node/add/. The three FWS pages answered 200; the data.gov catalogue API (catalog.data.gov/api/3/action/package_search) answered 404, so the DCAT licence field was not read.'}
+  verified: {date: 2026-10-24, result: ok, note: 'docs/07 §1.6: metadata XML read (Last-Modified 2024-06-06); no data downloaded.'}
   notes: >-
     Planned constraint layer. Built only in GitHub Actions (the national file is several GB), and served only once
     its terms are quoted here and its docs/13 §6 row is updated.
