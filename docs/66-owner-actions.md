@@ -8,6 +8,34 @@ coordinator; it is then moved to "Done" with the date.
 Secrets and variables → Actions → New repository secret). Detail lives in the linked docs; this page is the short
 version. Doc links point at the working branch until it merges to `main`.
 
+## Run sheet: Saturday evening and Sunday morning (2026-10-24 and 25)
+
+Slow replies first (every day they wait is a day lost), then the instant ones. **Send back** says what the
+coordinator needs from each; paste text in chat, never a key or password.
+
+**Evening, about two hours**
+
+| Order | Item | Links | Send back |
+|---|---|---|---|
+| 1 | #8 PJM licence request | draft in [`docs/37` §2](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/37-pjm-data-licence-request.md); email custsvc@pjm.com, signed copy by post to General Counsel, PJM Interconnection, 2750 Monroe Blvd., Audubon, PA 19403 | "sent", with the date |
+| 2 | #2 MISO terms | [Data Exchange](https://data-exchange.misoenergy.org) (pricing API → Terms of Use), [Legal and privacy](https://www.misoenergy.org/meet-miso/legal-and-privacy/), [Terms and conditions](https://www.misoenergy.org/meet-miso/contact-us/terms-and-conditions/) | the PDFs, or the clauses pasted |
+| 3 | #23 SPP and ISO-NE permission letters | drafts arrive later tonight (this list says where) | "sent", with the date |
+| 4 | #16 GEM download, #17 GEM email | [GIPT page](https://globalenergymonitor.org/projects/global-integrated-power-tracker) ("Download data"); email info@globalenergymonitor.org ([contact page](https://globalenergymonitor.org/contact-us)), draft in [`docs/06` §1.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) | the downloaded file (attach or say where it is), "sent" |
+| 5 | #18 Parcel states | Wisconsin wlip@wisconsin.gov or help@sco.wisc.edu, and read [SCO's parcels page](https://www.sco.wisc.edu/parcels/data/) (our fetcher fails on it); Florida FloridaGIO@floridadep.gov; Ohio gis.support@das.ohio.gov; Virginia VBMP@VDEM.Virginia.gov; wording in [`docs/06` §2.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) | "sent"; later, each reply |
+| 6 | #19 to #21 and #11 Terms pages only a browser can read | [Our Grid Future](https://ourgridfuture.org/), [IEA CCUS database](https://www.iea.org/data-and-statistics/data-product/ccus-projects-database) and [IEA terms](https://www.iea.org/terms), [Arizona DEQ UIC](https://azdeq.gov/UIC), [Argonne RNG database](https://www.anl.gov/esia/reference/renewable-natural-gas-database) and [Argonne notice](https://www.anl.gov/privacy-security-notice), [Wyoming DEQ Class VI](https://deq.wyoming.gov/water-quality/groundwater/uic/class-vi/), [Illinois ICC CO2 pipelines](https://www.icc.illinois.gov/programs/carbon-dioxide-pipelines), [DOE OCED portfolio](https://www.energy.gov/cmei/oced/portfolio), [NSTA data](https://www.nstauthority.co.uk/data-and-insights/data/), [Sodir FactPages](https://factpages.sodir.no/) | per page: a PDF, or the clauses on use, copying, redistribution, commercial use and credit pasted |
+| 7 | #7 Utility RFP letters | twelve drafts in [`docs/39`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/39-utility-rfp-permission-requests.md), send kit §0 first | "sent" per issuer |
+
+**Morning, about an hour**
+
+| Order | Item | Links | Send back |
+|---|---|---|---|
+| 8 | #10 Free API keys | [EIA](https://www.eia.gov/opendata/register.php), [SAM.gov](https://sam.gov/content/home) (Account Details → Public API Key), [NRC ADAMS](https://adams-api-developer.nrc.gov), [api.data.gov](https://api.data.gov/signup/) | each key as a [GitHub secret](https://github.com/Tobombadil/Bankable/settings/secrets/actions/new), then the secret names in chat |
+| 9 | #1 ERCOT account | [ERCOT API explorer](https://apiexplorer.ercot.com) | "added the three ERCOT secrets" |
+| 10 | #15 TxGIO licence question | [TxGIO contact](https://www.geographic.texas.gov/contact.html) | "sent"; later, the reply |
+| 11 | #12 Elexon question | [Elexon contact](https://www.elexon.co.uk/contact/) | "sent"; later, the reply |
+| 12 | Three decisions from the filter audit | [`docs/28` §11](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/28-filter-and-tag-audit.md) | one line each in chat |
+| 13 | #3 Deploy, if the coordinator says the next release is ready | [deploy-beta](https://github.com/Tobombadil/Bankable/actions/workflows/deploy-beta.yml) | "deployed" |
+
 ## Now (unlocks work already being built)
 
 | # | Action | Time | Unlocks | Detail |
@@ -179,6 +207,11 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
 | 16 | **Download Global Energy Monitor's Global Integrated Power Tracker** yourself (GEM's form has a licence box, so no agent submits it): the "Download data" block on the [GIPT page](https://globalenergymonitor.org/projects/global-integrated-power-tracker), with the field values in the doc (use a role address such as data@inframation.io). Hand the file to the coordinator, who records its licence notice and its TransitionZero rows before anything loads. | 10 min | Global pipeline figures beside Ember's operating figures | [`docs/06` §1.7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) |
 | 17 | **Send the GEM email** (drafted; five questions, including paid use and the summary sheets). | 5 min + their reply | GEM in paid tiers; GEM's summary tables | [`docs/06` §1.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) |
 | 18 | **Ask the next parcel states about their terms**: Wisconsin, Florida, Ohio and Virginia (one email each, addresses and wording in the doc; North Carolina needs none). Save each reply with its date. | 20 min + their replies | Site finder parcels beyond Texas (NC first) | [`docs/06` §2.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) |
+| 19 | **Read Our Grid Future's terms** in a browser (Cloudflare blocks our fetcher): open [ourgridfuture.org](https://ourgridfuture.org/), find Terms, About or Data in the footer, save each as a PDF, and note who publishes the site and where its data comes from. If it is built from a private aggregator we do not use it, whatever the terms say. | 10 min | US transmission projects (the Transmission filter has no records today) | [`docs/62`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 20 | **Read IEA's CCUS projects database terms**: the [product page](https://www.iea.org/data-and-statistics/data-product/ccus-projects-database) and [IEA's terms](https://www.iea.org/terms); a free IEA account may be needed to see the licence. | 10 min | Carbon capture and storage projects worldwide | [`docs/62`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 21 | **Read Arizona DEQ's site policies** from the footer of [azdeq.gov/UIC](https://azdeq.gov/UIC) (the site blocks non-browser clients). | 5 min | Arizona Class VI carbon-storage wells | [`docs/62`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 22 | **Read Argonne's RNG database page** ([database](https://www.anl.gov/esia/reference/renewable-natural-gas-database), [notice](https://www.anl.gov/privacy-security-notice)); Argonne is contractor-run, so its data is not public domain by default. | 10 min | Renewable natural gas and biogas projects | [`docs/62` §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 23 | **Send the SPP and ISO-NE permission requests** (drafts in progress; this row will name the file). Both terms are read: SPP needs written authorisation for commercial publication, ISO-NE says duplication or non-personal use may violate copyright. | 15 min | Two more US queues, withheld today | `docs/07` (in progress) |
 
 ## When convenient
 
