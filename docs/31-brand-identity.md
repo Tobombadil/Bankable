@@ -191,10 +191,11 @@ zoom^-0.8.
   orange round dot (owner, 2026-10-23: "do the circle around the i for the logos, for information"). Light: a navy
   `#0b1023` circle, white stem, orange `#e68023` dot. Dark: a `#eef1f5` circle, `#0e0f11` stem, the same orange dot.
   Geometry on a 16-unit grid: circle radius 8; dot centre (8, 4.55), radius 1.75; stem 2.8 wide from y 7.35 to 13.25,
-  corner radius 0.5. Legible at 16px. Where it appears: favicon, app icon and social profile images, always on its own.
-  **Never beside the wordmark** (owner, 2026-10-24: "make sure the circle I isn't next to the regular spelled out
-  logo"): the mark stands in for the wordmark where a space is square or too small for the word, and the two are
-  never shown side by side, on the share card included. Not in the top bar: there the wordmark's own orange dot already carries the i, and a second
+  corner radius 0.5. Legible at 16px. Where it appears: favicon, app icon and social profile images, on its own.
+  **Normally not beside the wordmark** (owner, 2026-10-24: "in most every case, not side-by-side ... go with your
+  best judgment"): the mark stands in for the wordmark where a space is square or too small for the word. Pairing
+  the two is a deliberate exception, used only where the layout gains from it, never the default lockup. Not in
+  the top bar: there the wordmark's own orange dot already carries the i, and a second
   orange dot beside it doubles the accent. Never inside the word (a circled i in the wordmark reads as an "info"
   button and breaks the word). In the product UI an information control is labelled in words, never with an i glyph.
 - **Lockup.** The wordmark, then "a Compass company" in Geist 500, `--text-muted`, at 0.58 of the wordmark's size. It
