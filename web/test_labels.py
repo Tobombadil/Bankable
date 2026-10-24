@@ -120,8 +120,8 @@ def test_every_connector_technology_constant_has_a_label() -> None:
 
 
 def test_class_vi_technology_reads_co2_in_capitals_and_without_a_subscript() -> None:
-    """U+2082 is outside every self-hosted Plex `unicode-range`, so "CO2" rather than "CO₂"; the
-    fallback's "Co2" was the defect."""
+    """U+2082 is outside every self-hosted `unicode-range` (Plex until 2026-10-23, Geist since), so "CO2"
+    rather than "CO₂"; the fallback's "Co2" was the defect."""
     assert "co2_geologic_sequestration" in _connector_technology_constants()
     assert labels.technology_label("co2_geologic_sequestration") == "CO2 geologic sequestration"
     css = (REPO_ROOT / "web" / "static" / "css" / "styles.css").read_text(encoding="utf-8")

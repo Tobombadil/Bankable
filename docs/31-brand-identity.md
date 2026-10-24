@@ -1,8 +1,9 @@
 # Inframation in the Compass family
 
 **Status:** brand system, chosen by the owner on 2026-10-23 ("Go with B. Compliment. If anything compliment and
-improve on"), drafted by product-designer (lane brand). Not yet applied to the product: the build lane applies §7
-and §8. Spec for that lane; nothing here changes product code.
+improve on"), drafted by product-designer (lane brand). Applied to the product on 2026-10-24 (lane brand-build,
+with its review round): §7 except C-5 (record templates, lane record-tabs) and M-3 (the front strip, the full-screen
+map lane), and the final wordmark and mark of §5.1. Open: the faint-context contrast question in §7 M-2.
 **Order of authority:** `CLAUDE.md` guardrails, then WCAG 2.2 AA (`docs/04`), then the taste skill
 (`.claude/skills/taste-skill`, vendored, MIT), then `docs/31-design-practices.md`, then `docs/31-design-system.md`
 where it has not been brought into line (§9 lists every conflict).
@@ -20,7 +21,7 @@ professional design"; spur.us as an aspirational reference.
 Inframation keeps its name and gains the endorsement "a Compass company". The chrome is drawn in Compass's navy on
 a cool blue-grey ledger ground, with no colour of its own. The one hue is an evergreen taken from Compass's forest,
 and it goes only on the data: the active projects on the map and the lead figure that counts them. Compass's orange
-survives as the nod: the dot of the i in the wordmark is an orange north pointer. Type is Geist, one family, with
+survives as the nod: the round dot over the wordmark's i, and over the i in the mark. Type is Geist, one family, with
 Geist Mono for identifiers only. The front page is the full-screen map of `docs/30` §11.6 with three live figures
 on top, one floating bar and a collapsed panel. Every figure links to its list, and the sources' read date sits
 beside the figures.
@@ -58,7 +59,7 @@ taste skill's terracotta check.
 
 **Kept:**
 - **Navy `#0b1023`,** as the ink of text, the wordmark and the one primary button. It is Compass's exact navy.
-- **Orange `#e68023`,** as the needle over the i, in the mark and the wordmark only.
+- **Orange `#e68023`,** as the round dot over the i, in the mark and the wordmark only.
 - **The forest hue.** The data colour sits 2.8° from Compass's forest photograph, and About opens Compass's world with a
   Colorado pine forest.
 - **Power and land photography on read pages,** credited.
@@ -69,7 +70,9 @@ taste skill's terracotta check.
 - **The royal-blue links and the gradient pill button.** Gradients are banned. A second hue on the chrome breaks the
   style. And the blue is 8° from Interconnection.fyi's brand blue.
 - **A navy or forest ground on app screens.** The skill bans navy dark themes. Navy appears as a field only on read
-  pages and the share card.
+  pages and the share card. **Exception (owner, 2026-10-24):** the full-screen map landing's dark theme takes the
+  share card's navy ground (V2 direction A, "Night survey"); the owner asked for the "very dark blue" with bright green
+  dots and chose A. Other app screens keep the neutral dark until the owner has seen both side by side.
 - **The Avenir-like light face.** It is replaced by the face the skill dealt (§4).
 - **The floating "Let's Talk" pill and a photograph hero on the map.** Floating pills are banned. On the front page
   the map is the picture.
@@ -125,7 +128,8 @@ These are exact values, generated from the lane's single source (`brand/work/sys
 | `--accent-deep` (was `--color-copper-deep`) | `#16624a` | `#5fcf9f` | the accent as small text | 6.44 / 7.29 | 9.96 / 9.22 |
 | `--accent-tint` (was `--color-copper-tint`) | `#5fcf9f` | `#5fcf9f` | the accent on navy or dark fields | 9.81 on navy | 9.96 / 9.22 |
 | `--accent-ink` | `#ffffff` | `#0e0f11` | text on an accent fill | 5.77 on accent | 9.96 on accent |
-| `--needle` | `#e68023` | `#e68023` | Compass orange: the mark's north pointer only, never text or data | 2.48 / 2.81 (a mark, not text) | 6.83 / 6.32 |
+| `--brand-dot` | `#e68023` | `#e68023` | Compass orange: the dot over the i (the wordmark's and the mark's) only, never text or data | 2.48 / 2.81 (a mark, not text) | 6.83 / 6.32 |
+| `--wordmark-ink` | `#0b1023` | `#eef1f5` | the wordmark's letters (§5.1); on dark the mark's light circle colour | 16.66 / 18.87 | 16.93 / 15.67 |
 | `--negative` | `#c4242a` | `#f0857a` | a change in the bad direction, with its sign | 5.10 / 5.78 | 7.62 / 7.05 |
 | `--dot` | `#1d7356` | `#5fcf9f` | project marker, in process | 5.62 on land | 8.87 on land |
 | `--select` | `#0b1023` | `#f2f3f6` | the 2px selected-tab line | 16.66 / 18.87 | 17.28 / 16.00 |
@@ -177,28 +181,34 @@ zoom^-0.8.
 
 - **Wordmark.** "inframation" in lower case, tracking -0.03em, set in two parts that name what it joins:
   **infra**structure and infor**mation** (owner, 2026-10-23: "emphasize the two parts of the word Infra and mation";
-  then, after seeing four variants, "I like the use of bold mation": variant D). "infra" is Geist 400 and "mation"
-  Geist 700, both in `--text` (navy `#0b1023`; `#eef1f5` on dark). One word, no space or rule between the parts; the
-  accessible name stays "Inframation". The first i is dotless and carries the orange mark, centred on the stem as
-  measured from the font (the first mock-ups placed it by eye and it sat left of the stem). The mark is the round
-  information dot by default (sized for the regular-weight stem, about 1.6 times its width) or the north-pointer
-  needle (a triangle 0.32em wide and 0.38em tall, foot 0.07em above the x-height); the owner's pick between them is
-  open. The production wordmark ships as outlined SVG paths, not live text, so the mark cannot drift with font
-  loading. Variants A (weight only, infra bold), B (infra bold navy, mation regular slate) and C (mation in
-  evergreen: rejected, green is the data colour) are in the review page.
-- **Mark (16px favicon).** The same i, orange pointer over a navy stem:
-  `<path fill="#e68023" d="M8 0 11.9 6.6H4.1Z"/><rect x="5.7" y="8" width="4.6" height="8" rx=".7"/>`. The stem turns
-  `#f1f3f6` under `prefers-color-scheme: dark`. Checked at 16, 32 and 64px on light and dark tabs.
+  after the variants, "Let's go with the dot over the i, then let's flip the bold": variant A). "infra" is Geist 700
+  and "mation" Geist 400, both in `--text` (navy `#0b1023`; `#eef1f5` on dark). One word, no space or rule between
+  the parts; the accessible name stays "Inframation". The first i is dotless and carries an orange round dot (the
+  information i), about 1.25 times the bold stem's width, centred on the stem as measured from the font (the first
+  mock-ups placed the mark by eye and it sat left of the stem). The production wordmark ships as outlined SVG
+  paths, not live text, so the dot cannot drift with font loading. Variant B (mation in slate) is the one-token
+  alternative; C (mation in evergreen) was rejected because green is the data colour; D (mation bold) was tried
+  and flipped back.
+- **Mark (app icon, favicon, social avatar).** The information sign: a circle with the i knocked out of it and the
+  orange round dot (owner, 2026-10-23: "do the circle around the i for the logos, for information"). Light: a navy
+  `#0b1023` circle, white stem, orange `#e68023` dot. Dark: a `#eef1f5` circle, `#0e0f11` stem, the same orange dot.
+  Geometry on a 16-unit grid: circle radius 8; dot centre (8, 4.55), radius 1.75; stem 2.8 wide from y 7.35 to 13.25,
+  corner radius 0.5. Legible at 16px. Where it appears: favicon, app icon and social profile images, on its own.
+  **Normally not beside the wordmark** (owner, 2026-10-24: "in most every case, not side-by-side ... go with your
+  best judgment"): the mark stands in for the wordmark where a space is square or too small for the word. Pairing
+  the two is a deliberate exception, used only where the layout gains from it, never the default lockup. Not in
+  the top bar: there the wordmark's own orange dot already carries the i, and a second
+  orange dot beside it doubles the accent. Never inside the word (a circled i in the wordmark reads as an "info"
+  button and breaks the word). In the product UI an information control is labelled in words, never with an i glyph.
 - **Lockup.** The wordmark, then "a Compass company" in Geist 500, `--text-muted`, at 0.58 of the wordmark's size. It
   sits on the wordmark's baseline, 14px after it. The accessible name is "Inframation, a Compass company".
 - **Endorsement.** The footer and About carry "Inframation is a Compass company. Compass International Trading
   Group, LLC, Denver, Colorado."
 - **The Compass logo is never drawn or traced.** The endorsement is text until the owner supplies Compass's official
   SVG.
-- **Is the needle wise?** Yes, with one condition: the owner, who controls both brands, approves it. A north pointer
-  is a generic map symbol, it points straight up where Compass's needle points north-east, and it is the one element
-  the two brands share. Endorsed brands commonly share one such element. If Compass ever wants its orange needle
-  exclusive, the dot becomes a plain navy dot, and nothing else changes.
+- **The one shared element.** Compass's orange, as the round dot over the i, is the one element the two brands
+  share, as endorsed brands commonly share one (owner, 2026-10-23). If Compass ever wants its orange exclusive, the
+  dot turns navy: one token (`--brand-dot`) and one constant (`web/og_card.py` `BRAND_DOT`), nothing else.
 
 ### 5.2 Signature
 
@@ -206,7 +216,7 @@ zoom^-0.8.
   siblings are at 28px.
 - **The map draws the projects as its only saturated layer.** The map, the figure and the panel bar share one
   evergreen, so the colour is the data.
-- **The needle-dotted i** names the family in every tab and card.
+- **The orange-dotted i** names the family in every tab and card.
 
 ### 5.3 Basemap and markers
 
@@ -221,15 +231,18 @@ zoom^-0.8.
 
 ### 5.4 Share card
 
+**Chosen by the owner on 2026-10-24** ("This is the one", of the render now committed as `og-card-2.png`).
+
 The card is 1200x630 on a navy field, a read surface, where navy may be a ground. It carries:
-- the lockup in white, with the orange pointer;
+- the wordmark alone, in its dark-ground colours (`#eef1f5` letters, the orange dot), never the mark beside it
+  (§5.1), and the endorsement under the wordmark;
 - the line "Planned US energy projects, each linked to its source.";
 - "From grid queues, permits, dockets and RFPs";
 - the national project map in `#5fcf9f` over faint grey context.
 
 It carries no live figures, because a cached card would show stale numbers; the page's description carries them
 (PLAN, inbox-link row). Contrast on the navy field: near-white text `#f2f3f6` 17.01:1, the endorsement `#b0b5bf` 9.17:1, the
-evergreen tint 9.81:1, the orange pointer 6.72:1. `web/og_card.py` redraws it in Pillow from these values, and the file name changes so cached
+evergreen tint 9.81:1, the wordmark's `#eef1f5` 16.66:1, the orange dot 6.72:1. `web/og_card.py` redraws it in Pillow from these values, and the file name changes so cached
 cards refresh.
 
 ## 6. Declutter rules (every page)
@@ -263,12 +276,12 @@ C-2 to C-5, and `brand/css/system.css` is the token override used for the render
 
 | ID | File | Selector or place | Change |
 |---|---|---|---|
-| T-1 | `web/static/css/styles.css` | `:root` (lines 181-326) | Replace the values with §4's light column. Rename the copper tokens to `--color-accent`, `--color-accent-deep` and `--color-accent-tint`, keeping the old names as aliases for one release. Add `--raised`, `--active`, `--rule`, `--control`, `--primary`, `--primary-ink`, `--secondary`, `--secondary-ink`, `--needle`, `--negative` and `--shadow-float`. Set `--shadow-1: none` |
+| T-1 | `web/static/css/styles.css` | `:root` (lines 181-326) | Replace the values with §4's light column. Rename the copper tokens to `--color-accent`, `--color-accent-deep` and `--color-accent-tint`, keeping the old names as aliases for one release. Add `--raised`, `--active`, `--rule`, `--control`, `--primary`, `--primary-ink`, `--secondary`, `--secondary-ink`, `--brand-dot`, `--wordmark-ink`, `--negative` and `--shadow-float`. Set `--shadow-1: none` |
 | T-2 | `web/static/css/styles.css` | both dark blocks (lines 329-460) | Replace with §4's dark column: a true-neutral dark, not navy |
 | T-3 | `web/static/css/styles.css` | `@font-face` blocks and the `--font-*` tokens | Geist and Geist Mono woff2, self-hosted; `--font-display` and `--font-body` become Geist, `--font-mono` becomes Geist Mono. Compute a metric-matched "Geist Fallback" by the method of the existing fallback faces |
 | T-4 | `web/templates/base.html` | font preloads | Preload the Geist latin file only |
 | B-1 | `web/templates/base.html` | `.masthead` | Remove it. The V1 shell (`docs/30` §11.2) already drops it. The freshness line moves beside the figures as "Sources read {date}" |
-| B-2 | `web/templates/base.html`, `styles.css` `.wordmark` (line 509) | wordmark | The lockup markup of §5.1: a dotless ı with the inline pointer SVG, then "nframation", then a `span` "a Compass company". A visually hidden accessible name "Inframation, a Compass company" |
+| B-2 | `web/templates/base.html`, `styles.css` `.wordmark` (line 509) | wordmark | The lockup markup of §5.1: the outlined wordmark SVG (`web/static/img/wordmark.svg`'s paths inline, the dot in `--brand-dot`), then a `span` "a Compass company". A visually hidden accessible name "Inframation, a Compass company" |
 | B-3 | `web/static/img/favicon.svg`, `favicon.ico`, `apple-touch-icon.png` | favicon | The §5.1 mark |
 | B-4 | `web/templates/base.html` | `.site-footer` | First line: "Inframation is a Compass company. Compass International Trading Group, LLC, Denver, Colorado." |
 | B-5 | `web/og_card.py` | the card | Redraw it to §5.4 with the Geist files. Write it as `og-card-2.png` so cached cards refresh, and update the `og:image` paths and the test |
@@ -366,7 +379,8 @@ which is the positioning.
 
 ## 12. Open questions for the owner
 
-1. **Approve the orange pointer** as the shared Compass element in Inframation's mark (§5.1), or ask for a navy dot.
+1. **Settled (owner, 2026-10-23):** the orange round dot over the i is the shared Compass element (§5.1); a navy dot
+   stays a one-token change.
 2. **Supply Compass's official logo SVG** if the footer or About should carry it beside the text endorsement.
 3. **Keep Geist,** or switch to Nunito Sans for a closer Compass type match, or supply an Avenir web licence.
 4. **Accept the green data hue.** Some readers will see "green energy" in it (§2.2). The fallback is Compass's royal

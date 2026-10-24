@@ -99,7 +99,7 @@ GRID_LAYERS_ALL_WARNING = (
 DEFAULT_PARCELS_COUNTIES = "all"
 PARCELS_FIPS = re.compile(r"^48\d{3}$")
 #: docs/00-PLAN.md decisions log, 2026-09-18.
-DEFAULT_SENDER_LEGAL_NAME = "Compass International Trading Group LLC"
+DEFAULT_SENDER_LEGAL_NAME = "Compass International Trading Group, LLC"
 #: Cost of the gate's bcrypt hash: `caddy hash-password`'s default, which docs/64 documents.
 BCRYPT_COST = 14
 #: The application secrets OpenTofu generates (infra/terraform/generated.tf), by env-file key.

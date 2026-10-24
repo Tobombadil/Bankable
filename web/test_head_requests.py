@@ -181,8 +181,8 @@ GET_PATHS = (
     "/submit",
     "/login",
     "/static/css/styles.css",
-    "/static/fonts/IBMPlexSans-Regular-Latin1.woff2",
-    "/static/img/og-card.png",
+    "/static/fonts/geist-latin.woff2",
+    "/static/img/og-card-2.png",
 )
 
 

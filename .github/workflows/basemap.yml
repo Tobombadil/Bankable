@@ -67,6 +67,12 @@ jobs:
         if: steps.creds.outputs.ready == 'true'
         with:
           go-version: "1.24"
+      # Pinned and checksummed (infra/ci/beta.sh PMTILES_VERSION/PMTILES_SHA256), as deploy-beta's basemap
+      # job does: with go-pmtiles on PATH, build_basemap.sh never runs `go install ...@latest` inside the
+      # step that holds the R2 token (docs/44 GHA-002). 1.31.2 is also what @latest named on 2026-10-24.
+      - name: install go-pmtiles (pinned, checksummed)
+        if: steps.creds.outputs.ready == 'true'
+        run: infra/ci/beta.sh install-pmtiles
       - name: build and upload (infra/scripts/build_basemap.sh)
         if: steps.creds.outputs.ready == 'true'
         env:

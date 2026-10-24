@@ -301,7 +301,10 @@ def test_detail_states_each_basis_in_its_source_row(
     web_client: TestClient, source_id: str, basis: str, expected: str
 ) -> None:
     _install(_base([_data_centre("dc-basis", {source_id: basis}, [source_id])]))
-    html = web_client.get("/proposals/dc-basis").text
+    # The reason stays on the Overview, under the facts (docs/30 §11.5) ...
+    assert expected in web_client.get("/proposals/dc-basis").text
+    # ... and in its own row of the Sources tab's panel (T-4).
+    html = web_client.get("/proposals/dc-basis/sources").text
     rows = re.findall(r'<li class="provenance-panel__row">(.*?)</li>', html, flags=re.S)
     assert len(rows) == 1
     assert "provenance-panel__basis" in rows[0]
@@ -320,7 +323,7 @@ def test_the_naics_only_basis_carries_its_measured_caveat() -> None:
 def test_merged_record_states_each_sources_reason_in_its_own_row(web_client: TestClient) -> None:
     record = _data_centre("dc-merged", {DEQ: "deq_flag", ICIS: "naics_518210"}, [DEQ, ICIS])
     _install(_base([record]))
-    html = web_client.get("/proposals/dc-merged").text
+    html = web_client.get("/proposals/dc-merged/sources").text
     rows = re.findall(r'<li class="provenance-panel__row">(.*?)</li>', html, flags=re.S)
     assert len(rows) == 2
     assert "Virginia DEQ flags it" in rows[0] and "NAICS" not in rows[0]

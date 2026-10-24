@@ -25,7 +25,9 @@ The fact extractors never guess (task brief; docs/21 §3.3 "where stated"):
   with every stated figure kept in `raw`.
 - `technologies` is the shared keyword classifier (`pipeline.connectors.opportunity`) over the title
   and the item's own description, with "associated transmission" (a generation project's own tie-in)
-  removed first; an all-source item is `[]` (docs/21 §3.3).
+  removed first; an item that invites every resource (`is_all_source`: all-source, or a capacity
+  solicitation named as one, with no technology class) is `[ALL_SOURCE]` (docs/28 B-1, B-7; it was
+  `[]` until 2026-10-24).
 - Dates in an item's text are read from labelled phrases only ("Proposals Due <date>", "Proposal Due
   Date <date>", "accept bids ... through <date>", "Final RFP Issued <date>"); an unlabelled date in
   the text is never used. A label the utility qualifies as its own ("Self-Build Proposal Due Date")
@@ -42,7 +44,15 @@ from dataclasses import dataclass
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from pipeline.connectors.opportunity import classify_technologies
+from pipeline.connectors.opportunity import (
+    ALL_SOURCE,
+    ALL_SOURCE_PHRASE,
+    ALL_SOURCE_RE,
+    CAPACITY_SOLICITATION_RE,
+    QUALIFIED_RESOURCE_RE,
+    TECHNOLOGY_CLASS_RE,
+    classify_technologies,
+)
 
 Category = Literal["generation", "sell_side", "non_generation", "not_solicitation"]
 
@@ -90,7 +100,6 @@ _RESOURCE = re.compile(
     r"|\bcombined cycle\b|\bgas-fired\b|\bthermal\b|\bmegawatts?\b|\bmw\b|\bzero carbon\b|\bclean energy\b"
     r"|\belectric power\b|\bpower purchase\b|\ball[- ]source\b"
 )
-_ALL_SOURCE = re.compile(r"\ball[- ]source\b")
 
 
 @dataclass(frozen=True)
@@ -185,10 +194,39 @@ def target_mw(text: str) -> float | None:
 _INCIDENTAL_TRANSMISSION = re.compile(r"\b(?:and\s+|with\s+)?associated\s+transmission\b", re.I)
 
 
+#: The description names the solicitation itself all-source ("this all-source RFP"), not some
+#: other one in passing.
+_ALL_SOURCE_SOLICITATION = re.compile(
+    ALL_SOURCE_PHRASE + r"\s+(?:rfps?|requests?\s+for\s+proposals?|solicitations?|procurements?)\b"
+)
+
+
+def is_all_source(title: str, description: str = "") -> bool:
+    """Whether the item invites every resource technology (docs/28 B-1, B-7; review of 2026-10-24,
+    finding 1). Yes when the title says all-source and names no technology class ("2026 All-Source
+    RFP", not "All-Source Renewable RFP"); or, when the title names no technology and no class,
+    when the title is a capacity solicitation ("2025 SPP Capacity RFP", "2023 Accredited
+    Deliverable Capacity RFP") or the description calls this solicitation all-source, and the
+    description does not qualify what is sought ("renewable capacity", "demand response
+    capacity"). The bare word "capacity" anywhere is never enough: I&M's "2024 RFPs" carried it
+    only in "by the 2029/30 capacity planning year"."""
+    t, d = _norm(title), _norm(description)
+    if TECHNOLOGY_CLASS_RE.search(t):
+        return False
+    if ALL_SOURCE_RE.search(t):
+        return True
+    if classify_technologies(_INCIDENTAL_TRANSMISSION.sub(" ", title)) or QUALIFIED_RESOURCE_RE.search(d):
+        return False
+    return bool(CAPACITY_SOLICITATION_RE.search(t) or _ALL_SOURCE_SOLICITATION.search(d))
+
+
 def technologies(title: str, description: str = "") -> list[str]:
-    """Technology tokens the item names; `[]` for an all-source solicitation (docs/21 §3.3)."""
-    if _ALL_SOURCE.search(_norm(title)) or _ALL_SOURCE.search(_norm(description)):
-        return []
+    """Technology tokens the item names, or `[ALL_SOURCE]` for an item that invites every resource
+    (`is_all_source`), which every technology filter matches (docs/28 B-1, B-7). Before 2026-10-24
+    an all-source item was `[]`, which since B-1 matches no technology, as does an item naming no
+    technology and no all-source solicitation (I&M's "2024 RFPs")."""
+    if is_all_source(title, description):
+        return [ALL_SOURCE]
     return classify_technologies(
         _INCIDENTAL_TRANSMISSION.sub(" ", title), _INCIDENTAL_TRANSMISSION.sub(" ", description)
     )

@@ -1,0 +1,420 @@
+{
+    "name": "pudl-raw-eia860m",
+    "title": "PUDL Raw EIA Form 860M -- Monthly Update to the Annual Electric Generator Report",
+    "description": "US Energy Information Administration (EIA) Form 860 M data for electric power plants with 1 megawatt or greater combined nameplate capacity. Preliminary Monthly Electric Generator Inventory (based on Form EIA-860M as a supplement to Form EIA-860)",
+    "keywords": [
+        "MW",
+        "MWh",
+        "ash",
+        "bituminous",
+        "boilers",
+        "capacity",
+        "carbon dioxide",
+        "chlorine",
+        "co2",
+        "coal",
+        "combined_cycle",
+        "combustion",
+        "distribution",
+        "eia",
+        "eia860m",
+        "electric",
+        "electricity",
+        "emissions",
+        "energy",
+        "energy information administration",
+        "federal",
+        "form 860m",
+        "fuel",
+        "fuel cost",
+        "fuel price",
+        "generation",
+        "generators",
+        "ghg",
+        "government",
+        "heat content",
+        "heat rate",
+        "hydro",
+        "kW",
+        "kWh",
+        "kilowatt hours",
+        "kilowatts",
+        "lignite",
+        "megawatt hours",
+        "megawatts",
+        "mercury",
+        "mmbtu",
+        "monthly",
+        "natural gas",
+        "nox",
+        "nuclear",
+        "particulate",
+        "planned",
+        "plant",
+        "pm2.5",
+        "pollution",
+        "power",
+        "prime mover",
+        "proposed",
+        "retirement",
+        "so2",
+        "solar",
+        "sox",
+        "steam",
+        "subbituminous",
+        "sulfur",
+        "transmission",
+        "turbine",
+        "united states",
+        "us",
+        "usa",
+        "utility",
+        "wind"
+    ],
+    "contributors": [
+        {
+            "title": "Catalyst Cooperative",
+            "path": "https://catalyst.coop/",
+            "email": "pudl@catalyst.coop",
+            "roles": [
+                "publisher"
+            ],
+            "zenodo_role": "distributor",
+            "organization": "Catalyst Cooperative",
+            "name": "catalyst-cooperative"
+        }
+    ],
+    "sources": [
+        {
+            "title": "EIA Form 860M -- Monthly Update to the Annual Electric Generator Report",
+            "path": "https://www.eia.gov/electricity/data/eia860m"
+        }
+    ],
+    "profile": "data-package",
+    "homepage": "https://catalyst.coop/pudl/",
+    "licenses": [
+        {
+            "name": "other-pd",
+            "title": "U.S. Government Works",
+            "path": "https://www.usa.gov/publicdomain/label/1.0/"
+        }
+    ],
+    "resources": [
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2015.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2015.zip",
+            "title": "eia860m-2015.zip",
+            "parts": {
+                "year_month": [
+                    "2015-07",
+                    "2015-08",
+                    "2015-09",
+                    "2015-10",
+                    "2015-11",
+                    "2015-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 14177917,
+            "hash": "bc6a0c5b0aaefd81f5b4cca847bccff0"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2016.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2016.zip",
+            "title": "eia860m-2016.zip",
+            "parts": {
+                "year_month": [
+                    "2016-01",
+                    "2016-02",
+                    "2016-03",
+                    "2016-04",
+                    "2016-05",
+                    "2016-06",
+                    "2016-07",
+                    "2016-08",
+                    "2016-09",
+                    "2016-10",
+                    "2016-11",
+                    "2016-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 38572095,
+            "hash": "3953d510a43dcf661a799c971c1014b0"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2017.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2017.zip",
+            "title": "eia860m-2017.zip",
+            "parts": {
+                "year_month": [
+                    "2017-01",
+                    "2017-02",
+                    "2017-03",
+                    "2017-04",
+                    "2017-05",
+                    "2017-06",
+                    "2017-07",
+                    "2017-08",
+                    "2017-09",
+                    "2017-10",
+                    "2017-11",
+                    "2017-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 74481333,
+            "hash": "2443c5384580ddd71c81dfb056916a11"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2018.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2018.zip",
+            "title": "eia860m-2018.zip",
+            "parts": {
+                "year_month": [
+                    "2018-01",
+                    "2018-02",
+                    "2018-03",
+                    "2018-04",
+                    "2018-05",
+                    "2018-06",
+                    "2018-07",
+                    "2018-08",
+                    "2018-09",
+                    "2018-10",
+                    "2018-11",
+                    "2018-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 84486051,
+            "hash": "acab1ebfa45b61d7822df1bae8169a0a"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2019.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2019.zip",
+            "title": "eia860m-2019.zip",
+            "parts": {
+                "year_month": [
+                    "2019-01",
+                    "2019-02",
+                    "2019-03",
+                    "2019-04",
+                    "2019-05",
+                    "2019-06",
+                    "2019-07",
+                    "2019-08",
+                    "2019-09",
+                    "2019-10",
+                    "2019-11",
+                    "2019-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 89048615,
+            "hash": "b3a075a025dde6962458af9de2f5acd3"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2020.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2020.zip",
+            "title": "eia860m-2020.zip",
+            "parts": {
+                "year_month": [
+                    "2020-01",
+                    "2020-02",
+                    "2020-03",
+                    "2020-04",
+                    "2020-05",
+                    "2020-06",
+                    "2020-07",
+                    "2020-08",
+                    "2020-09",
+                    "2020-10",
+                    "2020-11",
+                    "2020-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 93452349,
+            "hash": "c70b432d6fcb8bd8faaf0d32e6571cda"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2021.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2021.zip",
+            "title": "eia860m-2021.zip",
+            "parts": {
+                "year_month": [
+                    "2021-01",
+                    "2021-02",
+                    "2021-03",
+                    "2021-04",
+                    "2021-05",
+                    "2021-06",
+                    "2021-07",
+                    "2021-08",
+                    "2021-09",
+                    "2021-10",
+                    "2021-11",
+                    "2021-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 97162273,
+            "hash": "e884f2fdffe9a962fa35bb82f7ea4145"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2022.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2022.zip",
+            "title": "eia860m-2022.zip",
+            "parts": {
+                "year_month": [
+                    "2022-01",
+                    "2022-02",
+                    "2022-03",
+                    "2022-04",
+                    "2022-05",
+                    "2022-06",
+                    "2022-07",
+                    "2022-08",
+                    "2022-09",
+                    "2022-10",
+                    "2022-11",
+                    "2022-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 104783807,
+            "hash": "b7ac26d1a77f5731d75d95df3460182b"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2023.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2023.zip",
+            "title": "eia860m-2023.zip",
+            "parts": {
+                "year_month": [
+                    "2023-01",
+                    "2023-02",
+                    "2023-03",
+                    "2023-04",
+                    "2023-05",
+                    "2023-06",
+                    "2023-07",
+                    "2023-08",
+                    "2023-09",
+                    "2023-10",
+                    "2023-11",
+                    "2023-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 110951576,
+            "hash": "de66d1e408ef7ca8cca5f7c2d044b792"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2024.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2024.zip",
+            "title": "eia860m-2024.zip",
+            "parts": {
+                "year_month": [
+                    "2024-01",
+                    "2024-02",
+                    "2024-03",
+                    "2024-04",
+                    "2024-05",
+                    "2024-06",
+                    "2024-07",
+                    "2024-08",
+                    "2024-09",
+                    "2024-10",
+                    "2024-11",
+                    "2024-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 127335369,
+            "hash": "55592d39081c290b755b36f78e123be2"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2025.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2025.zip",
+            "title": "eia860m-2025.zip",
+            "parts": {
+                "year_month": [
+                    "2025-01",
+                    "2025-02",
+                    "2025-03",
+                    "2025-04",
+                    "2025-05",
+                    "2025-06",
+                    "2025-07",
+                    "2025-08",
+                    "2025-09",
+                    "2025-10",
+                    "2025-11",
+                    "2025-12"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 149151275,
+            "hash": "b597d05e22b8631da27754957d7c9f8c"
+        },
+        {
+            "profile": "data-resource",
+            "name": "eia860m-2026.zip",
+            "path": "https://zenodo.org/records/22995197/files/eia860m-2026.zip",
+            "title": "eia860m-2026.zip",
+            "parts": {
+                "year_month": [
+                    "2026-01",
+                    "2026-02",
+                    "2026-03",
+                    "2026-04",
+                    "2026-05",
+                    "2026-06",
+                    "2026-07",
+                    "2026-08"
+                ]
+            },
+            "encoding": "utf-8",
+            "mediatype": "application/zip",
+            "format": ".zip",
+            "bytes": 105186810,
+            "hash": "380a9824a20be96d182fea793c299e91"
+        }
+    ],
+    "created": "2026-09-27T10:44:56.583463+00:00",
+    "version": "50.0.0"
+}

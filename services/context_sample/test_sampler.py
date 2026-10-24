@@ -114,7 +114,9 @@ def test_withheld_when_the_manifest_does_not_allow_publication(
 def test_the_real_gate_reads_data_sources_yaml() -> None:
     sampler_mod.reset_default_sampler()
     assert sampler_mod._source_gate("us.nrel.nsrdb.psm3_annual") is None
-    assert "reuse: unknown" in str(sampler_mod._source_gate("us.usfws.nwi"))
+    # us.usfws.nwi was the gated example until its terms were read on 2026-10-24 (docs/07 §1.6);
+    # the EIA field outlines stay unknown (not found).
+    assert "reuse: unknown" in str(sampler_mod._source_gate("us.eia.oil_gas_field_boundaries"))
     assert "no row" in str(sampler_mod._source_gate("not.a.source"))
 
 

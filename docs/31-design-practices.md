@@ -101,6 +101,10 @@ Each practice below has its source.
 1. **Before.** Run `inspect.mjs` (with `--app` for app screens) and `lint.mjs`, and count words and controls
    above the fold at 1440 and 390.
 2. **Run the skill's process.** Use draw, then the idea sentence, then the copy deck, then the build.
+   **Explore before converging** (owner, 2026-10-24: "keep being creative and trying new things. I've liked this
+   new direction, keep going"): draw at least three distinct directions, one of them bolder than feels safe, and
+   show them side by side with a recommendation before building one. The guardrails, WCAG and the honesty rules
+   bound the exploration; taste within them is open.
 3. **Gate.** No FAIL. Every WARN is fixed or defended in one sentence. Axe shows 0 serious or critical issues.
    CLS is within budget.
 4. **Look.** Do three critique rounds (skill `references/critique.md`) on screenshots at 1440, 768 and 390,

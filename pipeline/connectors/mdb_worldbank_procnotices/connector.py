@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import time
 from typing import Any, ClassVar
 
@@ -30,12 +31,14 @@ from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
 from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import (
+    GRID_TECH,
     StatedFigure,
     StatedValue,
     classify_technologies,
     currency_code,
     deadline_passed,
     iso2,
+    not_grid_context,
     parse_amount,
     stated_value_of,
     technologies_str,
@@ -54,6 +57,107 @@ SECTOR_TECH = {
     "LT": "transmission",
     "LN": "thermal",
 }
+#: A sector code belongs to the World Bank *project*, not the notice, and so does the project name
+#: (which this connector no longer classifies): in the public register of 2026-10-23, 81 of the 110
+#: stored notices carried a technology although their own title names none ("Social Specialist",
+#: "Microsoft 365 E3 Office (150 licenses)", "Adquisición de Útiles de oficina" as transmission;
+#: a hydropower package as solar because the project also had a solar sector). So a sector adds its
+#: technology only when the notice's own words point at it: these cues, or the keyword rules
+#: (`classify_technologies`). For the grid, the weaker words of a transmission-and-distribution
+#: project ("line installation contractors", "33KV/0.4 distribution network", "ABC", "village
+#: electrification", "branchements") count (docs/28 B-6).
+SECTOR_CUES: dict[str, re.Pattern[str]] = {
+    "LU": re.compile(r"solar|solaire|photovolta|\bpv\b|\bshs\b", re.I),
+    "LH": re.compile(r"hydro|\bs?hpp\b|\bdams?\b|barrage|hidroel", re.I),
+    "LW": re.compile(r"\bwind|éolien|eólic", re.I),
+    "LB": re.compile(r"biomas|biogas|biogaz|cookstove|foyers\s+améliorés|charcoal|bois[\s-]énergie", re.I),
+    "LI": re.compile(r"geotherm|géotherm|geotérm", re.I),
+    "LN": re.compile(r"thermal|thermique|diesel|\bhfo\b|gas[\s-]fired|power\s+plant|centrale", re.I),
+    "LT": re.compile(
+        r"\blines?\b|\bcables?\b|\bpoles?\b|\btowers?\b|electrifica\w*|électrifica\w*|branchements?|raccordement"
+        r"|\bnetworks?\b|r[ée]seaux?|\bredes?\b|distribution\s+(?:networks?|lines?|grids?|systems?|substations?)"
+        r"|\bconnections?\b|substation|\bkv\b|\d\s*kv\b|\babc\b",
+        re.I,
+    ),
+}
+#: World Bank country codes that are not ISO 3166-1 (docs/28 B-17). Read from the API's own
+#: `project_ctry_name` on 2026-10-24 (`project_ctry_code=<code>`, one row each): ZR "Congo,
+#: Democratic Republic of", TP "Timor-Leste", GZ "West Bank and Gaza", RY "Yemen, Republic of".
+WB_COUNTRY_CODES: dict[str, str] = {"ZR": "CD", "TP": "TL", "GZ": "PS", "RY": "YE"}
+#: World Bank region codes (a digit, then a letter) -> a region token, outside any country list.
+#: Names are the API's `project_ctry_name` for each code, read the same day (`REGION_NAMES`).
+WB_REGION_CODES: dict[str, str] = {
+    "1W": "region:world",
+    "3A": "region:africa",
+    "3E": "region:eastern_southern_africa",
+    "3S": "region:southern_africa",
+    "3W": "region:western_central_africa",
+    "4E": "region:east_asia_pacific",
+    "4P": "region:pacific_islands",
+    "5M": "region:middle_east_north_africa_afghanistan_pakistan",
+    "6A": "region:andean_countries",
+    "6C": "region:central_america",
+    "6L": "region:latin_america_caribbean",
+    "6R": "region:caribbean",
+    "7B": "region:western_balkans",
+    "7E": "region:europe_central_asia",
+    "8S": "region:south_asia",
+}
+#: What each region token names, in the World Bank's words (for the labels lane).
+REGION_NAMES: dict[str, str] = {
+    "region:world": "World",
+    "region:africa": "Africa",
+    "region:eastern_southern_africa": "Eastern and Southern Africa",
+    "region:southern_africa": "Southern Africa",
+    "region:western_central_africa": "Western and Central Africa",
+    "region:east_asia_pacific": "East Asia and Pacific",
+    "region:pacific_islands": "Pacific Islands",
+    "region:middle_east_north_africa_afghanistan_pakistan": (
+        "Middle East, North Africa, Afghanistan and Pakistan"
+    ),
+    "region:andean_countries": "Andean Countries",
+    "region:central_america": "Central America",
+    "region:latin_america_caribbean": "Latin America and Caribbean",
+    "region:caribbean": "Caribbean",
+    "region:western_balkans": "Western Balkans",
+    "region:europe_central_asia": "Europe and Central Asia",
+    "region:south_asia": "South Asia",
+}
+_REGION_CODE = re.compile(r"^\d[A-Z]$")
+
+
+def jurisdiction(code: Any) -> str:
+    """The notice's jurisdiction from `project_ctry_code`: ISO 3166-1 alpha-2 for a country (the
+    Bank's own codes mapped, `WB_COUNTRY_CODES`), a `region:` token for a regional project
+    (`WB_REGION_CODES`; one the table does not name is `region:wb_<code>`), `global` when the
+    notice states none."""
+    text = str(code or "").strip().upper()
+    if not text:
+        return "global"
+    if text in WB_REGION_CODES:
+        return WB_REGION_CODES[text]
+    if _REGION_CODE.match(text):
+        return f"region:wb_{text.lower()}"
+    if text in WB_COUNTRY_CODES:
+        return WB_COUNTRY_CODES[text]
+    return iso2(text) or "global"
+
+
+def technologies(title: str | None, sectors: list[Any]) -> list[str]:
+    """The notice's own technology words (`classify_technologies` over its title), then each of its
+    project's sector technologies the title points at (`SECTOR_CUES`)."""
+    techs = classify_technologies(title)
+    for code in sectors:
+        tok = SECTOR_TECH.get(str(code))
+        cue = SECTOR_CUES.get(str(code))
+        if not tok or tok in techs or cue is None or not cue.search(title or ""):
+            continue
+        if tok == GRID_TECH and not_grid_context(title):
+            continue
+        techs.append(tok)
+    return techs
+
+
 FIELDS = [
     "id",
     "notice_type",
@@ -230,11 +334,7 @@ class Connector(BaseConnector):
             state, rule = harmonise_status(self.status_key, ctx, self.status_map)
             title = (r.get("noticetitle") or r.get("bid_description") or "").strip() or None
             sectors = [s.get("sector_code") for s in (r.get("sector") or []) if isinstance(s, dict)]
-            techs = classify_technologies(title, r.get("project_name"))
-            for code in sectors:
-                tok = SECTOR_TECH.get(str(code))
-                if tok and tok not in techs:
-                    techs.append(tok)
+            techs = technologies(title, sectors)
             value = stated_value(r)
             identifiers: dict[str, Any] = {
                 "wb_notice_id": r.get("id"),
@@ -252,7 +352,7 @@ class Connector(BaseConnector):
                     "issuer": r.get("agency_name") or r.get("contact_organization"),
                     "title": title,
                     "summary": None,
-                    "jurisdiction": iso2(r.get("project_ctry_code")) or "global",
+                    "jurisdiction": jurisdiction(r.get("project_ctry_code")),
                     "technologies": technologies_str(techs),
                     "capacity_sought_mw": None,
                     "budget_amount": value.amount if value else None,

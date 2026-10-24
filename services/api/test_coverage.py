@@ -401,3 +401,14 @@ def test_an_empty_store_states_no_asset_types(client: TestClient, db: Session) -
     assert assets["unresolved_multi_source"] == []
     # The mechanism exists in the schema (docs/24 §5(a) landed) even with no rows to resolve.
     assert assets["resolution"]["exists"] is True
+
+
+def test_a_register_held_by_its_own_publication_rule_says_so(client: TestClient, db: Session) -> None:
+    """GEM's GIPT row has CC BY terms named by the download form and `publication: none` until the
+    in-file notice is recorded (docs/06 section 1.7): it is withheld, and the reason must not claim
+    its terms could not be read."""
+    _seed(db)
+    withheld = client.get("/v1/coverage").json()["data"]["sources"]["withheld"]
+    gipt = {s["source_id"]: s for s in withheld}["global.gem.gipt"]
+    assert gipt["reuse"] == "attribution"
+    assert gipt["reason"] == "held until a check recorded in the register is done"

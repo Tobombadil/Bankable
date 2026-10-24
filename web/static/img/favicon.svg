@@ -1,18 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Inframation favicon (docs/16 U-24). Palette from styles.css: ink #16324f, paper #f6f4ef,
-       copper tint #e0b58a and copper deep #8a4614. Inverted for a dark browser theme, so the ground
-       never sinks into a dark tab strip. favicon.ico and apple-touch-icon.png draw the same shapes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Inframation's mark (docs/31-brand-identity.md §5.1, B-3): the information sign, a
+       circle with the i knocked out and the orange dot. Light: navy circle, white stem;
+       dark: a #eef1f5 circle, a #0e0f11 stem. favicon.ico and apple-touch-icon.png draw
+       the same shapes; web/og_card.py `favicon_svg` writes this file. -->
   <style>
-    .ground { fill: #16324f; }
-    .mark { fill: #f6f4ef; }
-    .dot { fill: #e0b58a; }
+    .disc { fill: #0b1023; }
+    .stem { fill: #ffffff; }
     @media (prefers-color-scheme: dark) {
-      .ground { fill: #f6f4ef; }
-      .mark { fill: #16324f; }
-      .dot { fill: #8a4614; }
+      .disc { fill: #eef1f5; }
+      .stem { fill: #0e0f11; }
     }
   </style>
-  <rect class="ground" width="32" height="32" rx="6"/>
-  <path class="mark" d="M8 6h12v3h-4v14h4v3H8v-3h4V9H8z"/>
-  <circle class="dot" cx="24.5" cy="23.5" r="2.5"/>
+  <circle class="disc" cx="8" cy="8" r="8"/>
+  <rect class="stem" x="6.6" y="7.35" width="2.8" height="5.9" rx="0.5"/>
+  <circle fill="#e68023" cx="8" cy="4.55" r="1.75"/>
 </svg>

@@ -20,6 +20,7 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
+from starlette.routing import Match
 
 from web.api_client import ApiClient, ApiError
 from web.my_projects import pipeline_on
@@ -63,12 +64,46 @@ SITEMAP_STATIC_PATHS = (
     "/interconnection-points",
     "/search",
     "/about",
+    # The About bar's reference pages (Navigation v2 lane V7, docs/30 §11.3-§11.4): built, so always listed.
+    "/about/sources",
     "/methodology",
+    "/methodology/gaps",
+    "/methodology/status-words",
+    "/glossary",
     "/attribution",
     "/pricing",
     "/docs/api",  # UX-6, 2026-10-07
     "/submit",  # US-1001, docs/30 §4.5, 2026-10-09
 )
+#: Navigation v2's new pages (docs/30 §11.10, "Sitemap") that other lanes build: Funding (lane V4), Prices
+#: and its State averages tab (V5). Each is listed once the site has its route (`sitemap_static_paths`), so
+#: a page another lane has not built yet is never a sitemap 404. Record tabs stay out: they are
+#: `noindex, follow`, and only a record's Overview is listed (T-7).
+SITEMAP_SECTION_PATHS = (
+    "/funding",
+    "/prices",
+    "/prices/states",
+)
+
+
+def _serves(app: Any, path: str) -> bool:
+    """Whether a GET of `path` reaches one of the app's routes (an included router's too), asked the way
+    the app itself routes a request, so a page is listed exactly when it exists."""
+    scope = {
+        "type": "http",
+        "path": path,
+        "root_path": "",
+        "method": "GET",
+        "headers": [],
+        "query_string": b"",
+    }
+    return any(route.matches(scope)[0] == Match.FULL for route in getattr(app, "routes", ()))
+
+
+def sitemap_static_paths(app: Any) -> tuple[str, ...]:
+    """The static pages this site lists, in order: `SITEMAP_STATIC_PATHS`, then each of
+    `SITEMAP_SECTION_PATHS` the app serves."""
+    return SITEMAP_STATIC_PATHS + tuple(path for path in SITEMAP_SECTION_PATHS if _serves(app, path))
 
 
 _RowFilter = Callable[[dict[str, Any]], bool]
@@ -166,13 +201,15 @@ class SitemapBuild:
     documents: dict[str, str] = field(default_factory=dict)
 
 
-def _build_sitemap(api: ApiClient, base: str) -> SitemapBuild:
+def _build_sitemap(api: ApiClient, base: str, static: tuple[str, ...] = SITEMAP_STATIC_PATHS) -> SitemapBuild:
     ids: dict[str, str] = {}
-    paths = _walk_sitemap_paths(api, ids)
+    paths = _walk_sitemap_paths(api, ids, static)
     return SitemapBuild(time.monotonic(), paths, ids, _render_documents(base, paths))
 
 
-def _walk_sitemap_paths(api: ApiClient, ids: dict[str, str]) -> list[str]:
+def _walk_sitemap_paths(
+    api: ApiClient, ids: dict[str, str], static: tuple[str, ...] = SITEMAP_STATIC_PATHS
+) -> list[str]:
     """Every page path the sitemap lists, in order, from one walk of every resource; `ids` collects
     `public_id -> path` on the way. `_render_documents` turns the list into the served documents.
 
@@ -189,7 +226,7 @@ def _walk_sitemap_paths(api: ApiClient, ids: dict[str, str]) -> list[str]:
     `/sitemaps/{n}.xml` (`docs/23` §3.1's split-by-file shape), so the protocol's 50,000-URL and
     50 MB limits stay out of reach.
     """
-    paths: list[str] = list(SITEMAP_STATIC_PATHS)
+    paths: list[str] = list(static)
     resources: list[tuple[str, str, dict[str, str], str, _RowFilter | None]] = [
         ("/v1/proposals", "/proposals", {"lifecycle_state": ALL_PROPOSAL_LIFECYCLE_STATES_CSV}, "slug", None),
         ("/v1/opportunities", "/opportunities", {"status": ALL_OPPORTUNITY_STATUSES_CSV}, "slug", None),
@@ -221,7 +258,7 @@ def _sitemap_documents(request: Request) -> dict[str, str]:
     cached = cache.get(base)
     if cached and time.monotonic() - cached.built_at < SITEMAP_CACHE_SECONDS:
         return cached.documents
-    build = _build_sitemap(get_api(request), base)
+    build = _build_sitemap(get_api(request), base, sitemap_static_paths(request.app))
     cache[base] = build
     return build.documents
 

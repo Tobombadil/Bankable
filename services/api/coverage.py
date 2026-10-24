@@ -292,6 +292,18 @@ NON_RECORD_CATEGORIES = ("social_channel", "news", "aggregator")
 SUPPLY_CATEGORIES = ("generation_queue", "load_queue")
 
 
+def _withheld_reason(reuse: str) -> str:
+    """Why a register publishes nothing, kept to three distinct reasons: terms that forbid
+    republication without a licence, terms nobody has been able to retrieve, and open terms held
+    back by the register itself (`publication: none`) until a step its notes name is done, such as
+    recording the licence notice inside a download (docs/06 section 1.7)."""
+    if reuse == "restricted":
+        return "terms require a licence or consent we do not hold"
+    if reuse in ("open", "attribution"):
+        return "held until a check recorded in the register is done"
+    return "terms not retrievable, so nothing is assumed"
+
+
 def _withheld(registry: Registry) -> list[dict[str, Any]]:
     """Registered sources whose rows the licence gate refuses, with the reason in the registry's
     own words. Nothing here reads a gated row; a withheld source contributes its manifest entry,
@@ -321,11 +333,7 @@ def _withheld(registry: Registry) -> list[dict[str, Any]]:
                 "supply": entry.category in SUPPLY_CATEGORIES,
                 # The registry's two distinct reasons, kept apart: terms that forbid republication
                 # without a licence, and terms nobody has been able to retrieve at all.
-                "reason": (
-                    "terms require a licence or consent we do not hold"
-                    if entry.reuse == "restricted"
-                    else "terms not retrievable, so nothing is assumed"
-                ),
+                "reason": _withheld_reason(entry.reuse),
             }
         )
     return sorted(out, key=lambda r: (not r["supply"], str(r["source_id"])))

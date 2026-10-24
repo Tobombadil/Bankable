@@ -168,8 +168,13 @@
 </section>
 {% endif %}
 
-<section aria-label="Assets" id="assets">
-  {{ m.section_heading("1.", "Assets") }}
+{#- The lists below are of different kinds (assets, projects near them, projects, notices, sources), so each
+    is headed by its kind in the site's own words and its count, with no index number, and the heading stays
+    under the top bar while its rows scroll (lane stacked-lists, 2026-10-24; owner: "maybe the title follows
+    along with the information below it"). The tabs of docs/30 §11.5 (lane V4) then split them apart. -#}
+{% import "partials/_sections.html" as sections %}
+<section class="org-section" aria-labelledby="assets-title" id="assets">
+  <h2 class="org-section__title" id="assets-title">Assets</h2>
   {#- Opened from a companies-index figure: the section shows what that figure counted. -#}
   {% if asset_filter_notice %}<p class="filter-notice" id="asset-filter-notice">{{ asset_filter_notice.text }} <a href="{{ asset_filter_notice.clear_href }}">Show every asset</a></p>{% endif %}
   {% if mini_map %}{{ m.mini_map(mini_map, tile_url, tile_mode) }}{% endif %}
@@ -209,9 +214,18 @@
   {% endif %}
 </section>
 
-<section aria-label="Nearby proposals" id="nearby">
-  {{ m.section_heading("2.", "Proposals near these assets") }}
-  <p class="attribution-line">Exact-grade proposals within 25&nbsp;km of any asset this company owns or operates, nearest first, each with the asset it is closest to. Only proposals with a site location are matched to assets; those placed only by county or state are not.</p>
+{#- A company that holds no asset in this scope has nothing to be near: no section, rather than a heading,
+    a filter and a line that all say nothing. -#}
+{% if asset_groups or nearby_proposals or nearby_filter.technologies or (group_view and group_view.assets) %}
+<section class="org-section" aria-labelledby="nearby-title" id="nearby">
+  {#- The figure is the API's count of what the notice below says is shown (`nearby_shown`), as the
+      Projects heading prints its total: never the rows, which stop at 50 and fold a project's
+      generator units into one. Unread, no figure. -#}
+  <h2 class="org-section__title" id="nearby-title">Projects near its assets{% if nearby_shown is not none %} <span class="org-section__n tnum">{{ nearby_shown | thousands }}</span>{% endif %}</h2>
+  <details class="org-section__why">
+    <summary>How these are matched</summary>
+    <p class="attribution-line">Exact-grade projects within 25&nbsp;km of any asset this company owns or operates, nearest first, each with the asset it is closest to. Only projects with a site location are matched to assets; those placed only by county or state are not.</p>
+  </details>
   {# The narrowing is stated before the list, in body text, with both numbers and the reason, and
      undone by the link beside it. A shortened list with no explanation reads as thin coverage --
      the one outcome worse than no filter at all (owner brief, 2026-09-20). #}
@@ -240,15 +254,18 @@
   </form>
   {% if nearby_proposals %}
   {{ m.nearby_proposals_list(nearby_proposals) }}
+  {% elif nearby_shown is none %}
+  <p>Projects near these assets could not be read just now.</p>
   {% elif nearby_filter.technologies %}
-  <p>No proposals of the chosen technologies within 25&nbsp;km of these assets. <a href="{{ canonical_path }}?{{ nearby_param }}=all">Show all technologies</a>.</p>
+  <p>No projects of the chosen technologies within 25&nbsp;km of these assets. <a href="{{ canonical_path }}?{{ nearby_param }}=all">Show all technologies</a>.</p>
   {% else %}
-  <p>No exact-grade proposals within 25&nbsp;km of these assets.</p>
+  <p>No exact-grade projects within 25&nbsp;km of these assets.</p>
   {% endif %}
 </section>
+{% endif %}
 
-<section aria-label="Proposals">
-  {{ m.section_heading("3.", "Proposals") }}
+<section class="org-section" aria-labelledby="proposals-title" id="proposals">
+  <h2 class="org-section__title" id="proposals-title">{{ sections.label.projects }} <span class="org-section__n tnum">{% if proposals_total is not none %}{{ proposals_total | thousands }}{% if not proposals_complete %}+{% endif %}{% else %}{{ proposals | length }}{% endif %}</span></h2>
   {# A parent's list is its group's: `proposals_group` is the scope reaching a subsidiary
      (web/organizations.py::_proposals_span_group), not whether more than one company holds assets. #}
   {% if proposals_group %}<p class="attribution-line" id="proposals-group">Including subsidiaries: sponsored by this company or a company it owns. Each row names the company that filed it, as the register prints it.</p>{% endif %}
@@ -269,20 +286,19 @@
     {% endfor %}
   </ul>
   {% else %}
-  <p>No proposals sponsored by this company{% if proposals_group %} or a company it owns{% endif %}.</p>
+  <p>No projects sponsored by this company{% if proposals_group %} or a company it owns{% endif %}.</p>
   {% endif %}
 </section>
 
-{#- Opportunities this company issued: only when there are any (docs/16 U-21). For a developer
-    the section said "No opportunities issued by this company." at the foot of an eleven-screen
-    page; the Sources section then takes its number. -#}
+{#- Notices this company issued: only when there are any (docs/16 U-21). For a developer the section
+    said "No opportunities issued by this company." at the foot of an eleven-screen page. -#}
 {% if opportunities %}
-<section aria-label="Opportunities">
-  {{ m.section_heading("4.", "Opportunities") }}
+<section class="org-section" aria-labelledby="opportunities-title" id="opportunities">
+  <h2 class="org-section__title" id="opportunities-title">{{ sections.label.rfps }} <span class="org-section__n tnum">{{ opportunities | length }}{% if opportunities_more %}+{% endif %}</span></h2>
   <ul class="in-view-list">
     {% for r in opportunities %}
     <li>{{ m.status_chip(r.status, r.lifecycle_family) }} <a href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
-      <span class="meta">{% if r.kind %}{{ r.kind }}{% endif %}{% if r.due_at %}{% if r.kind %} &middot; {% endif %}due {{ r.due_at | display_date }}{% endif %}</span>
+      <span class="meta">{% if r.kind_label %}{{ r.kind_label }}{% endif %}{% if r.due_at %}{% if r.kind_label %} &middot; {% endif %}due {{ r.due_at | display_date }}{% endif %}</span>
     </li>
     {% endfor %}
   </ul>
@@ -293,7 +309,7 @@
    assets and proposals instead. With none of those either, no panel at all -- never a "withheld
    under licence" claim that is not true (docs/31 §5.2 empty state is for gated evidence only). #}
 {% if provenance_rows %}
-{{ m.provenance_panel(provenance_rows, number="5." if opportunities else "4.", note=provenance_note, id="sources") }}
+{{ m.provenance_panel(provenance_rows, note=provenance_note, id="sources") }}
 {% endif %}
 {% endblock %}
 {% block extra_scripts %}

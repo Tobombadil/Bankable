@@ -468,7 +468,9 @@ def test_a_grid_points_projects_carry_a_company_column_when_rows_name_one(client
     rows = [_point_row(POINT_SPONSOR), {**_point_row(POINT_PERSON), "slug": "person-solar"}]
     rows.append({**_point_row(None), "slug": "unnamed-solar"})
     _install({"/v1/interconnection-points/poi_1": (200, _point(rows))})
-    body = client.get("/interconnection-points/poi_1").text
+    # The projects are the point's Projects tab; its Overview keeps the latest changes (docs/30 §11.5).
+    overview = client.get("/interconnection-points/poi_1").text
+    body = client.get("/interconnection-points/poi_1/projects").text
     assert '<th scope="col">Company</th>' in body
     link = '<a href="/organizations/invenergy-services-llc">Invenergy Services LLC</a>'
     assert f'<td data-label="Company">{link}</td>' in body
@@ -478,7 +480,7 @@ def test_a_grid_points_projects_carry_a_company_column_when_rows_name_one(client
     assert '<td data-label="Company">—</td>' in body
     # docs/31 §4: one date format (the proposed date and the change's observation date).
     assert '<td data-label="Proposed online" class="tnum">1 Jun 2028</td>' in body
-    assert '<time datetime="2026-10-09">9 Oct 2026</time>' in body
+    assert '<time datetime="2026-10-09">9 Oct 2026</time>' in overview
 
 
 def test_a_grid_point_without_sponsors_shows_no_empty_company_column(client: TestClient) -> None:
@@ -623,7 +625,11 @@ def test_more_than_three_owners_link_to_the_table(client: TestClient) -> None:
     _install(_asset_routes(_asset(owners)))
     body = client.get("/assets/scherer-us-ga").text
     line = _asset_line(body)
-    assert line.count("/organizations/co-") == 3 and 'and <a href="#owners">2 more</a>' in line
+    # The rest are on the Ownership tab (docs/30 §11.5); the Overview keeps the old anchor (T-8).
+    assert (
+        line.count("/organizations/co-") == 3
+        and 'and <a href="/assets/scherer-us-ga/ownership">2 more</a>' in line
+    )
     assert 'id="owners"' in body
 
 
@@ -808,7 +814,7 @@ def test_a_company_that_issues_no_rfp_shows_no_rfp_section(client: TestClient) -
     entity["asset_counts"] = entity["group_asset_counts"] = totals
     _install(_company_routes(entity, totals, []))
     body = client.get("/organizations/duke-energy-corp").text
-    assert 'aria-label="Opportunities"' not in body
+    assert 'id="opportunities"' not in body
     assert "No opportunities issued by this company." not in body
 
 
@@ -825,5 +831,11 @@ def test_a_company_that_issues_rfps_lists_them_before_its_sources(client: TestCl
     }
     _install(_company_routes(entity, totals, [opportunity]))
     body = client.get("/organizations/duke-energy-corp").text
-    assert 'aria-label="Opportunities"' in body and "/opportunities/duke-rfp" in body
-    assert '<span class="section-num">5.</span> Sources' in body
+    assert 'id="opportunities"' in body and "/opportunities/duke-rfp" in body
+    # Each list is headed by its kind and count, never an index number (lane stacked-lists; docs/31
+    # brand C-5), and the sources follow the notices.
+    heading = re.search(r'<h2 class="org-section__title" id="opportunities-title">(.*?)</h2>', body, re.S)
+    assert heading is not None
+    assert re.sub(r"<[^>]+>", "", heading.group(1)).split() == ["RFPs", "&amp;", "funding", "1"]
+    assert "section-num" not in body.split("<main", 1)[1]
+    assert body.index('id="opportunities"') < body.index('<h2 id="sources">Sources</h2>')

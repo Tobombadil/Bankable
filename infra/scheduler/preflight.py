@@ -358,9 +358,12 @@ def check_freshness(ctx: Context) -> Outcome:
     rows = ctx.freshness_rows(ctx.now, ctx.data_root)
     scheduled = [r for r in rows if r.get("status") != "unscheduled"]
     db_view: dict[str, dict[str, Any]] | None = None
+    #: Each source's `last_error`, one line and redacted (`bootstrap.short_error`), with its time.
+    last_errors: dict[str, str] = {}
     if ctx.database_ok:
         from sqlalchemy import select
 
+        from infra.scheduler.bootstrap import short_error
         from infra.scheduler.freshness import assess_source
         from services.db.models import Source
 
@@ -370,6 +373,9 @@ def check_freshness(ctx: Context) -> Outcome:
             for source in session.scalars(select(Source)):
                 fr = assess_source(source, ctx.now, vintage=vintage_of.get(source.id))
                 db_view[source.id] = fr.to_dict()
+                error = short_error(source.last_error, ctx.env)
+                if error:
+                    last_errors[source.id] = f"{error} (at {_iso(source.last_error_at) or 'an unknown time'})"
 
     tally: Counter[str] = Counter()
     per_source: dict[str, dict[str, Any]] = {}
@@ -395,6 +401,7 @@ def check_freshness(ctx: Context) -> Outcome:
             "stale_after_hours": row.get("stale_after_hours"),
             "vintage": row.get("vintage"),
             "vintage_stale": row.get("vintage_stale"),
+            "last_error": last_errors.get(sid),
         }
         if store_status == "never":
             never_store.append(sid)
@@ -424,12 +431,25 @@ def check_freshness(ctx: Context) -> Outcome:
         fails.append(
             f"no last success on the `source` row, so the site counts them unfetched: {', '.join(never_db)}"
         )
+    # Why each one failed, from its `source` row (2026-10-24, docs/28 lane F5): until then only the
+    # admin pages showed `last_error`, and nothing the owner runs did.
+    if fails:
+        fails += [
+            f"{sid} last error: {last_errors[sid]}" for sid in [*never_store, *never_db] if sid in last_errors
+        ]
     warns = list(stale)
+    stale_ids = [line.split(":", 1)[0] for line in stale]
+    warns += [f"{sid} last error: {last_errors[sid]}" for sid in stale_ids if sid in last_errors]
     if no_row:
         warns.append(f"no `source` row, so no fetch is recorded in the database: {', '.join(no_row)}")
+    # `first-fetch` (which each deploy runs) queues only what the database never saw succeed; a source
+    # the database counts as fetched but whose run records the store lacks needs the full `fetch`.
+    store_only = [s for s in never_store if per_source[s]["database"] not in ("never", "no_row", "not_read")]
+    action = "fetch" if store_only else "first-fetch"
+    what = "every source" if store_only else "each source that never succeeded (each deploy does too)"
     fetch = (
-        "fetch every source now, then rerun once the jobs finish: "
-        f"{HOST_COMPOSE} run --rm --no-deps -T worker python -m infra.scheduler.bootstrap fetch"
+        f"fetch {what} now, then rerun once the jobs finish: "
+        f"{HOST_COMPOSE} run --rm --no-deps -T worker python -m infra.scheduler.bootstrap {action}"
     )
     notes = [f"paused by an operator, so not expected to be fresh: {', '.join(paused)}"] if paused else []
     if fails:

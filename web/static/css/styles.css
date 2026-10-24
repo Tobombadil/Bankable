@@ -1,221 +1,141 @@
-/* Inframation -- public site prototype
-   Tokens, scales and components from docs/31-design-system.md. Every colour, type, space,
-   radius and motion value below is a custom property (D-19); components reference tokens only.
-   Fonts: Newsreader / IBM Plex Sans / IBM Plex Mono, self-hosted from web/static/fonts (docs/31
-   D-21; until 2026-10-07 they came from the Google Fonts CDN). */
+/* Inframation -- public site
+   Tokens, scales and components from docs/31-design-system.md and the brand system in
+   docs/31-brand-identity.md (Inframation, a Compass company; owner, 2026-10-23). Every colour, type,
+   space, radius and motion value below is a custom property (D-19); components reference tokens only.
+   Fonts: Geist and Geist Mono, self-hosted from web/static/fonts (D-21). */
 
-/* Self-hosted web fonts (docs/31 §1.3, D-21: "no third-party font CDN"; frontend audit F8).
-   IBM Plex Sans and Mono are IBM's own released files, unmodified: the per-weight Latin1/2/3
-   split woff2 files from the @ibm/plex-sans and @ibm/plex-mono npm packages, with the weights,
-   subset order and unicode-range values of IBM's own ibm-plex-*-all.css (Plex carries the
-   Reserved Font Name "Plex", so no subset made by anyone else is shipped under that name).
-   Newsreader (no reserved name) is the latin and latin-ext subsets Google Fonts serves, the latin
-   one instanced at the one weight the site uses (below). Origins and licences: web/static/fonts/README.md.
-   The Plex first-paint faces are `font-display: optional` (Newsreader latin swaps; see its face),
-   and base.html preloads the three latin files
-   most text is set in (Plex Sans 400 and 600, Newsreader): Chrome holds first render briefly for a
-   preloaded optional font, so it is normally used from the first paint, and when one is late the
-   page keeps the metric-matched fallback below instead of swapping. A swap at a wrap point is
-   what moved /assets: its count chips fit one line at 1440px in the fallback and two in Plex
-   Sans, which no metric override can make identical at every width. Plex Mono (small labels;
-   equal advances in its fallback) and the Latin2/Latin3 files, fetched only by a page that prints
-   one of their glyphs, keep `swap`. */
-/* Newsreader latin (UX-17, audit 2026-10-07): the display face is set only at weight 600 and 23-33px
-   (h1-h3, the wordmark), so the file is that instance (wght 600, opsz 16-40), 50,680 bytes against
-   the full variable font's 132,000 (web/static/fonts/README.md). It is `swap`, not `optional`: with
-   `optional` a first visit on a slow link kept the fallback for the whole view (12 of 12 throttled
-   loads measured), and the swap moves nothing because "Newsreader Fallback" below is metric-matched
-   (CLS measured 0 on the same loads). */
+/* Self-hosted web fonts (D-21: no third-party font CDN). Geist and Geist Mono, SIL OFL 1.1 with no
+   Reserved Font Name: the variable (wght 100-900) files of the npm `geist` 1.7.2 release, subset to the
+   latin and latin-ext ranges Google Fonts uses (the latin file also keeps the arrows, approximately
+   equal and less- and greater-or-equal signs the site prints). Origins, the subset command and
+   the licence: web/static/fonts/README.md. One variable file holds every weight, so base.html preloads
+   the one latin Geist file; latin-ext and Geist Mono (identifiers only) load when a page prints one of
+   their characters. The latin face is `font-display: optional`, as the IBM Plex faces it replaces were:
+   Chrome holds first render briefly for a preloaded optional font, so Geist is normally used from the
+   first paint, and when it is late the page keeps "Geist Fallback" for the view instead of swapping.
+   A swap at a wrap point is the reflow no metric override can rule out at every width: laid out in the
+   fallback, six pages (map, a list, a record, Companies, Infrastructure, About) match Geist to the pixel
+   in 9 of their 18 views at 1440, 768 and 390, and the rest differ where a line wraps (up to 72px of page
+   height); the Plex fallbacks matched 7 of 18. Measured CLS from fonts: 0, on time and with every font
+   held back 2.5 s. The other three faces swap: they are not on the first paint, and their fallbacks are
+   metric-matched (Geist Mono and Courier New share a 600-unit advance). */
 @font-face {
-  font-family: "Newsreader"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("/static/fonts/newsreader-latin-600.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-@font-face {
-  font-family: "Newsreader"; font-style: normal; font-weight: 200 800; font-display: swap;
-  src: url("/static/fonts/newsreader-latin-ext.woff2") format("woff2");
+  font-family: "Geist"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("/static/fonts/geist-latin-ext.woff2") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 700; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-Bold-Latin3.woff2") format("woff2");
-  unicode-range: U+0102-0103, U+1EA0-1EF9, U+20AB;
+  font-family: "Geist"; font-style: normal; font-weight: 100 900; font-display: optional;
+  src: url("/static/fonts/geist-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2190-2194, U+2212, U+2215, U+2248, U+2264-2265, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 700; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-Bold-Latin2.woff2") format("woff2");
-  unicode-range: U+0100-024F, U+0259, U+1E00-1EFF, U+20A0-20AB, U+20AD-20CF, U+2C60-2C7F, U+A720-A7FF, U+FB01-FB02;
+  font-family: "Geist Mono"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("/static/fonts/geist-mono-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 700; font-display: optional;
-  src: url("/static/fonts/IBMPlexSans-Bold-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00A3, U+00A4-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+2074, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-Medium-Latin3.woff2") format("woff2");
-  unicode-range: U+0102-0103, U+1EA0-1EF9, U+20AB;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-Medium-Latin2.woff2") format("woff2");
-  unicode-range: U+0100-024F, U+0259, U+1E00-1EFF, U+20A0-20AB, U+20AD-20CF, U+2C60-2C7F, U+A720-A7FF, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500; font-display: optional;
-  src: url("/static/fonts/IBMPlexSans-Medium-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00A3, U+00A4-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+2074, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-Regular-Latin3.woff2") format("woff2");
-  unicode-range: U+0102-0103, U+1EA0-1EF9, U+20AB;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-Regular-Latin2.woff2") format("woff2");
-  unicode-range: U+0100-024F, U+0259, U+1E00-1EFF, U+20A0-20AB, U+20AD-20CF, U+2C60-2C7F, U+A720-A7FF, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: optional;
-  src: url("/static/fonts/IBMPlexSans-Regular-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00A3, U+00A4-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+2074, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-SemiBold-Latin3.woff2") format("woff2");
-  unicode-range: U+0102-0103, U+1EA0-1EF9, U+20AB;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("/static/fonts/IBMPlexSans-SemiBold-Latin2.woff2") format("woff2");
-  unicode-range: U+0100-024F, U+0259, U+1E00-1EFF, U+20A0-20AB, U+20AD-20CF, U+2C60-2C7F, U+A720-A7FF, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: optional;
-  src: url("/static/fonts/IBMPlexSans-SemiBold-Latin1.woff2") format("woff2");
-  unicode-range: U+0000, U+000D, U+0020-007E, U+00A0-00A3, U+00A4-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+2074, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-Medium-Latin3.woff2") format("woff2");
-  unicode-range: U+0102-0103, U+01CD-01DC, U+1E0C-1E0D, U+1E12-1E13, U+1E24-1E25, U+1E36-1E37, U+1E3C-1E3D, U+1E40-1E47, U+1E4A-1E4B, U+1E62-1E63, U+1E6C-1E6D, U+1E70-1E71, U+1E92-1E93, U+1EA0-1EF9, U+20AB;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-Medium-Latin2.woff2") format("woff2");
-  unicode-range: U+0100-0101, U+0104-0130, U+0132-0151, U+0154-017F, U+018F, U+0192, U+01A0-01A1, U+01AF-01B0, U+01FA-01FF, U+0218-021B, U+0237, U+0259, U+1E80-1E85, U+1E9E, U+20A1, U+20A4, U+20A6, U+20A8-20AA, U+20AD-20AE, U+20B1-20B2, U+20B4-20B5, U+20B8-20BA, U+20BD, U+20BF;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-Medium-Latin1.woff2") format("woff2");
-  unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-Regular-Latin3.woff2") format("woff2");
-  unicode-range: U+0102-0103, U+01CD-01DC, U+1E0C-1E0D, U+1E12-1E13, U+1E24-1E25, U+1E36-1E37, U+1E3C-1E3D, U+1E40-1E47, U+1E4A-1E4B, U+1E62-1E63, U+1E6C-1E6D, U+1E70-1E71, U+1E92-1E93, U+1EA0-1EF9, U+20AB;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-Regular-Latin2.woff2") format("woff2");
-  unicode-range: U+0100-0101, U+0104-0130, U+0132-0151, U+0154-017F, U+018F, U+0192, U+01A0-01A1, U+01AF-01B0, U+01FA-01FF, U+0218-021B, U+0237, U+0259, U+1E80-1E85, U+1E9E, U+20A1, U+20A4, U+20A6, U+20A8-20AA, U+20AD-20AE, U+20B1-20B2, U+20B4-20B5, U+20B8-20BA, U+20BD, U+20BF;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-Regular-Latin1.woff2") format("woff2");
-  unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-SemiBold-Latin3.woff2") format("woff2");
-  unicode-range: U+0102-0103, U+01CD-01DC, U+1E0C-1E0D, U+1E12-1E13, U+1E24-1E25, U+1E36-1E37, U+1E3C-1E3D, U+1E40-1E47, U+1E4A-1E4B, U+1E62-1E63, U+1E6C-1E6D, U+1E70-1E71, U+1E92-1E93, U+1EA0-1EF9, U+20AB;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-SemiBold-Latin2.woff2") format("woff2");
-  unicode-range: U+0100-0101, U+0104-0130, U+0132-0151, U+0154-017F, U+018F, U+0192, U+01A0-01A1, U+01AF-01B0, U+01FA-01FF, U+0218-021B, U+0237, U+0259, U+1E80-1E85, U+1E9E, U+20A1, U+20A4, U+20A6, U+20A8-20AA, U+20AD-20AE, U+20B1-20B2, U+20B4-20B5, U+20B8-20BA, U+20BD, U+20BF;
-}
-@font-face {
-  font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap;
-  src: url("/static/fonts/IBMPlexMono-SemiBold-Latin1.woff2") format("woff2");
-  unicode-range: U+0020-007E, U+00A0-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2013-2014, U+2018-201A, U+201C-201E, U+2020-2022, U+2026, U+2030, U+2039-203A, U+2044, U+20AC, U+2122, U+2212, U+FB01-FB02;
+  font-family: "Geist Mono"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("/static/fonts/geist-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2190-2194, U+2212, U+2215, U+2248, U+2264-2265, U+FEFF, U+FFFD;
 }
 
-/* Metric-matched fallbacks (frontend audit F8). Until a web font arrives the page is set in a
-   local face scaled to the web font's average advance width and vertical metrics, so the swap
-   does not reflow text: at 1440px the swap used to wrap /assets' count chips onto a second line
-   and move everything below by 37px (CLS 0.48-0.55), and every page's header at 400px (0.23).
-   Values computed from the files in web/static/fonts (IBM's Latin1 files for Plex) against Arial, Courier New and Times New
-   Roman (and their bold cuts for the 500-700 weights the site uses) by the capsize method:
-   size-adjust = ratio of letter-frequency-weighted average advances, then the web font's own
-   ascent, descent and line gap divided by it. Liberation Sans, Mono and Serif share those faces'
-   metrics, so the same numbers hold where they stand in. */
+/* Metric-matched fallbacks (frontend audit F8). Until a web font arrives the page is set in a local
+   face scaled to the web font's average advance width and vertical metrics, so a swap does not reflow
+   text. By the capsize method the Plex fallbacks used: size-adjust is the ratio of the two faces'
+   average advances, weighted by the character frequencies of the site's own text (54,610 characters of
+   ten pages: map, lists, a record, About, Methodology, the site finder, Prices); then Geist's own
+   ascent (1005), descent (295) and line gap (0, per 1000) divided by it. The 100-499 face is Geist at
+   wght 400 against Arial; the 500-900 face Geist at 600, the weight most bold text takes, against
+   Arial Bold. Geist Mono and Courier New share a 600-unit advance. Liberation Sans and Mono have
+   Arial's and Courier New's metrics, so the same numbers hold where they stand in. */
 @font-face {
-  font-family: "IBM Plex Sans Fallback"; font-weight: 100 499;
+  font-family: "Geist Fallback"; font-weight: 100 499;
   src: local("Arial"), local("ArialMT"), local("Liberation Sans"), local("LiberationSans");
-  size-adjust: 101.07%; ascent-override: 101.41%; descent-override: 27.21%; line-gap-override: 0%;
+  size-adjust: 103.55%; ascent-override: 97.05%; descent-override: 28.49%; line-gap-override: 0%;
 }
 @font-face {
-  font-family: "IBM Plex Sans Fallback"; font-weight: 500 900;
+  font-family: "Geist Fallback"; font-weight: 500 900;
   src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold");
-  size-adjust: 96.96%; ascent-override: 105.72%; descent-override: 28.36%; line-gap-override: 0%;
+  size-adjust: 101.39%; ascent-override: 99.12%; descent-override: 29.09%; line-gap-override: 0%;
 }
 @font-face {
-  font-family: "IBM Plex Mono Fallback";
+  font-family: "Geist Mono Fallback";
   src: local("Courier New"), local("CourierNewPSMT"), local("Liberation Mono"), local("LiberationMono");
-  size-adjust: 99.98%; ascent-override: 102.52%; descent-override: 27.5%; line-gap-override: 0%;
-}
-@font-face {
-  font-family: "Newsreader Fallback"; font-weight: 100 499;
-  src: local("Times New Roman"), local("TimesNewRomanPSMT"), local("Liberation Serif"), local("LiberationSerif");
-  size-adjust: 100.44%; ascent-override: 73.17%; descent-override: 26.38%; line-gap-override: 0%;
-}
-@font-face {
-  font-family: "Newsreader Fallback"; font-weight: 500 900;
-  src: local("Times New Roman Bold"), local("TimesNewRomanPS-BoldMT"), local("Liberation Serif Bold"), local("LiberationSerif-Bold");
-  size-adjust: 98.87%; ascent-override: 74.34%; descent-override: 26.8%; line-gap-override: 0%;
+  size-adjust: 99.98%; ascent-override: 100.52%; descent-override: 29.5%; line-gap-override: 0%;
 }
 
 /* ---------- 1. Tokens ---------- */
+/* The brand system of docs/31-brand-identity.md §4 (owner, 2026-10-23: "Go with B"): Compass navy as the
+   ink, a blue-grey ledger ground, no colour on the chrome, one evergreen on the data, and Compass orange
+   only as the dot over the i. Ratios are WCAG 2.x against the page ground (--bg) and panels
+   (--surface); web/test_map_a11y.py and web/test_type_and_buttons.py recompute them. */
 :root {
-  /* 1.1 core brand colours (docs/31 §1.1) */
-  --color-ink: #16324f;
-  --color-paper: #f6f4ef;
-  --color-copper: #a8571c;
-  --color-copper-deep: #8a4614;
-  --color-copper-tint: #e0b58a;
-  --color-muted: #5b6b7c;
+  /* 1.1 core brand colours (docs/31 §1.1). The copper names are aliases of the accent for one release
+     (docs/31-brand-identity.md T-1): admin.css still reads --color-copper. */
+  --color-ink: #0b1023;           /* Compass navy: 16.66:1 on --bg, 18.87:1 on --surface */
+  --color-paper: #eef1f5;         /* the ledger ground */
+  --color-muted: #4a5063;         /* 7.08:1 on --bg, 8.02:1 on --surface */
+  --color-accent: #1d7356;        /* the one data hue (evergreen): 5.09:1 / 5.77:1 */
+  --color-accent-deep: #16624a;   /* the accent as small text: 6.44:1 / 7.29:1 */
+  --color-accent-tint: #5fcf9f;   /* the accent on navy or dark fields: 9.81:1 on navy */
+  --color-copper: var(--color-accent);
+  --color-copper-deep: var(--color-accent-deep);
+  --color-copper-tint: var(--color-accent-tint);
+  /* Compass orange: the dot over the i (the wordmark's, and the mark's in favicon.svg), never text or
+     data (a mark, not text: 2.81:1 on white). The one token; og_card.py `BRAND_DOT` writes the same value
+     into the drawn files (favicon.svg, wordmark.svg, the icons and the share card). */
+  --brand-dot: #e68023;
+  /* The wordmark's letters (docs/31-brand-identity.md §5.1): navy; on dark, the mark's light #eef1f5. */
+  --wordmark-ink: var(--color-ink);
 
   /* semantic roles (light) */
   --bg: var(--color-paper);
   --surface: #ffffff;
+  --raised: #f5f7fa;              /* a filled field on a surface */
+  --active: #e8ebf1;              /* a selected row, a pressed secondary */
   --text: var(--color-ink);
   --text-muted: var(--color-muted);
-  --link: var(--color-copper-deep);
-  --link-visited: #6b3d10;
-  --border: #d8d3c8;
-  --focus-ring: var(--color-ink);
+  --link: var(--color-ink);       /* achromatic chrome: links are ink, underlined (C-7) */
+  --link-visited: var(--color-muted);
+  --border: #dde1e8;              /* panel and card edges: 1.16:1 on --bg, 1.31:1 on --surface */
+  --rule: #eceff3;                /* row rules in tables */
+  --control: #7d8496;             /* input and outlined-control borders: 3.74:1 on --surface (SC 1.4.11) */
+  --focus-ring: var(--color-accent); /* 5.09:1 on --bg, 5.77:1 on --surface */
+  --primary: var(--color-ink);    /* the one filled button */
+  --primary-ink: #ffffff;         /* 18.87:1 on --primary */
+  --secondary: #e8ebf1;           /* the grey secondary button */
+  --secondary-ink: var(--color-ink); /* 15.80:1 on --secondary */
+  --accent: var(--color-accent);
+  --accent-deep: var(--color-accent-deep);
+  --accent-tint: var(--color-accent-tint);
+  --accent-ink: #ffffff;          /* text on an accent fill: 5.77:1 */
+  --negative: #c4242a;            /* a change in the bad direction, with its sign: 5.10:1 / 5.78:1 */
+  --dot: var(--color-accent);     /* a project marker in process: 5.62:1 on --map-land */
+  --select: var(--color-ink);     /* the 2px selected-tab line */
 
-  /* 1.2 status families -- light theme text + chip fill (docs/31 §1.2) */
-  --family-neutral-text: #4f5e6e; /* 5.44:1 on --family-neutral-fill; #5b6b7c measured 4.47:1, under WCAG AA 4.5 (axe, 2026-09-27) */
-  --family-neutral-fill: #e4e9ed;
-  --family-progress-text: #2f6480;
-  --family-progress-fill: #d6e6ee;
-  --family-committed-text: #8a4614;
-  --family-committed-fill: #f1ddc9;
-  --family-success-text: #2f6f4f;
-  --family-success-fill: #d7ead9;
-  --family-danger-text: #8c3a2e;
-  --family-danger-fill: #f1dbd6;
+  /* 1.2 status families -- text + chip fill (docs/31 §1.2; docs/31-brand-identity.md §4). Progress,
+     the in-process states, is the main data element, so it takes the accent; committed is navy. Text on
+     fill: neutral 8.59, progress 4.96, committed 14.55, success 9.79, danger 6.19 (all over 4.5). */
+  --family-neutral-text: #3d4254;
+  --family-neutral-fill: #eceef3;
+  --family-progress-text: #1d7356;
+  --family-progress-fill: #e0f2e9;
+  --family-committed-text: #0b1023;
+  --family-committed-fill: #dde2ee;
+  --family-success-text: #0e3f2c;
+  --family-success-fill: #d6efe1;
+  --family-danger-text: #a3211b;
+  --family-danger-fill: #fbe4e1;
 
-  /* map fallback basemap (docs/04 D-13) -- tinted to the paper ground so land/water/borders sit
-     beneath the data instead of competing with it; deliberately not reusing the status-family
-     palette so the backdrop never reads as a status colour (docs/30 §7 "Basemap") */
-  --map-land: #f1eee4;
-  --map-water: #e5edf0;
-  --map-border: #d2d9dc;
+  /* map basemap (docs/04 D-13): cool and quiet, so the projects are the only saturated layer; never a
+     status-family colour, so the backdrop never reads as a lifecycle state (docs/30 §7 "Basemap").
+     `--ctx` is existing infrastructure's grey (5.37:1 on --bg), for context drawn at 24% opacity. */
+  --map-land: #fbfcfd;
+  --map-water: #dfe5ee;
+  --map-border: #c3cad6;
   --map-flavor: light;
+  --ctx: #5b6275;
 
   /* existing-plants context layer (docs/00-PLAN.md 2026-09-14/15 owner decision; map task item
      2) -- desaturated versions of hues a reader already associates with each technology from
@@ -223,10 +143,9 @@
      dimmer than the status-family palette above so the layer reads as subordinate context, never
      mistaken for a proposal's lifecycle state. Contrast checked against `--bg` (WCAG relative-
      luminance formula, docs/31 §1.1's own method) because the legend renders these as text, not
-     only as marker fills: all seven clear 4.5:1 on paper (4.81-6.28:1) -- see web/README.md "Map
-     basemap" for the recorded ratios (D-20). On the map itself these same values are drawn at
-     ~0.6 opacity per docs/00-PLAN.md's "muted... at ~0.6 opacity" instruction, which is a marker
-     fill, not text, so D-20's ratio applies to the legend usage, not the marker. */
+     only as marker fills: every one clears 4.5:1 on the ledger ground (4.57-6.61:1, 5.04-7.29:1 on
+     --map-land). On the map they draw faint, at 24% opacity (32% on dark; docs/31-brand-identity.md
+     M-2), so the projects lead; a marker fill is not text, so D-20's ratio applies to the legend. */
   --plant-solar: #846818;
   --plant-wind: #3f6a8a;
   --plant-gas: #5f6469;
@@ -235,7 +154,7 @@
   --plant-storage: #3f6f4a;
   --plant-coal: #6a5a48;
   /* Added 2026-09-15 with the plant-type filter (owner: biomass/waste must be distinct). Same
-     method: oil 6.81:1, biomass 5.11:1, geothermal 6.12:1, other 4.71:1 against --color-paper. */
+     method: oil 6.61:1, biomass 4.96:1, geothermal 5.94:1, other 4.57:1 against --bg. */
   --plant-oil: #6b4f3a;
   --plant-biomass: #55702a;
   --plant-geothermal: #8a4a3a;
@@ -246,17 +165,17 @@
      families so an existing asset never reads as a proposal state. Type is never carried by
      colour alone (D-5): pipelines are lines, processing plants diamonds, storage rings, LNG
      terminals triangles, ethanol hexagons, RNG pentagons -- see map.js `ASSET_TYPE_SHAPE`.
-     Contrast on --color-paper (WCAG relative-luminance formula, docs/31 §1.1's method), legend
-     text usage: pipeline 6.48:1, processing 5.96:1, storage 6.04:1, LNG 5.52:1, ethanol 4.87:1,
-     RNG 4.71:1. Interstate vs intrastate pipelines share the hue and differ by dash (solid vs
-     dashed), plus the label. */
+     Contrast on --bg (WCAG relative-luminance formula, docs/31 §1.1's method), legend text usage:
+     pipeline 6.28:1, processing 5.78:1, storage 5.86:1, LNG 5.35:1, ethanol 4.73:1, RNG 4.57:1. RNG's
+     green sits near the accent; its pentagon tells it apart. Interstate vs intrastate pipelines share
+     the hue and differ by dash (solid vs dashed), plus the label. */
   --asset-gas-pipeline: #6e4b7a;
   --asset-gas-processing: #8a4a5a;
   --asset-gas-storage: #4f5a8a;
   --asset-lng-terminal: #2f6a7a;
   --asset-ethanol: #7a6a2a;
   --asset-rng: #2f7a5a;
-  /* Transmission lines (grid lane G2, 2026-09-28): amber, 4.94:1 on --color-paper, chosen far from the
+  /* Transmission lines (grid lane G2, 2026-09-28): amber, 4.80:1 on --bg, chosen far from the
      pipeline purple because the two line layers overlap everywhere at national zoom. Drawn dash-dot, so the
      stroke pattern -- not this hue -- is what tells a power line from a pipeline (D-5). */
   --asset-transmission: #8a6300;
@@ -268,7 +187,7 @@
 
   /* ADR 0008 region features (placement grade "region") -- one hue, not a status-family colour
      (same reasoning as the plant palette above): a highlighted county/state/country must never
-     read as a lifecycle state. 5.3:1 against --color-paper (WCAG relative-luminance formula,
+     read as a lifecycle state. 5.80:1 against --bg (WCAG relative-luminance formula,
      docs/31 §1.1's method), used for the outline/label text only -- the fill itself is drawn at
      the data-driven 0.15-0.7 opacity computed in map.js, not this ratio (a fill is not text). */
   --region-fill: #4a6070;
@@ -276,7 +195,7 @@
 
   /* Site finder (web/site_finder.py): lines and substations by voltage class, an ordinal ramp of the
      transmission amber, light to dark as voltage rises (one hue, OKLCH L monotone, every step at
-     least 0.06 apart, the lightest 2.22:1 on --map-land); the map also widens a line with its class,
+     least 0.06 apart, the lightest 2.51:1 on --map-land); the map also widens a line with its class,
      so the class never rests on shade alone. "Voltage not stated" is grey and dashed. The candidate
      band and the open band are teal, a hue no line takes. */
   --sf-kv-69: #c99a2e;
@@ -288,17 +207,20 @@
   --sf-band: #1d7f8f;
   --sf-selected: #0b5563;
 
-  /* 1.3 typography */
-  --font-display: "Newsreader", "Newsreader Fallback", Georgia, "Times New Roman", serif;
-  --font-body: "IBM Plex Sans", "IBM Plex Sans Fallback", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", "SFMono-Regular", Consolas, Menlo, monospace;
+  /* 1.3 typography: one family (docs/31-brand-identity.md §4). Geist sets everything; Geist Mono sets
+     identifiers only (queue IDs, docket numbers, keys). --font-display stays a name of its own so a
+     later display face is a one-line change. */
+  --font-display: "Geist", "Geist Fallback", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-body: "Geist", "Geist Fallback", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", "SFMono-Regular", Consolas, Menlo, monospace;
   --text-1: 0.8rem;    /* 12.8px */
   --text-2: 1rem;      /* 16px base */
   --text-3: 1.2rem;    /* 19.2px */
   --text-4: 1.4375rem; /* 23px */
   --text-5: 1.725rem;  /* 27.6px */
-  --text-6: 2.075rem;  /* 33.2px */
+  --text-6: 1.75rem;   /* 28px: an app title stays at 32px or less (C-1) */
   --text-7: 2.4875rem; /* 39.8px */
+  --text-label: 0.8125rem; /* 13px: sentence-case labels in the text face (C-2) */
 
   /* 1.4 spacing, 4px base */
   --space-1: 0.25rem;
@@ -312,46 +234,68 @@
   --space-9: 3rem;
   --space-10: 4rem;
 
-  /* 1.5 radius, shadow, motion */
+  /* 1.5 radius, shadow, motion. Cards 8px, controls 6px. No shadow at rest: --shadow-1 is kept as a
+     name and draws nothing; what truly floats (a menu, a list of suggestions, the drawer) takes
+     --shadow-float. */
   --radius-1: 2px;
-  --radius-2: 4px;
+  --radius-2: 6px;
   --radius-3: 8px;
-  --shadow-1: 0 1px 2px rgba(22, 50, 79, 0.12);
+  --shadow-1: none;
+  --shadow-float: 0 8px 24px rgba(11, 16, 35, 0.14);
   --motion-fast: 150ms;
   --motion-base: 200ms;
   --motion-slow: 300ms;
   --motion-map: 600ms;
 }
 
-/* Dark theme: inversion of the same roles (docs/31 DS-2). System preference drives it; no
-   manual toggle is built this sprint (noted in web/README.md as a gap against D-23's "manual
-   override"). */
+/* Dark theme: a true-neutral dark, not navy (taste skill; docs/31-brand-identity.md T-2), with the same
+   roles. System preference drives it; `data-theme` forces either. Ratios: text 17.28:1 on --bg and
+   16.00:1 on --surface, muted 9.32:1 and 8.63:1, the accent 9.96:1 and 9.22:1. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e1e30;
-    --surface: #16283c;
-    --text: var(--color-paper);
-    --text-muted: #a9b8c4;
-    --link: var(--color-copper-tint);
-    --link-visited: #cfa273;
-    --border: #2a3f54;
-    --focus-ring: var(--color-paper);
+    --color-ink: #f2f3f6;
+    --color-paper: #0e0f11;
+    --color-muted: #b0b5bf;
+    --color-accent: #5fcf9f;
+    --color-accent-deep: #5fcf9f;
+    --color-accent-tint: #5fcf9f;
+    --wordmark-ink: #eef1f5;
+    --bg: var(--color-paper);
+    --surface: #17181b;
+    --raised: #1f2024;
+    --active: #26282d;
+    --text: var(--color-ink);
+    --text-muted: var(--color-muted);
+    --link: var(--color-ink);
+    --link-visited: var(--color-muted);
+    --border: #2a2c31;
+    --rule: #1d1e22;
+    --control: #7b808b;
+    --focus-ring: var(--color-accent);
+    --primary: var(--color-ink);
+    --primary-ink: #0e0f11;
+    --secondary: #26282d;
+    --secondary-ink: var(--color-ink);
+    --accent-ink: #0e0f11;
+    --negative: #f0857a;
+    --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
 
-    --family-neutral-text: #c9d2da;
-    --family-neutral-fill: #24384a;
-    --family-progress-text: #8fc4dd;
-    --family-progress-fill: #1c3a4c;
-    --family-committed-text: #e0b58a;
-    --family-committed-fill: #3a2a1c;
-    --family-success-text: #8fd6ac;
-    --family-success-fill: #1c3428;
-    --family-danger-text: #e0a08f;
-    --family-danger-fill: #3a241e;
+    --family-neutral-text: #c2c7d0;
+    --family-neutral-fill: #24262b;
+    --family-progress-text: #6fd8a8;
+    --family-progress-fill: #15302a;
+    --family-committed-text: #cdd5ea;
+    --family-committed-fill: #232a3d;
+    --family-success-text: #a8e8c8;
+    --family-success-fill: #1a352b;
+    --family-danger-text: #f3a39a;
+    --family-danger-fill: #3a201e;
 
-    --map-land: #182c40;
-    --map-water: #0f2032;
-    --map-border: #2a3f54;
+    --map-land: #1a1c20;
+    --map-water: #0b0c0e;
+    --map-border: #32353c;
     --map-flavor: dark;
+    --ctx: #8b909b;
 
     --plant-solar: #c9b877;
     --plant-wind: #9ab6d1;
@@ -365,20 +309,20 @@
     --plant-geothermal: #d29a86;
     --plant-other: #b5b5b5;
 
-  /* Midstream asset layers, dark tints: 7.95 / 7.87 / 8.15 / 8.96 / 9.20 / 9.48 : 1 on --bg. */
+  /* Midstream asset layers, dark tints: 9.05 / 8.96 / 9.29 / 10.20 / 10.48 / 10.79 : 1 on --bg. */
   --asset-gas-pipeline: #c9a6d6;
   --asset-gas-processing: #d9a3b0;
   --asset-gas-storage: #a9b3dc;
   --asset-lng-terminal: #8ec6d3;
   --asset-ethanol: #cfc07a;
   --asset-rng: #8fd0b0;
-  --asset-transmission: #e8c15f; /* 9.80:1 on --bg */
+  --asset-transmission: #e8c15f; /* 11.16:1 on --bg */
   --asset-retired: #e7a3c9;
   --asset-retiring: #f2a66b;
 
     --region-fill: #9ab6d1;
     --region-line: #9ab6d1;
-    /* Site finder, dark: the ramp flips, dark to light as voltage rises (the darkest step 2.94:1 on
+    /* Site finder, dark: the ramp flips, dark to light as voltage rises (the darkest step 3.52:1 on
        --map-land). */
     --sf-kv-69: #8f6c1c;
     --sf-kv-115: #b38a2a;
@@ -391,28 +335,47 @@
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0e1e30;
-  --surface: #16283c;
-  --text: var(--color-paper);
-  --text-muted: #a9b8c4;
-  --link: var(--color-copper-tint);
-  --link-visited: #cfa273;
-  --border: #2a3f54;
-  --focus-ring: var(--color-paper);
-  --family-neutral-text: #c9d2da;
-  --family-neutral-fill: #24384a;
-  --family-progress-text: #8fc4dd;
-  --family-progress-fill: #1c3a4c;
-  --family-committed-text: #e0b58a;
-  --family-committed-fill: #3a2a1c;
-  --family-success-text: #8fd6ac;
-  --family-success-fill: #1c3428;
-  --family-danger-text: #e0a08f;
-  --family-danger-fill: #3a241e;
-  --map-land: #182c40;
-  --map-water: #0f2032;
-  --map-border: #2a3f54;
+  --color-ink: #f2f3f6;
+  --color-paper: #0e0f11;
+  --color-muted: #b0b5bf;
+  --color-accent: #5fcf9f;
+  --color-accent-deep: #5fcf9f;
+  --color-accent-tint: #5fcf9f;
+  --wordmark-ink: #eef1f5;
+  --bg: var(--color-paper);
+  --surface: #17181b;
+  --raised: #1f2024;
+  --active: #26282d;
+  --text: var(--color-ink);
+  --text-muted: var(--color-muted);
+  --link: var(--color-ink);
+  --link-visited: var(--color-muted);
+  --border: #2a2c31;
+  --rule: #1d1e22;
+  --control: #7b808b;
+  --focus-ring: var(--color-accent);
+  --primary: var(--color-ink);
+  --primary-ink: #0e0f11;
+  --secondary: #26282d;
+  --secondary-ink: var(--color-ink);
+  --accent-ink: #0e0f11;
+  --negative: #f0857a;
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --family-neutral-text: #c2c7d0;
+  --family-neutral-fill: #24262b;
+  --family-progress-text: #6fd8a8;
+  --family-progress-fill: #15302a;
+  --family-committed-text: #cdd5ea;
+  --family-committed-fill: #232a3d;
+  --family-success-text: #a8e8c8;
+  --family-success-fill: #1a352b;
+  --family-danger-text: #f3a39a;
+  --family-danger-fill: #3a201e;
+  --map-land: #1a1c20;
+  --map-water: #0b0c0e;
+  --map-border: #32353c;
   --map-flavor: dark;
+  --ctx: #8b909b;
 
   --plant-solar: #c9b877;
   --plant-wind: #9ab6d1;
@@ -426,14 +389,14 @@
   --plant-geothermal: #d29a86;
   --plant-other: #b5b5b5;
 
-  /* Midstream asset layers, dark tints: 7.95 / 7.87 / 8.15 / 8.96 / 9.20 / 9.48 : 1 on --bg. */
+  /* Midstream asset layers, dark tints: 9.05 / 8.96 / 9.29 / 10.20 / 10.48 / 10.79 : 1 on --bg. */
   --asset-gas-pipeline: #c9a6d6;
   --asset-gas-processing: #d9a3b0;
   --asset-gas-storage: #a9b3dc;
   --asset-lng-terminal: #8ec6d3;
   --asset-ethanol: #cfc07a;
   --asset-rng: #8fd0b0;
-  --asset-transmission: #e8c15f; /* 9.80:1 on --bg */
+  --asset-transmission: #e8c15f; /* 11.16:1 on --bg */
   --asset-retired: #e7a3c9;
   --asset-retiring: #f2a66b;
 
@@ -463,7 +426,10 @@ body {
 }
 .tnum { font-variant-numeric: tabular-nums; }
 img { max-width: 100%; }
-a { color: var(--link); }
+/* C-7: links are ink with a thin underline set off the baseline; on hover the underline takes the one
+   hue. The chrome stays achromatic: no link is coloured. */
+a { color: var(--link); text-decoration-thickness: 0.07em; text-underline-offset: 0.18em; }
+a:hover { text-decoration-color: var(--accent); }
 a:visited { color: var(--link-visited); }
 :focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -494,14 +460,41 @@ a:visited { color: var(--link-visited); }
    shell" section further down. The wordmark's own rule stays here, for the admin header too
    (`admin/base.html`, the name and its "admin" tag); the top bar sets its own size. */
 .wordmark {
-  font-family: var(--font-display); font-optical-sizing: auto; font-size: var(--text-5); font-weight: 600;
-  color: var(--text); text-decoration: none; display: flex; align-items: baseline; gap: var(--space-2);
+  font-family: var(--font-display); font-size: var(--text-5); font-weight: 700; letter-spacing: -0.03em;
+  color: var(--wordmark-ink); text-decoration: none; display: flex; align-items: baseline; gap: var(--space-2);
+}
+.wordmark:visited { color: var(--wordmark-ink); }
+/* The lockup (docs/31-brand-identity.md §5.1, B-2): the outlined wordmark, then "a Compass company" in the
+   text face at 0.58 of the wordmark's size, on its baseline, 14px after it. The wordmark is web/static/img/
+   wordmark.svg's paths inline ("infra" Geist 700, "mation" Geist 400, the dot centred on the bold stem), so
+   the font never moves it: its letters take the link's colour (--wordmark-ink), its dot --brand-dot, and its
+   box (sized in em from the link's font size) ends at the baseline the endorsement sits on. The link's
+   accessible name is a visually hidden "Inframation, a Compass company". */
+.wordmark__svg { display: block; flex: none; }
+.wordmark__dot { fill: var(--brand-dot); }
+.wordmark__endorse {
+  margin-inline-start: 14px; font-size: 0.58em; font-weight: 500; letter-spacing: 0; white-space: nowrap;
+  color: var(--text-muted);
+}
+/* Where the top bar's row cannot hold the whole lockup, the endorsement steps out and the name stays; the
+   link's accessible name and the footer's first line still say it. Measured 2026-10-24 (the outlined
+   wordmark is 114.5px at 23px whatever the font; the lockup is 258px with Geist, 264px in its fallback):
+   below 480px with the search button and Menu (the row needs 413px, 419px in the fallback); with all three
+   sections and the account menu, at 720-759px (755px, 760px in the fallback); at 1080px that row fits with
+   no slack at all, so the 1080-1139px band keeps the endorsement out too. */
+@media (max-width: 479px) {
+  .top-bar .wordmark__endorse { display: none; }
+}
+@media (min-width: 720px) and (max-width: 799px), (min-width: 1080px) and (max-width: 1139px) {
+  .top-bar__row:has(.top-bar__sections > a:nth-child(3)) .wordmark__endorse { display: none; }
 }
 main { max-width: 1440px; margin: 0 auto; padding: 0 var(--space-5) var(--space-9); }
 .site-footer {
   border-top: 1px solid var(--border); padding: var(--space-6) var(--space-5);
   color: var(--text-muted); font-size: var(--text-1);
 }
+/* B-4: the footer opens with the endorsement, in ink (docs/31-brand-identity.md §5.1). */
+.site-footer__endorse { margin: 0 0 var(--space-3); color: var(--text); }
 
 @media (max-width: 719px) {
   main { padding: 0 var(--space-4) var(--space-8); }
@@ -511,18 +504,20 @@ h1, h2, h3 { font-family: var(--font-display); font-optical-sizing: auto; font-w
 h1 { font-size: var(--text-6); }
 h2 { font-size: var(--text-5); display: flex; align-items: baseline; gap: var(--space-2); }
 h3 { font-size: var(--text-4); }
+/* C-3: the text face with tabular figures, not mono (the numbering itself goes with the record lane's C-5). */
 .section-num {
-  font-family: var(--font-mono); font-size: var(--text-2); font-weight: 400; color: var(--text-muted);
+  font-family: var(--font-body); font-variant-numeric: tabular-nums; font-size: var(--text-2); font-weight: 400;
+  color: var(--text-muted);
 }
 .page-header { padding: var(--space-5) 0 var(--space-4); border-bottom: 1px solid var(--border); margin-bottom: var(--space-5); }
 .page-header p { color: var(--text-muted); max-width: 68ch; }
 
 /* ---------- 4. Delayed notice, attribution, provenance (D-3, D-27, D-28) ----------
    The delayed notice is a quiet document stamp, not an alert banner: no fill colour, a single
-   ink rule on the left, small-caps mono label. The dev-preview notice stays visibly distinct
-   (dashed copper rule, its own label) because it only ever appears in a non-production build. */
+   ink rule on the left, a sentence-case label in the text face (C-2). The dev-preview notice stays
+   visibly distinct (dashed rule, its own label) because it only ever appears in a non-production build. */
 .stamp-label {
-  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.06em;
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
   color: var(--text); margin-inline-end: var(--space-2);
 }
 .delayed-notice {
@@ -568,11 +563,11 @@ h3 { font-size: var(--text-4); }
 .provenance-panel__details summary::-webkit-details-marker { display: none; }
 /* The disclosure mark rides on the name, not on the summary: as its own flex item it was left alone
    on a line above a long name at 400px (audit 2026-10-07 UX-11). */
-.provenance-panel__name::before { content: "+ "; color: var(--text-muted); font-family: var(--font-mono); font-weight: 400; }
+.provenance-panel__name::before { content: "+ "; color: var(--text-muted); font-family: var(--font-body); font-variant-numeric: tabular-nums; font-weight: 400; }
 .provenance-panel__details[open] .provenance-panel__name::before { content: "\2212 "; }
 .provenance-panel__count { font-size: var(--text-1); color: var(--text-muted); }
 .provenance-panel__name { font-weight: 600; }
-.provenance-panel__licence { font-size: var(--text-1); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.provenance-panel__licence { font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted); }
 .provenance-panel__date { font-size: var(--text-1); color: var(--text-muted); }
 .provenance-panel__note { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-1) 0 0; }
 .provenance-panel__quote { font-size: var(--text-1); color: var(--text-muted); margin: var(--space-2) 0 0; }
@@ -621,7 +616,7 @@ h3 { font-size: var(--text-4); }
 .slip-note--warn  { color: var(--family-danger-text); }
 
 /* ---------- 6. Filter bar as a control strip, not a form (D-17, API-3) ----------
-   Underline-only inputs, mono small-caps labels, single bottom rule for the whole strip -- read
+   Underline-only inputs, sentence-case labels (C-2), single bottom rule for the whole strip -- read
    as a toolbar the reader scans left to right, not a bordered form panel. */
 .filter-bar {
   display: flex; flex-wrap: wrap; gap: var(--space-5); align-items: end;
@@ -629,8 +624,7 @@ h3 { font-size: var(--text-4); }
 }
 .filter-field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-2); }
 .filter-field label, .filter-field__label {
-  color: var(--text-muted); font-family: var(--font-mono); font-size: var(--text-1);
-  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted); font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
 }
 .filter-field select, .filter-field input {
   font: inherit; padding: var(--space-1) 0; border: none; border-bottom: 1px solid var(--border);
@@ -655,7 +649,7 @@ h3 { font-size: var(--text-4); }
   flex-direction: row; align-items: center; flex-wrap: wrap;
 }
 .filter-field--placement legend {
-  font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted);
   padding: 0; margin-inline-end: var(--space-1);
 }
 .filter-field--placement label {
@@ -797,8 +791,7 @@ h3 { font-size: var(--text-4); }
     border: 0; border-radius: 0; margin: 0; padding: 0 0 var(--space-2);
   }
   .record-table--compact thead tr::before {
-    content: "Sort by"; font-family: var(--font-mono); font-size: var(--text-1);
-    text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);
+    content: "Sort by"; font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted);
   }
   .record-table--compact thead tr:not(:has(th.sortable)) { display: none; }
   .record-table--compact thead th { display: none; }
@@ -945,13 +938,16 @@ h3 { font-size: var(--text-4); }
 @media (min-width: 1080px) { .map-frame { --map-panel-width: 21.25rem; } }
 .map-panel {
   --text-muted: var(--family-neutral-text);
+  /* The evergreen's small-text step on the translucent panel: #1d7356 falls to 4.37:1 where the map
+     behind is black (light theme); #16624a holds 5.37:1 (brand lane, 2026-10-23; test_map_a11y.py). */
+  --family-progress-text: var(--color-accent-deep);
   position: absolute; z-index: 3; top: var(--map-panel-inset); right: var(--map-panel-inset);
   height: calc(var(--map-height) - 2 * var(--map-panel-inset)); width: var(--map-panel-width);
   display: flex; flex-direction: column; overflow: hidden; color: var(--text);
   background: var(--surface);
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  border: 1px solid var(--border); border-radius: var(--radius-3); box-shadow: var(--shadow-1);
+  border: 1px solid var(--border); border-radius: var(--radius-3);
 }
 .map-panel.is-collapsed { height: auto; }
 @media (prefers-reduced-transparency: reduce) {
@@ -1016,8 +1012,7 @@ h3 { font-size: var(--text-4); }
   padding: var(--space-1) var(--space-3) var(--space-3);
 }
 .map-panel__heading {
-  font-family: var(--font-mono); font-size: var(--text-1); font-weight: 400; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text-muted); margin: var(--space-3) 0 var(--space-1);
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted); margin: var(--space-3) 0 var(--space-1);
 }
 .map-panel__aside { text-transform: none; letter-spacing: normal; font-family: var(--font-body); }
 /* Without scripts the panel shows its key; with them, nothing flashes before map.js lays it out:
@@ -1094,7 +1089,7 @@ h3 { font-size: var(--text-4); }
 .delayed-notice__stale[open] { display: block; margin-top: var(--space-1); }
 .org-follow { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin: 0 0 var(--space-4); }
 a.button-secondary { display: inline-flex; align-items: center; text-decoration: none; }
-a.button-secondary:visited { color: var(--link); }
+a.button-secondary:visited { color: var(--secondary-ink); }
 .legend__icon { flex: none; }
 .map-attribution { font-size: var(--text-1); color: var(--text-muted); padding-top: var(--space-2); }
 /* One line under a map drawn on the outline alone (basemap.js `showFailedNote`, docs/16 §2 M-1):
@@ -1149,7 +1144,7 @@ a.button-secondary:visited { color: var(--link); }
   flex-direction: row; align-items: center; flex-wrap: wrap;
 }
 .filter-field--asset-types legend {
-  font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted);
   padding: 0; margin-inline-end: var(--space-1);
 }
 .filter-field--asset-types label {
@@ -1179,7 +1174,7 @@ a.button-secondary:visited { color: var(--link); }
    so through a real button (keyboard-reachable, SC 2.1.1; audit 2026-09-18: region records were
    not), beside the link to the record's own page where one exists. */
 .in-view-list__group-name {
-  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.06em;
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
   color: var(--text-muted); margin: var(--space-4) 0 var(--space-1);
 }
 .in-view-list__kind { font-size: var(--text-1); color: var(--text-muted); margin-inline-end: var(--space-1); }
@@ -1198,6 +1193,9 @@ a.button-secondary:visited { color: var(--link); }
   position: relative; height: 40vh; min-height: 16rem; max-height: 32rem;
   border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--map-water);
   overflow: hidden; margin: var(--space-4) 0;
+  /* Its own stacking context: MapLibre's layers (the two-finger notice is z-index 99999) stay inside
+     it, so a section heading held over it while the page scrolls stays on top (lane stacked-lists). */
+  isolation: isolate;
 }
 .mini-map svg { display: block; width: 100%; height: 100%; background: var(--map-land); }
 .mini-map__line { fill: none; stroke: var(--asset-gas-pipeline); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
@@ -1210,6 +1208,20 @@ a.button-secondary:visited { color: var(--link); }
 
 /* Company page: assets grouped by role and type; the summary line reads as one sentence. */
 .org-summary { font-size: var(--text-3); color: var(--text-muted); margin: 0 0 var(--space-4); }
+/* Its lists of different kinds (lane stacked-lists, 2026-10-24): each headed by its kind and count, no
+   index number, the heading held under the top bar while its own rows scroll, so the reader always sees
+   which list a row belongs to. Sections stand apart by space. */
+.org-section { margin-top: var(--space-9); }
+.org-section__title {
+  position: sticky; top: var(--top-bar-h); z-index: 5; background: var(--bg);
+  padding-block: var(--space-2); margin-bottom: var(--space-3); border-bottom: 1px solid var(--border);
+}
+.org-section__n { font-size: var(--text-3); font-weight: 400; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.org-section__why { margin: 0 0 var(--space-3); }
+.org-section__why > summary { cursor: pointer; color: var(--link); width: fit-content; padding-block: var(--space-1); }
+.org-section__why > p { margin: var(--space-2) 0 0; }
+/* A focused link scrolled into view clears the top bar and a held heading (SC 2.4.11). */
+html:has(.org-section) { scroll-padding-top: calc(var(--top-bar-h) + 4rem); }
 .asset-group { margin-bottom: var(--space-5); }
 .asset-group h3 { margin-bottom: var(--space-2); }
 .asset-group__more { font-size: var(--text-2); font-weight: 400; color: var(--text-muted); }
@@ -1225,8 +1237,8 @@ a.button-secondary:visited { color: var(--link); }
 }
 .pipeline-table { width: 100%; border-collapse: collapse; font-size: var(--text-2); }
 .pipeline-table caption {
-  text-align: left; font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--text-muted); padding-bottom: var(--space-1);
+  text-align: left; font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
+  color: var(--text-muted); padding-bottom: var(--space-1);
 }
 .pipeline-table th, .pipeline-table td {
   padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); text-align: left;
@@ -1249,7 +1261,7 @@ a.button-secondary:visited { color: var(--link); }
 /* ---------- 8.1 Map detail drawer -- document panel, not a modal card (D-12, D-15) ---------- */
 .map-drawer {
   position: fixed; top: 0; right: 0; height: 100%; width: min(26rem, 90vw);
-  background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-1);
+  background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow-float);
   padding: var(--space-6) var(--space-5); overflow-y: auto; transform: translateX(100%);
   transition: transform var(--motion-fast) ease-out; z-index: 50;
 }
@@ -1302,8 +1314,8 @@ a.button-secondary:visited { color: var(--link); }
   padding-top: var(--space-3); margin-top: var(--space-3);
 }
 .drawer-source__label {
-  display: block; font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: var(--space-1);
+  display: block; font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
+  color: var(--text-muted); margin-bottom: var(--space-1);
 }
 .map-drawer .drawer-open-link { display: inline-block; margin-top: var(--space-4); font-weight: 600; }
 /* A region's summary (docs/17 M-2): the count and its status parts, then "Open the list". A
@@ -1368,7 +1380,7 @@ a.button-secondary:visited { color: var(--link); }
 .value-source { color: var(--text-muted); font-size: var(--text-1); }
 .value-source .mono { font-family: var(--font-mono); }
 
-/* Lifecycle timeline as a ruled ledger: date column in Plex Mono, event column, hairline rules
+/* Lifecycle timeline as a ruled ledger: date column in tabular figures (C-3), event column, hairline rules
    between rows -- a register entry, not a rounded-dot activity feed (docs/30 §1, D-26). */
 .timeline { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
 .timeline li {
@@ -1376,7 +1388,8 @@ a.button-secondary:visited { color: var(--link); }
   align-items: baseline;
 }
 .timeline time {
-  flex: none; width: 7.5rem; font-family: var(--font-mono); font-size: var(--text-1); color: var(--text-muted);
+  flex: none; width: 7.5rem; font-family: var(--font-body); font-variant-numeric: tabular-nums;
+  font-size: var(--text-1); color: var(--text-muted);
 }
 .timeline li .timeline__event { flex: 1; }
 @media (max-width: 719px) {
@@ -1386,9 +1399,112 @@ a.button-secondary:visited { color: var(--link); }
 .raw-fields { font-family: var(--font-mono); font-size: var(--text-1); white-space: pre-wrap; word-break: break-word; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2); padding: var(--space-4); max-height: 20rem; overflow: auto; }
 .raw-fields-details summary { cursor: pointer; font-weight: 600; }
 
+/* ---------- 9.1 Record pages as URL tabs (2026-10-23, lane record-tabs; docs/30 §11.5, §11.8) ----------
+   A project, a plant, pipeline or line, and a grid connection point: one header on every tab (breadcrumb,
+   name with its status chip or type badge, who is behind it, key figures, the one primary action, the
+   tier notice), then the tab bar, the tab, and its credits line. App-screen rules of the taste skill
+   (references/app-screens.md): the title is 23-28px, key figures are type (a small grey label over the
+   value), colour sits on data, status and the one primary action, and nothing here adds a treatment
+   the skill bans (its lint and inspector pass this section with no new finding).
+   Scoped to `.record-page`, so no other page changes. Below 720px the action is a full-width 44px
+   button under the header and the tab bar scrolls sideways inside itself (it takes the section bar's
+   row class, so site.js brings the current tab into view and fades a cut edge). */
+.record-page [id] { scroll-margin-top: calc(var(--top-bar-h, 3rem) + var(--space-4)); }
+.record-header {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-6);
+  align-items: start; padding-top: var(--space-4);
+}
+.record-header > * { grid-column: 1 / -1; }
+.record-header .breadcrumbs { margin: 0 0 var(--space-2); }
+.record-header > .detail-header { grid-column: 1; gap: var(--space-2) var(--space-3); }
+.record-header .detail-header h1 { font-size: var(--text-5); line-height: 1.2; overflow-wrap: anywhere; }
+.record-header__chip { display: inline-flex; align-items: center; min-height: 1.5rem; text-decoration: none; border-radius: var(--radius-1); }
+.record-header__chip:hover .chip__label, .record-header__chip:focus-visible .chip__label { text-decoration: underline; }
+.record-header__badge { font-size: var(--text-1); color: var(--text-muted); }
+.record-header__action { grid-column: 2; grid-row: 2; align-self: center; margin: 0; }
+.record-action {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 2.5rem;
+  padding: 0 var(--space-5); border-radius: var(--radius-2); white-space: nowrap;
+  background: var(--text); color: var(--bg); font-weight: 600; text-decoration: none;
+}
+.record-action:hover, .record-action:focus-visible { background: var(--link); color: var(--surface); }
+.record-company__source { font-size: var(--text-1); color: var(--text-muted); margin-inline-start: var(--space-1); }
+/* Key figures: a small grey label over the value; the label is the glossary link where it is a term. */
+.record-facts { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); margin: var(--space-4) 0 0; }
+.record-facts div { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.record-facts dt { font-size: var(--text-1); color: var(--text-muted); }
+.record-facts dt a, .record-facts dd a {
+  display: inline-flex; align-items: center; min-height: 1.5rem; /* SC 2.5.8: 24px targets */
+  color: inherit; text-decoration: underline dotted; text-underline-offset: 0.2em;
+}
+.record-facts dt a:hover, .record-facts dt a:focus-visible, .record-facts dd a:hover { color: var(--link); }
+.record-facts dd { margin: 0; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.record-header .delayed-notice { margin: var(--space-4) 0 0; }
+.record-page .stamp-label { font-family: var(--font-body); font-size: var(--text-1); font-weight: 600; text-transform: none; letter-spacing: 0; }
+/* The tab bar: plain links, the current one in ink at 600 with a 2px mark under it; no rule across. */
+.record-tabs { margin: var(--space-5) 0 var(--space-5); }
+.record-tabs__items { gap: var(--space-6); }
+.record-tabs__items a { min-height: 2.75rem; }
+.record-tabs__count { margin-inline-start: var(--space-1); color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+/* The Overview's summaries of the other tabs: two columns from 1080px, each its own heading. */
+.record-summaries { display: grid; gap: var(--space-7); margin: var(--space-7) 0 0; }
+@media (min-width: 1080px) { .record-summaries { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.record-summary { margin: var(--space-7) 0 0; min-width: 0; }
+.record-summaries .record-summary { margin: 0; }
+.record-summary__title { font-size: var(--text-4); margin: 0 0 var(--space-3); }
+.record-summary__more { margin: var(--space-3) 0 0; }
+.record-summary__more a { font-weight: 600; }
+.record-summary__empty { color: var(--text-muted); margin: 0; }
+.record-summary__facts { display: grid; gap: var(--space-2); margin: 0; }
+.record-summary__facts div { display: flex; justify-content: space-between; gap: var(--space-4); }
+.record-summary__facts dt { color: var(--text-muted); }
+.record-summary__facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.record-summary__list { list-style: none; margin: 0; padding: 0; }
+.record-summary__list li { padding: var(--space-1) 0; overflow-wrap: anywhere; }
+.record-summary__list .meta { font-size: var(--text-1); color: var(--text-muted); margin-inline-start: var(--space-1); }
+/* Explanations on demand (declutter, 2026-10-23): "About this", "Record maintenance", attributes. */
+.record-disclosure { margin: var(--space-5) 0; }
+.record-disclosure > summary { cursor: pointer; color: var(--link); font-weight: 600; min-height: 1.5rem; }
+.record-disclosure > p { max-width: 72ch; margin: var(--space-3) 0 0; }
+.record-map { margin: var(--space-7) 0 0; }
+/* A tab whose list is narrow keeps its notes or its map beside it from 1080px, so no half screen is empty. */
+.record-split { display: grid; gap: var(--space-6) var(--space-8); }
+.record-split > * { min-width: 0; }
+.record-split .record-map, .record-split__aside > .record-disclosure:first-child { margin-top: 0; }
+@media (min-width: 1080px) { .record-split { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; } }
+.record-attributes { margin-top: var(--space-7); }
+.record-absent { margin: var(--space-6) 0; font-size: var(--text-3); }
+.record-foot { margin-top: var(--space-8); }
+.record-credits { max-width: 80ch; }
+.record-foot__report { margin: var(--space-3) 0 0; font-size: var(--text-1); }
+.record-page .timeline__mark { margin-inline-end: var(--space-1); font-weight: 600; color: var(--family-progress-text); }
+.record-basis { list-style: none; margin: var(--space-3) 0 0; padding: 0; max-width: 80ch; }
+.record-basis li + li { margin-top: var(--space-1); }
+.record-basis__source { font-size: var(--text-1); color: var(--text-muted); margin-inline-start: var(--space-1); }
+/* Shared idioms as they read on a record page, under the skill's bans: sentence-case badges, dates in the
+   text face with tabular figures, and the Sources panel without the rules above and below it. */
+.record-page .reuse-badge, .record-page .provenance-panel__licence { text-transform: none; letter-spacing: 0; }
+.record-page .timeline time { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.record-page .provenance-panel { border-block: 0; padding-top: 0; margin-top: 0; }
+.record-page .provenance-panel__name::before { font-family: var(--font-body); }
+.record-page .maplibregl-map, .record-page .maplibregl-ctrl { font-family: var(--font-body); }
+.record-page .report-problem .field label {
+  font-family: var(--font-body); font-size: var(--text-2); text-transform: none; letter-spacing: 0;
+}
+@media (max-width: 719px) {
+  .record-header { grid-template-columns: minmax(0, 1fr); }
+  .record-header .detail-header h1 { font-size: var(--text-4); }
+  .record-header__action { grid-column: 1; grid-row: auto; margin-top: var(--space-4); }
+  .record-action { display: flex; width: 100%; min-height: 2.75rem; }
+  .record-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); }
+  .record-tabs { margin: var(--space-4) calc(-1 * var(--space-4)) var(--space-4); padding: 0 var(--space-4); }
+  .record-summaries, .record-summary { margin-top: var(--space-6); }
+}
+/* ---------- end 9.1 Record pages as URL tabs ---------- */
+
 /* ---------- 10. About page ---------- */
 .source-table td, .source-table th { vertical-align: top; }
-.reuse-badge { font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.reuse-badge { font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted); }
 
 /* ---------- 11. Auth forms (Sprint 3 "login and registration surface") ----------
    Bordered inputs and a filled primary button, unlike the filter bar's underline-only strip
@@ -1399,7 +1515,7 @@ a.button-secondary:visited { color: var(--link); }
 }
 .field { display: flex; flex-direction: column; gap: var(--space-1); }
 .field label {
-  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.05em;
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
   color: var(--text-muted);
 }
 .field input {
@@ -1508,6 +1624,9 @@ a.button-secondary:visited { color: var(--link); }
    carried by the status chip's words and icon and by the action's own label ("Resume", not a
    colour), never by colour alone (SC 1.4.1). Buttons are at least 2.25rem tall (SC 2.5.8). */
 .save-alert { margin: 0 0 var(--space-3); font-size: var(--text-2); }
+/* SC 2.5.8: at least 24px tall. Set in Geist the link's box is 21px, and at 390px on /proposals its
+   neighbours sat close enough that axe flagged it (brand lane, 2026-10-23). */
+.save-alert > a { display: inline-flex; align-items: center; min-height: 1.5rem; }
 .save-alert__hint { color: var(--text-muted); font-size: var(--text-1); }
 .alert-plan { max-width: 72ch; color: var(--text); }
 .alert-toolbar {
@@ -1529,7 +1648,7 @@ a.button-secondary:visited { color: var(--link); }
   margin: var(--space-2) 0; padding: 0;
 }
 .alert-card__filters dt {
-  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.05em;
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
   color: var(--text-muted);
 }
 .alert-card__filters dd { margin: 0; overflow-wrap: anywhere; }
@@ -1538,23 +1657,23 @@ a.button-secondary:visited { color: var(--link); }
 .alert-section-heading { font-size: var(--text-4); margin: var(--space-5) 0 var(--space-2); }
 .button-secondary {
   font: inherit; font-size: var(--text-2); padding: var(--space-1) var(--space-4); min-height: 2.25rem;
-  border-radius: var(--radius-2); border: 1px solid var(--link); background: transparent; color: var(--link);
+  border-radius: var(--radius-2); border: 0; background: var(--secondary); color: var(--secondary-ink);
   cursor: pointer;
 }
-.button-secondary:hover { background: var(--link); color: var(--surface); }
+.button-secondary:hover { background: var(--border); }
 .button-secondary:focus-visible, .button-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.button-secondary--danger { border-color: var(--family-danger-text); color: var(--family-danger-text); }
+.button-secondary--danger { background: var(--family-danger-fill); color: var(--family-danger-text); }
 .button-secondary--danger:hover { background: var(--family-danger-text); color: var(--surface); }
 .button-link {
   display: inline-flex; align-items: center; min-height: 2.5rem; padding: var(--space-2) var(--space-5);
-  border-radius: var(--radius-2); border: 1px solid var(--link); background: var(--link); color: var(--surface);
+  border-radius: var(--radius-2); border: 0; background: var(--primary); color: var(--primary-ink);
   text-decoration: none; font-weight: 600;
 }
-.button-link:visited { color: var(--surface); }
-.button-link--secondary, .button-link--secondary:visited { background: transparent; color: var(--link); }
+.button-link:visited { color: var(--primary-ink); }
+.button-link--secondary, .button-link--secondary:visited { background: var(--secondary); color: var(--secondary-ink); }
 .field--choices { border: none; margin: 0; padding: 0; gap: var(--space-2); }
 .field--choices legend {
-  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.05em;
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
   color: var(--text-muted); padding: 0; margin-bottom: var(--space-1);
 }
 .field--choices label {
@@ -1732,7 +1851,7 @@ a.button-secondary:visited { color: var(--link); }
   display: block; width: 100%; box-sizing: border-box; min-height: 2.25rem; margin: 0;
   padding: 0 2.25rem 0 2rem; font: inherit; font-size: var(--text-2); color: var(--text);
   background: var(--surface); border: 1px solid var(--text-muted); border-radius: var(--radius-2);
-  box-shadow: var(--shadow-1); -webkit-appearance: none; appearance: none;
+  -webkit-appearance: none; appearance: none;
 }
 .map-search__input::placeholder { color: var(--text-muted); opacity: 1; }
 /* The browser's own clear mark would sit beside the one drawn here. */
@@ -1749,31 +1868,32 @@ a.button-secondary:visited { color: var(--link); }
   position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 6;
   width: max(100%, 22rem); max-width: calc(100vw - 2 * var(--space-4)); box-sizing: border-box;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-float);
 }
 /* Clipped to itself and its shadow: headless Chromium painted a copy of a scrolling panel's
    background below it, as it did for the compact key the panel replaced. */
 .map-search__list {
   max-height: min(60vh, 28rem); overflow-y: auto; padding: var(--space-1) 0;
-  clip-path: inset(-3px -3px -4px -3px round var(--radius-2));
+  clip-path: inset(-24px -24px -32px -24px round var(--radius-2));
 }
 .map-search__empty { margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-1); color: var(--text); }
-.map-search__group + .map-search__group { border-top: 1px solid var(--border); }
-.map-search__group-name {
-  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--text-muted); padding: var(--space-2) var(--space-3) var(--space-1);
-}
+/* One list, no group headings (lane stacked-lists, 2026-10-24): each row names its kind in words at its
+   right end, in the same place on every row, so places, companies and projects never stack as lists. */
 .map-search__option {
   display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 2.75rem;
   padding: var(--space-1) var(--space-3); cursor: pointer;
 }
-.map-search__option:hover, .map-search__option.is-active { background: var(--bg); }
-.map-search__option.is-active { box-shadow: inset 3px 0 0 var(--link); }
-.map-search__label { color: var(--text); font-weight: 600; font-size: var(--text-2); }
+.map-search__option + .map-search__option { border-top: 1px solid var(--rule); }
+.map-search__option:hover { background: var(--bg); }
+.map-search__option.is-active { background: var(--active); }
+.map-search__top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.map-search__label { color: var(--text); font-weight: 600; font-size: var(--text-2); min-width: 0; }
+.map-search__kind {
+  flex: none; font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted);
+}
 .map-search__detail { color: var(--text-muted); font-size: var(--text-1); }
 .map-search__detail .chip { padding: 0 var(--space-1); margin-inline-end: var(--space-1); }
 .map-overlay .map-controls { margin: 0; pointer-events: auto; }
-.map-overlay .map-controls button { box-shadow: var(--shadow-1); }
 /* The rail's "Key" (below 720px; docs/17 M-1): it opens the panel's Key tab under the map. */
 .map-controls--key button { padding: 0 var(--space-3); font-size: var(--text-1); }
 .map-controls--key button[aria-expanded="true"] { border-color: var(--text); font-weight: 600; }
@@ -1792,7 +1912,9 @@ a.button-secondary:visited { color: var(--link); }
 /* What is in view, and the key, keep their place in the map frame's flow below 720px (8.3). */
 @media (max-width: 719px) {
   #map { height: 58vh; min-height: 18rem; }
-  .map-intro__title { font-size: var(--text-4); }
+  /* 19.2px: the map's ten-word title holds two lines from 360px in Geist, which sets wider than Newsreader
+     did at 23px (three lines at 390; taste skill: a headline is two lines or fewer). */
+  .map-intro__title { font-size: var(--text-3); }
   .map-status { gap: var(--space-1) var(--space-3); }
   .map-status #map-notice { flex-basis: 100%; }
 }
@@ -1835,7 +1957,7 @@ a.button-secondary:visited { color: var(--link); }
     position: absolute; top: 0; right: calc(100% + var(--space-2));
     flex-direction: column; flex-wrap: nowrap; gap: 0; width: max-content; padding: var(--space-1) 0;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
-    box-shadow: var(--shadow-1);
+    box-shadow: var(--shadow-float);
   }
   .map-overlay .map-controls--regions button {
     min-height: 2.75rem; width: 100%; padding: 0 var(--space-4); text-align: left; font-size: var(--text-2);
@@ -1956,7 +2078,7 @@ a.button-secondary:visited { color: var(--link); }
 .results-bar .result-count { margin-bottom: var(--space-3); }
 .view-switch { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-2); }
 .view-switch__label {
-  font-family: var(--font-mono); font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.05em;
+  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
   color: var(--text-muted); margin-inline-end: var(--space-1);
 }
 .view-switch__link {
@@ -2041,7 +2163,7 @@ a.button-secondary:visited { color: var(--link); }
 .sf-key {
   position: absolute; left: var(--space-3); bottom: var(--space-5); z-index: 3; max-width: 15rem;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
-  box-shadow: var(--shadow-1); font-size: var(--text-1); color: var(--text);
+  font-size: var(--text-1); color: var(--text);
 }
 .sf-key > summary { cursor: pointer; padding: var(--space-1) var(--space-3); font-weight: 600; min-height: 2rem; display: flex; align-items: center; }
 .sf-key__list { list-style: none; margin: 0; padding: 0 var(--space-3) var(--space-2); }
@@ -2057,8 +2179,9 @@ a.button-secondary:visited { color: var(--link); }
 /* The class's usual nominal voltages, beside its exact range. */
 .sf-key__eg { color: var(--text-muted); }
 .sf-key__substation {
-  flex: none; width: 0.6rem; height: 0.6rem; margin: 0 0.45rem; border-radius: 50%;
-  background: var(--sf-kv-230); box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 2.5px var(--border);
+  flex: none; box-sizing: content-box; width: 0.6rem; height: 0.6rem; margin: 0 calc(0.45rem - 2.5px);
+  border-radius: 50%; border: 1.5px solid var(--surface); outline: 1px solid var(--border);
+  background: var(--sf-kv-230);
 }
 .sf-swatch {
   display: inline-block; width: 0.75rem; height: 0.2rem; margin-inline-end: var(--space-1); vertical-align: middle;
@@ -2123,7 +2246,7 @@ a.button-secondary:visited { color: var(--link); }
   .sf-range input[type="range"] { min-height: 2.75rem; }
   .sf-flags label { min-height: 2.75rem; }
   /* The key does not cover a phone's map: a closed disclosure under it. */
-  .sf-key { position: static; max-width: none; margin-top: var(--space-2); box-shadow: none; order: 1; }
+  .sf-key { position: static; max-width: none; margin-top: var(--space-2); order: 1; }
   .sf-key > summary { min-height: 2.75rem; }
   .sf-key__list { columns: 2; column-gap: var(--space-4); }
   .sf-key__list li { break-inside: avoid; }
@@ -2317,7 +2440,7 @@ html { scroll-padding-top: var(--top-bar-h); }
   position: relative; max-width: 1440px; margin: 0 auto; padding: 0 var(--space-5);
   min-height: calc(var(--top-bar-h) - 1px); display: flex; align-items: stretch; gap: var(--space-6);
 }
-.top-bar .wordmark { display: block; align-self: center; flex: none; line-height: 1; font-size: var(--text-4); }
+.top-bar .wordmark { display: flex; align-items: baseline; gap: 0; align-self: center; flex: none; line-height: 1; font-size: var(--text-4); }
 .top-bar__sections { display: flex; align-items: stretch; gap: var(--space-5); }
 .top-bar__utils { margin-inline-start: auto; display: flex; align-items: center; gap: var(--space-5); }
 .top-bar__sections a, .top-bar__link {
@@ -2330,7 +2453,8 @@ html { scroll-padding-top: var(--top-bar-h); }
 .top-bar__sections a[aria-current], .top-bar__link[aria-current] { font-weight: 600; border-bottom-color: currentColor; }
 
 /* Search: a 360px field from 1080px, the width its whole placeholder needs in either face. Its text is
-   265px in IBM Plex Sans 16px and 289px in "IBM Plex Sans Fallback" (Liberation Sans or Arial, size-adjusted),
+   264px in Geist 16px and 281px in "Geist Fallback" (brand lane, 2026-10-23; it was 265 and 289px in IBM Plex
+   Sans and its fallback). The fallback is Liberation Sans or Arial, size-adjusted,
    which a slow first visit keeps for the whole view because the regular Latin face is `optional`; the field
    gives text all but its 12px left padding and the 40px magnifier. 240px (planned in docs/30 §11.2 for
    1080-1279px) showed about 70% of it, 320px lost "ID...", and 336px fitted Plex but cut the fallback by 7px
@@ -2579,3 +2703,269 @@ html { scroll-padding-top: var(--top-bar-h); }
   .rfp-empty { padding: var(--space-6) var(--space-4); }
   .rfp-empty__lead { font-size: var(--text-2); font-weight: 600; }
 }
+
+/* ==========================================================================================================
+   Lane V7, Navigation v2 (docs/30 §11.4, §11.10, 2026-10-23): Search, About, Sources & licences, the three
+   Coverage & methodology tabs, and the Glossary. Every rule reaches only these pages' own classes
+   (.search-*, .top-hit*, .ref-*, .about-*, .sources-*, .method-*, .state-def*, .gloss-*), on the site's
+   tokens, which the brand lane swaps. Taste-skill house rules: no tracked capitals, no monospace labels, no
+   hairlines outside tables and forms, no shadows at rest, no gradients, no glass; running text in the full
+   ink; nothing meant to be read under 13px. Phone first: one column at 360px, more from 560, 900 and 1080px.
+   ========================================================================================================== */
+
+/* Reference pages (About, Sources & licences, Coverage & methodology, Glossary): one left edge, a title
+   with one line under it, explanations behind a disclosure, sections apart by space alone. */
+.ref-page { padding-block: var(--space-6) var(--space-9); }
+.ref-page p, .ref-page li, .ref-page dd { color: var(--text); }
+.ref-head { margin-bottom: var(--space-8); }
+.ref-head h1 { margin: 0 0 var(--space-2); }
+.ref-head__lede { font-size: var(--text-3); line-height: 1.45; margin: 0; max-width: 50rem; }
+.ref-about { margin-top: var(--space-2); max-width: 75ch; }
+.ref-about > summary { cursor: pointer; color: var(--link); padding-block: var(--space-2); width: fit-content; }
+.ref-about > p { margin: 0 0 var(--space-3); }
+.ref-page h2 { font-size: var(--text-5); margin: 0 0 var(--space-4); }
+.ref-page h3 { font-size: var(--text-3); margin: var(--space-7) 0 var(--space-2); }
+.ref-page section + section, .ref-page .gloss-group + .gloss-group { margin-top: clamp(3rem, 7vw, 6rem); }
+.ref-page .record-table th, .ref-page .record-table td::before { font-size: 0.8125rem; }
+.ref-page .record-table td { vertical-align: top; }
+.ref-index ul {
+  display: flex; flex-wrap: wrap; gap: 0 var(--space-5);
+  list-style: none; margin: 0 0 var(--space-8); padding: 0;
+}
+.ref-index a { display: inline-block; padding-block: var(--space-2); }
+/* The landed-on entry or row of an anchor link stands out by a step in tone, never a line. */
+.ref-page :target { background: var(--surface); border-radius: var(--radius-3); }
+
+/* Coverage & methodology's URL tabs: plain links; the current one carries weight and a 2px rule. One row
+   at every width, as the search tabs are: on a phone narrower than the three labels the row scrolls
+   sideways inside itself rather than leave one tab alone on a second line. */
+.ref-tabs ul {
+  display: flex; flex-wrap: nowrap; gap: 0 var(--space-5); list-style: none; margin: var(--space-5) 0 0; padding: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+@media (max-width: 479px) { .ref-tabs ul { gap: 0 var(--space-4); } }
+.ref-tabs a {
+  display: inline-flex; align-items: center; min-height: 2.75rem; white-space: nowrap;
+  color: var(--text); text-decoration: none; border-bottom: 2px solid transparent;
+}
+.ref-tabs a:hover, .ref-tabs a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.ref-tabs a[aria-current="page"] { font-weight: 600; border-bottom-color: var(--text); }
+.ref-tabs a[aria-current="page"]:hover { color: var(--text); }
+
+/* About: a title set large, the reach of the register as one field of tone with a figure per region (each a
+   link to its table on /about/sources), then labelled rows. */
+.about-head h1 { font-size: clamp(2.5rem, 4.8vw, 4.5rem); line-height: 1.02; letter-spacing: -0.02em; }
+.about-reach {
+  background: var(--surface); border-radius: var(--radius-3);
+  padding: var(--space-6) clamp(var(--space-4), 3vw, var(--space-6));
+}
+.about-reach h2 { margin-bottom: var(--space-5); }
+/* Two regions to a row from a 360px phone, four across a desktop. */
+.about-reach__list {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  gap: var(--space-6) var(--space-7); margin: 0;
+}
+.about-reach__list { list-style: none; padding: 0; }
+.about-reach__item { display: grid; gap: var(--space-1); align-content: start; }
+.about-reach__figure, .about-reach__figure:visited { color: var(--text); text-underline-offset: 0.2em; }
+.about-reach__figure:hover { color: var(--link); }
+.about-reach__figure .tnum {
+  font-family: var(--font-display); font-size: clamp(2.25rem, 3.6vw, 3rem); line-height: 1.1; font-weight: 600;
+}
+.about-reach__name { font-weight: 600; }
+.about-reach__kinds { color: var(--text-muted); font-size: 0.875rem; }
+.ref-page .about-reach__kinds { color: var(--text-muted); }
+/* From 1080px the title and the reach share the first screen: the figures sit beside the words. */
+@media (min-width: 1080px) {
+  .about-intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-8); align-items: start; }
+  .about-intro .ref-head { margin-bottom: 0; }
+  .about-intro .about-reach__list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.about-intro + section { margin-top: clamp(3rem, 7vw, 6rem); }
+.about-links { margin: var(--space-6) 0 0; }
+.about-do__list { margin: 0; }
+.about-do__list > div {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); padding-block: var(--space-3);
+}
+.about-do__list dt { font-weight: 600; }
+.about-do__list dd { margin: 0; max-width: 75ch; }
+.about-tiers p, .about-who p { max-width: 75ch; }
+@media (min-width: 560px) {
+  .about-do__list > div { grid-template-columns: 10rem minmax(0, 1fr); gap: var(--space-5); }
+}
+
+/* Sources & licences: real tables (their lines are allowed), the register's operator and id under its name. */
+.sources-table__sub { display: block; color: var(--text-muted); font-size: 0.875rem; }
+.sources-table__id { display: block; color: var(--text-muted); font-size: 0.8125rem; overflow-wrap: anywhere; }
+.sources-table__none { color: var(--text-muted); }
+/* Below 720px a record-table cell is one row, its label then its value (`.record-table td`, display:flex).
+   The Register and Licence cells hold several lines (name, operator, id; class, use, terms), so there the
+   label sits above them and they stack, rather than squeeze side by side and break the id mid-word. */
+@media (max-width: 719px) {
+  .sources-table td.sources-table__stack { flex-direction: column; justify-content: flex-start; gap: 2px; }
+}
+.sources-withheld { margin-top: var(--space-4); }
+.sources-withheld > summary { cursor: pointer; color: var(--link); padding-block: var(--space-2); width: fit-content; }
+.sources-withheld ul { columns: 18rem 3; column-gap: var(--space-7); margin: var(--space-2) 0; padding-left: var(--space-5); }
+.sources-withheld li { break-inside: avoid; padding-block: var(--space-1); }
+/* One column grid for every region's table, so the columns line up down the page. */
+@media (min-width: 720px) {
+  .sources-table { table-layout: fixed; }
+  .sources-table th:nth-child(1) { width: 34%; }
+  .sources-table th:nth-child(2) { width: 18%; }
+  .sources-table th:nth-child(3) { width: 15%; }
+  .sources-table th:nth-child(5) { width: 9%; }
+}
+
+/* Coverage & methodology. Status definitions sit two to a row from 1080px: definitions, not cards. */
+.method-lede, .method-notes { max-width: 75ch; }
+.method-after { margin-top: var(--space-4); }
+.method-notes { padding-left: var(--space-5); }
+.method-notes li + li { margin-top: var(--space-2); }
+.ref-page .method-muted, .method-muted { color: var(--text-muted); }
+.method-elsewhere__cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6) var(--space-8); }
+.ref-page .method-elsewhere__cols h3 { margin-top: 0; }
+.method-elsewhere__cols p { margin: 0 0 var(--space-2); }
+.method-elsewhere__list { list-style: none; margin: 0; padding: 0; }
+.method-elsewhere__list li { padding: var(--space-2) var(--space-2) var(--space-2) 0; }
+.ref-page h3.state-group { font-size: var(--text-4); margin-top: var(--space-9); }
+@media (min-width: 900px) {
+  .method-elsewhere__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .method-notes { max-width: none; columns: 2 26rem; column-gap: var(--space-8); }
+  .method-notes li { break-inside: avoid; }
+}
+.state-defs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-7) var(--space-8); }
+.state-def { scroll-margin-top: calc(var(--top-bar-h) + var(--space-4)); }
+.state-def h4 { font-family: var(--font-display); font-size: var(--text-3); margin: 0 0 var(--space-1); }
+.state-def p { margin: 0 0 var(--space-2); max-width: 75ch; }
+.ref-page .state-def__count { color: var(--text-muted); }
+.state-def__maps > summary { cursor: pointer; color: var(--link); padding-block: var(--space-1); width: fit-content; }
+.state-def__maps ul { padding-left: var(--space-5); }
+.coverage-note p { max-width: 75ch; }
+@media (min-width: 1080px) { .state-defs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Glossary: a ledger. One column on a phone; from 900px the term, what it means, and why it matters with
+   its links, side by side on one row, so the page uses its width and a term is read across. */
+.gloss-group h2 { margin-bottom: var(--space-2); }
+.gloss-entry {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2);
+  padding-block: var(--space-5); scroll-margin-top: calc(var(--top-bar-h) + var(--space-4));
+}
+.ref-page .gloss-entry__term { font-size: var(--text-3); margin: 0; }
+.gloss-entry__means, .gloss-entry__more p { margin: 0; }
+.gloss-entry__more { display: grid; gap: var(--space-2); }
+.gloss-entry:target { padding-inline-start: var(--space-3); }
+@media (min-width: 900px) {
+  .gloss-entry {
+    grid-template-columns: minmax(10rem, 15rem) minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: var(--space-7); align-items: start;
+  }
+}
+
+/* Search (an app screen: docs/30 §11.4; lane stacked-lists, 2026-10-24): the field, then one kind at a
+   time. Every kind with its count in a rail at the left from 900px (a row of chips that scrolls inside
+   itself below), the open kind's rows at the right in the record lists' table, under a head that names
+   the kind and its count and stays in view under the top bar while the rows scroll (owner: "maybe the
+   title follows along with the information below it"). No kinds stacked under one another. */
+.search-page { padding-block: var(--space-5) var(--space-9); }
+.search-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); margin-bottom: var(--space-5); }
+.search-head h1 { font-size: var(--text-4); margin: 0; }
+.search-form { display: flex; flex: 1 1 20rem; min-width: 0; max-width: 42rem; gap: var(--space-2); }
+.search-form input {
+  flex: 1; min-width: 0; min-height: 2.75rem; padding: 0 var(--space-3); font: inherit;
+  color: var(--text); background: var(--surface); border: 1px solid var(--control); border-radius: var(--radius-2);
+}
+.search-form input::placeholder { color: var(--text-muted); }
+.search-form input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.search-form button {
+  min-height: 2.75rem; padding: 0 var(--space-5); font: inherit; font-weight: 600; cursor: pointer;
+  color: var(--text); background: var(--family-neutral-fill); border: 0; border-radius: var(--radius-2);
+}
+.search-form button:hover { background: var(--border); }
+.search-hint { margin: 0; max-width: 60ch; }
+/* A focused row link scrolled into view clears the top bar, the list's head and the column heads
+   (SC 2.4.11). */
+html:has(.search-list) { scroll-padding-top: calc(var(--top-bar-h) + 6.5rem); }
+
+.search-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 var(--space-8); align-items: start; }
+/* Below 900px the kinds are chips that wrap, never a row that scrolls: every kind and its count stays
+   in sight, so a reader on a phone sees that the RFP exists before choosing (a scrolled row hid the
+   last kinds at 390px), and there is no scrolling box to reach from the keyboard. */
+.search-kinds ul {
+  display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; margin: 0 0 var(--space-5); padding: 0;
+}
+.search-kinds li > a, .search-kinds__none {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  min-height: 2.5rem; padding: 0 var(--space-3); border-radius: var(--radius-2);
+  color: var(--text); text-decoration: none; white-space: nowrap;
+}
+.search-kinds__none { padding-inline: var(--space-2); }
+.search-kinds li > a { background: var(--surface); border: 1px solid var(--border); }
+.search-kinds li > a:hover { text-decoration: underline; }
+.search-kinds li > a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* The open kind: the grey of a selected item, its edge in ink. The ink fill stays the one primary action's. */
+.search-kinds a[aria-current="page"] { background: var(--active); border-color: var(--text); font-weight: 600; }
+.search-kinds a[aria-current="page"] .search-kinds__n { color: var(--text); }
+/* A kind with no match is a word and a zero, not a link to an empty list. */
+.search-kinds__none { color: var(--text-muted); }
+.search-kinds__n { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.search-kinds__help { display: none; font-size: 0.875rem; color: var(--text-muted); margin: var(--space-5) var(--space-3) 0; }
+.search-kinds__help--foot { display: block; margin: var(--space-6) 0 0; }
+@media (min-width: 900px) {
+  .search-layout { grid-template-columns: 13.5rem minmax(0, 1fr); }
+  .search-kinds { position: sticky; top: calc(var(--top-bar-h) + var(--space-4)); }
+  .search-kinds ul { display: block; margin: 0; }
+  .search-kinds li + li { margin-top: 2px; }
+  .search-kinds li > a, .search-kinds__none { min-height: 2.75rem; padding-inline: var(--space-3); }
+  .search-kinds li > a { background: none; border-color: transparent; }
+  .search-kinds li > a:hover { background: var(--surface); }
+  /* In the rail the open kind is the selected row of a list: the grey of a selected nav item, no edge. */
+  .search-kinds a[aria-current="page"] { background: var(--active); border-color: transparent; }
+  .search-kinds__help { display: block; }
+  .search-kinds__help--foot { display: none; }
+  /* A table of five columns runs to about 960px, not the canvas: no void between a name and its figures. */
+  .search-list:has(.search-table--companies, .search-table--infrastructure) { max-width: 60rem; }
+}
+
+.top-hit {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-4);
+  background: var(--surface); border-radius: var(--radius-3); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-6);
+}
+.top-hit__name { font-size: var(--text-3); margin: 0; }
+.top-hit__kind { font-size: var(--text-label); font-weight: 500; color: var(--text-muted); margin-inline-end: var(--space-2); }
+.top-hit__name a { color: var(--text); text-decoration: none; }
+.top-hit__name a:hover { color: var(--link); text-decoration: underline; }
+.top-hit__meta { color: var(--text-muted); margin: var(--space-1) 0 0; }
+.top-hit__figures { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); margin: var(--space-3) 0 0; }
+.top-hit__figures dt { color: var(--text-muted); font-size: 0.8125rem; }
+.top-hit__figures dd { margin: 0; font-size: var(--text-3); font-variant-numeric: tabular-nums; }
+.top-hit__open, .top-hit__open:visited {
+  display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 var(--space-5);
+  color: var(--primary-ink); background: var(--primary); border-radius: var(--radius-2); font-weight: 600; text-decoration: none;
+}
+.top-hit__open:hover { background: var(--text); }
+
+/* The list's head: the kind, its count and its full list, held under the top bar while the rows pass. */
+.search-list__head {
+  position: sticky; top: var(--top-bar-h); z-index: 2; background: var(--bg);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) 0 var(--space-3);
+}
+.search-list__head h2 { font-size: var(--text-4); margin: 0; }
+.search-list__n { font-size: var(--text-2); font-weight: 400; color: var(--text-muted); margin-inline-start: var(--space-2); }
+.search-list__all { margin-inline-start: auto; }
+@media (max-width: 719px) { .search-list__head { border-bottom: 1px solid var(--border); } }
+.search-table { margin-bottom: var(--space-3); }
+.search-table th { position: static; }
+.search-table td.cell-title { overflow-wrap: anywhere; }
+@media (min-width: 720px) {
+  .search-list__head { min-height: 3.5rem; }
+  /* The column heads hold under the list's head. */
+  .search-table thead th { position: sticky; top: calc(var(--top-bar-h) + 3.5rem); z-index: 1; }
+  .search-table td { vertical-align: middle; }
+  .search-table td.cell-lead { width: 1%; white-space: nowrap; }
+  /* A register's short name and a place stay whole ("EIA-860M" never breaks at its hyphen). */
+  .search-table td:is([data-label="Source"], [data-label="Where"], [data-label="Due"]) { white-space: nowrap; }
+}
+.search-empty, .search-range { color: var(--text-muted); margin: 0 0 var(--space-2); }
+.search-none { color: var(--text); }

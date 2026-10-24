@@ -190,15 +190,19 @@ def test_company_index_says_where_names_come_from(client: TestClient) -> None:
 
 
 def test_search_sections_carry_credits_and_rows_link_their_source(client: TestClient) -> None:
-    html = client.get("/search?q=sizewell").text
-    lines = _credit_lines(html)
-    assert any(NESO_CREDIT in line for line in lines)
-    assert any("Publications Office of the EU" in line for line in lines)
-    assert any("EIA-860M" in line for line in lines)  # from the asset rows' provenance
-    assert 'href="https://example.org/register"' in html  # the row's own source link
-    assert "<h2>Companies</h2>" in html
-    assert "3,260 MW" in html  # one capacity format (UX-8)
-    assert "due 14 Nov 2026" in html  # docs/31 §4 date format (UX-8)
+    # One kind at a time (lane stacked-lists): each kind's view credits the registers behind its rows.
+    views = {
+        kind: client.get("/search", params={"q": "sizewell", "type": kind}).text
+        for kind in ("projects", "infrastructure", "rfps")
+    }
+    assert any(NESO_CREDIT in line for line in _credit_lines(views["projects"]))
+    assert any("Publications Office of the EU" in line for line in _credit_lines(views["rfps"]))
+    # From the asset rows' provenance.
+    assert any("EIA-860M" in line for line in _credit_lines(views["infrastructure"]))
+    assert 'href="https://example.org/register"' in views["projects"]  # the row's own source link
+    assert 'id="search-list-title">Companies' in client.get("/search?q=sizewell").text  # a tie: companies
+    assert '3,260<span class="cell-unit"> MW</span>' in views["projects"]  # one capacity format (UX-8)
+    assert '<span class="cell-unit">due </span>14 Nov 2026' in views["rfps"]  # docs/31 §4 date format
 
 
 # ---- audit 2026-10-07 UX-2: a deadline the source has not caught up with, and an empty column ----

@@ -56,6 +56,23 @@ values). It is not in `FIELDS`, so it is never requested, never snapshotted and 
 (`CLAUDE.md` "store the minimum personal data"; docs/13 §5). `Current Status` is EPA's own public
 status note and can name the applicant company; it is published data on the dashboard and is kept.
 
+A company that is a person (2026-10-24, docs/28 lane F5). `Company Name` held 52 organisations and
+no person on 2026-10-24. Should the applicant ever be a natural person, `services.personal_names`
+reads the name as one and it is withheld: blanked in the stored snapshot (`redact`) and in the parsed
+row (`Company Name`, and the app's `Company Name: Project Name`, which then reads the project name), so
+it reaches neither `sponsor_name`, the `raw` payload nor the object store. The count is
+`meta.companies_withheld_as_persons`. A project without a GSDT id is identified by a hash that reads
+the company (`_record_id`), so it hashes the withheld company as blank, the same on every run; only a
+change to `services.personal_names` that flips the name's reading would give that project a new id
+(none of the 52 applicants reads as a person today).
+
+Production, 2026-10-24 (docs/28 lane F5). EPA's update of 10/9/2026 prefixes the phase with
+"Schedule Pending: " wherever its "Schedule Pending?" column is Yes. The two new values were
+unmapped on 19 of 68 rows, so every run since was held by the data-quality gate (vocabulary_unmapped,
+27.9 %) and nothing loaded. The fetch itself works (reproduced from the sandbox: 7 requests, 243
+hypercube rows). `status_map.yaml` maps both; the next run re-checks the held bytes under the new
+parser version and promotes them (runner docstring, "A hold stays held").
+
 Reuse: US federal government work, public domain (17 U.S.C. §105, under the EPA hedge recorded at
 docs/13 §2.12). `publication: raw_ok`.
 """
@@ -83,6 +100,7 @@ from pipeline.connectors.canonical import (
     norm_state,
     to_date,
 )
+from services.personal_names import is_personal_name
 
 PAGE_URL = "https://www.epa.gov/uic/current-class-vi-projects-under-review-epa"
 ENGINE_HOST = "awsedap.epa.gov"
@@ -378,18 +396,41 @@ class Connector(BaseConnector):
             raise ParseError(f"Class VI table layout changed: {sorted(rows[0])[:8]}")
 
         out: list[dict[str, Any]] = []
+        withheld = 0
         for row in rows:
             # The app's table is a spreadsheet export: the tail is blank padding rows.
             if not (row.get("Project Name") or "").strip():
                 continue
             project = {f: row.get(f) for f in CORE_FIELDS + MILESTONE_FIELDS}
+            # A snapshot stored before `redact` existed is read through the same rule.
+            withheld += _withhold_person(project)
             project["nods"] = _ladder(row, "NOD", NOD_ROUNDS)
             project["rais"] = _ladder(row, "RAI", RAI_ROUNDS)
             project["dashboard_url"] = payload.get("dashboard_url")
             out.append(project)
         if not out:
             raise ParseError(f"Class VI payload carried {len(rows)} rows but no project rows")
+        # This run's `redact` (the runner calls it, then `parse`), counted once.
+        raw.meta["companies_withheld_as_persons"] = withheld + int(
+            self.__dict__.pop("_redacted_companies", 0)
+        )
         return out
+
+    def redact(self, content: bytes) -> bytes:
+        """Blank a `Company Name` that reads as a person's name (module docstring) before the snapshot
+        is stored. Bytes untouched when there is none, or when they are not the tracker payload."""
+        self._redacted_companies = 0
+        try:
+            payload = json.loads(content.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return content
+        rows = payload.get("rows") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            return content
+        self._redacted_companies = sum(_withhold_person(row) for row in rows if isinstance(row, dict))
+        if not self._redacted_companies:
+            return content
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
         def g(key: str) -> list[Any]:
@@ -454,6 +495,18 @@ def _record_id(row: dict[str, Any]) -> str:
     return content_hash(
         row.get("Company Name"), row.get("Project Name"), row.get("State"), row.get("County/Parish/Tribe")
     )
+
+
+def _withhold_person(row: dict[str, Any]) -> int:
+    """Blank `Company Name` in place when it reads as a person's name (module docstring); 1 if it
+    did. The app's joined `Company Name: Project Name` then reads the project name alone."""
+    company = str(row.get("Company Name") or "").strip()
+    if not company or not is_personal_name(company):
+        return 0
+    row["Company Name"] = None
+    if "Company Name: Project Name" in row:
+        row["Company Name: Project Name"] = row.get("Project Name")
+    return 1
 
 
 def _cross_refs(row: dict[str, Any]) -> str:

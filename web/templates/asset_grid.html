@@ -1,0 +1,50 @@
+{#- A retired or retiring plant's Grid tab (docs/30 §11.5; lane R1): the grid fields the plant reported to
+    EIA-860, the transmission lines and the interconnection points named by queue requests nearby
+    (`GET /v1/assets/{id}/nearby-grid`), and whether the connection might be reused, behind a disclosure:
+    a possibility, never a claim about this site (web/retirement.py). -#}
+{% extends "base.html" %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name | readable_name }} · Grid — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: grid voltage, transmission owner, and the lines and connection points nearby.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<section class="record-tab retirement" aria-labelledby="tab-heading">
+  <h2 class="visually-hidden" id="tab-heading">Grid</h2>
+  {% if retirement.grid_rows %}
+  <dl class="field-grid">
+    {% for label, value in retirement.grid_rows %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+  </dl>
+  <p class="attribution-line">As the plant reported them to EIA-860{% if retirement.grid_year %} for {{ retirement.grid_year }}{% endif %} (Schedule 2).</p>
+  {% else %}
+  <p class="attribution-line">EIA-860 states no grid voltage or transmission owner for this plant: its annual file lists plants with a generator in the report year, so a plant that retired earlier is not in it.</p>
+  {% endif %}
+  {% if retirement.lines %}
+  <h3 class="retirement__subhead">Transmission lines within {{ '%.0f'|format(retirement.radius_km or 25) }}&nbsp;km</h3>
+  <p class="attribution-line">Lines FERC Form 1 filers own; not the whole grid.</p>
+  <ul class="in-view-list">
+    {% for line in retirement.lines %}
+    <li><a href="/assets/{{ line.slug }}">{{ line.name }}</a> <span class="meta tnum">{% if line.voltage_kv %}{{ '%.0f'|format(line.voltage_kv) }} kV &middot; {% endif %}{{ '%.1f'|format(line.distance_km) }} km</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if retirement.points %}
+  <h3 class="retirement__subhead">Connection points within {{ '%.0f'|format(retirement.radius_km or 25) }}&nbsp;km</h3>
+  <p class="attribution-line">Points named by queue requests near the plant.</p>
+  <ul class="in-view-list">
+    {% for p in retirement.points %}
+    <li><a href="/interconnection-points/{{ p.public_id }}">{{ p.name }}</a> <span class="meta tnum">{% if p.iso %}{{ p.iso }} &middot; {% endif %}{% if p.voltage_kv %}{{ '%.0f'|format(p.voltage_kv) }} kV &middot; {% endif %}{{ p.proposals_nearby }} request{{ 's' if p.proposals_nearby != 1 }} nearby, nearest {{ '%.1f'|format(p.nearest_proposal_km) }} km</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if retirement.reuse_note %}
+  <details class="record-disclosure">
+    <summary>Can the connection be reused?</summary>
+    <p class="field-note retirement__note">{{ retirement.reuse_note }}</p>
+  </details>
+  {% endif %}
+</section>
+{{ rt.foot(tabs, credits, record) }}
+</div>
+{% endblock %}

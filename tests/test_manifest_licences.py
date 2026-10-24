@@ -42,10 +42,6 @@ def test_the_fourteen_audit_sources_are_gated_in_the_manifest() -> None:
         "us.state.siting_boards",
         "us.state.puc_dockets",
         "us.utility_rfps",
-        "eu.entsoe.tyndp",
-        "in.seci_mnre.tenders",
-        "br.aneel.leiloes",
-        "za.ipp_office.reipppp",
         "mdb.others",
         "global.iea.demo_projects",
     ]
@@ -66,6 +62,17 @@ def test_the_fourteen_audit_sources_are_gated_in_the_manifest() -> None:
         assert (by_id[sid]["reuse"], by_id[sid]["publication"]) == (reuse, publication), sid
         assert "retrieved 2026-10-23" in by_id[sid]["license"], sid
     assert by_id["ca.ieso.connection_status"]["status"] == "pending"  # terms read, nothing built
+    # Four more read and quoted on 2026-10-24 (docs/07 §1.8): three restricted, ANEEL's ODbL
+    # open-attribution, published derived-only (share-alike is docs/07 §5 item 4).
+    read_2026_10_24 = {
+        "eu.entsoe.tyndp": ("restricted", "none"),
+        "in.seci_mnre.tenders": ("restricted", "none"),
+        "za.ipp_office.reipppp": ("restricted", "none"),
+        "br.aneel.leiloes": ("attribution", "derived_only"),
+    }
+    for sid, (reuse, publication) in read_2026_10_24.items():
+        assert (by_id[sid]["reuse"], by_id[sid]["publication"]) == (reuse, publication), sid
+        assert "retrieved 2026-10-24" in by_id[sid]["license"], sid
 
 
 def test_lbnl_queued_up_is_held_and_the_loader_loads_none_of_it() -> None:
@@ -310,8 +317,14 @@ def test_only_the_named_sources_are_noncommercial() -> None:
     2026-10-21: the four AEP operating companies' RFP pages (AEP Terms and Conditions, quoted in
     docs/28 §5 and `data/vendored/rfp_issuers/issuers.yaml`; register rows added from docs/28 §10).
     2026-10-22: SPP's hub prices (owner decision; SPP's grant excludes use "within a commercial
-    publication", docs/29 §2.4; the register row, docs/13 §6, moved first)."""
+    publication", docs/29 §2.4; the register row, docs/13 §6, moved first).
+    2026-10-24: NSTA's carbon storage licences (NSTA User Agreement: "exploit the Information
+    non-commercially", docs/07 §1.7; the register row moved first).
+    2026-10-24: SPP's interconnection queue (owner decision, the same clause as SPP's prices;
+    docs/07 §3.3)."""
     assert sorted(e["id"] for e in load_manifest(MANIFEST) if e.get("reuse") == "noncommercial") == [
+        "gb.nsta.carbon_storage_licences",
+        "us.iso.spp.gen_queue",
         "us.iso.spp.prices",
         "us.rfp.appalachian_power",
         "us.rfp.indiana_michigan_power",

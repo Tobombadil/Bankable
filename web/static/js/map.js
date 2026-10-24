@@ -87,7 +87,7 @@
   var PLANT_FAMILY_CLASSES = {
     solar: ["solar", "solar_storage", "solar_thermal"],
     wind: ["wind", "wind_offshore", "wind_storage"],
-    gas: ["gas_cc", "gas_ct", "gas_steam", "gas_ice", "gas_other", "fuel_cell", "hydrogen"],
+    gas: ["gas_cc", "gas_ct", "gas_steam", "gas_ice", "gas_other", "fuel_cell", "hydrogen", "lng_terminal", "gas_pipeline"],
     oil: ["oil"],
     coal: ["coal"],
     nuclear: ["nuclear"],
@@ -95,7 +95,7 @@
     storage: ["storage", "pumped_storage"],
     biomass: ["biomass", "waste"],
     geothermal: ["geothermal"],
-    other: ["other", "unknown", "load", "transmission"]
+    other: ["other", "unknown", "load", "transmission", "grid_equipment", "chp", "pipeline", "ccs"]
   };
   var PLANT_TECH_FAMILY = {};
   PLANT_FAMILY_ORDER.forEach(function (family) {
@@ -896,6 +896,16 @@
   var plantColors = plantFamilyColors();
   var assetColors = assetTypeColors();
   var mapColors = Basemap.mapColors();
+  // docs/31-brand-identity.md M-1 and M-2: the projects are the map's only saturated layer. A project in
+  // process is a filled disc in --dot (the one data hue), a contracted one a filled navy square, an
+  // announced one a hollow ring; existing infrastructure (plants, pipelines, lines, retired plants) draws
+  // faint beneath them, at 24% opacity on light and 32% on dark, so it is there on arrival and recedes.
+  // Faint marks, not faint words: its labels (cluster counts, names from zoom 7) draw at full strength,
+  // where every plant and asset colour clears 4.5:1 on --map-land (WCAG 2.2 SC 1.4.3 outranks M-2;
+  // web/test_brand.py blends each colour at this opacity over the land and checks it).
+  var dotColor = cssVar("--dot") || colors.progress;
+  var CTX_OPACITY = mapColors.flavor === "dark" ? 0.32 : 0.24;
+  var CTX_TEXT_OPACITY = 1;
   // ADR 0008 region features: a single hue (not a status-family colour, same reasoning as the
   // plant palette) so a highlighted region never reads as a lifecycle state.
   var regionColors = {
@@ -2516,8 +2526,7 @@
     if (family === "neutral") {
       ctx.lineWidth = 1.8; ctx.arc(6, 6, 4.3, 0, Math.PI * 2); ctx.stroke();
     } else if (family === "progress") {
-      ctx.lineWidth = 0.9; ctx.arc(6, 6, 4.3, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(6, 1.7); ctx.arc(6, 6, 4.3, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
+      ctx.arc(6, 6, 4.6, 0, Math.PI * 2); ctx.fill();
     } else if (family === "committed") {
       ctx.fillRect(2.2, 2.2, 7.6, 7.6);
     } else if (family === "success") {
@@ -2538,16 +2547,37 @@
     paint(ctx);
     return { image: ctx.getImageData(0, 0, size * ratio, size * ratio), ratio: ratio };
   }
+  // M-1: a project's own mark, on a 16px box. In process: a filled disc in --dot; contracted: a filled
+  // square in the committed (navy) colour; announced (neutral): a hollow ring with a 1.5px edge. Each
+  // carries a 1px edge of the land colour so overlapping marks stay apart. Built and withdrawn keep the
+  // chip (the family's pale fill, its ring and its glyph): they show only when a reader asks for them.
+  var MARKER_PX = 16;
+  function drawFamilyMarker(ctx, family, text, fill) {
+    var c = MARKER_PX / 2;
+    ctx.strokeStyle = mapColors.land;
+    if (family === "progress") {
+      ctx.beginPath(); ctx.arc(c, c, 5.6, 0, Math.PI * 2);
+      ctx.fillStyle = dotColor; ctx.fill();
+      ctx.lineWidth = 1; ctx.stroke();
+    } else if (family === "committed") {
+      ctx.fillStyle = text; ctx.fillRect(c - 4.6, c - 4.6, 9.2, 9.2);
+      ctx.lineWidth = 1; ctx.strokeRect(c - 4.6, c - 4.6, 9.2, 9.2);
+    } else if (family === "neutral") {
+      ctx.beginPath(); ctx.arc(c, c, 5, 0, Math.PI * 2);
+      ctx.fillStyle = mapColors.land; ctx.globalAlpha = 0.9; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.lineWidth = 1.5; ctx.strokeStyle = text; ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(c, c, 7.2, 0, Math.PI * 2);
+      ctx.fillStyle = fill; ctx.fill();
+      ctx.lineWidth = 1.4; ctx.strokeStyle = text; ctx.stroke();
+      drawFamilyGlyph(ctx, family, 0.85, c - 5.1, c - 5.1, text);
+    }
+  }
   function addFamilyImages() {
     FAMILIES.forEach(function (family) {
       var text = colors[family];
       var fill = cssVar("--family-" + family + "-fill") || mapColors.land;
-      var marker = familyImage(20, function (ctx) {
-        ctx.beginPath(); ctx.arc(10, 10, 8.6, 0, Math.PI * 2);
-        ctx.fillStyle = fill; ctx.fill();
-        ctx.lineWidth = 1.6; ctx.strokeStyle = text; ctx.stroke();
-        drawFamilyGlyph(ctx, family, 1.0, 4, 4, text);
-      });
+      var marker = familyImage(MARKER_PX, function (ctx) { drawFamilyMarker(ctx, family, text, fill); });
       map.addImage("family-marker-" + family, marker.image, { pixelRatio: marker.ratio });
       var glyph = familyImage(12, function (ctx) { drawFamilyGlyph(ctx, family, 1.0, 0, 0, text); });
       map.addImage("family-glyph-" + family, glyph.image, { pixelRatio: glyph.ratio });
@@ -2571,11 +2601,12 @@
     var isCluster = ["any", ["==", ["get", "feature_kind"], "asset_cluster"], ["==", ["get", "feature_kind"], "plant_cluster"]];
     var isPoint = ["all", ["==", ["geometry-type"], "Point"], ["!", isCluster]];
     var isLine = ["==", ["geometry-type"], "LineString"];
-    // Line width by zoom (docs/31 §1.6): hairline at the country view, a readable stroke once
-    // counties resolve; the casing beneath is the land colour so a pipeline stays legible over
-    // region fills and basemap roads.
-    var lineWidth = ["interpolate", ["linear"], ["zoom"], 3, 0.8, 6, 1.4, 9, 2.4, 12, 4];
-    var casingWidth = ["interpolate", ["linear"], ["zoom"], 3, 2.2, 6, 3.2, 9, 4.8, 12, 7];
+    // Line width by zoom (docs/31 §1.6; docs/31-brand-identity.md M-2): 0.75px at the country view,
+    // 1.5px once counties resolve, faint context under the projects; the casing beneath is the land
+    // colour, as faint, so a line keeps an edge over region fills and basemap roads.
+    var lineWidth = ["interpolate", ["linear"], ["zoom"], 3, 0.75, 8, 1, 11, 1.5];
+    var casingWidth = ["interpolate", ["linear"], ["zoom"], 3, 1.75, 8, 2.5, 11, 3.5];
+    var isPowerPlant = ["==", ["get", "asset_type"], "power_plant"];
 
     // Beneath the proposals layers (`addLayer(..., "clusters")`, task item 2): inserted right
     // above the basemap and below every proposals layer added further down.
@@ -2587,7 +2618,7 @@
         "circle-color": "rgba(0,0,0,0)",
         "circle-stroke-width": 1,
         "circle-stroke-color": ["get", "color"],
-        "circle-stroke-opacity": 0.6
+        "circle-stroke-opacity": CTX_OPACITY
       }
     }, "clusters");
     // "Noto Sans Medium", not "Bold": once the pmtiles basemap points `glyphs` at the real
@@ -2597,13 +2628,13 @@
       id: "plant-cluster-count", type: "symbol", source: "plants",
       filter: isCluster,
       layout: { "text-field": ["get", "count"], "text-size": 10, "text-font": ["Noto Sans Medium"] },
-      paint: { "text-color": ["get", "color"], "text-opacity": 0.7 }
+      paint: { "text-color": ["get", "color"], "text-opacity": CTX_TEXT_OPACITY }
     }, "clusters");
     map.addLayer({
       id: "asset-lines-casing", type: "line", source: "plants",
       filter: isLine,
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": mapColors.land, "line-width": casingWidth, "line-opacity": 0.9 }
+      paint: { "line-color": mapColors.land, "line-width": casingWidth, "line-opacity": CTX_OPACITY }
     }, "clusters");
     // Interstate (and unclassified) pipelines solid, intrastate dashed: `line-dasharray` is not
     // data-driven in this MapLibre, hence two layers over the same source rather than one.
@@ -2612,20 +2643,20 @@
       id: "asset-lines", type: "line", source: "plants",
       filter: ["all", isLine, ["!=", ["get", "line_class"], "intrastate"], ["!", isTransmission]],
       layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85 }
+      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": CTX_OPACITY }
     }, "clusters");
     map.addLayer({
       id: "asset-lines-intrastate", type: "line", source: "plants",
       filter: ["all", isLine, ["==", ["get", "line_class"], "intrastate"]],
       layout: { "line-cap": "butt", "line-join": "round" },
-      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85, "line-dasharray": [3, 2] }
+      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": CTX_OPACITY, "line-dasharray": [3, 2] }
     }, "clusters");
     // Transmission lines: dash-dot, same width ramp and casing as pipelines (docs/31 §1.6).
     map.addLayer({
       id: "asset-lines-transmission", type: "line", source: "plants",
       filter: ["all", isLine, isTransmission],
       layout: { "line-cap": "butt", "line-join": "round" },
-      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": 0.85, "line-dasharray": [4, 1.5, 1, 1.5] }
+      paint: { "line-color": ["get", "color"], "line-width": lineWidth, "line-opacity": CTX_OPACITY, "line-dasharray": [4, 1.5, 1, 1.5] }
     }, "clusters");
     // Invisible, wide hit target so a hairline pipeline is still a >=24px pointer target
     // (SC 2.5.8); hover and click handlers bind to this layer, not the drawn ones.
@@ -2641,17 +2672,20 @@
         "symbol-placement": "line", "text-field": ["get", "name"], "text-size": 10,
         "text-font": ["Noto Sans Medium"], "text-max-angle": 30, "text-padding": 12
       },
-      paint: { "text-color": ["get", "color"], "text-halo-color": mapColors.land, "text-halo-width": 1.2 }
+      paint: { "text-color": ["get", "color"], "text-opacity": CTX_TEXT_OPACITY, "text-halo-color": mapColors.land, "text-halo-width": 1.2 }
     }, "clusters");
     map.addLayer({
       id: "plant-points", type: "symbol", source: "plants",
       filter: isPoint,
       layout: {
         "icon-image": ["coalesce", ["get", "icon"], "asset-square"],
-        "icon-size": ["case", ["==", ["get", "asset_type"], "power_plant"], 0.3, 0.55],
+        "icon-size": [
+          "interpolate", ["linear"], ["zoom"],
+          3, ["case", isPowerPlant, 0.12, 0.3], 8, ["case", isPowerPlant, 0.22, 0.45], 12, ["case", isPowerPlant, 0.35, 0.6]
+        ],
         "icon-allow-overlap": true
       },
-      paint: { "icon-color": ["get", "color"], "icon-opacity": 0.7 }
+      paint: { "icon-color": ["get", "color"], "icon-opacity": CTX_OPACITY }
     }, "clusters");
 
     // Labels appear once the icons are far enough apart to read (zoom 9+): the family code
@@ -2664,7 +2698,7 @@
         "text-size": 8, "text-font": ["Noto Sans Medium"],
         "text-anchor": "top", "text-offset": [0, 0.6], "text-allow-overlap": false
       },
-      paint: { "text-color": ["get", "color"], "text-opacity": 0.85, "text-halo-color": mapColors.land, "text-halo-width": 1 }
+      paint: { "text-color": ["get", "color"], "text-opacity": CTX_TEXT_OPACITY, "text-halo-color": mapColors.land, "text-halo-width": 1 }
     }, "clusters");
 
     // Clicks and taps on these layers are `onMapClick`'s (docs/17 M-2): a plant or a line opens the
@@ -2710,13 +2744,14 @@
         "icon-image": "retired-cluster",
         "icon-size": ["step", ["get", "count"], 0.5, 10, 0.7, 50, 0.9],
         "icon-allow-overlap": true, "icon-ignore-placement": true
-      }
+      },
+      paint: { "icon-opacity": CTX_OPACITY }
     }, "clusters");
     map.addLayer({
       id: "retired-cluster-count", type: "symbol", source: "retired-plants",
       filter: isCluster,
       layout: { "text-field": ["get", "count"], "text-size": 10, "text-font": ["Noto Sans Medium"] },
-      paint: { "text-color": ["get", "color"] }
+      paint: { "text-color": ["get", "color"], "text-opacity": CTX_TEXT_OPACITY }
     }, "clusters");
     map.addLayer({
       id: "retired-points", type: "symbol", source: "retired-plants",
@@ -2726,7 +2761,7 @@
         "icon-size": ["coalesce", ["get", "ring_size"], 0.6],
         "icon-allow-overlap": true
       },
-      paint: { "icon-color": ["get", "color"], "icon-opacity": 0.95 }
+      paint: { "icon-color": ["get", "color"], "icon-opacity": CTX_OPACITY }
     }, "clusters");
     map.addLayer({
       id: "retired-labels", type: "symbol", source: "retired-plants", minzoom: 8,
@@ -2735,7 +2770,7 @@
         "text-field": ["coalesce", ["get", "name"], ""], "text-size": 9, "text-font": ["Noto Sans Medium"],
         "text-anchor": "top", "text-offset": [0, 0.9], "text-allow-overlap": false
       },
-      paint: { "text-color": ["get", "color"], "text-halo-color": mapColors.land, "text-halo-width": 1.2 }
+      paint: { "text-color": ["get", "color"], "text-opacity": CTX_TEXT_OPACITY, "text-halo-color": mapColors.land, "text-halo-width": 1.2 }
     }, "clusters");
     // Clicks and taps are `onMapClick`'s (docs/17 M-2); hover stays per layer.
     map.on("mouseenter", "retired-points", function (e) { map.getCanvas().style.cursor = "pointer"; showAssetTooltip(e, e.features[0].geometry.coordinates); });
@@ -2993,7 +3028,7 @@
     row.addEventListener("pointerleave", function () { showHoverRing(null); });
   }
   function addHoverRingLayers() {
-    var accent = cssVar("--link") || "#8a4614";
+    var accent = cssVar("--link") || "#0b1023";
     map.addSource("hover-ring", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     map.addLayer({
       id: "hover-ring-halo", type: "circle", source: "hover-ring", filter: ["==", ["geometry-type"], "Point"],
@@ -3020,15 +3055,20 @@
       "success", colors.success, "danger", colors.danger, colors.neutral
     ];
 
-    // Clusters render as thin rings on the paper ground, not filled discs -- the count is read
-    // through the ring, the family colour carried by the ring stroke and the count text alone
-    // (docs/30 §7 "Zoom and clustering"; task: "thin-ring counts on the navy family").
+    // Clusters render as thin rings on the land, not filled discs -- the count is read through the
+    // ring, the family colour carried by the ring stroke, the glyph above the count and the count text
+    // (docs/30 §7 "Zoom and clustering"). The radius scales by area with the count (14px for a few
+    // projects, 32px from about 500) and is interpolated by zoom, so a ring keeps roughly its screen
+    // size (docs/31-brand-identity.md M-1).
+    var clusterRadius = function (scale) {
+      return ["*", scale, ["min", 32, ["sqrt", ["+", 196, ["*", 1.66, ["get", "count"]]]]]];
+    };
     map.addLayer({
       id: "clusters", type: "circle", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "cluster"],
       paint: {
         "circle-color": mapColors.land,
-        "circle-radius": ["step", ["get", "count"], 14, 10, 18, 50, 24, 200, 32],
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, clusterRadius(0.94), 8, clusterRadius(1), 12, clusterRadius(1.06)],
         "circle-stroke-width": 2, "circle-stroke-color": colorExpr
       }
     });
@@ -3063,13 +3103,17 @@
     map.addLayer({
       id: "points-precision", type: "circle", source: "proposals",
       filter: ["all", ["==", ["get", "feature_kind"], "proposal"], ["==", ["get", "precision_reason"], "licence"]],
-      paint: { "circle-radius": 11, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 1, "circle-stroke-color": colorExpr }
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 8.5, 8, 9.5, 12, 11.5],
+        "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 1, "circle-stroke-color": colorExpr
+      }
     });
     map.addLayer({
       id: "points", type: "symbol", source: "proposals",
       filter: ["==", ["get", "feature_kind"], "proposal"],
       layout: {
         "icon-image": ["concat", "family-marker-", ["get", "family"]],
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.85, 8, 1, 12, 1.2],
         "icon-allow-overlap": true, "icon-ignore-placement": true
       }
     });
@@ -3082,7 +3126,7 @@
         "text-field": ["get", "tech_label"], "text-size": 9, "text-font": ["Noto Sans Medium"],
         "text-anchor": "left", "text-offset": [0.9, 0], "text-optional": true
       },
-      paint: { "text-color": cssVar("--text") || "#16324f", "text-halo-color": mapColors.land, "text-halo-width": 1.4 }
+      paint: { "text-color": cssVar("--text") || "#0b1023", "text-halo-color": mapColors.land, "text-halo-width": 1.4 }
     });
 
     // Over everything, never a click target (`onMapClick` does not ask for it).
@@ -3603,6 +3647,7 @@
   var searchList = document.getElementById("map-search-list");
   var searchClear = document.getElementById("map-search-clear");
   var searchEmpty = document.getElementById("map-search-empty");
+  var searchCount = document.getElementById("map-search-count");
   var SEARCH_MIN = 2;
   var SEARCH_PAUSE_MS = 250;
   var searchTimer = null;
@@ -3620,16 +3665,30 @@
   var REGION_ALIASES = { us: ["usa", "america"], gb: ["uk", "britain"] };
   var searchRegions = Array.prototype.map.call(document.querySelectorAll(".region-btn"), function (btn) {
     var code = btn.getAttribute("data-region") || "";
+    var codes = [code].concat(REGION_ALIASES[code] || []);
     return {
-      kind: "region", label: btn.textContent.trim(), detail: "Region", button: btn,
-      words: searchWords(btn.textContent).concat([code], REGION_ALIASES[code] || [])
+      kind: "region", label: btn.textContent.trim(), detail: "Region", button: btn, codes: codes,
+      words: searchWords(btn.textContent).concat(codes)
     };
   });
+  // How well a quick view answers what was typed, on the server's scale (`web/map_search.py`
+  // `word_rank`): 0 its whole name, code or alias ("uk"), 1 its first words, 2 its first letters, 3 a word.
+  // (Not `regionRank`: that name is the map's own, for which region level a tap lands on.)
+  function quickViewRank(r, tokens) {
+    var name = searchWords(r.label).join(" ");
+    var typed = tokens.join(" ");
+    if (name === typed || (tokens.length === 1 && r.codes.indexOf(tokens[0]) !== -1)) return 0;
+    if ((name + " ").indexOf(typed + " ") === 0) return 1;
+    if (name.indexOf(typed) === 0) return 2;
+    return 3;
+  }
   function regionMatches(query) {
     var tokens = searchWords(query);
     if (!tokens.length) return [];
     return searchRegions.filter(function (r) {
       return tokens.every(function (t) { return r.words.some(function (w) { return w.indexOf(t) === 0; }); });
+    }).map(function (r) {
+      return { kind: "region", label: r.label, detail: r.detail, button: r.button, rank: quickViewRank(r, tokens) };
     });
   }
 
@@ -3680,52 +3739,83 @@
     node.setAttribute("role", "option");
     node.setAttribute("aria-selected", "false");
     node.setAttribute("data-index", String(index));
+    // One list, every row saying what it is in the same place (lane stacked-lists, 2026-10-24; owner: "it's
+    // companies and it's locations ... in different stacked lists are really confusing"): the name, then
+    // its kind in words at the row's right end, read with it as "Pecos County, TX, County".
+    var top = document.createElement("span");
+    top.className = "map-search__top";
     var label = document.createElement("span");
     label.className = "map-search__label";
     label.textContent = opt.label;
-    node.appendChild(label);
-    var detail = document.createElement("span");
-    detail.className = "map-search__detail";
-    // A project's status, as the chips everywhere else print it (glyph and words, never hue alone).
-    if (opt.kind === "project" && opt.item.feature) detail.innerHTML = chipHtml(opt.item.family || familyOf(opt.item.feature.lifecycle_state), opt.item.feature.lifecycle_state) + " ";
-    detail.appendChild(document.createTextNode(opt.detail || ""));
-    node.appendChild(detail);
+    top.appendChild(label);
+    var kind = document.createElement("span");
+    kind.className = "map-search__kind";
+    kind.innerHTML = "<span class=\"visually-hidden\">, </span>";
+    kind.appendChild(document.createTextNode(searchKindWord(opt)));
+    top.appendChild(kind);
+    node.appendChild(top);
+    // A project's status and facts, as the chips everywhere else print it (glyph and words, never hue
+    // alone). A place or a company needs no second line: its kind is on the first.
+    if (opt.kind === "project") {
+      var detail = document.createElement("span");
+      detail.className = "map-search__detail";
+      if (opt.item.feature) detail.innerHTML = chipHtml(opt.item.family || familyOf(opt.item.feature.lifecycle_state), opt.item.feature.lifecycle_state) + " ";
+      detail.appendChild(document.createTextNode(opt.detail || ""));
+      node.appendChild(detail);
+    }
     return node;
   }
-  function renderSuggestions(groups) {
+  // The kind of a suggestion in a word or two: a place's own noun as the server names it ("State",
+  // "County", "Parish", "Borough", "Census area", "City").
+  function searchKindWord(opt) {
+    if (opt.kind === "project") return "Project";
+    if (opt.kind === "company") return "Company";
+    if (opt.kind === "region") return "Region";
+    if (opt.item && opt.item.noun) return String(opt.item.noun);
+    return opt.kind === "state" ? "State" : "County";
+  }
+  var SEARCH_KIND_NOUNS = { place: ["place", "places"], company: ["company", "companies"], project: ["project", "projects"] };
+  function renderSuggestions(query, options) {
     searchList.innerHTML = "";
     searchOptions = [];
-    groups.forEach(function (g) {
-      if (!g.options.length) return;
-      var group = document.createElement("div");
-      group.className = "map-search__group";
-      group.setAttribute("role", "group");
-      var name = document.createElement("div");
-      name.className = "map-search__group-name";
-      name.id = "map-search-group-" + g.key;
-      name.textContent = g.name;
-      group.setAttribute("aria-labelledby", name.id);
-      group.appendChild(name);
-      g.options.forEach(function (opt) {
-        group.appendChild(optionNode(opt, searchOptions.length));
-        searchOptions.push(opt);
-      });
-      searchList.appendChild(group);
+    options.forEach(function (opt) {
+      searchList.appendChild(optionNode(opt, searchOptions.length));
+      searchOptions.push(opt);
     });
+    // How many, and of which kinds, for a screen reader: the list itself has no headings to count.
+    if (searchCount) {
+      var tally = { place: 0, company: 0, project: 0 };
+      options.forEach(function (o) { tally[o.kind === "company" || o.kind === "project" ? o.kind : "place"] += 1; });
+      var parts = Object.keys(tally).filter(function (k) { return tally[k]; }).map(function (k) {
+        return tally[k] + " " + SEARCH_KIND_NOUNS[k][tally[k] === 1 ? 0 : 1];
+      });
+      // Naming what was typed makes each answer new text, so a live region reads it even when the
+      // count is the same as the last search's.
+      searchCount.textContent = options.length
+        ? options.length + " suggestion" + (options.length === 1 ? "" : "s") + " for “" + query + "”: " + parts.join(", ") + "."
+        : "";
+    }
     setActive(-1);
     if (searchOptions.length) openList(); else closeList();
   }
+  // One ranked list (lane stacked-lists, fix round) in the server's own order: every suggestion carries
+  // its `rank` on one scale for every kind (`web/map_search.py` `word_rank`: a whole name or a state's
+  // code, then a name that begins with the words typed, then with the letters, then a word of it, then
+  // the rest). Within a rank, places, then companies, then projects, each as the search answered. So
+  // "ny" lists New York above "NY CDG 1 LLC" and both above Nye County, and Enter takes the first.
+  var RANK_UNKNOWN = 4;
+  function rankSuggestions(groups) {
+    return [].concat.apply([], groups).map(function (o, i) {
+      return [typeof o.rank === "number" ? o.rank : RANK_UNKNOWN, i, o];
+    }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (row) { return row[2]; });
+  }
   function showResults(query, body, failed) {
     var places = regionMatches(query).concat((body.places || []).map(function (p) {
-      return { kind: p.kind, label: p.label, detail: p.detail, item: p };
+      return { kind: p.kind, label: p.label, detail: p.detail, item: p, rank: p.rank };
     }));
-    var companies = (body.companies || []).map(function (c) { return { kind: "company", label: c.label, detail: c.detail, item: c }; });
-    var projects = (body.projects || []).map(function (p) { return { kind: "project", label: p.label, detail: p.detail, item: p }; });
-    renderSuggestions([
-      { key: "places", name: "Places", options: places },
-      { key: "companies", name: "Companies", options: companies },
-      { key: "projects", name: "Projects", options: projects }
-    ]);
+    var companies = (body.companies || []).map(function (c) { return { kind: "company", label: c.label, detail: c.detail, item: c, rank: c.rank }; });
+    var projects = (body.projects || []).map(function (p) { return { kind: "project", label: p.label, detail: p.detail, item: p, rank: p.rank }; });
+    renderSuggestions(query, rankSuggestions([places, companies, projects]));
     searchShownFor = query;
     if (searchOptions.length) hideEmpty(); else showEmpty(query, failed);
     if (searchPendingPick) {
@@ -3757,6 +3847,7 @@
     searchShownFor = "";
     closeList();
     hideEmpty();
+    if (searchCount) searchCount.textContent = "";
     setSearchPin(null);
     syncClear();
   }
@@ -3804,7 +3895,7 @@
     });
     map.addLayer({
       id: "search-pin", type: "circle", source: "search-pin",
-      paint: { "circle-radius": 16, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 2.5, "circle-stroke-color": cssVar("--link") || "#a3480a" }
+      paint: { "circle-radius": 16, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 2.5, "circle-stroke-color": cssVar("--link") || "#0b1023" }
     });
     if (pendingPin) setSearchPin(pendingPin);
   });
@@ -3896,6 +3987,7 @@
         searchShownFor = "";
         closeList();
         hideEmpty();
+        if (searchCount) searchCount.textContent = ""; // no list, so no count left to read
         return;
       }
       searchTimer = window.setTimeout(runSearch, SEARCH_PAUSE_MS);

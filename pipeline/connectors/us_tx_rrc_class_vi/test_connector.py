@@ -337,6 +337,19 @@ def test_the_judgement_calls_land_on_studied(current, march):
     assert set(comment["lifecycle_state"]) == {"studied"}
 
 
+def test_public_comment_is_studied_not_an_unmapped_status(current):
+    """docs/28 B-14: one well in the public register (2026-10-23) read "Public Comment", which the
+    map did not list, so it fell to `unknown` and counted as vocabulary drift. A comment period is
+    not a decision: `studied`, as the other comment-period spellings."""
+    c, raw, rows, _ = current
+    mutated = [dict(r) for r in rows]
+    mutated[0]["application_status"] = "Public Comment"
+    df = c.normalize(mutated, raw)
+    assert df["lifecycle_state"].iloc[0] == "studied"
+    assert df["status_rule"].iloc[0] == "tx_rrc_class_vi.map"
+    assert df["status_raw"].iloc[0] == "Public Comment"
+
+
 def test_withdrawn_is_withdrawn(current):
     _, _, _, df = current
     assert set(df[df["status_raw"] == "Withdrawn"]["lifecycle_state"]) == {"withdrawn"}

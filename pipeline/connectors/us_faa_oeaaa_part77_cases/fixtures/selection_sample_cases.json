@@ -1,0 +1,1204 @@
+{
+"columns": [
+"STUDY (ASN)",
+"PRIOR ASN",
+"STRUCTURE STATE",
+"STRUCTURE NAME",
+"PROPOSAL DESCRIPTION",
+"LOCATION DESCRIPTION",
+"STRUCTURE TYPE",
+"SPONSOR NAMES A DATA CENTRE"
+],
+"cases": [
+[
+"2025-ACE-5314-OE",
+"",
+"IA",
+"EWD2A Cranes",
+"Crane usage area on new construction campus",
+"Data Center Campus",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-1045-OE",
+"2024-AEA-13636-OE",
+"VA",
+"Liebherr 1060-3",
+"Using and 70 ton crane to load roof",
+"New Data Center",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-1780-OE",
+"",
+"VA",
+"NVA06B",
+"This is corner 2 of 4 submitted per 2025-AEA-1425-OE ADD letter for mobile precast crane",
+"See attached survey",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-1936-OE",
+"",
+"VA",
+"CSC 22060 Pacific Blvd Sterling VA",
+"Provide a temporary crane to hoist mechanical equipment. Work to be performed during normal hours and will be complete in 2 weeks total during this timeframe.",
+"22060 Pacific Blvd Sterling VA",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-2292-OE",
+"",
+"VA",
+"Concorde Building",
+"Construction of a data center and a substation in Loudoun County through a rezoning effort.",
+"North of Dulles International Airport and abuts Executive Drive and Shellhorn Road.",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2025-AEA-2300-OE",
+"",
+"VA",
+"Dulles Downs Building 1",
+"Development to rezone a property in Loudoun County to IP to construct data centers a substation and battery storage.",
+"North of Dulles International Airport and abuts Relocation Drive and Shellhorn Road",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2025-AEA-2494-OE",
+"",
+"VA",
+"Mobile Crane 2 SW Corner 22285 Lockridge Road",
+"Please keep 2024-AEA-6883-OE active at the same coordinates during processing to allow work to continue. The crane company anticipates future HVAC lifting challenges and plans to bring in a future taller crane.",
+"Approximately 1.69 NM north of RWY 19C @ IAD",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-2945-OE",
+"",
+"VA",
+"IAD-313 Crawler Crane",
+"Site is located 2.31 nautical miles North of HEF",
+"For temporary mobile crawler crane use for the construction of a new building. The Crane is expected to be a Mantiowoc MLC300 and will be lowered to its lowest possible height between sunset and sunrise when not in use and during inclement weather.",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-2948-OE",
+"",
+"VA",
+"IAD-313 Crawler Crane",
+"Site is located 2.31 nautical miles North of HEF",
+"For temporary mobile crawler crane use for the construction of a new building. The Crane is expected to be a Mantiowoc MLC300 and will be lowered to its lowest possible height between sunset and sunrise when not in use and during inclement weather.",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-3238-OE",
+"2025-AEA-2945-OE",
+"VA",
+"8924 Welling road",
+"seeing if we need a faa permit job site. we only need a crane on site 4 days topS. whitening and turner IAD 313",
+"8924 wellington rd rnmanassas va 20109 rniad 313",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-4135-OE",
+"",
+"VA",
+"BZI Crane (Project DCA 72)",
+"Request for the use of a temporary crane to assist in the construction of a permanent building. Will file all 4 points.",
+"Construction Site for Project DCA 72",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-4390-OE",
+"2024-AEA-11315-OE",
+"VA",
+"Cloud LC11 Mobile Crane",
+"Use a hydro mobile crane to erect the generator yard for a new data center.",
+"Construction site for a new data center",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-4406-OE",
+"2024-AEA-7721-OE",
+"VA",
+"ATCC SW",
+"Use mobile crane to erect 2-story building",
+"Construction site of a 2-story educational lab in Manassas VA",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-8751-OE",
+"",
+"VA",
+"Mobile Crane S corner 13860 Redskin Drive",
+"Hoist exhaust fans",
+"Approximately 0.48 NM east of Runway 01R/19L at IAD",
+"CRANE",
+""
+],
+[
+"2025-AEA-8909-OE",
+"",
+"VA",
+"2095/56B (L)",
+"standard 40-ton crane weighing 85k lbs. 40' in length nand extending 20' (boom) above the height of thenstructure used to install new Engr 230kV DC SUS BracednPost Monopole",
+"standard 40-ton crane weighing 85k lbs. 40' in length nand extending 20' (boom) above the height of the structurenused to install transmission line monopole insidenNorthwoods Substation",
+"CRANE",
+""
+],
+[
+"2025-AEA-8918-OE",
+"",
+"VA",
+"2095/56A",
+"standard 40-ton crane weighing 85k lbs. 40' in length nand extending 20' (boom) above the height of thenstructure used to install new Engr 230kV DC SUS BracednPost Monopole",
+"standard 40-ton crane weighing 85k lbs. 40' in length nand extending 20' (boom) above the height of the structurenused to install transmission line monopole insidenNorthwoods Substation",
+"CRANE",
+""
+],
+[
+"2025-AEA-10006-OE",
+"",
+"VA",
+"5003/15 Crane",
+"This is a vital Electric Reliability Project deemed essential for ensuring the stability and resilience of the electric grid.",
+"see map",
+"CRANE",
+""
+],
+[
+"2025-AEA-10014-OE",
+"",
+"VA",
+"5003/07 Crane",
+"This is a vital Electric Reliability Project deemed essential for ensuring the stability and resilience of the electric grid.",
+"see map",
+"CRANE",
+""
+],
+[
+"2025-AEA-10139-OE",
+"",
+"VA",
+"TEMP 5001/2 - Crane",
+"Temporary crane required for installation of new permanent transmission line structure.",
+"South of Leesburg Pike/7 between Cochran Mill Road/653 and Sully Road/28.",
+"CRANE",
+""
+],
+[
+"2025-AEA-10150-OE",
+"",
+"VA",
+"TEMP 5001/14 - Crane",
+"Temporary crane required for installation of new permanent transmission line structure.",
+"South of Leesburg Pike/7 between Cochran Mill Road/653 and Sully Road/28.",
+"CRANE",
+""
+],
+[
+"2025-AEA-10179-OE",
+"",
+"VA",
+"TEMP 5001/64 - Crane",
+"Temporary crane required for installation of new permanent transmission line structure.",
+"South of Leesburg Pike/7 between Cochran Mill Road/653 and Sully Road/28.",
+"CRANE",
+""
+],
+[
+"2025-AEA-10213-OE",
+"",
+"VA",
+"TEMP 5001/41 - Crane",
+"Temporary crane required for installation of new permanent transmission line structure.",
+"South of Leesburg Pike/7 between Cochran Mill Road/653 and Sully Road/28.",
+"CRANE",
+""
+],
+[
+"2025-AEA-10255-OE",
+"",
+"VA",
+"5003/15 Crane",
+"This is a vital Electric Reliability Project deemed essential for ensuring the stability and resilience of the electric grid.",
+"see map",
+"CRANE",
+""
+],
+[
+"2025-AEA-10256-OE",
+"",
+"VA",
+"5003/14 Crane",
+"This is a vital Electric Reliability Project deemed essential for ensuring the stability and resilience of the electric grid.",
+"see map",
+"CRANE",
+""
+],
+[
+"2025-AEA-10992-OE",
+"2025-AEA-395-OE",
+"MD",
+"IAD06 Mobile Crane",
+"Mobile crane for precast erection to work within the extents given.",
+"Located SSW of Frederick MD. Data center project site managed by Turner Construction off Manor Woods Road.",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AEA-11265-OE",
+"2021-AEA-9140-OE",
+"VA",
+"CloudHQ MDC1",
+"New construction of a 2-story data center. Cranes will be utilized and submitted under this AEA permit number.",
+"The four points are each corner of our building structure. Open land with a future 3 buildings being added this would be for the MDC1 project.",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2025-AEA-12370-OE",
+"",
+"VA",
+"McLearen Rd Data Center SW",
+"Mobile crane to erect a 2-story data center",
+"Construction site SE of IAD; On McLearen Rd off of Rt 28",
+"CRANE",
+""
+],
+[
+"2025-AEA-12387-OE",
+"",
+"VA",
+"Precast Erection Crane",
+"Temporary crane for erection of precast data center.",
+"10430 [name removed] Blvd. Manassas VA 20110",
+"CRANE",
+""
+],
+[
+"2025-AEA-12413-OE",
+"",
+"VA",
+"Precast Erection Crane",
+"Crane for erection of precast wall panels",
+"Data Center Campus located at 13850 EDS Drive Herndon VA 20171.",
+"CRANE",
+""
+],
+[
+"2025-AEA-12688-OE",
+"",
+"VA",
+"C",
+"Filing mobile cranes for development project. Sponsor responsible for temporary construction equipment only; permanent structure filed by owner under 2023-AEA-3881-OE.",
+"Project located [name removed] County VA. East of Haymarket along Route 55 between Daves Store Lane and Catharpin Road.",
+"CRANE",
+"Y"
+],
+[
+"2025-AEA-12689-OE",
+"",
+"VA",
+"B",
+"Filing mobile cranes for development project. Sponsor responsible for temporary construction equipment only; permanent structure filed by owner under 2023-AEA-3881-OE.",
+"Project located [name removed] County VA. East of Haymarket along Route 55 between Daves Store Lane and Catharpin Road.",
+"CRANE",
+"Y"
+],
+[
+"2025-AEA-12842-OE",
+"",
+"VA",
+"Tower Crane 1 Edgecore",
+"Proposal of final Tower Crane heights due to proximity to airport.",
+"New greenfield site that is being levelled for a new three story building near intersection of Moran Rd and Sous Vide Ln. Existing conditions was a significant pile of dirt that is being modified for a finish elevation of 301 SE. Building will have road access to Moran Rd. Close proximity to Dulles International Airport.",
+"CRANE$FIXED",
+""
+],
+[
+"2025-AEA-13458-OE",
+"",
+"VA",
+"2151/11 2163/31 Crane",
+"Virginia Electric and Power Company’s Lines 2080 – 2151 – 2163 Vint Hill – [name removed] project involves the reconductoring of the existing 230 kV overhead electric transmission lines (Lines 2080 2151 2163) between Vint Hill and [name removed] located in [name removed] County Virginia. The work will be conducted in existing right-of-way on the existing transmission line structures. Cranes will be used to complete the reconductor work on each existing structure. The heights provided in this filing are for the existing structures. The crane heights will not exceed the height of the existing structures.",
+"This project occurs in [name removed] County in existing right-of-way on the existing transmission line. The project extends for approximately 6.2 miles between the existing Vint Hill and [name removed]. Aerial crossings of state-maintained highways Vint Rd (VA-215E) Linton Hall Rd (SC-619E) Wellington Rd (SC-674E) and [name removed] Pkwy (VA-234S) occur.",
+"CRANE",
+""
+],
+[
+"2025-AEA-13539-OE",
+"",
+"NJ",
+"Crane 1 Corner 2",
+"The project is north of EWR in Newark NY (Figure 1). Area has commercial and residential uses. Other surrounding buildings are multi-story with heights between 70 and 95 feet (Figure 2).",
+"The project is north of EWR in Newark NY (Figure 1). Area has commercial and residential uses. Other surrounding buildings are multi-story with heights between 70 and 95 feet (Figure 2).",
+"CRANE",
+""
+],
+[
+"2025-AEA-14205-OE",
+"",
+"VA",
+"CSC 4155 Westfax Dr Chantilly VA 20151",
+"Rig & Set Mechanical equipment. 12 Mobilizations each mobilization will be from 1 to 14 days each.",
+"CSC 4155 Westfax Dr Chantilly VA 20151",
+"CRANE$FIXED",
+""
+],
+[
+"2025-AEA-14279-OE",
+"",
+"VA",
+"ARA1A Crane",
+"Hoisting equipment with Crane into Ground Level of Building",
+"Crane to setup in one location next to ARA1A Building",
+"CRANE",
+""
+],
+[
+"2025-AEA-14473-OE",
+"",
+"VA",
+"WORD OF GRACE PROJECT",
+"Proposed Construction of 85ft AGL; 410.9ft AMSL Church Building (Building E) located at 2860 Tower View Road Herndon VA 20171 and proposed construction of 85ft AGL; 410.9ft AMSL Church Building (Building F) located at 2850 Tower View Road Herndon VA 20171 for the WORD OF GRACE PROJECT. nnCONSTRUCTION EQUIPMENT: Boom Crane 250ft AGL; 575.9ft AMSLn• Crane on Site – Dec 21 2025 –",
+"located at 2860 Tower View Road Herndon VA 20171",
+"BUILDING",
+""
+],
+[
+"2025-AEA-14681-OE",
+"",
+"VA",
+"WORD OF GRACE PROJECT",
+"Proposed construction of 85ft AGL; 410.9ft AMSL Church Building (Building F) located at 2850 Tower View Road Herndon VA 20171 for the WORD OF GRACE PROJECT. nCONSTRUCTION EQUIPMENT: Boom Crane 250ft AGL; 575.9ft AMSLn• Crane on Site – Dec 21 2025 – April 21 2027.",
+"2850 Tower View Road Herndon VA 20171",
+"BUILDING$CHURCH",
+""
+],
+[
+"2025-AGL-8453-OE",
+"",
+"IL",
+"LP 1",
+"Install new 40' mast arm light poles",
+"Southeast corner of E Fabyan Pkwy and [name removed] Dr",
+"POLE$LIGHTING",
+"Y"
+],
+[
+"2025-AGL-11270-OE",
+"",
+"OH",
+"Building C Water Tank 3",
+"This project consists of the construction of two data center building pads one security building one auxiliary water building with associated water tanks a substation yard associated drive aisles/parking and stormwater management infrastructure.",
+"The current site is relatively flat and primarily covered in agricultural farmland with neighboring industrial and commercial developments. There are existing trees in the north corner of the site.",
+"WATER_SYSTEM",
+""
+],
+[
+"2025-AGL-12773-OE",
+"2025-AGL-12640-OE",
+"ND",
+"Datacenter",
+"Crawler Crane which we can boom down when needed",
+"Data Center",
+"CRANE",
+""
+],
+[
+"2025-ANE-2363-OE",
+"",
+"ME",
+"One City Center - Portland",
+"Use crane to service rooftop HVAC equipment.",
+"One City Center - Portland",
+"CRANE$FIXED",
+""
+],
+[
+"2025-ANM-2267-OE",
+"",
+"OR",
+"PDX138 Campus-Water Tanks/Auxiliary Building",
+"The project includes four single-story building with a footprint of about 225 000 square feet (sf) each. This case is for the 3 water tanks and auxiliary building that are right next to each other.",
+"The project is located west of SE Kelli Boulevard north of Feedville Road and south of E Penny Avenue south of Hermiston in Umatilla County Oregon. This is a 101 acre site.",
+"WATER_SYSTEM",
+""
+],
+[
+"2025-ASO-1669-OE",
+"",
+"GA",
+"DB ATL6 - Mobile Crane #1",
+"This temporary submittal is for a crane to construct a steel building. The crane will work no higher than the elevation of 841",
+"The locations of the crane will be at the DataBank ATL6 Slab on grade elevation",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-ASO-8234-OE",
+"2024-ASO-16842-OE",
+"FL",
+"Iron Mountain Data Center MIA-1",
+"New Data Center",
+"2925 NW 120th Terr Miami FL 33167",
+"BUILDING",
+""
+],
+[
+"2025-ASO-15279-OE",
+"",
+"GA",
+"Leibherr LR 1400",
+"Construction activities will require the use of a mobile crane with 180' of Jib for a period of 6 months or less.",
+"Previous CSX Railyard. Now a construction site for a 220 000 SF single story data center.",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-ASW-8939-OE",
+"",
+"TX",
+"AMD Phase 2",
+"set up of multiple mobile crane locations for hoisting Steel HVAC equipment & generators.",
+"AMD semiconductor Data Center",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AWP-110-OE",
+"",
+"AZ",
+"Stream Data Center",
+"Two story data center",
+"Building located at 2950 S. Litchfield Rd.",
+"BUILDING",
+"Y"
+],
+[
+"2025-AWP-778-OE",
+"",
+"AZ",
+"Crane",
+"To construct and/or operate a(n) mobile crane to height of 120 feet above ground level 1088 feet above mean sea level. Clayco Inc. is proposing crane lift activities for construction at the Stack Infrastructure data center project.",
+"The structure will be located 1 mile south of GYR Airport for reference point.",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AWP-2199-OE",
+"",
+"CA",
+"LBA Data Center North",
+"Construction of new building",
+"North of San Jose airport runway 12 approach",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2025-AWP-3081-OE",
+"2024-AWP-14179-OE",
+"AZ",
+"QTS DC13 - Temp Crane - SE",
+"Proposed Temp Crane For Setting 146 000 Lbs UPS POD Generators At Ground Level. Located 1.429 Nautical [name removed] LUF(KLUF) Luke AFB - Runway 03L.",
+"17316 W. Camelback RdrnGoodyear AZ 85338",
+"CRANE$MOBILE",
+""
+],
+[
+"2025-AWP-18069-OE",
+"2025-AWP-110-OE",
+"AZ",
+"Stream Data Center",
+"Two story data center",
+"Building located at 3950 S. Litchfield Rd.",
+"BUILDING",
+"Y"
+],
+[
+"2026-ACE-921-OE",
+"",
+"IA",
+"Chiller Yard/Equipment Crane",
+"Buildings DC-5 & DC-6 are located within these coordinates. The crane will be used to set mechanical equipment on the exterior of the buildings.",
+"QTS data center under development. North of 76th Ave SW and East of Tissel Hollow RD SW.",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-ACE-1734-OE",
+"2026-ACE-921-OE",
+"IA",
+"Chiller Yard/Equipment Crane",
+"Buildings DC-5 & DC-6 are located within these coordinates. The crane will be used to set mechanical equipment on the exterior of the buildings.",
+"QTS data center under development. North of 76th Ave SW and East of Tissel Hollow RD SW.",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-AEA-146-OE",
+"",
+"PA",
+"Ancillary Building",
+"Ancillary Building CAB",
+"Keystone Trading Center",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-AEA-505-OE",
+"",
+"VA",
+"DCA - 21040 Germanna Hwy Stevensburg VA",
+"Crane to Hoist HVAC to the Roof Of Newly Constructed Data Center",
+"DCA 21040 Germanna Hwy Stevensburg VA",
+"CRANE",
+""
+],
+[
+"2026-AEA-612-OE",
+"2023-AEA-15551-OE",
+"VA",
+"NOV2B",
+"Application for permit for new data center phase 2 of Allegro North Project.",
+"New Data Center Construction:rnrn24171 Youngwood Ln. rnAldie VA 20105",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-AEA-1008-OE",
+"",
+"VA",
+"Innovation MAN1 DC4",
+"Proposed data center structure",
+"North side of University Blvd. between Freedom Center Blvd and Godwin Dr.",
+"BUILDING",
+"Y"
+],
+[
+"2026-AEA-1121-OE",
+"",
+"VA",
+"WORLDWIDE MISSION CRITICAL CRANE",
+"PROJECT DESCRIPTION: Proposed Construction of 85ft AGL; 410.9ft AMSL Church Building (Building E) located at 2860 Tower View Road Herndon VA 20171 and proposed construction of 85ft AGL; 410.9ft AMSL Church Building (Building F) located at 2850 Tower View Road Herndon VA 20171 for the WORD OF GRACE PROJECT. nnCONSTRUCTION EQUIPMENT: Boom Crane 250ft AGL; 575.9ft AMSLn• Crane on Site – February 23 2026 – August 23 2027.nnPermanent Structure's ASN: 2025-AEA-14681-OE and 2025-AEA-14473-OE",
+"Church Building (Building E) located at 2860 Tower View Road Herndon VA 20171 and proposed construction of 85ft AGL; 410.9ft AMSL Church Building (Building F) located at 2850 Tower View Road Herndon VA 20171",
+"CRANE",
+""
+],
+[
+"2026-AEA-1124-OE",
+"",
+"VA",
+"WORD OF GRACE PROJECT CRANE",
+"PROJECT DESCRIPTION: Proposed Construction of 85ft AGL; 410.9ft AMSL Church Building (Building E) located at 2860 Tower View Road Herndon VA 20171 and proposed construction of 85ft AGL; 410.9ft AMSL Church Building (Building F) located at 2850 Tower View Road Herndon VA 20171 for the WORD OF GRACE PROJECT. nnCONSTRUCTION EQUIPMENT: Boom Crane 250ft AGL; 575.9ft AMSLn• Crane on Site – February 23 2026 – August 23 2027.nPermanent Structure ASN's: 2025-AEA-14681-OE AND 2025-AEA-14473-OE",
+"Church Building (Building E) located at 2860 Tower View Road Herndon VA 20171 and proposed construction of 85ft AGL; 410.9ft AMSL Church Building (Building F) located at 2850 Tower View Road Herndon VA 20171",
+"CRANE",
+""
+],
+[
+"2026-AEA-1362-OE",
+"",
+"VA",
+"Crane",
+"Hydraulic Crane setting rooftop equipment for 3 days",
+"AWS Job Site",
+"CRANE",
+""
+],
+[
+"2026-AEA-1510-OE",
+"",
+"VA",
+"Centra Health Tower A Addition",
+"The project includes the construction of a new Tower A addition at the Lynchburg General Hospital. These points correspond to the permanent building extents.",
+"The project is located on the Lynchburg General Hospital campus approximately 5 nautical miles northeast of LYH.",
+"BUILDING",
+""
+],
+[
+"2026-AEA-1955-OE",
+"",
+"VA",
+"IAD 327 Corner 1",
+"Crane for Tilt Up erection at IAD 327",
+"25190 Meadowdale Dr.",
+"CRANE",
+""
+],
+[
+"2026-AEA-2033-OE",
+"",
+"VA",
+"SE",
+"Proposed temporary equipment for building project near Sandston VA",
+"Located at Elko Rd and Technology Creek Drive.",
+"CRANE",
+""
+],
+[
+"2026-AEA-2036-OE",
+"",
+"VA",
+"CloudHQ MDC2",
+"New construction of a 2-story precast data center. Cranes will be utilized and submitted under this AEA permit number. MDC1 FAA Permit ASN# for reference - 2025-AEA-11265-OE",
+"Near Manassas regional airport. Not within the flight path for planes from the airport but near the helipad.",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-AEA-2043-OE",
+"",
+"VA",
+"SW",
+"Proposed temporary equipment for project near Hopewell VA",
+"Located off Bermuda Hundred Rd and Discovery Drive",
+"CRANE",
+""
+],
+[
+"2026-AEA-2624-OE",
+"",
+"VA",
+"Tech Park at Dulles - Building A",
+"3 data center facilities (Buildings A B C) and a flex office/warehouse support building (Building D)",
+"Tech Park at Dulles - Building A",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-AEA-2625-OE",
+"",
+"VA",
+"Tech Park at Dulles - Building B",
+"3 data center facilities (Buildings A B C) and a flex office/warehouse support building (Building D)",
+"Tech Park at Dulles - Building B",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-AEA-2626-OE",
+"",
+"VA",
+"Tech Park at Dulles - Building C",
+"3 data center facilities (Buildings A B C) and a flex office/warehouse support building (Building D)",
+"Tech Park at Dulles - Building C",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-AEA-3733-OE",
+"",
+"VA",
+"SDC Tarpon B1",
+"Temporary Crane set up",
+"Data Center Construction",
+"CRANE",
+""
+],
+[
+"2026-AEA-3960-OE",
+"",
+"VA",
+"Temporary Fabcon Precast Crane",
+"Temporary Fabcon Precast Crane for the erection of precast panels",
+"IAD619 - New construction of a data center located 23825 Erins Run Dr Dulles VA 20166nCorner closet to Dulles International Airport",
+"CRANE",
+""
+],
+[
+"2026-AEA-4244-OE",
+"",
+"VA",
+"21205 Atlantic Blvd. Sterling Va. 20166",
+"Service work for on the roof top equipment for (2) consecutive days.",
+"Amazon Data Center IAD 164",
+"CRANE",
+""
+],
+[
+"2026-AEA-4519-OE",
+"",
+"VA",
+"IAD112 NW",
+"Filing for proposed building development project located in Gainesville VA. Ground elevations will be graded to the client provided elevations.",
+"Project located at 7701 Deacon Falls Dr. Gainesville VA 20155",
+"BUILDING",
+""
+],
+[
+"2026-AEA-4520-OE",
+"",
+"VA",
+"IAD113 NW",
+"Filing for proposed building development project located in Gainesville VA. Ground elevations will be graded to the client provided elevations.",
+"Project located at 7701 Deacon Falls Dr. Gainesville VA 20155",
+"BUILDING",
+""
+],
+[
+"2026-AEA-4527-OE",
+"",
+"VA",
+"MDC 2 Tower Crane 4",
+"Tower crane to erect 2026-AEA-2036-OE. Tower crane onsite for 12 months",
+"MDC 2 Cloud HQ near Manassas VA airport.",
+"CRANE$TOWER",
+""
+],
+[
+"2026-AEA-5347-OE",
+"",
+"VA",
+"Crane 2",
+"Filing for proposed mobile crane points associated with previously filed building points 2026-AEA-4519:4520-OE. Ground elevations will be graded to the client provided elevations.",
+"Project located at 7701 Deacon Falls Dr. Gainesville VA 20155.",
+"CRANE",
+""
+],
+[
+"2026-AEA-5836-OE",
+"",
+"VA",
+"Centra LGH Tower A Revision III Pt-2",
+"Mobilize crane to erect new hospital tower",
+"Centra TGH Tower Crane Point - 2",
+"CRANE",
+""
+],
+[
+"2026-AEA-5838-OE",
+"",
+"VA",
+"Centra LGH Tower A Revision III Pt-4",
+"Mobilize crane to erect new hospital tower",
+"Centra LGH Tower Crane Pt-4",
+"CRANE",
+""
+],
+[
+"2026-AEA-6204-OE",
+"",
+"VA",
+"MCC 7",
+"Mobile crane for precast erection. Point 4 of 4.",
+"East of Manassas Regional Airport off [name removed] Blvd.",
+"CRANE",
+""
+],
+[
+"2026-AEA-6391-OE",
+"2025-AEA-10992-OE",
+"MD",
+"IAD07 and IAD08",
+"Mobile crane for precast erection. Point 2 of 4",
+"Located SSW of Frederick MD. Data center project site managed by Turner Construction off Manor Woods Road.",
+"CRANE",
+""
+],
+[
+"2026-AEA-6396-OE",
+"2024-AEA-14079-OE",
+"VA",
+"Equinix DC-18 Crane",
+"Temporary crane for erection of precast data center. Point 3 of 4.",
+"44690 Performance Circle Ashburn VA 20147",
+"CRANE",
+""
+],
+[
+"2026-AEA-6403-OE",
+"",
+"VA",
+"IAD 458 Crane",
+"Mobile crane for precast erection. Point 3 of 4.",
+"8421 Orrock Ln Woodford VA 22580",
+"CRANE",
+""
+],
+[
+"2026-AEA-6497-OE",
+"",
+"VA",
+"IAD156 - AWS DATA CENTER",
+"MODIFICATION FOR ROOF-MOUNTED EQUIPMENT",
+"DATA CENTER",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-AEA-6856-OE",
+"",
+"VA",
+"IAD 180 TI-Gen Yard Crane",
+"Use a crane to erect a generator yard at a new data center",
+"Construction Site for new Data Center",
+"CRANE",
+""
+],
+[
+"2026-AEA-7239-OE",
+"2023-AEA-7796-OE",
+"VA",
+"Crane_B_Point_4",
+"275ft AGL Mobile Crane being used for Construction of (2) 130ft AGL; 451ft AMSL Data Center Buildings located in Fairfax County Virginia. Permaneat structure ASN: 2023-AEA-7476-THRU-7484-OE",
+"Fairfax County Virginia",
+"CRANE",
+""
+],
+[
+"2026-AEA-8681-OE",
+"",
+"VA",
+"JK REDSTONE TECH PARK- SOUTH Building F",
+"The project consists of the development of 2 proposed data centers driveways parking bays private streets and associated utilities.",
+"The site is Southwest of the Industrial Rd. and Hornbaker Rd. intersection.",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-AEA-9020-OE",
+"",
+"VA",
+"480 Springpark Place Herndon VA",
+"Mobile Cranes to be utilized to set steel and equipment",
+"Conversion of existing office building to Data Center",
+"CRANE$MOBILE",
+"Y"
+],
+[
+"2026-AEA-10474-OE",
+"",
+"VA",
+"Crane 1",
+"Filing for proposed temporary cranes for building development project. 1A survey uploaded to filing.",
+"Project located at 22165 Beaumeade Circle Ashburn VA; Loudon County VA",
+"CRANE",
+""
+],
+[
+"2026-AEA-10522-OE",
+"",
+"VA",
+"MDC2",
+"Mobile Crane set up",
+"New Construction",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-AEA-10907-OE",
+"",
+"VA",
+"Building A Crane Area B",
+"Filing for proposed mobile crane points for development project 2026-AEA-2624:2626-OE. 1A survey uploaded to filing.",
+"Project located Tech Park at Dulles Sterling VA; Loudon County VA.",
+"CRANE",
+""
+],
+[
+"2026-AEA-10908-OE",
+"",
+"VA",
+"Building A Crane Area C",
+"Filing for proposed mobile crane points for development project 2026-AEA-2624:2626-OE. 1A survey uploaded to filing.",
+"Project located Tech Park at Dulles Sterling VA; Loudon County VA.",
+"CRANE",
+""
+],
+[
+"2026-AEA-10909-OE",
+"",
+"VA",
+"Building A Crane Area D",
+"Filing for proposed mobile crane points for development project 2026-AEA-2624:2626-OE. 1A survey uploaded to filing.",
+"Project located Tech Park at Dulles Sterling VA; Loudon County VA.",
+"CRANE",
+""
+],
+[
+"2026-AEA-10911-OE",
+"",
+"VA",
+"Building B Crane Area F",
+"Filing for proposed mobile crane points for development project 2026-AEA-2624:2626-OE. 1A survey uploaded to filing.",
+"Project located Tech Park at Dulles Sterling VA; Loudon County VA.",
+"CRANE",
+""
+],
+[
+"2026-AEA-10915-OE",
+"",
+"VA",
+"Building C Crane Area J",
+"Filing for proposed mobile crane points for development project 2026-AEA-2624:2626-OE. 1A survey uploaded to filing.",
+"Project located Tech Park at Dulles Sterling VA; Loudon County VA.",
+"CRANE",
+""
+],
+[
+"2026-AEA-11074-OE",
+"",
+"VA",
+"Building B Mobile Crane Area 2",
+"Filing for proposed temporary mobile cranes to assist with building development project. Site map uploaded to filing.",
+"Project located at 13876 Redskin Drive Herndon VA",
+"CRANE",
+""
+],
+[
+"2026-AGL-2149-OE",
+"2024-AGL-3017-OE",
+"IL",
+"SLP06",
+"Lighting and signage for new roadway construction.",
+"South of Ohare Intl (ORD)",
+"POLE$LIGHTING",
+""
+],
+[
+"2026-AGL-3849-OE",
+"",
+"IL",
+"McMaster-Carr Parking Garage",
+"Mobile lattice boom crane for the construction of new parking garage",
+"South of existing McMasterCarr facility east of existing garage over existing detention basin west of County Line Rd.",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-AGL-4294-OE",
+"",
+"MN",
+"Project Alpha",
+"43' tall distribution facility in Eagan MN",
+"NE Bldg Corner is approximately 250' sw of Opperman Dr. and Dodd Rd. intersection",
+"BUILDING",
+""
+],
+[
+"2026-AGL-7034-OE",
+"",
+"OH",
+"CC8800",
+"erecting a crane with a tip Height of 645 for 6 weeks of work",
+"Vantage Data Center",
+"CRANE",
+""
+],
+[
+"2026-AGL-10189-OE",
+"",
+"IL",
+"T5 CHI IV Grayslake",
+"Building a two story industrial building using a crane 185' tall",
+"Farm Field",
+"CRANE",
+""
+],
+[
+"2026-AGL-11885-OE",
+"",
+"IL",
+"CHI12 Data Center",
+"Crane used to set equipment outside of building at grade level",
+"Microsoft CHI12nNew Data Center",
+"CRANE",
+""
+],
+[
+"2026-AGL-13119-OE",
+"",
+"IL",
+"Building CHI12 Data Center",
+"Crane on-site to assist setting underground structures.",
+"Building CHI12 Data Center",
+"CRANE",
+""
+],
+[
+"2026-ANE-782-OE",
+"",
+"ME",
+"331 Cumberland Ave portland ME",
+"a mobile crane installing Support of excavation for a new building being constucted",
+"331 cumberland ave portland maine",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-ANM-112-OE",
+"2017-ANM-4127-OE",
+"WA",
+"Artificial Intelligence Data Center",
+"This project is a new data computing center at 624 Urban Industrial Way East Wenatchee WA. nnThe existing structures at the site comprising the current functioning data mining facility & administration building will be removed from the site and replaced with a single 65 879 SF modular prefabricated Data Center. The building is a 190'x50'x71' rectangular box oriented in the east-west direction will be 3 stories plus roof top mechanical at 71' AGL and contain data operations and staff & support areas within the building envelope. The building will have full perimeter fire truck access and hydrants on site. A concrete pad with backup generators will be placed at the northwest corner (farther away from the airport than the building) of the site and will use exhaust ventilation stacks that will be 66' AGL.",
+"Sec 9 T22N R21E. W.M. Approximately .54 miles NE of runway Wenatchee airport (EAT)",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-ANM-3736-OE",
+"",
+"CO",
+"Visa OCC NDC2 Expansion",
+"Mobilize a mobile crane to install new rooftop steel platform and a new chiller.",
+"Located in the existing equipment yard at the facility.",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-ASO-4357-OE",
+"",
+"SC",
+"QTS-CLT1-DC2 Crane",
+"We propose to assemble (qty: 2) Manitowoc 999 S2 - 275 ton conventional crawler cranes between May 1 2026 and April 1 2027 to use during the course of construction.nnThe height of either crane will not exceed 243ft Above Ground Level. The Max height of the building when complete will be 75 ft AGL.nnWe will use qty:1 other crane that will be 120ft Max height Above Ground Level. nnThis work will be taking place at: nn2143 Hands Mill HwynRock Hill SC 29732nnPlease call [name removed] @ [phone removed] for more information.",
+"The site is located just west of 274 (hands mill highway.) The site is approx. 21 000ft from the nearest runway of the nearest airport - that airport being the Rock Hill - York County Airport Approx 4 miles south east of the site. The site elevation is approx 645 ft AMSL.",
+"CRANE",
+"Y"
+],
+[
+"2026-ASO-5465-OE",
+"",
+"GA",
+"QTS DC6",
+"Temporary crane used to erect a permanent building",
+"ESE of Kirby Rd. NE of the tyrone rd-Kirby rd intersection",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-ASO-19945-OE",
+"",
+"GA",
+"QTS SGA1 Data Center 4",
+"The proposed building is a single story data center with exterior equipment yards",
+"The proposed building is located in Blakely Georgia north of Early County Airport (BIJ).",
+"BUILDING",
+""
+],
+[
+"2026-ASW-6387-OE",
+"",
+"OK",
+"PRY10A - Substation Dead End",
+"161kV - 13.8kV Substation connecting GRDA transmission line to GOOGLE Data Center",
+"161kV Substation near the SE corner of Webb ST & E0535 Rd.",
+"TRANSMISSION_LINE$T_L_TOWER",
+""
+],
+[
+"2026-ASW-9499-OE",
+"",
+"NM",
+"Project Miner County NM",
+"Project Miner is located on 400 acres and delivering a state of the art date center campus. Construction completion is approximately July of 2028. During construction we will be utilizing mobile cranes. Obstruction and frequency evaluation has been completed for permanent structures and no filing needed for obstruction. Frequency flagged a notice and will be filed in the near future. The maximum building height is 60ft. There will be 6 buildings on site.",
+"[name removed] County Santa Teresa New Mexico",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-ASW-10078-OE",
+"",
+"NM",
+"Project Miner County NM",
+"Project Miner is located on 400 acres and delivering a state of the art data center campus. Construction completion is approximately July of 2028. At this filing date a crane notice under the general contractor for construction has been filed 2026-ASW-9499-OE. FAA Form 7460-1 is being submitted to notify the FAA of a proposed communications system installation associated with DAS service at the site including operation in the 450–470 MHz and 470–512 MHz UHF bands 1930-1995Mhz Band 25 and 3.45GHz-3.98GHz C-Band. Please reference DAS FAA Frequency Inquiry document uploaded to submittal. The dropdown choices for frequency did not match our frequency inquiry document and the site would not let us add specific frequency/power ranges.",
+"[name removed] County Santa Teresa New Mexico",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-ASW-14231-OE",
+"",
+"OK",
+"Crane for the Install of Transmission Line",
+"Temporary Crane determination for the installation for structure associated with ASN 2026 ASW 6387 OE",
+"Substation on the corner if Mayes County Data center. Road corner of Webb and E0535 Rd.",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-ASW-14687-OE",
+"2026-ASW-10078-OE",
+"NM",
+"Project Miner County NM",
+"Project Miner is located on 400 acres and delivering a state of the art data center campus. Construction completion is approximately July of 2028. At this filing date a crane notice under the general contractor for construction has been filed 2026-ASW-9499-OE. FAA Form 7460-1 is being submitted to notify the FAA of a proposed communications system installation associated with DAS service at the site including operation in the 450–470 MHz and 470–512 MHz UHF bands 1930-1995Mhz Band 25 and 3.45GHz-3.98GHz C-Band. Please reference DAS FAA Frequency Inquiry document uploaded to submittal. The dropdown choices for frequency did not match our frequency inquiry document and the site would not let us add specific frequency/power ranges.",
+"[name removed] County Santa Teresa New Mexico",
+"BUILDING$COMMERCIAL",
+""
+],
+[
+"2026-ASW-15915-OE",
+"2026-ASW-11379-OE",
+"TX",
+"QTS - DFW 3 - DC1",
+"Two level Data Center with support spaces.",
+"Approximately 3 700ft Northwest of Lancaster airport Runway 13 and approximately 275 ft north of E Belt line road",
+"BUILDING",
+""
+],
+[
+"2026-AWP-1856-OE",
+"",
+"AZ",
+"Vantage AZ15",
+"Using a mobile crane to erect a new building",
+"The construction site is located on the S.E. corner of Bullard Ave. and W. [name removed]. There are 3 additional structures to the West of the proposed crane position.",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-AWP-5643-OE",
+"",
+"NV",
+"Building A",
+"Building A - Data Center Campus",
+"Along USA Parkway 2.5 miles northwest of Silver Springs Airport",
+"BUILDING",
+""
+],
+[
+"2026-AWP-5659-OE",
+"",
+"NV",
+"Building P",
+"Building P - Data Center Campus",
+"Along USA Parkway 2.5 miles northwest of Silver Springs Airport",
+"BUILDING",
+""
+],
+[
+"2026-AWP-12302-OE",
+"",
+"AZ",
+"Crane For Prime Data Roof",
+"Setting Roofing Material throughout project scope",
+"Prime Data Center On West Side of Avondale Blvd and North of Broadway Rd",
+"CRANE$MOBILE",
+""
+],
+[
+"2026-AWP-16812-OE",
+"",
+"AZ",
+"Mobile Crane 3541 S Avondale Blvd",
+"Chiller install on roof of buildings",
+"Avondale Blvd and Miami at Prime Data Center",
+"CRANE$MOBILE",
+""
+]
+]
+}

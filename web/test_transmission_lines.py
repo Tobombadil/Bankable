@@ -182,13 +182,14 @@ def test_asset_page_for_a_transmission_line(web_client: TestClient) -> None:
     assert '<dt>Voltage</dt><dd class="tnum">345 kV</dd>' in body
     assert "Scriba to Fitzpatrick" in body
     assert "Pipeline class" not in body and "pipeline&rsquo;s route" not in body
-    assert "this line&rsquo;s route" in body
+    # No projects within 25 km: no Nearby tab (docs/30 §11.5, T-3).
+    assert web_client.get("/assets/scriba-fitzpatrick-345-kv-ny/nearby").status_code == 404
     assert 'class="mini-map__line mini-map__line--transmission"' in body
     assert "<dt>Owner (as the source names it)</dt><dd>Niagara Mohawk Power</dd>" in body
     assert 'href="/organizations/' not in body.split('<dl class="field-grid">')[1].split("</dl>")[0]
     assert "Lawrence Berkeley National Laboratory" in body and "28 Sep 2026" in body  # docs/31 §4
     # Promoted values are not repeated in the generic Attributes table.
-    table = body.split("2.</span> Attributes")[1].split("</section>")[0]
+    table = body.split('id="attributes"')[1].split("</details>")[0]
     assert (
         "voltage kv" not in table.lower()
         and ">Scriba<" not in table

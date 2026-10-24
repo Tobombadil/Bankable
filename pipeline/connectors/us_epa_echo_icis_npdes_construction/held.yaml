@@ -1,0 +1,253 @@
+# us.epa.echo.icis_npdes_construction: permits whose sites the connector holds back (connector.HELD_PATH,
+# docs/08 §4.1 "Built"). Reviewed by hand against the store's EPA ICIS-Air and Virginia DEQ frames of 2026-10-09
+# on the ECHO file of 2026-10-18.
+#   duplicate: the site is a campus another source already holds (within 300 m, or farther with the held record's
+#     own building code or name). pipeline/resolve.py compares names, counties and registry ids, not points, so
+#     the two would be published as two records, often in contradicting states.
+#   bridge: the resolver joins the site to held records of distinct campuses (a wrong merge).
+# Release an entry when the resolver compares points (docs/08 §4.1). A site is held when any of its permits is
+# listed; `held_record` is the record it duplicates (or, for a bridge, the one of its own campus), `m` the distance
+# between their points, `uncertain` a judgement the reviewer could not settle from names and points.
+reviewed: 2026-10-24
+held:
+  - npdes_id: AZC116834
+    name: "APPLE DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:AZMCA000000F003392
+    m: 0
+  - npdes_id: VAR10S340
+    name: "H5 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74276
+    m: 11
+  - npdes_id: VAR10P913
+    name: "AREP BEAUMEADE DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74290
+    m: 16
+  - npdes_id: ILR10ZE3D
+    name: "VILLAGE OF CAROL STREAM 10MW DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000043020AHD
+    m: 23
+  - npdes_id: ILR10ZAC4
+    name: "NORTHLAKE DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000031471AEN
+    m: 26
+  - npdes_id: VAR10Q409
+    name: "AVION DATA CENTER (AMAZON)"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74239
+    m: 26
+  - npdes_id: ILR10ZGH3
+    name: "PROPOSED DATA CENTER ORD-2"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000043090AKS
+    m: 38
+  - npdes_id: COR03K655
+    name: "COMPARK DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:CO0000000803500754
+    m: 47
+  - npdes_id: VAR10Q014
+    name: "ASHBURN TO LOCKRIDGE DATA CENTER ASH 2 LOCKRIDGE"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74232
+    m: 51
+  - npdes_id: VAR10M817
+    name: "MIDDLETOWN DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:80941
+    m: 55
+  - npdes_id: VAR10T287
+    name: "ZUMOT DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74317
+    m: 57
+  - npdes_id: VAR10T460
+    name: "DATA CENTERS AT COMPASS CREEK"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74269
+    m: 66
+  - npdes_id: ILR10ZC4M
+    name: "PRIME DATA CENTERS ORD-1 ELK GROVE VILLAGE"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000031440AWZ
+    m: 68
+  - npdes_id: VAR10Q910
+    name: "DULLES BERRY LC4 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74234
+    m: 77
+    uncertain: true
+  - npdes_id: COR410761
+    name: "AURORA DATA CENTER PHASE 2"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:CO0000000800501711
+    m: 100
+  - npdes_id: ILR10ZCYO
+    name: "CHI 11 DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000031440AUK
+    m: 103
+  - npdes_id: VAR10O602
+    name: "LVL DATA CENTER 08 & LVL 09-14 GRADING"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:52903
+    m: 106
+  - npdes_id: COR03M055
+    name: "ONE NECK DENVER DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:CO0000000803500770
+    m: 111
+  - npdes_id: VAR10S447
+    name: "AVC43 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:53071
+    m: 131
+  - npdes_id: VAR10Q048
+    name: "ASH1 BRODERICK DC2 ASHBURN 1 TO BRODERICK DATA CEN"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74141
+    m: 135
+  - npdes_id: VAR10Q773
+    name: "BN49 POWER HARVESTING MODULAR DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:VA0000005111700071
+    m: 172
+  - npdes_id: VAR10L220
+    name: "LOUDOUN CENTER LOT 1 ASH 2 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74155
+    m: 173
+  - npdes_id: TXR1508CV
+    name: "QTS PROJECT LANDRY DC3 DATA CENTER & SERVICE YARD"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:TX0000004811300817
+    m: 192
+  - npdes_id: VAR10M336
+    name: "LVL DATA CENTER FORMERLY DEBRIS REMOVAL AREA PRN 3"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:52820
+    m: 193
+  - npdes_id: ILR10ZG30
+    name: "PROPOSED DATA CENTER ORD-1"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000043407ABA
+    m: 212
+  - npdes_id: CAZ478830
+    name: "VANTAGE V6 DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:CABAAA0798
+    m: 218
+  - npdes_id: ILR10ZEAV
+    name: "CH4 DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000043450ACJ
+    m: 230
+  - npdes_id: VAR10S949
+    name: "CPT-01 CHIRISA DATA HALL (AKA CHIRISA RICHMOND)"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:VA0000005104100517
+    m: 235
+  - npdes_id: ILR10ZCKY
+    name: "DATA CENTER CAMPUS"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000043407AEA
+    m: 244
+    uncertain: true
+  - npdes_id: VAR10W141
+    name: "OPPIDAN DATA CENTER, ASHLAND"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:53197
+    m: 248
+  - npdes_id: NCC240803
+    name: "CLT10 BOYD FARMS DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:NC0000003701800601
+    m: 252
+  - npdes_id: SCR10ZJ6G
+    name: "UNION - DATA CENTER PHASE I DESIGN"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:SC00020600674
+    m: 261
+  - npdes_id: VAR10Q189
+    name: "AVC09 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:52973
+    m: 262
+  - npdes_id: GAR18B011
+    name: "ATL EAST DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:GA0000001324700076
+    m: 263
+  - npdes_id: COR427306
+    name: "GUN CLUB ROAD DATA CENTER - PHASE 2"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:CO0000000800501777
+    m: 270
+  - npdes_id: VAR10R509
+    name: "DARVISH DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74287
+    m: 291
+    uncertain: true
+  - npdes_id: COR03T135
+    name: "SYCAMORE DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:CO0000000800501711
+    m: 310
+  - npdes_id: VAR10T763
+    name: "MNZ03 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:74236
+    m: 350
+  - npdes_id: VAR10T165
+    name: "AVC17 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:53086
+    m: 384
+  - npdes_id: TXR15141R
+    name: "SHARKA DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:TX0000004813901671
+    m: 403
+  - npdes_id: GAR18B724
+    name: "VANTAGE DATA CENTERS GA 21"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:GA0000001312100982
+    m: 428
+  - npdes_id: ILR10J445
+    name: "ALLSTATE DATA CENTER-ROCHELLE"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:IL000141050ABT
+    m: 447
+  - npdes_id: AZCN95237
+    name: "ALIGNED ENERGY DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:AZMCA004013X135352
+    m: 450
+  - npdes_id: VAR10R556
+    name: "LYH10 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:53072
+    m: 709
+  - npdes_id: TNR241940
+    name: "FOXMAN LLC DBA FOXMAN - CLARKSVILLE DATA CENTER"
+    reason: duplicate
+    held_record: us.epa.echo.icis_air:TN00004712500339
+    m: 778
+  - npdes_id: VAR10S103
+    name: "LYH03 DATA CENTER"
+    reason: duplicate
+    held_record: us.va.deq.data_center_air_sites:53198
+    m: 1122
+  - npdes_id: VAR10T675
+    name: "VANTAGE DATA CENTERS VA16"
+    reason: bridge
+    held_record: us.va.deq.data_center_air_sites:74287
+    m: 1393
+    note: >-
+      Fuzzy-matches four Virginia DEQ Vantage records (VA16, VA11-15, VA2, VA3; DEQ rows cite no frs id, so
+      the frs veto cannot refuse them) and through them their ICIS-Air records: one cluster 11.7 km across.

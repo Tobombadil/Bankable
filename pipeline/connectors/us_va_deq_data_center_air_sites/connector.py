@@ -27,6 +27,9 @@ Fields:
   exactly that registration as an HTML page (the nearest addressable page for one row).
 - name_canonical: `PLA_NAME` verbatim. sponsor_name: left null — DEQ has no owner/operator column and
   the facility name mixes company, campus and building codes ("Amazon Data Services Inc IAD-124/125").
+  The operator is linked after load, only where the name carries a listed operator's own name, by
+  `services/resolve/operators.py` (`data/vendored/organizations/data_centre_operators.yaml`, docs/22 §27);
+  a vehicle name that does not say whose it is stays unlinked.
 - lifecycle_state: `AIR_OP_STATUS` through `status_map.yaml` (Planned -> filed, Under Construction ->
   under_construction, Operating/Seasonal/Temporarily Shutdown -> built).
 - capacity_mw: null. DEQ publishes no generator or load capacity on this layer; `PLA_DESC` is free text

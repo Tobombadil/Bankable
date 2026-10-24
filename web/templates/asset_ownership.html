@@ -1,0 +1,36 @@
+{#- An asset's Ownership tab (docs/30 §11.5), shown when it has two or more ownership records: each edge's
+    company, role, share and date, as the source states them. A sole owner and operator has no tab; its
+    name, source and date are the header's line. -#}
+{% extends "base.html" %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name | readable_name }} · Ownership — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: who owns and operates it, with each record's share, date and source.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<section class="record-tab" aria-labelledby="tab-heading">
+  <h2 class="visually-hidden" id="tab-heading">Owners and operators</h2>
+  <div class="table-scroll">
+  <table class="record-table" id="owners">
+    <caption class="visually-hidden">Companies with an ownership or operating interest in this asset.</caption>
+    <thead>
+      <tr><th scope="col">Company</th><th scope="col">Role</th><th scope="col" class="num">Share</th><th scope="col">As of</th><th scope="col">Source</th></tr>
+    </thead>
+    <tbody>
+      {% for o in record.owners %}
+      <tr>
+        <td data-label="Company">{% if o.public_id %}<a class="row-link" href="/organizations/{{ o.slug or o.public_id }}"{% if o.public_id in (record.personal_holder_ids or []) %} rel="nofollow"{% endif %}>{{ o.name or o.public_id }}</a>{% elif o.name %}{{ o.name }}{% endif %}</td>
+        <td data-label="Role">{{ o.role | humanise if o.role else 'Not stated' }}</td>
+        <td data-label="Share" class="num tnum">{{ '%.1f%%'|format(o.share_pct) if o.share_pct is not none else 'Not stated' }}</td>
+        <td data-label="As of" class="tnum">{{ o.as_of | display_date if o.as_of else 'Not stated' }}</td>
+        <td data-label="Source">{{ o.source_name or 'Not stated' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{ rt.foot(tabs, credits, record) }}
+</div>
+{% endblock %}

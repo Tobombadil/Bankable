@@ -1,0 +1,55 @@
+# us.faa.oeaaa.part77_cases: a data-centre site's FAA Part 77 evidence -> proposal lifecycle (docs/21 §7.1).
+# `field: Status` is the literal pipeline.normalize.harmonise_status recognises; the connector passes the
+# site's status label (connector.py `site_status`) under ctx["status_raw"], as every other connector does.
+# A label is derived from the site's cases on the fetch date: the FAA's own STATUS, EXPIRATION DATE and
+# DATE BUILT per case, and whether a case describes work at an existing data centre. A site with no active
+# FAA case ("FAA determinations expired", "Determined - Hazard") is never emitted (connector.py
+# `INACTIVE_STATUSES`), so neither label is listed: should one reach this map it is unmapped -> unknown + a DQ
+# vocabulary warning, never coerced.
+version: 1
+updated: 2026-10-24
+canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+sources:
+  faa_oeaaa_part77:
+    field: Status
+    map:
+      Under FAA aeronautical study: filed
+      Determined - No Hazard: filed
+      Structure height reached (FAA notice of actual construction): under_construction
+      Work at an existing data centre: built
+    caveats:
+      - >-
+        Under FAA aeronautical study and Determined - No Hazard both map to `filed`. A Part 77 notice
+        (Form 7460-1) proves that a sponsor told the FAA about one structure at one point; a
+        Determination of No Hazard says that structure, at that height, is no hazard to air navigation.
+        Neither is the project's land-use, air or building permit, so neither is `permitted`, and the
+        FAA's own study is not the project's `studied` milestone. A crane notice is `filed` too: it
+        says a crane is planned for a work window, not that it is up: a determination of no hazard is
+        not a construction start. A crane keeps its site `filed` until its determination expires, also
+        after its own work window has passed (each case reports `work_ended`): the determination is in
+        force until then, and a window passing says the lift is done, not that the project stopped.
+      - >-
+        Structure height reached is `under_construction`, not `built`: the FAA's DATE BUILT comes from
+        the supplemental notice (Form 7460-2) a sponsor files when a permanent structure reaches its
+        greatest height. The building stands; the data centre is not proven to be in service. Only a
+        notice of new construction or alteration counts: on a notice of an existing structure the date
+        built is the original build date, which proves the structure stands, so that case is work at an
+        existing data centre (`built`). A site holds `under_construction` for as long as its dated case
+        is carried, at most connector.py CARRY_YEARS (6) years after entry: no later FAA filing says
+        when a data centre enters service, so nothing here moves it on to `built`.
+      - >-
+        Work at an existing data centre is `built`: the filing itself says the data centre exists
+        (a crane to replace rooftop units, hoist equipment onto an existing building) and names no new
+        construction. It is used only when no case at the site is new work that is still active.
+      - >-
+        A site whose determinations have all expired leaves the records: a Determination of No Hazard
+        expires 18 months after it takes effect unless extended (14 CFR 77.33(b)), and an extension may
+        be asked only while structural work has not started (77.35(a)). Expiry proves that the FAA no
+        longer holds an active proposal, not that the project was built, delayed or dropped (many
+        sponsors never file the supplemental notice), and no lifecycle state says only that. A site
+        already loaded becomes a `removed` event that keeps its last state (docs/20 §3.3), as
+        ICIS-Air's Permanently Closed does; it is never recorded as `withdrawn` or `cancelled`.
+      - >-
+        A site holding only a Determination of Hazard leaves the records the same way: the
+        determination has no expiration date (77.33(c)) and says the structure as proposed would be a
+        hazard; the project may be redesigned. None of the 2025-2026 data-centre cases carries one.

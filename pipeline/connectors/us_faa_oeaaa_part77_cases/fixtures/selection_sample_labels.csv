@@ -1,0 +1,106 @@
+sample,asn,label,note
+precision,2026-AEA-6396-OE,dc,"Equinix DC-18 crane, precast data center"
+precision,2025-AEA-12387-OE,dc,precast data center erection crane
+precision,2026-ANM-112-OE,dc,new AI data center building
+precision,2025-AEA-2948-OE,dc,IAD-313 crane for a new building (AWS campus code)
+precision,2025-ANM-2267-OE,dc,PDX138 campus water tanks (AWS)
+precision,2026-AEA-10909-OE,dc,crane for the Tech Park at Dulles data center buildings
+precision,2025-ACE-5314-OE,dc,crane area on a data center campus
+precision,2025-AEA-12842-OE,dc,"EdgeCore tower crane, new three-story building"
+precision,2026-AEA-1955-OE,dc,IAD 327 tilt-up crane (AWS)
+precision,2026-AWP-5659-OE,dc,data center campus building
+precision,2026-ASO-19945-OE,dc,QTS data center building
+precision,2025-AEA-2292-OE,dc,data center building (rezoning)
+precision,2026-ASO-4357-OE,dc,QTS crane
+precision,2026-AEA-10915-OE,dc,crane for the Tech Park at Dulles data center buildings
+precision,2026-AEA-4244-OE,dc,rooftop service at Amazon data center IAD 164
+precision,2025-AEA-4390-OE,dc,"CloudHQ crane, new data center generator yard"
+precision,2025-ASO-8234-OE,dc,Iron Mountain MIA-1 building
+precision,2026-AWP-12302-OE,dc,crane at the Prime data center
+precision,2026-AEA-1008-OE,dc,QTS MAN1 DC4 building
+precision,2026-AWP-5643-OE,dc,data center campus building
+precision,2026-AEA-10911-OE,dc,crane for the Tech Park at Dulles data center buildings
+precision,2026-AEA-612-OE,dc,Yondr NOV2B data center
+precision,2026-AEA-8681-OE,dc,two proposed data centers
+precision,2025-ASO-15279-OE,dc,crane at a data center construction site
+precision,2025-AWP-778-OE,dc,crane for Stack Infrastructure construction
+precision,2026-AEA-505-OE,dc,crane for a newly built data center
+precision,2025-AEA-11265-OE,dc,CloudHQ MDC1 building
+precision,2026-ASO-5465-OE,dc,QTS crane
+precision,2025-AEA-12370-OE,dc,crane for a data center building
+precision,2025-AWP-18069-OE,dc,Stream data center
+precision,2025-AWP-3081-OE,dc,QTS DC13 crane
+precision,2026-AWP-16812-OE,dc,chiller crane at the Prime data center
+precision,2026-ACE-1734-OE,dc,crane at a QTS data center
+precision,2026-AEA-6391-OE,dc,IAD07/IAD08 data center cranes
+precision,2026-ASW-14687-OE,dc,Project Miner data center campus
+precision,2025-AGL-11270-OE,dc,data center campus water tank
+precision,2025-AGL-8453-OE,dc,light poles; the sponsor names a data centre
+precision,2025-ASW-8939-OE,dc,crane at AMD's data center
+precision,2025-ASO-1669-OE,dc,DataBank ATL6 crane
+precision,2025-AGL-12773-OE,dc,data center crane
+precision,2025-AEA-3238-OE,dc,crane at IAD 313 (AWS)
+precision,2026-ASW-15915-OE,dc,QTS DFW 3 building
+precision,2025-AEA-1045-OE,dc,crane loading a new data center roof
+precision,2026-AWP-1856-OE,dc,Vantage AZ15 crane
+precision,2025-AWP-2199-OE,dc,data center building
+recall,2026-AEA-6856-OE,dc,
+recall,2025-AEA-2300-OE,dc,
+recall,2026-AGL-13119-OE,dc,
+recall,2026-AEA-9020-OE,dc,
+recall,2026-AEA-6497-OE,dc,
+recall,2026-AEA-5347-OE,dc,
+recall,2025-AEA-12688-OE,dc,
+recall,2026-AEA-1362-OE,dc,
+recall,2026-AGL-10189-OE,dc,
+recall,2026-ANM-3736-OE,dc,
+recall,2025-AEA-12413-OE,dc,
+recall,2026-AGL-11885-OE,dc,
+recall,2025-AEA-2494-OE,dc,
+recall,2026-AEA-10522-OE,dc,
+recall,2025-AEA-12689-OE,dc,
+recall,2026-AEA-10474-OE,dc,
+recall,2026-AGL-7034-OE,dc,
+recall,2025-AEA-8751-OE,dc,
+recall,2026-AEA-6204-OE,dc,
+recall,2025-AEA-1780-OE,dc,
+recall,2026-AEA-2033-OE,dc,
+recall,2025-AEA-14205-OE,dc,
+recall,2026-AEA-7239-OE,dc,
+recall,2026-AEA-4520-OE,dc,
+recall,2026-AEA-3733-OE,dc,
+recall,2025-AEA-4135-OE,dc,
+recall,2026-AEA-4527-OE,dc,
+recall,2026-AEA-6403-OE,dc,
+recall,2026-AEA-10907-OE,dc,
+recall,2025-AEA-1936-OE,dc,
+recall,2026-AEA-3960-OE,dc,
+recall,2026-AEA-11074-OE,dc,
+recall,2026-AEA-10908-OE,dc,
+recall,2025-AEA-14279-OE,dc,
+recall,2026-AEA-1121-OE,not_dc,
+recall,2026-AEA-1510-OE,not_dc,
+recall,2026-AEA-5838-OE,not_dc,
+recall,2025-ANE-2363-OE,not_dc,
+recall,2026-AEA-1124-OE,not_dc,
+recall,2026-AGL-3849-OE,not_dc,
+recall,2025-AEA-13458-OE,not_dc,
+recall,2025-AEA-8909-OE,not_dc,
+recall,2026-AEA-5836-OE,not_dc,
+recall,2025-AEA-10256-OE,not_dc,
+recall,2025-AEA-10014-OE,not_dc,
+recall,2025-AEA-8918-OE,not_dc,
+recall,2025-AEA-10213-OE,not_dc,
+recall,2025-AEA-4406-OE,not_dc,
+recall,2025-AEA-10139-OE,not_dc,
+recall,2026-AGL-2149-OE,not_dc,
+recall,2026-ANE-782-OE,not_dc,
+recall,2025-AEA-13539-OE,not_dc,
+recall,2025-AEA-10150-OE,not_dc,
+recall,2025-AEA-10179-OE,not_dc,
+recall,2025-AEA-10006-OE,not_dc,
+recall,2026-AGL-4294-OE,not_dc,
+recall,2025-AEA-10255-OE,not_dc,
+recall,2026-ASW-14231-OE,not_dc,
+recall,2026-AEA-146-OE,unsure,
+recall,2026-AEA-2043-OE,unsure,

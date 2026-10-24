@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
+{#- Sources & licences (Navigation v2 lane V7; docs/30 §11.4, §11.10): the register, by region, United
+    States first. Each region's table holds exactly the published registers its figure on /about counts;
+    registers listed but not published follow behind a disclosure. A news feed is not a register a region
+    counts: news feeds follow the regions in a section of their own, and the site's own social channels,
+    where it posts rather than where a fact comes from, are not listed. Records: what the public tier shows
+    from that register today, in every status, each count a link to that list (web/app.py
+    `about_sources`, `_source_records`). The credit is the API's `attribution_text`, which carries any
+    notice the register requires (decision row 2026-10-22, "Required source notices"). -#}
+{% block title %}{{ sections.label.about_sources }}: every register and its licence — Inframation{% endblock %}
+{% block meta_description %}Every register behind Inframation's market intelligence, by region, United States first: what it publishes, its licence, the credit it requires and how many records it backs.{% endblock %}
+{% block content %}
+<article class="ref-page sources-page">
+<header class="ref-head">
+  <h1>{{ sections.label.about_sources }}</h1>
+  <p class="ref-head__lede">Every fact on this site comes from one of these registers, under the licence shown.</p>
+  <details class="ref-about">
+    <summary>About this</summary>
+    <p>Derived fields only: the register's own row and exact coordinates are withheld, and the record links out to the source instead. Records: how many records the public tier shows from the register today, in every status; each count opens that list. Licences in full and the credit lines to copy are on <a href="{{ sections.href.attribution }}">{{ sections.label.attribution }}</a>.</p>
+  </details>
+</header>
+
+{%- if regions %}
+<nav class="ref-index" aria-label="Regions">
+  <ul>
+    {%- for r in regions %}
+    <li><a href="#{{ r.id }}">{{ r.name }}</a></li>
+    {%- endfor %}
+  </ul>
+</nav>
+{%- endif %}
+
+{%- for r in regions %}
+<section class="sources-region" aria-labelledby="{{ r.id }}">
+  <h2 id="{{ r.id }}">{{ r.name }}</h2>
+  {%- if r.published %}
+  <div class="table-scroll" tabindex="0" role="region" aria-label="{{ r.name }}: published registers (scrolls sideways on a narrow screen)">
+  <table class="record-table sources-table">
+    <thead>
+      <tr>
+        <th scope="col">Register</th>
+        <th scope="col">Licence</th>
+        <th scope="col">Shown here</th>
+        <th scope="col">Credit</th>
+        <th scope="col" class="num">Records</th>
+      </tr>
+    </thead>
+    <tbody>
+      {%- for s in r.published %}
+      <tr>
+        <td data-label="Register" class="sources-table__stack"><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a>
+          {%- if s.operator %}<span class="sources-table__sub">{{ s.operator }}</span>{% endif %}
+          <code class="sources-table__id">{{ s.source_id }}</code></td>
+        <td data-label="Licence" class="sources-table__stack"><span>{{ s.licence.reuse_class | reuse_class_label }}</span>
+          {%- if s.licence.allows_commercial_use is false %}<span class="sources-table__sub">Not for commercial use</span>{% endif %}
+          {%- if s.licence.url %}<span class="sources-table__sub"><a href="{{ s.licence.url }}" rel="noopener nofollow">Terms</a></span>{% endif %}</td>
+        <td data-label="Shown here">{% if s.licence.allows_raw_publication %}Source rows{% elif s.licence.allows_derived_publication %}Derived fields only{% else %}Linked, not shown{% endif %}</td>
+        <td data-label="Credit">{{ s.attribution_text or ('Required, see terms' if s.licence.attribution_required else 'Not required') }}</td>
+        <td data-label="Records" class="num tnum">{% if s.records is not none %}<a href="{{ s.records_href }}">{{ '{:,}'.format(s.records) }}</a>{% else %}<span class="sources-table__none" title="Counted on its own list">&ndash;</span>{% endif %}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  </div>
+  {%- else %}
+  <p>No register for {{ r.name }} is published yet.</p>
+  {%- endif %}
+  {%- if r.withheld %}
+  <details class="sources-withheld">
+    <summary>{{ r.withheld | length }} more listed, not published</summary>
+    <ul>
+      {%- for s in r.withheld %}
+      <li><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a></li>
+      {%- endfor %}
+    </ul>
+    <p><a href="/methodology/gaps#withheld">Why a register is withheld</a></p>
+  </details>
+  {%- endif %}
+</section>
+{%- else %}
+<p>The register could not be listed just now.</p>
+{%- endfor %}
+</article>
+{% endblock %}

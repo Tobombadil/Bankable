@@ -46,7 +46,7 @@ one worth a direct ask rather than a browser workaround.
 > carbon-storage wells, from public agency records.
 >
 > I'd like to include Louisiana's Class VI applications and injection-well data alongside what EPA and the
-> other primacy states already publish. Your Class VI page links out to SONRIS, and SONRIS's own
+> other primacy states already publish. Your Class VI page shows its applications table from SONRIS, and SONRIS's own
 > robots.txt disallows automated access to the whole site, so I have no way to keep this current without
 > checking it by hand, application by application.
 >
@@ -78,11 +78,11 @@ one worth a direct ask rather than a browser workaround.
       (2026-09-26); confirm it's still the right inbox and not a stale address, and consider a phone
       follow-up if DCE's Injection & Mining division lists a direct line elsewhere.
 - [ ] **Add your signature block**: name, title, phone, and the postal address the platform's other
-      outbound mail already carries — Compass International Trading Group LLC, 1029 E 8th Ave, Suite 806,
-      Denver, CO 80216 (`docs/00-PLAN.md` decisions log, 2026-09-18 row (5)) — if you decide to name the LLC
+      outbound mail already carries — Compass International Trading Group, LLC, 1029 E 8th Ave, Suite 806,
+      Denver, CO 80218 (`docs/00-PLAN.md` decisions log, 2026-09-18 row (5)) — if you decide to name the LLC
       (next item).
 - [ ] **Decide whether to name the LLC.** The draft above signs as "Inframation" in the first person; DCE may
-      reasonably ask who legally operates it. Naming Compass International Trading Group LLC is the more
+      reasonably ask who legally operates it. Naming Compass International Trading Group, LLC is the more
       transparent version and matches the address rule above; leaving it as a personal/product introduction
       is lighter-weight for a first ask. Either is consistent with `CLAUDE.md`'s no-impersonation rule as
       long as it's you sending it, signed as yourself.

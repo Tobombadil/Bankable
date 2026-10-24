@@ -1,0 +1,48 @@
+{#- A project's Sources tab (docs/30 §11.5, T-4; D-18's full Sources panel): every register behind the
+    record with its licence, retrieval date and link out; the source records this one combines (open at
+    three or fewer, else collapsed with its count, docs/16 §4.2); and the "Report a problem" form, which
+    every other tab links to. -#}
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name | readable_name }} · Sources — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: the registers behind this record, their licences and retrieval dates.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<div class="record-tab">
+{{ m.provenance_panel(provenance_rows) }}
+
+{% if record.members | length > 1 %}
+<details class="record-disclosure record-combined" id="combined"{% if record.members | length <= 3 %} open{% endif %}>
+  <summary>Combined records ({{ record.members | length }})</summary>
+  <p class="attribution-line">Each row is one source&rsquo;s own record of this project. Capacity comes from the interconnection request where there is one, and the status is the most advanced any source reports.</p>
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Source records merged into this proposal</caption>
+    <thead><tr><th scope="col">Source</th><th scope="col">Record</th><th scope="col">Name</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th><th scope="col">Proposed COD</th></tr></thead>
+    <tbody>
+      {% for mbr in record.members %}
+      <tr>
+        <td data-label="Source">{{ mbr.source_label }} <span class="reuse-badge">{{ mbr.role_label }}</span></td>
+        <td data-label="Record" class="mono">{{ mbr.source_record_id or '—' }}</td>
+        <td data-label="Name">{{ mbr.name_canonical or '—' }}</td>
+        <td data-label="Technology">{{ mbr.technology_label or '—' }}</td>
+        <td data-label="MW" class="num tnum">{{ mbr.capacity_mw | mw if mbr.capacity_mw is not none else '—' }}</td>
+        <td data-label="Status">{{ mbr.lifecycle_label or '—' }}{% if mbr.status_raw %} <span class="field-grid__source-value">&ldquo;{{ mbr.status_raw }}&rdquo;</span>{% endif %}{% if mbr.gone_at %} <span class="field-grid__source-value">no longer listed since {{ mbr.gone_at | display_date }}</span>{% endif %}</td>
+        <td data-label="Proposed COD" class="tnum">{{ mbr.proposed_online_date | display_date if mbr.proposed_online_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</details>
+{% endif %}
+
+{% include "partials/_report_problem.html" %}
+</div>
+{{ rt.foot(tabs, [], record, report=True) }}
+</div>
+{% endblock %}
+{% block extra_scripts %}<script src="/static/js/report.js?v={{ asset_version }}" defer></script>{% endblock %}

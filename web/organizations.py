@@ -1180,6 +1180,9 @@ class _OrgFetch:
     #: record (`None` when it could not be read).
     pipeline: dict[str, Any] | None = None
     opportunities: list[dict[str, Any]] = field(default_factory=list)
+    #: Whether the API holds more of the company's notices than the one page read (`page.has_more`):
+    #: the section's count then reads "100+" (lane stacked-lists, fix round).
+    opportunities_more: bool = False
     technology_vocabulary: list[str] = field(default_factory=list)
     #: `status` and `role` narrowing the Assets section (`_asset_filter`), from a companies-index figure.
     asset_filter: dict[str, str] = field(default_factory=dict)
@@ -1253,6 +1256,10 @@ def _organization_fetch(api: ApiClient, request: Request, entity: dict[str, Any]
             params={"limit": 100, "status": ALL_OPPORTUNITY_STATUSES_CSV},
         )
         fetch.opportunities = [flatten_opportunity(e) for e in opportunities_env["data"]]
+        opportunities_page = opportunities_env.get("page")
+        fetch.opportunities_more = bool(
+            isinstance(opportunities_page, Mapping) and opportunities_page.get("has_more")
+        )
     except ApiError:
         fetch.opportunities = []
     try:
@@ -1314,6 +1321,10 @@ class _OrgCompose:
     nearby: list[dict[str, Any]]
     nearby_filter: NearbyFilter
     nearby_notice: dict[str, Any] | None
+    #: The nearby section heading's figure: the API's `proposals_within_radius`, the number its
+    #: notice says is shown (never the rendered rows, which are capped and grouped); `None` when the
+    #: nearby read failed, so the heading claims no count.
+    nearby_shown: int | None
     descriptor: str | None
     provenance: list[dict[str, Any]]
     provenance_note: str | None
@@ -1329,8 +1340,9 @@ class _OrgMap:
 
     nearby: list[dict[str, Any]]
     nearby_filter: NearbyFilter
-    nearby_shown: int
-    nearby_total: int
+    #: `None` when the nearby read failed (`_organization_nearby`).
+    nearby_shown: int | None
+    nearby_total: int | None
     mini_map: dict[str, Any] | None
     tile_url: str | None
     tile_mode: str
@@ -1459,6 +1471,7 @@ def _organization_compose(
         nearby=m.nearby,
         nearby_filter=m.nearby_filter,
         nearby_notice=notice,
+        nearby_shown=m.nearby_shown,
         descriptor=descriptor,
         provenance=provenance,
         provenance_note=provenance_note,
@@ -1473,7 +1486,7 @@ def _organization_nearby(
     fetch: _OrgFetch,
     features: list[dict[str, Any]],
     groups: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], int, int, NearbyFilter]:
+) -> tuple[list[dict[str, Any]], int | None, int | None, NearbyFilter]:
     """ "Proposals near those pipelines" (owner, 2026-09-19): exact-grade proposals within 25 km of
     any of the organisation's assets, each at its distance to the nearest one, which is named.
     Narrowed by default to the technologies the company's own asset types make relevant
@@ -1511,7 +1524,8 @@ def _organization_nearby(
             if geometry is not None:
                 features.append(_proposal_feature(flat, geometry))
     except ApiError:
-        nearby = []
+        # Unread is not none: no counts, so neither the heading nor the notice claims "0".
+        return [], None, None, nearby_filter
     # Counts for the "N of M" line come from the API's `totals`, never from the rendered rows:
     # `limit` caps the page and `group_nearby_proposals` collapses a project's generator units, so
     # the row count is neither the matched count nor the total.
@@ -1590,6 +1604,7 @@ def _organization_render(
             "nearby_proposals": compose.nearby,
             "nearby_filter": compose.nearby_filter,
             "nearby_notice": compose.nearby_notice,
+            "nearby_shown": compose.nearby_shown,
             "nearby_technologies": fetch.technology_vocabulary,
             "nearby_param": NEARBY_TECHNOLOGY_PARAM,
             "proposals": fetch.proposals,
@@ -1602,6 +1617,7 @@ def _organization_render(
             "proposals_total": _pipeline_total(fetch),
             "proposals_complete": fetch.pipeline is not None or fetch.proposal_pages.complete,
             "opportunities": fetch.opportunities,
+            "opportunities_more": fetch.opportunities_more,
             "provenance_rows": provenance_panel_rows(api, compose.provenance) if compose.provenance else [],
             "provenance_note": compose.provenance_note,
             "mini_map": compose.mini_map,

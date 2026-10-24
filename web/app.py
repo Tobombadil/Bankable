@@ -18,6 +18,7 @@ import logging
 import os
 import pathlib
 import re
+import time
 from collections.abc import Mapping, Sequence
 from os import PathLike
 from typing import Any
@@ -31,12 +32,15 @@ from starlette.datastructures import QueryParams
 from starlette.types import Scope
 
 from services.environment import is_dev_environment
+from web import record_tabs
 from web.api_client import ApiClient, ApiError, ApiNotFound, VisitorIpMiddleware
 from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
+from web.formatting import readable_name
 from web.head_requests import HeadAsGetMiddleware
 from web.headline import LANDINGS, Landing, figures_sentence, landing_for, opening_figures, shows_figures
 from web.labels import PLANT_FAMILY_LABELS, SECTION_LABELS
+from web.legal import controller_identity
 from web.list_sort import (
     OPPORTUNITY_COLUMNS,
     OPPORTUNITY_OTHER,
@@ -48,9 +52,11 @@ from web.list_sort import (
     valid_sort,
 )
 from web.list_subject import list_subject, subject_hidden_fields
+from web.organizations import ORG_DEFAULT_SCOPE, ORG_SCOPE_PARAM, org_index_row
 from web.page import (
     ALL_OPPORTUNITY_STATUSES_CSV,
     ASSET_TYPE_LABELS,
+    MY_PIPELINE_ENV,
     OPPORTUNITY_PASSTHROUGH_FILTERS,
     PROPOSAL_PASSTHROUGH_FILTERS,
     WEB_ROOT,
@@ -93,7 +99,6 @@ from web.viewmodels import (
     coverage_facts,
     flatten_asset,
     flatten_opportunity,
-    flatten_organization,
     flatten_proposal,
     lifecycle_query_items,
     map_description,
@@ -998,43 +1003,113 @@ def _not_listed(entity: Mapping[str, Any]) -> dict[str, Any] | None:
 
 @app.get("/proposals/{slug}", response_class=HTMLResponse)
 def proposal_detail(request: Request, slug: str) -> Response:
+    """A project's Overview, the record's own URL (docs/30 §11.5)."""
+    return _proposal_page(request, slug, "overview")
+
+
+@app.get("/proposals/{slug}/{tab}", response_class=HTMLResponse)
+def proposal_tab(request: Request, slug: str, tab: str) -> Response:
+    """A project's Timeline, Sources or (once matches publish) Matches tab (docs/30 §11.5, §11.10)."""
+    if tab == "overview":
+        return record_tabs.overview_redirect(request, f"/proposals/{quote(slug, safe='')}")
+    return _proposal_page(request, slug, tab)
+
+
+#: The project's list in its breadcrumb (docs/30 §11.3: "Market / Projects / {name}").
+_PROPOSAL_TRAIL: tuple[tuple[str, str], ...] = ((SECTION_LABELS["projects"], "/proposals"),)
+
+
+def _proposal_page(request: Request, slug: str, tab: str) -> Response:
+    """One tab of a project (web/record_tabs.py): `?tab=` answers 301 to its segment, an unknown segment
+    is the not-found page, a merged project's old slug answers 301 to the survivor on the same tab, and
+    each tab reads only what it shows beside the header every tab shares (T-10)."""
+    moved = record_tabs.query_tab_redirect(
+        request, f"/proposals/{quote(slug, safe='')}", record_tabs.PROPOSAL_TABS, tab
+    )
+    if moved is not None:
+        return moved
+    if tab != "overview" and not record_tabs.is_tab(record_tabs.PROPOSAL_TABS, tab):
+        return not_found_response(request, "page")
     api = get_api(request)
     entity = _resolve_proposal_by_slug(api, slug)
     if entity is None:
         if survivor := _survivor_slug(api, "proposals", slug):
-            return RedirectResponse(f"/proposals/{quote(survivor, safe='')}", status_code=301)
+            return record_tabs.moved_redirect(request, "proposals", survivor, tab)
         return not_found_response(request, "proposal")
     from web.viewmodels import proposal_history, with_composition  # local: off the shared import block
 
     record = flatten_proposal(with_composition(api, entity))
-    path = f"/proposals/{record['slug']}"
-    connection = proposal_connection(api, record.get("public_id"))
-    response = templates.TemplateResponse(
-        request,
-        "proposal_detail.html",
-        {
-            "record": record,
-            # No register lists it any more (API `listed: false`): the status is the last one stated.
-            "not_listed": _not_listed(entity),
-            "history": proposal_history(api, record),
-            "provenance_rows": attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
-            "connection": connection,
+    path = f"/proposals/{quote(record['slug'], safe='')}"
+    tabs = record_tabs.Tabs(
+        "proposal",
+        path,
+        record_tabs.PROPOSAL_TABS,
+        # Matches stay hidden while matches are withheld from readers (IA-9; US-401 AC3).
+        present={"timeline": True, "sources": True, "matches": False},
+        current=tab,
+        counts={"sources": record_tabs.source_count(record["provenance"])},
+    )
+    location = proposal_location(entity)
+    name = readable_name(record["name"])
+    context: dict[str, Any] = {
+        "record": record,
+        "head": {
+            "type": "proposal",
+            "crumbs": record_tabs.crumbs(tabs, _PROPOSAL_TRAIL, name),
+            "name": name,
+            "chip": {
+                "state": record.get("lifecycle_state"),
+                "family": record.get("lifecycle_family"),
+                "raw": record.get("status_raw"),
+            },
+            "facts": record_tabs.proposal_facts(record, proposal_field_rows(record)),
+            "action": record_tabs.primary_action(
+                request,
+                tabs,
+                "proposal",
+                record,
+                ("Show on map", location.get("map_href") if location else None),
+                ("View at source", record.get("source_url")),
+            ),
+        },
+        # No register lists it any more (API `listed: false`): the status is the last one stated.
+        "not_listed": _not_listed(entity),
+        "delayed": delayed_notice(request, "proposal"),
+        "credits": record_tabs.credits(record["provenance"]),
+        "canonical_path": tabs.href(tab),
+    }
+    if tab == "overview":
+        connection = proposal_connection(api, record.get("public_id"))
+        context.update(
+            connection=connection,
             # The field-grid rows this record's kind can carry (web/viewmodels.py
             # `PROPOSAL_FIELDS_NOT_APPLICABLE`): a Class VI well shows no MW, ISO or grid rows.
-            "fields": proposal_field_rows(record, connected=bool(connection)),
-            "location": proposal_location(entity),
-            "delayed": delayed_notice(request, "proposal"),
-            "canonical_path": path,
-            "report": report_context(record["public_id"], record["name"], path),
-            "jsonld": [
-                breadcrumb_jsonld(
-                    request,
-                    [("Home", "/"), (SECTION_LABELS["projects"], "/proposals"), (record["name"], path)],
-                )
+            fields=proposal_field_rows(record, connected=bool(connection)),
+            location=location,
+            # Why each register counts a large load as a data centre: the claim a reader checks first,
+            # so it stays on the Overview as well as in its Sources row.
+            select_basis=[
+                {"source": row.get("source_name"), "line": row["select_basis_line"]}
+                for row in attach_select_basis(record, [dict(p) for p in record["provenance"]])
+                if row.get("select_basis_line")
             ],
-        },
+            timeline=record_tabs.proposal_timeline(record, proposal_history(api, record)),
+            jsonld=[
+                breadcrumb_jsonld(request, record_tabs.jsonld_trail(_PROPOSAL_TRAIL, record["name"], path))
+            ],
+        )
+    elif tab == "timeline":
+        context["timeline"] = record_tabs.proposal_timeline(record, proposal_history(api, record))
+    elif tab == "sources":
+        context.update(
+            provenance_rows=attach_select_basis(record, provenance_panel_rows(api, record["provenance"])),
+            report=report_context(record["public_id"], record["name"], tabs.href("sources")),
+        )
+    response = record_tabs.render(
+        request, f"proposal_{'detail' if tab == 'overview' else tab}.html", context, tabs
     )
-    return count_page_view(request, response, "proposal")
+    # One view of the record per visit (PM-5): the Overview counts, its tabs do not.
+    return count_page_view(request, response, "proposal") if tabs.is_overview else response
 
 
 #: docs/16 U-7 (decision 2026-10-22): RFPs & funding opens on the notices
@@ -1307,93 +1382,493 @@ def asset_detail_proxy(request: Request, public_id: str) -> JSONResponse:
     return JSONResponse(envelope)
 
 
+# ---- Search (Navigation v2 lane V7; docs/30 §11.4, docs/16 §4.4 U-8; lane stacked-lists) ---------------
+#: The kinds of record a search finds, in their fixed order: companies first (the owner's "companies on
+#: top"), then the Market lists in their bar's order, then public money. RFPs are buyers asking for projects
+#: and Funding is public money offered (docs/30 §11.2); a notice goes where its kind says, the split
+#: `/funding` makes in lane V4. "RFPs" is typed here because the section label still reads "RFPs & funding"
+#: until then.
+#:
+#: The page shows one kind at a time (owner, 2026-10-24: "different stacked lists are really confusing ...
+#: I don't really know what I'm looking at"): every kind with its count down the left, one list at the
+#: right under a heading that names its kind and count and stays in view as the rows scroll. Without a
+#: `type` the page opens on the kind with the most matches (`search_opening_kind`).
+SEARCH_TABS: tuple[tuple[str, str], ...] = (
+    ("companies", SECTION_LABELS["companies"]),
+    ("projects", SECTION_LABELS["projects"]),
+    ("infrastructure", SECTION_LABELS["infrastructure"]),
+    ("rfps", "RFPs"),
+    ("funding", SECTION_LABELS["funding"]),
+)
+SEARCH_TAB_KEYS = frozenset(key for key, _ in SEARCH_TABS)
+SEARCH_RFP_KINDS = "rfp,tender,auction,procurement_notice"
+SEARCH_FUNDING_KINDS = "foa,loan_program,program"
+#: Rows read of a kind the page does not open: enough for its count and for the top hit, which is read from
+#: the first companies and assets. The kind the page opens shows up to `SEARCH_TAB_ROWS`.
+SEARCH_COUNT_ROWS = 5
+SEARCH_TAB_ROWS = 50
+#: `GET /v1/assets` takes no `include=count`, so Infrastructure always reads one page of 50 and says "50+"
+#: when there is more: a count of "5+" would say nothing.
+SEARCH_ASSET_ROWS = 50
+#: A top hit needs at least this many letters or digits of query: "so" would make every name a match.
+SEARCH_TOP_HIT_MIN = 3
+
+
+def _search_key(text: Any) -> str:
+    """A name or query compared as the API compares names: case, spaces and punctuation ignored."""
+    return re.sub(r"[^0-9a-z]+", "", str(text or "").lower())
+
+
+def _search_bucket(
+    key: str,
+    label: str,
+    rows: list[dict[str, Any]],
+    envelope: Mapping[str, Any] | None,
+    *,
+    list_href: str,
+    q: str,
+    credits: list[dict[str, Any]] | None = None,
+    read: int | None = None,
+) -> dict[str, Any]:
+    """One kind's results: its rows, its total and how the page prints it, and the list that holds them all.
+
+    The total is the API's count where the route counts (`include=count`); otherwise the rows read, with
+    a "+" when the page says there are more (`read`: how many were read, when more were read than shown).
+    Each kind's link and its "Open all N" link carry the same query, and the full list link reproduces
+    exactly the set counted, so a figure never names more than its link shows.
+    """
+    meta = (envelope or {}).get("meta") or {}
+    page = (envelope or {}).get("page") or {}
+    total = meta.get("total") if isinstance(meta.get("total"), int) else None
+    more = total is None and bool(page.get("has_more"))
+    count = total if total is not None else (len(rows) if read is None else read)
+    return {
+        "key": key,
+        "label": label,
+        "rows": rows,
+        "total": count,
+        "count_text": f"{count:,}+" if more else f"{count:,}",
+        "more": more or count > len(rows),
+        "href": "/search?" + urlencode({"q": q, "type": key}),
+        "list_href": list_href,
+        "credits": credits or [],
+        "error": envelope is None,
+    }
+
+
+def _search_read(api: ApiClient, path: str, params: dict[str, Any]) -> Mapping[str, Any] | None:
+    """One kind's read. A refusal for capacity, an upstream failure or a list route this API does not
+    serve costs that kind only (it says it could not be searched), as the assets read always did; any
+    other client error is a bug in this page and stays loud."""
+    try:
+        return api.get(path, params=params)
+    except ApiError as exc:
+        if exc.status_code not in (404, 429) and exc.status_code < 500:
+            raise
+        logger.warning("search bucket unavailable", extra={"path": path, "api_status": exc.status_code})
+        return None
+
+
+def search_top_hit(
+    q: str, organizations: Sequence[Mapping[str, Any]], assets: Sequence[Mapping[str, Any]]
+) -> dict[str, Any] | None:
+    """The one result a name search most likely meant (docs/16 §4.4): the first company, else the first
+    asset, whose name starts with the query, ignoring case, spaces and punctuation. Companies come first
+    because a name search is most often for one (the owner's "companies on top"). None for a query too
+    short to mean a name, or when no name starts with it."""
+    key = _search_key(q)
+    if len(key) < SEARCH_TOP_HIT_MIN:
+        return None
+    for entity in organizations:
+        if _search_key(entity.get("name_canonical") or entity.get("name")).startswith(key):
+            return {"kind": "company", "record": org_index_row(entity, scope=ORG_DEFAULT_SCOPE)}
+    for asset in assets:
+        if _search_key(asset.get("name")).startswith(key):
+            return {"kind": "asset", "record": asset}
+    return None
+
+
+#: The kind a top hit belongs to, by the key of the list that holds it.
+SEARCH_HIT_KINDS = {"company": "companies", "asset": "infrastructure"}
+SEARCH_TAB_ORDER = {key: n for n, (key, _) in enumerate(SEARCH_TABS)}
+
+
+def search_opening_kind(buckets: Sequence[Mapping[str, Any]]) -> str | None:
+    """The kind a search without `type` opens on: the one with the most matches, ties going to the fixed
+    order (companies first). A kind that could not be searched is never opened on its own; `None` when
+    nothing matched, so the page says so once instead of opening an empty list."""
+    found = [b for b in buckets if not b["error"] and b["total"]]
+    if not found:
+        return None
+    return str(max(found, key=lambda b: (b["total"], -SEARCH_TAB_ORDER[b["key"]]))["key"])
+
+
 @app.get("/search", response_class=HTMLResponse)
 def search(request: Request) -> HTMLResponse:
+    """One field, five kinds of record, one kind at a time (docs/30 §11.4): every kind with its count down
+    the left, the open kind's first fifty rows at the right with its full list and its sources credited,
+    and a top hit above them when the words start a company or asset name of another kind. `type` picks
+    the kind; without it, or with an unknown one, the page opens on the kind with the most matches. Five
+    reads per search, all kinds counted; a sixth reads the opened kind's fifty rows when the page chose
+    it."""
     api = get_api(request)
-    q = request.query_params.get("q", "").strip()
-    proposals: list[dict[str, Any]] = []
-    opportunities: list[dict[str, Any]] = []
-    organizations: list[dict[str, Any]] = []
-    assets: list[dict[str, Any]] = []
-    credits: dict[str, list[dict[str, Any]]] = {}
-    if q:
-        proposals_env = api.get("/v1/proposals", params={"q": q, "limit": 50})
-        credits["proposals"] = page_credits(proposals_env)
-        proposals = [flatten_proposal(e) for e in proposals_env["data"]]
-        opportunities_env = api.get(
-            "/v1/opportunities", params={"q": q, "limit": 50, "status": ALL_OPPORTUNITY_STATUSES_CSV}
+    qp = request.query_params
+    q = qp.get("q", "").strip()
+    asked = qp.get("type", "").strip().lower()
+    asked = asked if asked in SEARCH_TAB_KEYS else ""
+    if not q:
+        return templates.TemplateResponse(request, "search.html", {"q": "", "view": "", "buckets": []})
+
+    def limit(key: str) -> int:
+        return SEARCH_TAB_ROWS if asked == key else SEARCH_COUNT_ROWS
+
+    every_state = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
+    every_notice = {"q": q, "status": "all", "relevance": OPPORTUNITY_RELEVANCE_ALL}
+    tab_labels = dict(SEARCH_TABS)
+
+    # Companies: the group's figures, as the companies index shows them by default.
+    def read_companies(n: int) -> tuple[Mapping[str, Any] | None, list[dict[str, Any]]]:
+        env = _search_read(
+            api,
+            "/v1/organizations",
+            {"q": q, "limit": n, "include": "count", ORG_SCOPE_PARAM: ORG_DEFAULT_SCOPE},
         )
-        opportunities = [flatten_opportunity(e) for e in opportunities_env["data"]]
-        credits["opportunities"] = page_credits(opportunities_env)
-        # ADR 0008 task item 3: an "Organisations" section on /search.
-        organizations_env = api.get("/v1/organizations", params={"q": q, "limit": 50})
-        organizations = [flatten_organization(e) for e in organizations_env["data"]]
-        # Midstream slice: assets by name, operator or owner (`/v1/assets?q=`), so "Rockies
-        # Express" (a pipeline) and "Tallgrass" (its operator) both resolve from the search box.
-        try:
-            assets_env = api.get("/v1/assets", params={"q": q, "limit": 50})
-            # `/v1/assets` sends an empty licence summary; each row carries its provenance.
-            credits["assets"] = page_credits(assets_env, assets_env["data"])
-            for e in assets_env["data"]:
-                flat = flatten_asset(e)
-                flat.update(_asset_extras(e))
-                flat["operator_name"] = flat["operator"].get("name")
-                assets.append(flat)
-        except ApiError:
-            assets = []
+        return env, list((env or {}).get("data") or [])
+
+    # Projects in every lifecycle state: the API's default, and the full list's link names all of them so
+    # it is not narrowed to the list's own default (active states, listed records).
+    def read_projects(n: int) -> tuple[Mapping[str, Any] | None, list[dict[str, Any]]]:
+        env = _search_read(api, "/v1/proposals", {"q": q, "limit": n, "include": "count"})
+        return env, [flatten_proposal(e) for e in (env or {}).get("data") or []]
+
+    def read_notices(key: str, kinds: str, n: int) -> tuple[Mapping[str, Any] | None, list[dict[str, Any]]]:
+        params = {"q": q, "limit": n, "include": "count", "status": ALL_OPPORTUNITY_STATUSES_CSV}
+        env = _search_read(api, "/v1/opportunities", {**params, "kind": kinds})
+        return env, [flatten_opportunity(e) for e in (env or {}).get("data") or []]
+
+    org_env, org_entities = read_companies(limit("companies"))
+    projects_env, projects = read_projects(limit("projects"))
+    # Midstream slice: assets by name, operator or owner (`/v1/assets?q=`), so a pipeline and its operator
+    # both resolve from the search box.
+    assets_env = _search_read(api, "/v1/assets", {"q": q, "limit": SEARCH_ASSET_ROWS})
+    assets: list[dict[str, Any]] = []
+    for e in (assets_env or {}).get("data") or []:
+        flat = flatten_asset(e)
+        flat.update(_asset_extras(e))
+        flat["operator_name"] = flat["operator"].get("name")
+        assets.append(flat)
+    rfps_env, rfps = read_notices("rfps", SEARCH_RFP_KINDS, limit("rfps"))
+    funding_env, funding = read_notices("funding", SEARCH_FUNDING_KINDS, limit("funding"))
+
+    def buckets_now() -> list[dict[str, Any]]:
+        return [
+            _search_bucket(
+                "companies",
+                tab_labels["companies"],
+                [org_index_row(e, scope=ORG_DEFAULT_SCOPE) for e in org_entities],
+                org_env,
+                list_href="/organizations?" + urlencode({"q": q}),
+                q=q,
+            ),
+            _search_bucket(
+                "projects",
+                tab_labels["projects"],
+                projects,
+                projects_env,
+                list_href="/proposals?" + urlencode({"q": q, "lifecycle_state": every_state}),
+                q=q,
+                credits=page_credits(projects_env) if projects_env else [],
+            ),
+            _search_bucket(
+                "infrastructure",
+                tab_labels["infrastructure"],
+                assets[:SEARCH_TAB_ROWS],
+                assets_env,
+                list_href="/assets?" + urlencode({"q": q}),
+                q=q,
+                # `/v1/assets` sends an empty licence summary; each row carries its provenance.
+                credits=page_credits(assets_env, assets_env["data"]) if assets_env else [],
+                read=len(assets),
+            ),
+            _search_bucket(
+                "rfps",
+                tab_labels["rfps"],
+                rfps,
+                rfps_env,
+                list_href="/opportunities?" + urlencode({**every_notice, "kind": SEARCH_RFP_KINDS}),
+                q=q,
+                credits=page_credits(rfps_env) if rfps_env else [],
+            ),
+            _search_bucket(
+                "funding",
+                tab_labels["funding"],
+                funding,
+                funding_env,
+                list_href="/opportunities?" + urlencode({**every_notice, "kind": SEARCH_FUNDING_KINDS}),
+                q=q,
+                credits=page_credits(funding_env) if funding_env else [],
+            ),
+        ]
+
+    buckets = buckets_now()
+    top_hit = None if asked else search_top_hit(q, org_entities, assets)
+    view = asked or search_opening_kind(buckets)
+    if not asked and view and view != "infrastructure":
+        # The page chose this kind from five rows each: read its fifty. Its count is that read's too, so
+        # the figure beside the list and the list come from one answer.
+        if view == "companies":
+            org_env, org_entities = read_companies(SEARCH_TAB_ROWS)
+        elif view == "projects":
+            projects_env, projects = read_projects(SEARCH_TAB_ROWS)
+        elif view == "rfps":
+            rfps_env, rfps = read_notices("rfps", SEARCH_RFP_KINDS, SEARCH_TAB_ROWS)
+        else:
+            funding_env, funding = read_notices("funding", SEARCH_FUNDING_KINDS, SEARCH_TAB_ROWS)
+        buckets = buckets_now()
+    current = next((b for b in buckets if b["key"] == view), None)
+    # The top hit stands above the list only when it is of another kind: of the open kind, it is already
+    # one of that list's rows (the first, among the rows read, whose name the words start, so it may be
+    # the second to fifth), and is not printed twice.
+    if top_hit and current and SEARCH_HIT_KINDS[top_hit["kind"]] == current["key"]:
+        top_hit = None
     return templates.TemplateResponse(
         request,
         "search.html",
         {
             "q": q,
-            "proposals": proposals,
-            "opportunities": opportunities,
-            "organizations": organizations,
-            "assets": assets,
-            "credits": credits,
+            "view": view or "",
+            "chosen": not asked,
+            "buckets": buckets,
+            "current": current,
+            "failed": [b for b in buckets if b["error"] and b["key"] != view],
+            "top_hit": top_hit,
             "org_credits_note": ORG_CREDITS_NOTE,
         },
     )
 
 
+# ---- About, About & sources (Navigation v2 lane V7; docs/30 §11.4, §11.10) -------------------------------
+#: Where a register reaches, US first (owner, 2026-10-23: "our primary focus should be the USA"; Great
+#: Britain, EU and World Bank coverage stays and stays reachable). The id is the region's anchor on
+#: `/about/sources`, so a figure on `/about` links to exactly the table it counts.
+SOURCE_REGIONS: tuple[tuple[str, str], ...] = (
+    ("united-states", "United States"),
+    ("great-britain", "Great Britain"),
+    ("europe", "Europe"),
+    ("international", "International"),
+)
+_EUROPE_CODES = frozenset(
+    {"EU", "DE", "IE", "FR", "ES", "IT", "NL", "BE", "DK", "SE", "NO", "FI", "PL", "PT", "AT", "CH", "CZ"}
+)
+#: A register's `category` in words, for the line under each region on `/about`.
+SOURCE_CATEGORY_WORDS: dict[str, str] = {
+    "generation_queue": "interconnection queues",
+    "load_queue": "large-load queues",
+    "permit": "permits",
+    "regulatory_docket": "regulatory dockets",
+    "funding": "funding notices",
+    "procurement": "RFPs and tenders",
+    "registry": "asset registers",
+    "planning": "grid plans",
+    "market_price": "prices",
+    "land": "land records",
+    "aggregator": "compilations",
+}
+#: Registers whose rows are RFPs, tenders or funding notices (counted on `/opportunities`).
+_NOTICE_CATEGORIES = frozenset({"procurement", "funding"})
+#: Sources that are not registers of projects, notices, assets or prices: news feeds and the site's own
+#: social channels. `/about` never counts them as a region's registers. `/about/sources` lists the news
+#: feeds in a section of their own after the regions (`NEWS_SECTION`) and leaves the channels out: they
+#: are where the site posts, not where a fact comes from (`/attribution` still lists every source).
+NON_REGISTER_CATEGORIES = frozenset({"news", "social_channel"})
+NEWS_SECTION: tuple[str, str] = ("news", "News")
+#: A global layer loaded only for the United States ("Global (US clipped)", data/sources.yaml) reaches the US.
+_US_CLIPPED = re.compile(r"\bUS[ -]clipped\b", re.IGNORECASE)
+#: How long `/about/sources` keeps a register's record count: the counts move once per load, and the page
+#: makes one count read per published register (`_source_record_counts`), so it keeps them per process as
+#: the sitemap and the Infrastructure type counts are kept.
+SOURCE_RECORDS_CACHE_SECONDS = 900
+
+
+def source_region(source: Mapping[str, Any]) -> str:
+    """The region a register reaches, from its `jurisdiction` ("US-TX", "US (conterminous)", "GB",
+    "EU/EEA", "global"): the first two letters name the country or the union, and a global layer the US
+    clips is the United States. A register with no jurisdiction (YAML reads Norway's `NO` as false, so
+    `no.sodir.factpages_co2_storage` arrives blank) is placed by its id's country segment when that is a
+    two-letter code. Anything else is International, World Bank and global registers included."""
+    raw = source.get("jurisdiction")
+    text = raw.strip() if isinstance(raw, str) else ""
+    if _US_CLIPPED.search(text):
+        return "united-states"
+    if not text:
+        prefix = str(source.get("source_id") or "").split(".", 1)[0]
+        text = prefix if len(prefix) == 2 else ""
+    code = text[:2].upper()
+    if code == "US":
+        return "united-states"
+    if code == "GB":
+        return "great-britain"
+    if code in _EUROPE_CODES:
+        return "europe"
+    return "international"
+
+
+def _all_sources(api: ApiClient) -> list[dict[str, Any]]:
+    """Every register `/v1/sources` lists, following the cursor (180 in `data/sources.yaml` on
+    2026-10-23; the page used to read the first 100 only)."""
+    out: list[dict[str, Any]] = []
+    cursor: str | None = None
+    for _ in range(20):  # a guard against a paging bug, not a limit: 4,000 registers
+        envelope = api.get("/v1/sources", params={"limit": 200, "cursor": cursor})
+        out.extend(envelope.get("data") or [])
+        page = envelope.get("page") or {}
+        cursor = page.get("next_cursor")
+        if not page.get("has_more") or not cursor:
+            break
+    return out
+
+
+def _published(source: Mapping[str, Any]) -> bool:
+    return source.get("publish_state") == "public"
+
+
+def _is_register(source: Mapping[str, Any]) -> bool:
+    """Whether a source is a register a region counts: not a news feed or one of the site's channels."""
+    return source.get("category") not in NON_REGISTER_CATEGORIES
+
+
+def _posture_response(request: Request, template: str, context: dict[str, Any]) -> HTMLResponse:
+    """A reference page that prints the posture sentence: never cached while the status is unavailable."""
+    posture = context.get("posture")
+    response = templates.TemplateResponse(request, template, context)
+    if isinstance(posture, Mapping) and posture.get("available") is False:
+        response.headers["Cache-Control"] = "no-store"  # a cache must not keep the degraded version
+    return response
+
+
 @app.get("/about", response_class=HTMLResponse)
 def about(request: Request) -> HTMLResponse:
-    """The source register, the tiers and the posture sentence. If the register itself cannot be
-    read the whole page is the 503 `api_unavailable_handler` renders; if only `/v1/health` fails,
-    the page renders and the posture line says the status is unavailable (`get_platform_posture`)."""
+    """What Inframation is, where it reaches (US first), what a reader can do here, the tiers and the
+    posture sentence, and who runs it. The register and its licences are their own page
+    (`/about/sources`); this one reads the register once, to count what each region publishes. If the
+    register cannot be read the whole page is the 503 `api_unavailable_handler` renders; if only
+    `/v1/health` fails, the page renders and the posture line says the status is unavailable."""
     api = get_api(request)
-    sources_env = api.get("/v1/sources", params={"limit": 100})
-    sources = []
-    for source in sources_env["data"]:
-        kind = "proposal" if source["source_id"] in _PROPOSAL_SOURCE_IDS else "opportunity"
-        try:
-            count_env = api.get(
-                ("/v1/proposals" if kind == "proposal" else "/v1/opportunities"),
-                params={
-                    "source_id": source["source_id"],
-                    "limit": 1,
-                    "include": "count",
-                    **({"status": ALL_OPPORTUNITY_STATUSES_CSV} if kind == "opportunity" else {}),
-                },
-            )
-            rows_visible = count_env["meta"].get("total", 0)
-        except ApiError:
-            rows_visible = None
-        sources.append({**source, "kind": kind, "rows_visible": rows_visible})
-    posture = get_platform_posture(request)
-    response = templates.TemplateResponse(
+    sources = _all_sources(api)
+    regions = []
+    for region_id, name in SOURCE_REGIONS:
+        published = [
+            s for s in sources if _published(s) and _is_register(s) and source_region(s) == region_id
+        ]
+        if not published:
+            continue  # no empty figure (owner, 2026-10-21)
+        kinds: dict[str, int] = {}
+        for s in published:
+            category = str(s.get("category") or "other")
+            words = SOURCE_CATEGORY_WORDS.get(category, category.replace("_", " "))
+            kinds[words] = kinds.get(words, 0) + 1
+        regions.append(
+            {
+                "id": region_id,
+                "name": name,
+                "count": len(published),
+                "href": f"/about/sources#{region_id}",
+                "kinds": [k for k, _ in sorted(kinds.items(), key=lambda kv: (-kv[1], kv[0]))][:4],
+            }
+        )
+    return _posture_response(
         request,
         "about.html",
         {
-            "sources": sources,
-            "lag_days": get_lag_days(request),
-            "posture": posture,
+            "regions": regions,
+            "posture": get_platform_posture(request),
             "free_alerts": get_free_alerts(request),
+            "pipeline_on": os.environ.get(MY_PIPELINE_ENV, "").strip().lower() == "on",
+            "controller": controller_identity(),
         },
     )
-    if posture is not None and posture.get("available") is False:
-        response.headers["Cache-Control"] = "no-store"  # a cache must not keep the degraded version
-    return response
+
+
+def _source_records(api: ApiClient, source: Mapping[str, Any]) -> tuple[int | None, str | None]:
+    """How many records a published register backs on the public tier, and the list that shows exactly
+    those: projects in every lifecycle state, or notices of every status and relevance. Registers of
+    other kinds (asset registers, prices, context layers) are counted on their own pages: `(None, None)`."""
+    source_id = str(source["source_id"])
+    if source_id in _PROPOSAL_SOURCE_IDS:
+        path, params = "/v1/proposals", {"source_id": source_id}
+        href = "/proposals?" + urlencode(
+            {"source_id": source_id, "lifecycle_state": ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)}
+        )
+    elif source.get("category") in _NOTICE_CATEGORIES:
+        path, params = "/v1/opportunities", {"source_id": source_id, "status": ALL_OPPORTUNITY_STATUSES_CSV}
+        href = "/opportunities?" + urlencode(
+            {"source_id": source_id, "status": "all", "relevance": OPPORTUNITY_RELEVANCE_ALL}
+        )
+    else:
+        return None, None
+    try:
+        envelope = api.get(path, params={**params, "limit": 1, "include": "count"})
+    except ApiError:
+        return None, None
+    total = (envelope.get("meta") or {}).get("total")
+    return (total, href) if isinstance(total, int) else (None, None)
+
+
+def _source_record_counts(
+    request: Request, api: ApiClient, sources: Sequence[Mapping[str, Any]]
+) -> dict[str, tuple[int | None, str | None]]:
+    """`_source_records` for each source, kept per process for `SOURCE_RECORDS_CACHE_SECONDS`: the API
+    has no grouped count, so a cold page makes one read per published register. A failed read is not
+    kept, so the next load asks again."""
+    cache: dict[str, tuple[float, tuple[int | None, str | None]]] = request.app.state.__dict__.setdefault(
+        "source_records_cache", {}
+    )
+    now = time.monotonic()
+    out: dict[str, tuple[int | None, str | None]] = {}
+    for source in sources:
+        source_id = str(source["source_id"])
+        hit = cache.get(source_id)
+        if hit is not None and now - hit[0] < SOURCE_RECORDS_CACHE_SECONDS:
+            out[source_id] = hit[1]
+            continue
+        counted = _source_records(api, source)
+        if counted[0] is not None:
+            cache[source_id] = (now, counted)
+        out[source_id] = counted
+    return out
+
+
+@app.get("/about/sources", response_class=HTMLResponse)
+def about_sources(request: Request) -> HTMLResponse:
+    """Sources & licences (docs/30 §11.4, §11.10): which register says what, under which licence, by
+    region, US first. Published registers lead each region, most records first (docs/16 §4.9: the
+    curated rows that led with "0" sort last); registers listed but not published follow behind a
+    disclosure. One count per published register of a kind a list counts, each a link to that list.
+    News feeds follow the regions in a section of their own, which `/about` does not count; the site's
+    own social channels are not sources of facts and are left out (`NON_REGISTER_CATEGORIES`)."""
+    api = get_api(request)
+    sources = _all_sources(api)
+    counts = _source_record_counts(request, api, [s for s in sources if _published(s)])
+    groups = [
+        (region_id, name, [s for s in sources if _is_register(s) and source_region(s) == region_id])
+        for region_id, name in SOURCE_REGIONS
+    ]
+    groups.append((*NEWS_SECTION, [s for s in sources if s.get("category") == "news"]))
+    regions = []
+    for region_id, name, in_region in groups:
+        if not in_region:
+            continue
+        published = []
+        for source in in_region:
+            if _published(source):
+                records, href = counts[str(source["source_id"])]
+                published.append({**source, "records": records, "records_href": href})
+        published.sort(key=lambda s: (-(s["records"] or 0), str(s.get("name") or "").lower()))
+        withheld = sorted(
+            (s for s in in_region if not _published(s)), key=lambda s: str(s.get("name") or "").lower()
+        )
+        regions.append({"id": region_id, "name": name, "published": published, "withheld": withheld})
+    return templates.TemplateResponse(request, "about_sources.html", {"regions": regions})
 
 
 #: How `source.vintage_basis` reads to someone who is not going to read the code. The four
@@ -1407,46 +1882,79 @@ VINTAGE_BASIS_LABELS = {
 }
 
 
+#: Coverage & methodology's three URL tabs (docs/30 §11.3 third level, §11.10), in order: the key, the
+#: path and the tab's words. `/methodology` keeps Release dates, the tab the freshness line links to
+#: (`/methodology#vintage`).
+METHODOLOGY_TABS: tuple[tuple[str, str, str], ...] = (
+    ("dates", "/methodology", "Release dates"),
+    ("gaps", "/methodology/gaps", "What is not here"),
+    ("words", "/methodology/status-words", "Status words"),
+)
+
+
+def _methodology_page(request: Request, tab: str) -> HTMLResponse:
+    """One tab of Coverage & methodology. Everything on it is served from `/v1/coverage` (and, for the
+    status words, `/v1/lifecycle-states`), which derive their numbers from the store and the pipeline's
+    own status maps at request time. Nothing is a figure typed into a template, because a typed figure is
+    exactly what goes quietly wrong: the page these replace began by printing a single fetch date that
+    readers took for the data's age. Each tab reads only what it prints."""
+    api = get_api(request)
+    data = api.get("/v1/coverage")["data"]
+    context: dict[str, Any] = {
+        "tab": tab,
+        "tabs": METHODOLOGY_TABS,
+        "coverage": data,
+        "vintage": data["vintage"],
+        "withheld_supply": [s for s in data["sources"]["withheld"] if s.get("supply")],
+        # Source ids name a register in the status maps and the asset table; a reader sees its short
+        # name (or the manifest's name), never the id (audit 2026-09-30, F1).
+        "source_names": methodology_source_names(),
+        "posture": get_platform_posture(request),
+    }
+    if tab == "dates":
+        context["basis_labels"] = VINTAGE_BASIS_LABELS
+    if tab == "gaps":
+        # Sources per asset type, rows sorted descending, with the note (if any) that measured what the
+        # second source does to the count -- looked up by the fact it hangs off.
+        context["asset_sources"] = sorted(
+            (data.get("assets") or {}).get("by_type", {}).items(), key=lambda kv: -int(kv[1]["rows"])
+        )
+        context["asset_notes"] = {
+            n["applies_to"]["unresolved_asset_type"]: n
+            for n in data.get("notes") or []
+            if (n.get("applies_to") or {}).get("unresolved_asset_type")
+        }
+        context["asset_type_labels"] = {t: _type_label(t, plural=True) for t in ASSET_TYPE_LABELS}
+    if tab == "words":
+        context["vocabulary"] = api.get("/v1/lifecycle-states")["data"]
+    template = {
+        "dates": "methodology.html",
+        "gaps": "methodology_gaps.html",
+        "words": "methodology_status_words.html",
+    }
+    return _posture_response(request, template[tab], context)
+
+
 @app.get("/methodology", response_class=HTMLResponse)
 def methodology(request: Request) -> HTMLResponse:
-    """Coverage, vintage and the status definitions, on one page.
+    """Release dates: each source's own release against the date we fetched it, and how records are
+    placed and shown. Summaries of the other two tabs keep the old anchors (`#absences`, `#states`,
+    `#withheld`, `#ownership`, `#lifecycle`, `#note-…`) answering, each linking on (docs/30 §11.10)."""
+    return _methodology_page(request, "dates")
 
-    Everything here is served from `/v1/coverage` and `/v1/lifecycle-states`, which derive their
-    numbers from the store and the pipeline's own status maps at request time. Nothing on this
-    page is a figure typed into a template, because a typed figure is exactly what goes quietly
-    wrong: the page this one replaces printed a single fetch date and let readers take it for the
-    data's age.
-    """
-    api = get_api(request)
-    coverage_env = api.get("/v1/coverage")
-    vocabulary_env = api.get("/v1/lifecycle-states")
-    data = coverage_env["data"]
-    return templates.TemplateResponse(
-        request,
-        "methodology.html",
-        {
-            "coverage": data,
-            "vintage": data["vintage"],
-            "withheld_supply": [s for s in data["sources"]["withheld"] if s.get("supply")],
-            # Sources per asset type, rows sorted descending, with the note (if any) that measured
-            # what the second source does to the count -- looked up by the fact it hangs off.
-            "asset_sources": sorted(
-                (data.get("assets") or {}).get("by_type", {}).items(), key=lambda kv: -int(kv[1]["rows"])
-            ),
-            "asset_notes": {
-                n["applies_to"]["unresolved_asset_type"]: n
-                for n in data.get("notes") or []
-                if (n.get("applies_to") or {}).get("unresolved_asset_type")
-            },
-            "asset_type_labels": {t: _type_label(t, plural=True) for t in ASSET_TYPE_LABELS},
-            "vocabulary": vocabulary_env["data"],
-            # Source ids name a register in the status maps and the asset table; a reader sees
-            # its short name (or the manifest's name), never the id (audit 2026-09-30, F1).
-            "source_names": methodology_source_names(),
-            "basis_labels": VINTAGE_BASIS_LABELS,
-            "posture": get_platform_posture(request),
-        },
-    )
+
+@app.get("/methodology/gaps", response_class=HTMLResponse)
+def methodology_gaps(request: Request) -> HTMLResponse:
+    """What is not here: technologies and states no source produces, registers held but withheld, the
+    depth of ownership records, sources per asset type and the dated coverage notes."""
+    return _methodology_page(request, "gaps")
+
+
+@app.get("/methodology/status-words", response_class=HTMLResponse)
+def methodology_status_words(request: Request) -> HTMLResponse:
+    """What each status word asserts, what it does not, and which source values map into it, with how
+    many records carry it on this load. Plain-language versions live in the glossary."""
+    return _methodology_page(request, "words")
 
 
 #: The registers the loader geocodes against (`services/ingest/geocode.py`): their names place
@@ -1510,18 +2018,25 @@ def geocoding_gazetteer_credits() -> tuple[dict[str, str], ...]:
     return tuple(out)
 
 
+# Navigation v2 lane V7: the glossary (`/glossary`), plain words for every term on the site, its entries
+# and anchors in web/glossary.py.
+from web.glossary import router as glossary_router  # noqa: E402
+
+app.include_router(glossary_router)
+
+
 @app.get("/attribution", response_class=HTMLResponse)
 def attribution(request: Request) -> HTMLResponse:
     """Task item 4: every source the API lists, plus a Basemap section (Protomaps/OSM ODbL,
     Natural Earth, Census), a Context layers section (EIA-860M, public domain) and the geocoding
-    gazetteers (`geocoding_gazetteer_credits`). Reuses the same `/v1/sources` fetch `about()`
-    makes rather than a second query shape."""
+    gazetteers (`geocoding_gazetteer_credits`). Reads every page of `/v1/sources` with the fetch
+    `/about` and `/about/sources` make (`_all_sources`): one page of 100, sorted by id, stopped at
+    `us.ferc.elibrary` and left out every ISO queue, LBNL and OpenStreetMap's credit line."""
     api = get_api(request)
-    sources_env = api.get("/v1/sources", params={"limit": 100})
     return templates.TemplateResponse(
         request,
         "attribution.html",
-        {"sources": sources_env["data"], "gazetteers": geocoding_gazetteer_credits()},
+        {"sources": _all_sources(api), "gazetteers": geocoding_gazetteer_credits()},
     )
 
 

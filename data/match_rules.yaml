@@ -61,18 +61,21 @@ rules:
       solar: [solar, solar_pv, solar_thermal, solar_storage]
       storage: [storage, bess, bess_li_ion, pumped_storage, solar_storage, wind_storage]
       wind: [wind, wind_offshore, wind_onshore, wind_storage]
-      gas: [gas, gas_cc, gas_ct, gas_steam, gas_ice, gas_other, natural_gas]
+      # `gas_pipeline` and `pipeline` (2026-10-24): the opportunity extractor files every "pipeline"
+      # notice as `gas` (pipeline/connectors/opportunity.py), so a pipeline proposal meets those
+      # notices whatever its source says it carries.
+      gas: [gas, gas_cc, gas_ct, gas_steam, gas_ice, gas_other, natural_gas, lng_terminal, gas_pipeline, pipeline]
       hydro: [hydro, pumped_storage]
       marine: [marine]
       nuclear: [nuclear]
       geothermal: [geothermal]
       biomass: [biomass, waste, biogas, rng]
-      transmission: [transmission]
+      transmission: [transmission, grid_equipment]
       hydrogen: [hydrogen, fuel_cell]
       coal: [coal]
       oil: [oil]
       efficiency: [efficiency]
-      heat: [heat, solar_thermal, geothermal]
+      heat: [heat, solar_thermal, geothermal, chp]
       ev_charging: [ev_charging]
       # v2: the opportunity extractor's `ccs` (carbon capture, CCUS, CO2 removal) meets the EPA
       # Class VI wells' `co2_geologic_sequestration` (68 proposals in the 2026-10-20 store).

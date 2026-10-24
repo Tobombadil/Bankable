@@ -1,0 +1,57 @@
+# Technology families: one set of keys for projects, power plants, companies and RFPs (docs/28 §8.1).
+#
+# What this file is for
+#   A proposal, a power plant and a company carry the classifier's fine technology tokens
+#   (`pipeline/normalize.py::TECH_RULES`, plus the tokens connectors write themselves, such as
+#   `load` and `co2_geologic_sequestration`); an RFP carries the opportunity tokens
+#   (`pipeline/connectors/opportunity.py::OPPORTUNITY_TECHNOLOGIES`). The two sets use different
+#   words for the same thing ("solar" and "solar_pv", "storage" and "bess"), so a filter by fine
+#   token cannot be the same filter on both pages. A family is the shared key: a `family=solar`
+#   filter expands to the members below on every surface.
+#
+# What this file is NOT
+#   It holds keys only. What a reader sees ("Solar", "Grid and transmission") and the one-line
+#   descriptions are labels, which live with the other vocabulary labels (`services/labels.py`,
+#   lane F1). Which raw source value becomes which fine token is the classifier's job, not this
+#   file's. Nor is it the matcher's families (`data/match_rules.yaml` `rules.technology.families`):
+#   those answer a different question, which solicitations a project could answer, so a token may
+#   sit elsewhere there (`chp` meets `heat`, because a CHP plant sells heat; `pipeline` meets `gas`,
+#   because the opportunity extractor files every "pipeline" notice as gas). A family here says
+#   what the thing is, from what its source states, and nothing more.
+#
+# Rules, pinned by `tests/test_technology_families.py`
+#   - every token the classifier, a connector or the opportunity vocabulary can emit is a member of
+#     exactly one family;
+#   - every raw technology value the public register held on 2026-10-23 (filter-audit.json
+#     `tag_sets.proposal_technology.raw_mapping`) reaches a family key;
+#   - a fine token is never deleted to merge it: `gas_steam` (EIA, ERCOT "steam turbine"), `waste`
+#     and `unknown` ("not stated") stay as data and are merged here, into gas, bioenergy and other.
+#
+# `written` is when the membership was last decided.
+version: 1
+written: 2026-10-24
+
+families:
+  solar: [solar, solar_storage, solar_thermal, solar_pv]
+  wind: [wind, wind_offshore, wind_storage]
+  storage: [storage, pumped_storage, bess]
+  # `lng_terminal` and `gas_pipeline`: gas supply work, the description's "gas supply and pipeline
+  # work" (no LNG or pipeline proposal is held yet; docs/28 §5 lists the sources).
+  gas: [gas_cc, gas_ct, gas_ice, gas_steam, gas_other, fuel_cell, gas, lng_terminal, gas_pipeline]
+  nuclear: [nuclear]
+  hydro: [hydro, marine]
+  bioenergy: [biomass, waste]
+  geothermal: [geothermal]
+  oil: [oil]
+  coal: [coal]
+  hydrogen: [hydrogen]
+  large_load: [load]
+  carbon_storage: [co2_geologic_sequestration, ccs]
+  grid: [transmission, grid_equipment]
+  demand_side: [efficiency, heat, ev_charging, microgrid, metering]
+  # `chp`: NESO names the plant type and not its fuel, so a CHP plant cannot be placed in a fuel
+  # family; one whose fuel is stated is classified by the fuel (a gas cogeneration plant is gas).
+  # `pipeline`: a pipeline whose source does not state what it carries (the Permitting Dashboard's
+  # bare "Pipelines" type, which is not its interstate natural gas type); its kind, `pipeline`,
+  # still finds it. One that names gas is `gas_pipeline`, in gas.
+  other: [other, unknown, chp, pipeline]

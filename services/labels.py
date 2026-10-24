@@ -47,6 +47,13 @@ TECHNOLOGY_LABELS: dict[str, str] = {
     "coal": "Coal",
     "oil": "Oil",
     "transmission": "Transmission",
+    # docs/28 §8.2 words for the tokens of 2026-10-24 (B-15, B-2); lane F1 owns the wording. `ccs`
+    # (carbon capture) is below with the opportunity tokens; proposals carry it too since then.
+    "grid_equipment": "Grid equipment",
+    "chp": "Combined heat and power",
+    "lng_terminal": "LNG terminal",
+    "gas_pipeline": "Gas pipeline",
+    "pipeline": "Pipeline",
     # `ccs`: EPA Class VI wells (us.epa.class_vi). "CO2", not "CO₂": the self-hosted IBM Plex subset has
     # no U+2082, so a subscript would print in the fallback face (docs/31 §4).
     "co2_geologic_sequestration": "CO2 geologic sequestration",

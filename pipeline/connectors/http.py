@@ -18,18 +18,32 @@
 - `stream=True` leaves a large body unread for the caller to copy in chunks (the 443 MB ECHO
   Exporter, docs/25 §3.9). Its challenge check reads the body only when the server labels it HTML,
   since an interstitial is a small HTML page; `cf-mitigated` is checked either way.
+- A certificate that does not verify is `HttpTlsUnverified`, raised at once and never retried: it
+  does not heal in seconds, and four handshakes a run, five runs a tick, only repeat it (2026-10-24,
+  docs/28 lane F5). The message names the host and OpenSSL's reason. Verification is never turned
+  off. A host that leaves its issuing CA out of the handshake (the Permitting Dashboard since its
+  2026-10-14 certificate) is reached with `ca_bundle_with(<that CA's PEM>)` as the request's
+  `verify`: the bundle requests would use anyway, plus that one certificate, which must itself
+  chain to a root already in the bundle. A browser fetches such a CA from the certificate's
+  "CA Issuers" URL; OpenSSL does not, so Python answers "unable to get local issuer certificate".
+- No URL in an error carries its query string (`safe_url`, `strip_queries`): a key passed as a
+  query parameter would otherwise reach the run record, `source.last_error` and the admin pages.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
+import pathlib
 import random
 import re
+import tempfile
 import time
 import urllib.robotparser
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
+import certifi
 import requests
 
 #: The contact URL is on the domain the deployment serves: `BANKABLE_DOMAIN`, which Compose sets
@@ -107,6 +121,115 @@ class HttpBlocked(Exception):
 
 class HttpFailed(Exception):
     """Retries exhausted or a non-retryable HTTP error."""
+
+
+class HttpTlsUnverified(HttpFailed):
+    """The host's TLS certificate did not verify against the CA bundle the request used. Its own
+    class, so the scheduler's retry rule (`infra/scheduler/jobs.py` TRANSIENT_ERROR_CLASSES, which
+    names `HttpFailed` but not this) records it once instead of five times."""
+
+
+# ------------------------------------------------------------------ redaction of URLs in errors
+_URL_RE = re.compile(r"\b(?:https?|wss?)://[^\s'\"<>()\\]+")
+#: A path with a query string, as urllib3 writes it in "Max retries exceeded with url: /p?q=1".
+_PATH_QUERY_RE = re.compile(r"(?<![\w/:.])(/[^\s?'\"<>()\\]*)\?[^\s'\"<>()\\]*")
+
+
+def safe_url(url: str) -> str:
+    """`url` without credentials, query string or fragment: `?…` marks a query that was there."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url.split("?", 1)[0]
+    if not parts.scheme or not parts.netloc:
+        return url.split("?", 1)[0] + ("?…" if "?" in url else "")
+    host = parts.hostname or ""
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path, "", "")) + ("?…" if parts.query else "")
+
+
+def strip_queries(text: str) -> str:
+    """Every URL in `text` through `safe_url`, and every bare `/path?query` cut at its `?`."""
+    text = _URL_RE.sub(lambda m: safe_url(m.group(0)), text)
+    return _PATH_QUERY_RE.sub(lambda m: m.group(1) + "?…", text)
+
+
+# ------------------------------------------------------------------ TLS
+_VERIFY_REASON_RE = re.compile(r"certificate verify failed:\s*([^()'\"\]\\]+)", re.IGNORECASE)
+
+
+def tls_verify_failure(exc: BaseException) -> str | None:
+    """OpenSSL's reason when `exc` is a certificate that did not verify ("unable to get local issuer
+    certificate", "certificate has expired", "Hostname mismatch, ..."), else None. Other TLS
+    errors (a reset or EOF during the handshake) are not this, and stay retryable."""
+    text = str(exc)
+    if "CERTIFICATE_VERIFY_FAILED" not in text and "certificate verify failed" not in text.lower():
+        return None
+    m = _VERIFY_REASON_RE.search(text)
+    reason = m.group(1).strip(" .,;:") if m else ""
+    return reason or "certificate verify failed"
+
+
+def base_ca_bundle() -> str:
+    """The CA file `requests` verifies against when a request names none: `REQUESTS_CA_BUNDLE`,
+    then `CURL_CA_BUNDLE` (a file, not a directory), then certifi's, which requests ships with."""
+    for name in ("REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"):
+        value = (os.environ.get(name) or "").strip()
+        if value and os.path.isfile(value):
+            return value
+    return str(certifi.where())
+
+
+_PEM_BEGIN = b"-----BEGIN CERTIFICATE-----"
+#: The bundles this process wrote: key -> (path, SHA-256 of the bytes written).
+_BUNDLES: dict[tuple[str, ...], tuple[str, str]] = {}
+#: This process's own directory for them (`tempfile.mkdtemp`: mode 0700, a fresh name), never a
+#: shared one, so no other user of the host can put a CA file where a fetch will trust it.
+_BUNDLE_DIR: str | None = None
+
+
+def ca_bundle_with(*pem_paths: str | os.PathLike[str]) -> str:
+    """A CA file for a request's `verify`: `base_ca_bundle()` plus the certificates in `pem_paths`
+    (each file one or more PEM certificates, comments allowed), written once per process into a
+    private directory and checked against the digest of what was written each time it is handed out.
+    Passing it as `verify` also stops `requests` from swapping in `REQUESTS_CA_BUNDLE`, which is why
+    the base is that bundle when it is set.
+
+    Adding an issuing CA does not widen trust: it verifies only when it chains to a root already in
+    the base bundle (the connector's test pins that for each file it ships)."""
+    global _BUNDLE_DIR
+    base = base_ca_bundle()
+    key = (base, *(str(p) for p in pem_paths))
+    cached = _BUNDLES.get(key)
+    if cached is not None:
+        path_s, digest = cached
+        try:
+            if hashlib.sha256(pathlib.Path(path_s).read_bytes()).hexdigest() == digest:
+                return path_s
+        except OSError:
+            pass  # gone: written again below
+    parts = [pathlib.Path(base).read_bytes().rstrip(b"\n") + b"\n"]
+    for p in pem_paths:
+        extra = pathlib.Path(p).read_bytes()
+        if _PEM_BEGIN not in extra:
+            raise ValueError(f"{p} holds no PEM certificate")
+        parts.append(extra.rstrip(b"\n") + b"\n")
+    blob = b"".join(parts)
+    digest = hashlib.sha256(blob).hexdigest()
+    if _BUNDLE_DIR is None or not os.path.isdir(_BUNDLE_DIR):
+        _BUNDLE_DIR = tempfile.mkdtemp(prefix="inframation-ca-")
+    path = pathlib.Path(_BUNDLE_DIR) / f"bundle-{digest[:16]}.pem"
+    fd, tmp = tempfile.mkstemp(dir=_BUNDLE_DIR, prefix=".bundle-")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(blob)
+        os.replace(tmp, path)
+    except BaseException:
+        pathlib.Path(tmp).unlink(missing_ok=True)
+        raise
+    _BUNDLES[key] = (str(path), digest)
+    return str(path)
 
 
 class PoliteSession:
@@ -187,7 +310,7 @@ class PoliteSession:
         self, method: str, url: str, *, honour_robots: bool = True, **kwargs: Any
     ) -> requests.Response:
         if honour_robots and method.upper() == "GET" and not self.allowed_by_robots(url):
-            raise HttpBlocked(f"robots.txt disallows {url}")
+            raise HttpBlocked(f"robots.txt disallows {safe_url(url)}")
         host = urlsplit(url).netloc
         kwargs.setdefault("timeout", self.timeout)
         stream = bool(kwargs.get("stream"))
@@ -197,8 +320,17 @@ class PoliteSession:
             try:
                 resp = self.session.request(method, url, **kwargs)
                 self.requests_made += 1
+            except requests.exceptions.SSLError as e:
+                reason = tls_verify_failure(e)
+                if reason is not None:
+                    raise HttpTlsUnverified(
+                        f"{method} {safe_url(url)}: the TLS certificate of {urlsplit(url).hostname} "
+                        f"did not verify ({reason}); not retried"
+                    ) from e
+                last_error = strip_queries(repr(e))[:300]
+                resp = None
             except requests.RequestException as e:
-                last_error = repr(e)[:300]
+                last_error = strip_queries(repr(e))[:300]
                 resp = None
             if resp is not None:
                 if is_challenge(resp.status_code, resp.headers, _challenge_body(resp, stream)):
@@ -218,7 +350,7 @@ class PoliteSession:
             if retry_after and retry_after.isdigit():
                 delay = max(delay, float(retry_after))
             self._sleep(delay)
-        raise HttpFailed(f"{method} {url} failed after {self.max_attempts} attempts: {last_error}")
+        raise HttpFailed(f"{method} {safe_url(url)} failed after {self.max_attempts} attempts: {last_error}")
 
     def get(self, url: str, *, honour_robots: bool = True, **kwargs: Any) -> requests.Response:
         return self.request("GET", url, honour_robots=honour_robots, **kwargs)

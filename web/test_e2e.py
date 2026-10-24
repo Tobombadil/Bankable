@@ -35,6 +35,7 @@ from playwright.sync_api import Route, sync_playwright
 from services.db.session import get_engine, get_sessionmaker, init_db
 from web.data_loading import load_dev_database, load_test_database
 from web.labels import map_labels
+from web.map_search import word_rank, words_of
 from web.retirement import ASSET_STATUS_LABELS
 from web.viewmodels import TECHNOLOGY_LABELS, technology_label
 
@@ -472,13 +473,15 @@ def _check_desktop_and_narrow(browser: object) -> None:
     assert "Alerts and API in Pro" in tier_line
     page.screenshot(path=str(SCREENSHOT_DIR / "list-desktop.png"), full_page=True)
 
-    # ---- desktop: proposal detail, provenance panel + attribution ----
+    # ---- desktop: proposal detail, its tabs, credits + attribution, the Sources panel one click away ----
     first_row_link = page.locator(".record-table a.row-link").first
     detail_href = first_row_link.get_attribute("href")
     first_row_link.click()
-    page.wait_for_selector(".provenance-panel")
-    assert page.locator(".attribution-line").count() > 0
+    page.wait_for_selector(".record-tabs")
+    assert page.locator(".record-credits").count() == 1 and page.locator(".attribution-line").count() > 0
     page.screenshot(path=str(SCREENSHOT_DIR / "detail-desktop.png"), full_page=True)
+    page.locator(".record-tabs a", has_text="Sources").click()
+    page.wait_for_selector(".provenance-panel")
 
     # ---- desktop: list -> record -> company, one company linked at each step (docs/16 U-2) ----
     page.goto(BASE_URL + "/proposals")
@@ -492,7 +495,7 @@ def _check_desktop_and_narrow(browser: object) -> None:
     page.wait_for_selector("#record-company")
     header_link = page.locator("#record-company a").first
     assert header_link.get_attribute("href") == company_href
-    assert page.locator(".provenance-panel").count() == 1, "the record keeps its sources"
+    assert page.locator(".record-credits").count() == 1, "the record keeps its sources"
     header_link.click()
     page.wait_for_selector("h1")
     assert urlsplit(page.url).path == company_href
@@ -519,8 +522,10 @@ def _check_desktop_and_narrow(browser: object) -> None:
 
     assert detail_href
     narrow.goto(BASE_URL + detail_href)
-    narrow.wait_for_selector(".provenance-panel")
+    narrow.wait_for_selector(".record-tabs")
     narrow.screenshot(path=str(SCREENSHOT_DIR / "detail-400px.png"), full_page=True)
+    narrow.goto(BASE_URL + detail_href + "/sources")
+    narrow.wait_for_selector(".provenance-panel")
     page.close()
     narrow.close()
 
@@ -790,7 +795,7 @@ def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) 
 # D-13), stale responses (F3), what "in view" announces (F4), and the report form (D-6).
 
 #: A snake_case token in reader-visible text: `gas_cc`, `under_construction`, `us.eia.atlas`'s
-#: `ethanol_plants`. Identifiers are printed in Plex Mono by rule (docs/31 §4) and licence quotes
+#: `ethanol_plants`. Identifiers are printed in Geist Mono by rule (docs/31 §4) and licence quotes
 #: are verbatim legal text, so those two are the only places a token may stand. A file name a
 #: source publishes under (`ks_wells.zip`, in that register's own title) is the source's word.
 _TOKEN = re.compile(r"\b[a-z0-9]+_[a-z0-9_]+\b(?!\.[a-z]{2,4}\b)")
@@ -1103,6 +1108,57 @@ def test_map_announces_what_is_in_view_and_names_and_counts_lines(server: object
             browser.close()
 
 
+def test_a_record_opens_on_its_overview_and_moves_between_url_tabs(server: object) -> None:
+    """Record pages as URL tabs (docs/30 §11.5, §11.8; lane V3), the smoke path: from the list to a
+    project's Overview, to its Timeline by the tab bar (the header stays), `?tab=` lands on the Sources
+    tab, an old one-page anchor moves to its tab, and at 360px the tab bar scrolls inside itself with the
+    current tab in view, the page never sideways, and the one action a full-width 44px button."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.goto(BASE_URL + "/proposals")
+            href = page.locator("#result-rows a[href^='/proposals/']").first.get_attribute("href")
+            assert href
+            page.goto(BASE_URL + href)
+            name = page.locator("h1").inner_text()
+            assert page.locator('.record-tabs a[aria-current="page"]').inner_text().strip() == "Overview"
+            assert page.locator(".record-action").count() == 1
+            page.locator(".record-tabs a", has_text="Timeline").click()
+            page.wait_for_url(f"**{href}/timeline")
+            assert page.locator("h1").inner_text() == name, "the header is the same on every tab"
+            assert page.locator('.record-tabs a[aria-current="page"]').inner_text().strip() == "Timeline"
+            assert page.locator(".timeline li").count() >= 1 and page.locator(".record-credits").count() == 1
+            assert page.get_attribute('meta[name="robots"]', "content") == "noindex, follow"
+            page.goto(BASE_URL + href + "?tab=sources")
+            assert urlsplit(page.url).path == href + "/sources"
+            page.wait_for_selector(".provenance-panel")
+            page.goto(BASE_URL + href + "#history")  # the one-page record's anchor (T-8)
+            page.wait_for_url(f"**{href}/timeline")
+            page.close()
+
+            phone = browser.new_page(viewport={"width": 360, "height": 800})
+            _install_offline_routes(phone)
+            phone.goto(BASE_URL + href + "/sources")
+            assert phone.evaluate("document.documentElement.scrollWidth") <= 360, "no sideways page scroll"
+            row = phone.locator(".record-tabs__items")
+            current = phone.locator('.record-tabs a[aria-current="page"]').bounding_box()
+            box = row.bounding_box()
+            assert (
+                current
+                and box
+                and current["x"] >= box["x"] - 1
+                and current["x"] + current["width"] <= box["x"] + box["width"] + 1
+            )
+            action = phone.locator(".record-action").bounding_box()
+            assert action and action["height"] >= 44 and action["width"] >= 360 - 2 * 16 - 1
+            phone.screenshot(path=str(SCREENSHOT_DIR / "record-tabs-360px.png"), full_page=True)
+            phone.close()
+        finally:
+            browser.close()
+
+
 def test_report_a_problem_creates_a_review_task(server: object) -> None:
     """D-6: the "Report a problem" link was `mailto:` with no recipient. The form now posts through
     the site to `POST /v1/reports`; the answer replaces the form and takes focus."""
@@ -1113,7 +1169,10 @@ def test_report_a_problem_creates_a_review_task(server: object) -> None:
             _install_offline_routes(page)
             page.goto(BASE_URL + "/proposals")
             href = page.locator("#result-rows a[href^='/proposals/']").first.get_attribute("href")
+            # The form is on the record's Sources tab; every other tab links to it (docs/30 §11.5).
             page.goto(BASE_URL + href)
+            page.locator(".record-foot__report a").click()
+            page.wait_for_url(f"**{href}/sources#report-problem")
             assert page.locator("a[href^='mailto:']").count() == 0
             page.get_by_text("Something wrong with this record? Report a problem").click()
             page.get_by_label("The status is wrong").check()
@@ -3548,6 +3607,139 @@ def test_the_search_finds_a_county_a_project_and_a_company_and_drops_a_stale_ans
             browser.close()
 
 
+#: Companies a full store holds whose names begin with a state's code or a query's word (reviewer,
+#: 2026-10-24, on a copy of the audit store), added to what the e2e server answers for that query,
+#: each with the rank the server's own `word_rank` gives it. The e2e store has its own "NY CDG ...
+#: LLC" companies, so "ny" is answered as it stands.
+_CODE_LIKE_COMPANIES = {
+    "tx": ("TX BESS 3 LLC",),
+    "duke": ("Duke Energy Carolinas, LLC",),
+}
+#: Each suggestion's name and the kind word printed beside it (its hidden ", " lead stripped).
+_SUGGESTION_ROWS = (
+    "() => Array.from(document.querySelectorAll('#map-search-list [role=option]')).map((o) => ["
+    "o.querySelector('.map-search__label').textContent,"
+    "o.querySelector('.map-search__kind').textContent.replace(/^, /, '')])"
+)
+
+
+def _with_code_like_companies(route: Route) -> None:
+    query = parse_qs(urlsplit(route.request.url).query).get("q", [""])[0]
+    names = _CODE_LIKE_COMPANIES.get(query.lower())
+    if not names:
+        route.continue_()
+        return
+    response = route.fetch()
+    body = response.json()
+    added = [
+        {
+            "public_id": f"org_rank{i}",
+            "label": name,
+            "detail": "Company",
+            "url": None,
+            "rank": word_rank(words_of(name), words_of(query)),
+        }
+        for i, name in enumerate(names)
+    ]
+    body["companies"] = added + list(body.get("companies") or [])
+    route.fulfill(response=response, body=json.dumps(body), content_type="application/json")
+
+
+def _suggestions_for(page: Any, query: str) -> list[list[str]]:
+    # Emptied first, so the list that shows is this query's and not the last one's.
+    page.fill("#map-search-input", "")
+    page.wait_for_function("() => document.getElementById('map-search-list').hidden")
+    page.fill("#map-search-input", query)
+    page.wait_for_function(
+        "() => !document.getElementById('map-search-list').hidden"
+        " && document.querySelectorAll('#map-search-list [role=option]').length > 0",
+        timeout=15000,
+    )
+    rows: list[list[str]] = page.evaluate(_SUGGESTION_ROWS)
+    return rows
+
+
+def _spoken_count(query: str, rows: list[list[str]]) -> str:
+    """What `renderSuggestions` puts in the hidden live count for these rows."""
+    tally = {"place": 0, "company": 0, "project": 0}
+    for _name, kind in rows:
+        tally[kind.lower() if kind in ("Company", "Project") else "place"] += 1
+    nouns = {
+        "place": ("place", "places"),
+        "company": ("company", "companies"),
+        "project": ("project", "projects"),
+    }
+    parts = [f"{n} {nouns[k][0 if n == 1 else 1]}" for k, n in tally.items() if n]
+    return f"{len(rows)} suggestion{'' if len(rows) == 1 else 's'} for “{query}”: {', '.join(parts)}."
+
+
+def _settled_centre_after_enter(page: Any, label: str) -> tuple[float, float]:
+    page.press("#map-search-input", "Enter")
+    page.wait_for_function("(l) => document.getElementById('map-search-input').value === l", arg=label)
+    page.wait_for_timeout(900)
+    page.wait_for_function("() => !window.__map.isMoving()")
+    lng, lat, _zoom = page.evaluate(_CENTRE_ZOOM)
+    return lng, lat
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_the_map_search_is_one_ranked_list_and_enter_takes_its_best_match(server: object, width: int) -> None:
+    """Lane stacked-lists, fix round (reviewer, 2026-10-24): the field's suggestions are one list, each
+    row naming its kind in words, with a spoken count of how many of each kind. The list keeps the
+    server's ranking across kinds: before the fix "ny" + Enter flew to Nye County, NV, with New York
+    under four "NY ... LLC" companies, "tx" + Enter opened TX BESS 3 LLC, and "duke" put Dukes
+    County above Duke Energy. A Louisiana parish says "Parish", not "County"."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            context = (
+                browser.new_context(viewport=DESKTOP_VIEWPORT)
+                if width == 1440
+                else browser.new_context(**PHONE)
+            )
+            page = context.new_page()
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.route("**/api/map/search?**", _with_code_like_companies)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function(_COUNT_READY, timeout=30000)
+
+            # New York by its code; then the names whose first word is "NY"; then Nye County, whose
+            # name only begins with those letters.
+            ny = _suggestions_for(page, "ny")
+            assert ny[0] == ["New York", "State"], ny
+            ny_words = [i for i, (name, _kind) in enumerate(ny) if words_of(name)[:1] == ["ny"]]
+            nye = ny.index(["Nye County, NV", "County"])
+            assert ny_words and max(ny_words) < nye, ny
+            assert {kind for _name, kind in ny} >= {"State", "Company", "County"}, ny
+            assert page.text_content("#map-search-count") == _spoken_count("ny", ny)
+            lng, lat = _settled_centre_after_enter(page, "New York")
+            assert -82.0 < lng < -69.0 and 39.0 < lat < 47.0, (lng, lat)  # New York, not Nye (-115.3, 37.6)
+
+            tx = _suggestions_for(page, "tx")
+            assert tx[0] == ["Texas", "State"] and ["TX BESS 3 LLC", "Company"] in tx[1:], tx
+            lng, lat = _settled_centre_after_enter(page, "Texas")
+            assert -108.0 < lng < -92.0 and 24.0 < lat < 38.0, (lng, lat)
+            assert urlsplit(page.url).path == "/"
+
+            duke = _suggestions_for(page, "duke")
+            names = [name for name, _kind in duke]
+            whole_word = [i for i, name in enumerate(names) if words_of(name)[:1] == ["duke"]]
+            assert names[0] == "Duke Energy Carolinas, LLC" and max(whole_word) < names.index(
+                "Dukes County, MA"
+            ), duke
+
+            orleans = _suggestions_for(page, "orleans")
+            assert ["Orleans Parish, LA", "Parish"] in orleans, orleans
+
+            # Under two characters there is no list, so no count is left to be read.
+            page.fill("#map-search-input", "o")
+            page.wait_for_function("() => document.getElementById('map-search-list').hidden")
+            assert page.text_content("#map-search-count") == ""
+        finally:
+            browser.close()
+
+
 def test_a_transmission_line_hover_card_closes_on_the_next_tap_or_a_map_move(server: object) -> None:
     """Owner report 2026-10-22: on a phone a tap on a transmission line left its hover card on the
     map, with no mouse to move off it. A tap opens no card (the browser's emulated mouse events after
@@ -3868,7 +4060,7 @@ def _check_phone_menu(browser: Any, width: int) -> None:
     assert page.locator("#site-menu .site-menu__group a[aria-current]").inner_text() == "Infrastructure"
     utils = page.locator("#site-menu .site-menu__utils li a")
     # This server runs under the commercial posture: Pricing is an account row.
-    assert utils.all_inner_texts() == ["Alerts", "Sign in", "Pricing", "About & sources"]
+    assert utils.all_inner_texts() == ["Alerts", "Sign in", "Pricing", "About & sources", "Glossary"]
     for link in (*pages.all(), *utils.all()):
         assert link.evaluate(_HEIGHT) >= 43.5, link.inner_text()
     assert page.locator("#site-menu .site-menu__fresh").is_visible()

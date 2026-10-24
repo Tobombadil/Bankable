@@ -1,15 +1,15 @@
+{#- A grid connection point's Overview, the record's own URL (docs/30 §11.5: Overview · Projects · Changes ·
+    Sources). The header is shared by every tab (partials/_record_header.html). The Overview holds the
+    facts, the queue by technology, Track, and the first rows of the Projects and Changes tabs (T-5).
+    Every total is the API's, over the projects the reader may see. -#}
 {% extends "base.html" %}
-{% import "partials/_sections.html" as sections %}
 {% import "_macros.html" as m %}
+{% import "partials/_record_tabs.html" as rt %}
 {% block title %}{{ record.name }} — Inframation{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.kind_label | lower }} in the {{ record.iso_label or 'grid' }} interconnection queue, {{ record.active_mw_label }} MW active across {{ record.totals.active_count }} projects.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="{{ sections.href.infrastructure }}">{{ sections.label.infrastructure }}</a> / <a href="{{ sections.href.points }}">{{ sections.label.points }}</a> / {{ record.name }}</nav>
-<div class="detail-header">
-  <h1>{{ record.name }}</h1>
-  <span class="reuse-badge">{{ record.kind_label }}</span>
-</div>
-<p class="attribution-line">A grid connection point as {{ record.source_name or 'its queue' }} names it. Projects connect here; they are not necessarily built here. Totals count only the projects listed below.</p>
+<div class="record-page">
+{% include "partials/_record_header.html" %}
 
 <dl class="field-grid">
   <div><dt>Queue</dt><dd>{{ record.iso_label or '—' }}</dd></div>
@@ -22,10 +22,16 @@
   <div><dt>Withdrawn or cancelled (MW)</dt><dd class="tnum">{{ record.withdrawn_mw_label }} <span class="attribution-line">across {{ record.totals.withdrawn_count }}</span></dd></div>
   <div><dt>Built (MW)</dt><dd class="tnum">{{ record.built_mw_label }} <span class="attribution-line">across {{ record.totals.built_count }}</span></dd></div>
 </dl>
+<details class="record-disclosure">
+  <summary>About this point</summary>
+  <p>A grid connection point as {{ record.source_name or 'its queue' }} names it. Projects connect here; they are not necessarily built here. Totals count only the projects listed under Projects.</p>
+</details>
+
+{% set track_type = "interconnection_point" %}{% include "partials/_track.html" %}
 
 {% if record.technologies %}
-<section aria-label="By technology">
-  {{ m.section_heading("1.", "By technology") }}
+<section class="record-summary" aria-labelledby="by-technology-heading">
+  <h2 class="record-summary__title" id="by-technology-heading">By technology</h2>
   <div class="table-scroll">
   <table class="record-table">
     <caption class="visually-hidden">Projects at this point by technology, largest active capacity first.</caption>
@@ -52,81 +58,28 @@
 </section>
 {% endif %}
 
-<section aria-label="Projects connecting here">
-  {{ m.section_heading("2.", "Projects connecting here") }}
-  {% if proposals_truncated %}<p class="attribution-line">Showing the first {{ proposals | length }} of {{ record.totals.proposal_count }} projects; the totals above cover all of them.</p>{% endif %}
-  {% if proposals %}
-  {#- docs/16 U-2: the filing company, linked, from each row's `sponsor` embed
-      (`InterconnectionPointProposal.sponsor`: `null` where the tier may not see one, a natural
-      person flagged `personal_data`, whose link says `nofollow`); the column shows when any row
-      names one. -#}
-  {%- set show_company = proposals | selectattr('sponsor') | list | length > 0 %}
-  <div class="table-scroll">
-  <table class="record-table">
-    <caption class="visually-hidden">Projects that connect at this point: active first, then built, other and withdrawn, each by capacity.</caption>
-    <thead>
-      <tr>
-        <th scope="col">Status</th>
-        <th scope="col">Name</th>
-        {% if show_company %}<th scope="col">Company</th>{% endif %}
-        <th scope="col">Technology</th>
-        <th scope="col" class="num">Capacity (MW)</th>
-        <th scope="col">Jurisdiction</th>
-        <th scope="col">Proposed online</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in proposals %}
-      <tr>
-        <td data-label="Status">{{ m.status_chip(p.lifecycle_state, p.lifecycle_family) }}</td>
-        <td data-label="Name"><a class="row-link" href="{{ p.href }}">{{ p.name_canonical }}</a></td>
-        {% if show_company %}{% set co = p.sponsor if p.sponsor is mapping else {} %}{% set ident = co.slug or co.public_id %}<td data-label="Company">{% if co.name_canonical and ident %}<a href="/organizations/{{ ident }}"{% if co.personal_data %} rel="nofollow"{% endif %}>{{ co.name_canonical | readable_name }}</a>{% elif co.name_canonical %}{{ co.name_canonical | readable_name }}{% else %}—{% endif %}</td>{% endif %}
-        <td data-label="Technology">{{ (p.technology | technology_label) or '—' }}</td>
-        <td data-label="Capacity (MW)" class="num tnum">{{ p.capacity_label }}</td>
-        <td data-label="Jurisdiction">{{ p.jurisdiction or '—' }}</td>
-        <td data-label="Proposed online" class="tnum">{{ p.proposed_online_date | display_date if p.proposed_online_date else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <p>No projects to show.</p>
-  {% endif %}
-</section>
+<div class="record-summaries">
+{% if tabs.has('projects') %}
+{% call rt.summary("projects", "Projects connecting here", tabs, "projects", tabs.counts.get('projects')) %}
+  <ul class="record-summary__list">
+    {%- for p in proposals[:5] %}
+    <li>{{ m.status_chip(p.lifecycle_state, p.lifecycle_family) }} <a href="{{ p.href }}">{{ p.name_canonical }}</a> <span class="meta tnum">{{ p.capacity_label }} MW</span></li>
+    {%- endfor %}
+  </ul>
+{% endcall %}
+{% endif %}
+{% if tabs.has('changes') %}
+{#- No total: the API serves the newest few changes, not a count of them. -#}
+{% call rt.summary("changes", "Recent changes", tabs, "changes") %}
+  <ul class="timeline">
+    {%- for c in changes[:5] %}
+    <li><time datetime="{{ c.date }}">{{ c.date | display_date if c.date else 'unknown date' }}</time> <span class="timeline__event">{{ c.label }}{% if c.proposal_name %}: {% if c.proposal_href %}<a href="{{ c.proposal_href }}">{{ c.proposal_name }}</a>{% else %}{{ c.proposal_name }}{% endif %}{% endif %}</span></li>
+    {%- endfor %}
+  </ul>
+{% endcall %}
+{% endif %}
+</div>
 
-<section aria-label="Recent changes at this point">
-  {{ m.section_heading("3.", "Recent changes at this point") }}
-  {% if changes %}
-  <div class="table-scroll">
-  <table class="record-table">
-    <caption class="visually-hidden">The newest recorded changes to the projects listed above, most recent first.</caption>
-    <thead>
-      <tr>
-        <th scope="col">Observed</th>
-        <th scope="col">Change</th>
-        <th scope="col">Project</th>
-        <th scope="col">Source</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in changes %}
-      <tr>
-        <td data-label="Observed" class="tnum">{% if c.date %}<time datetime="{{ c.date }}">{{ c.date | display_date }}</time>{% else %}—{% endif %}</td>
-        <td data-label="Change">{{ c.label }}</td>
-        <td data-label="Project">{% if c.proposal_href %}<a class="row-link" href="{{ c.proposal_href }}">{{ c.proposal_name }}</a>{% else %}{{ c.proposal_name or '—' }}{% endif %}</td>
-        <td data-label="Source">{% if c.source_url %}<a href="{{ c.source_url }}" rel="noopener nofollow">{{ c.source_name or c.attribution_text }}</a>{% else %}{{ c.source_name or '—' }}{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <p>No change events are recorded for the projects listed here yet.</p>
-  {% endif %}
-</section>
-
-{{ m.provenance_panel(provenance_rows, number="4.") }}
-
-{{ m.attribution_line(record) }}
+{{ rt.foot(tabs, credits, record) }}
+</div>
 {% endblock %}

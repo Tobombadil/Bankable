@@ -80,7 +80,7 @@ def web_client(factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch) 
 
 
 def _public_id(client: TestClient, slug: str) -> str:
-    page = client.get(f"/proposals/{slug}").text
+    page = client.get(f"/proposals/{slug}/sources").text
     return page.split('name="public_id" value="')[1].split('"')[0]
 
 
@@ -114,7 +114,10 @@ def test_the_record_page_has_a_form_not_a_mailto(
     web_client: TestClient, factory: sessionmaker[Session]
 ) -> None:
     slug = seed_proposal(factory)
-    body = web_client.get(f"/proposals/{slug}").text
+    overview = web_client.get(f"/proposals/{slug}").text
+    # The form lives on the Sources tab; every other tab links to it (docs/30 §11.5).
+    assert f'href="/proposals/{slug}/sources#report-problem"' in overview
+    body = web_client.get(f"/proposals/{slug}/sources").text
 
     assert "mailto:" not in body
     form = body.split('<details class="report-problem" id="report-problem">')[1].split("</details>")[0]
@@ -256,7 +259,7 @@ def test_a_configured_captcha_renders_and_its_token_is_relayed(
 ) -> None:
     monkeypatch.setenv("TURNSTILE_SITE_KEY", "0x4AAAA-site-key")
     slug = seed_proposal(factory)
-    page = web_client.get(f"/proposals/{slug}").text
+    page = web_client.get(f"/proposals/{slug}/sources").text
     assert '<div class="cf-turnstile" data-sitekey="0x4AAAA-site-key"></div>' in page
     assert 'src="https://challenges.cloudflare.com/turnstile/v0/api.js"' in page
 

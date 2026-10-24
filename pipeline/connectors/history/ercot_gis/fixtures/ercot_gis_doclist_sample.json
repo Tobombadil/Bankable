@@ -1,0 +1,258 @@
+{
+ "ListDocsByRptTypeRes": {
+  "DocumentList": [
+   {
+    "Document": {
+     "ExpiredDate": "2033-09-29T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "673369",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_September2026",
+     "ConstructedName": "RPT.00015933.0000000000000000.20261001.160829144.GIS_Report_September2026.xlsx",
+     "DocID": "1281327706",
+     "PublishDate": "2026-10-01T16:08:28-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2033-09-07T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "519151",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "Co-located_Battery_Identification_Report_August_2026",
+     "ConstructedName": "RPT.00015933.0000000000000000.20260909.102333702.Co-located_Battery_Identification_Report_August_2026.xlsx",
+     "DocID": "1272470218",
+     "PublishDate": "2026-09-09T10:23:32-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2033-08-30T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "675108",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_August2026",
+     "ConstructedName": "RPT.00015933.0000000000000000.20260901.143805843.GIS_Report_August2026.xlsx",
+     "DocID": "1269363208",
+     "PublishDate": "2026-09-01T14:38:04-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2033-06-29T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "678702",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_Jun2026",
+     "ConstructedName": "RPT.00015933.0000000000000000.20260701.151514224.GIS_Report_Jun2026.xlsx",
+     "DocID": "1245185620",
+     "PublishDate": "2026-07-01T15:15:13-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2031-09-30T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "640868",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_September2024",
+     "ConstructedName": "RPT.00015933.0000000000000000.20241001.153955135.GIS_Report_September2024.xlsx",
+     "DocID": "1040637725",
+     "PublishDate": "2024-10-01T15:39:54-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-08-05T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "403621",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_July_2020_CORRECTION2",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200806.140248919.GIS_Report_July_2020_CORRECTION2.xlsx",
+     "DocID": "727752682",
+     "PublishDate": "2020-08-06T14:02:47-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-08-03T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "403158",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_July_2020_CORRECTION",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200804.091017925.GIS_Report_July_2020_CORRECTION.xlsx",
+     "DocID": "727392249",
+     "PublishDate": "2020-08-04T09:10:16-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-08-02T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "396739",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_July_2020",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200803.145717910.GIS_Report_July_2020.xlsx",
+     "DocID": "727269142",
+     "PublishDate": "2020-08-03T14:57:16-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-07-07T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "397333",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_June_2020_Correction",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200708.120707681.GIS_Report_June_2020_Correction.xlsx",
+     "DocID": "723102590",
+     "PublishDate": "2020-07-08T12:07:06-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-07-01T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "388645",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_June_2020",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200702.115212572.GIS_Report_June_2020.xlsx",
+     "DocID": "722149144",
+     "PublishDate": "2020-07-02T11:52:11-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-06-30T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "381328",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_April_2020_revised",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200701.162817022.GIS_Report_April_2020_revised.xlsx",
+     "DocID": "722024277",
+     "PublishDate": "2020-07-01T16:28:15-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-06-28T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "381268",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_April_2020",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200629.154518694.GIS_Report_April_2020.xlsx",
+     "DocID": "721696787",
+     "PublishDate": "2020-06-29T15:45:17-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-06-28T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "427950",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_December_2018",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200629.154518692.GIS_Report_December_2018.xlsx",
+     "DocID": "721696919",
+     "PublishDate": "2020-06-29T15:45:17-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   },
+   {
+    "Document": {
+     "ExpiredDate": "2027-06-28T23:59:59-05:00",
+     "ILMStatus": "EXT",
+     "SecurityStatus": "P",
+     "ContentSize": "344060",
+     "Extension": "xlsx",
+     "ReportTypeID": "15933",
+     "Prefix": "RPT",
+     "FriendlyName": "GIS_Report_January_2019",
+     "ConstructedName": "RPT.00015933.0000000000000000.20200629.154518650.GIS_Report_January_2019.xlsx",
+     "DocID": "721696918",
+     "PublishDate": "2020-06-29T15:45:17-05:00",
+     "ReportName": "GIS Report",
+     "DUNS": "0000000000000000",
+     "DocCount": "0"
+    }
+   }
+  ]
+ }
+}

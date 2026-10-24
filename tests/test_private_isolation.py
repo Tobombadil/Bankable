@@ -318,6 +318,12 @@ def test_sentinel_never_on_public_surfaces(
         # matched would print the whole sentinel.
         "/proposals?q=QZV",
         "/search?q=QZV",
+        # Search shows one kind at a time (lane stacked-lists): every kind's view, not only the first.
+        "/search?q=QZV&type=companies",
+        "/search?q=QZV&type=projects",
+        "/search?q=QZV&type=infrastructure",
+        "/search?q=QZV&type=rfps",
+        "/search?q=QZV&type=funding",
         f"/proposals/{public_world['proposal'].slug}",
         "/opportunities",
         f"/opportunities/{public_world['opportunity'].slug}",

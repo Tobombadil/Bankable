@@ -114,10 +114,51 @@ def test_label() -> None:
             ("cpv:45223000", "nature:works"),
         ),
         ({"contract_nature": "supplies", "cpv": None}, ("nature:supplies",)),
+        # us.rfp.*: the curated register's id (docs/28 B-7)
+        ({"issuer_registry_id": "us.rfp.swepco", "states": ["AR", "LA", "TX"]}, ("register:us.rfp.swepco",)),
     ],
 )
 def test_programme_codes(identifiers: dict[str, object] | None, codes: tuple[str, ...]) -> None:
     assert programme_codes(identifiers) == codes
+
+
+@pytest.mark.parametrize(
+    "title",
+    # The six utility RFPs v1 dropped for "no energy evidence" (docs/28 B-7, live run 2026-10-21).
+    [
+        "2025 SPP Capacity RFP",
+        "2026 All-Source RFP",
+        "2023 Accredited Deliverable Capacity RFP",
+        "2024 RFPs",
+    ],
+)
+def test_a_curated_rfp_register_notice_is_relevant_by_source(title: str) -> None:
+    codes = programme_codes({"issuer_registry_id": "us.rfp.pso"})
+    assert codes == ("register:us.rfp.pso",)
+    verdict = assess_relevance(title=title, programme_codes=codes)
+    assert (verdict.relevant, verdict.reason, verdict.evidence) == (
+        True,
+        "energy register",
+        "register:us.rfp.pso",
+    )
+    # Without the register code the same title has no energy evidence, as in v1.
+    assert not is_energy_relevant(title=title)
+    assert RELEVANCE_VERSION == "opportunity-relevance@v2"
+
+
+def test_a_register_outside_the_curated_prefixes_is_not_evidence() -> None:
+    codes = programme_codes({"issuer_registry_id": "eu.something.else"})
+    assert not is_energy_relevant(title="2024 RFPs", programme_codes=codes)
+
+
+def test_fuel_wood_is_a_fuel_purchase() -> None:
+    """`03413` fuel wood joined the fuel prefixes when the tagger began reading it as biomass
+    (docs/28 B-5): a heating-oil and firewood purchase (TED, 2026-10-23 register) stays out."""
+    codes = ["cpv:03413000", "cpv:09135100"]
+    verdict = assess_relevance(
+        title="Fourniture de fioul domestique et bois", technologies=["biomass"], programme_codes=codes
+    )
+    assert (verdict.relevant, verdict.reason) == (False, "fuel purchase")
 
 
 def test_opportunity_relevance_reads_an_orm_shaped_row() -> None:

@@ -63,7 +63,7 @@
         {%- if r.title and r.title | length > 110 %}<span class="cell-text-full">{{ r.title }}</span><span class="cell-text-short">{{ r.title | truncate(100, end='…', leeway=0) }}</span>
         {%- else %}{{ r.title }}{% endif %}</a></td>
       {% if show_issuer %}<td data-label="Issuer" class="cell-meta{% if not (r.issuer_org or r.issuer or r.issuer_code) %} is-empty{% endif %}">{% if r.issuer_org and r.issuer_org.href %}<a href="{{ r.issuer_org.href }}"{% if r.issuer_org.personal_data %} rel="nofollow"{% endif %}>{{ r.issuer_org.name | readable_name }}</a>{% elif r.issuer %}{{ r.issuer | readable_name }}{% elif r.issuer_code %}<span class="mono">{{ r.issuer_code }}</span> <span class="field-grid__source-value">(agency code)</span>{% else %}—{% endif %}</td>{% endif %}
-      <td data-label="Technologies" class="cell-meta">{{ (r.technologies | technologies_label) if r.technologies else 'all-source' }}</td>
+      <td data-label="Technologies" class="cell-meta">{{ (r.technologies | technologies_label) if r.technologies else '—' }}</td>
       {%- set v = r.value_view %}
       <td data-label="Value" class="num cell-meta cell-value{% if not v %} is-empty{% endif %}"{% if v %} title="{{ v.label }}: {% if v.placeholder %}stated as {{ v.stated }}, {{ v.note }}{% else %}{{ v.full }}{% if v.usd_full %}, about {{ v.usd_approx or v.usd_full }} at the ECB reference rate of {{ v.fx_date | display_date }}{% elif v.fx_note %} ({{ v.fx_note }}){% endif %}{% endif %}"{% endif %}>
         {%- if not v %}—

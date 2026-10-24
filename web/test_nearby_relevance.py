@@ -427,7 +427,7 @@ def test_a_filter_matching_nothing_explains_itself_instead_of_looking_empty(
     body = web_client.get("/organizations/midstream-co").text
 
     assert "Showing 0 of 9 nearby proposals" in _notice(body)
-    assert "No proposals of the chosen technologies within 25" in body
+    assert "No projects of the chosen technologies within 25" in body
     assert f'href="/organizations/midstream-co?{PARAM}=all"' in body
 
 

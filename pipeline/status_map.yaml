@@ -4,8 +4,8 @@
 # contracted -> built -> withdrawn/cancelled) plus one documented extension, `under_construction`,
 # which sits between `contracted` and `built`. EIA-860M distinguishes it explicitly and collapsing
 # it into either neighbour would lose the single most commercially useful signal in the file.
-version: 3
-updated: 2026-09-30
+version: 4
+updated: 2026-10-24
 
 canonical_states:
   - announced          # sponsor has declared intent; no regulatory process started
@@ -184,6 +184,40 @@ sources:
       "(U) Under construction, less than or equal to 50 percent complete": under_construction
       "(V) Under construction, more than 50 percent complete": under_construction
       "(TS) Construction complete, but not yet in commercial operation": under_construction
+      # THE SWITCH for EIA's "Canceled or Postponed" sheet (docs/28 §11 item 2, owner decision
+      # open). The connector reads that sheet from the same workbook and loads its units only
+      # while this map has a key "Canceled or Postponed" (the sheet's name is its rows' status
+      # text: the sheet has no Status column). Absent, as now, the units are parsed and counted on
+      # each run (the count is kept in the run record, snapshot `meta.canceled_or_postponed`) and
+      # nothing is loaded, because no lifecycle state says what EIA says:
+      #   - EIA's title is "Inventory of Canceled or Indefinitely Postponed Projects"; no column
+      #     says which of the two a unit is (EIA-860's own code IP is "canceled, indefinitely
+      #     postponed, or no longer in resource plan");
+      #   - the coordinator's default until the owner answers is that a postponed unit is not
+      #     cancelled, and is counted neither as active nor as withdrawn: that needs a new state,
+      #     `postponed`, and `proposal.lifecycle_state` carries a CHECK (`lifecycle_state_vocab`,
+      #     migration 0001), so a new state is all of these, in one change:
+      #       1. a migration widening `ck_proposal_lifecycle_state_vocab`;
+      #       2. `services/db/models.py` `LIFECYCLE_STATES`;
+      #       3. `canonical_states` at the top of this file (tests/test_status_map.py refuses a
+      #          mapped state that is not listed there);
+      #       4. its definition in `data/vocabulary/lifecycle_states.yaml` `lifecycle_states`;
+      #       5. its label in `services/labels.py` `LIFECYCLE_LABELS`;
+      #       6. the API's vocabulary: `services/api/app.py` `LIFECYCLE_STATE_VALUES` and the
+      #          `LifecycleState` enum in `api/openapi.yaml`;
+      #       7. the trends blocks in `services/trends/snapshot.py` (`ACTIVE_STATES`,
+      #          `WITHDRAWN_STATES`, `BUILT_STATES`, `UNKNOWN_STATES`: a postponed unit in none of
+      #          them is counted in no series, which is the default's "neither active nor
+      #          withdrawn");
+      #     the connector test that flips the switch to `postponed` runs on a copy of this map, so
+      #     it passes without them: it proves the connector, not the vocabulary;
+      #   - `unknown` cannot be mapped to: it is the fall-through state, and the published
+      #     definitions keep it free of mappings (tests/test_lifecycle_definitions.py).
+      # To load the sheet, add ONE of these lines (a flip is a parser change: the runner restates
+      # the previous output under it, so the flip is never news; the first such run is held by
+      # the row-count gate as a scope change and is released by an operator):
+      #   "Canceled or Postponed": postponed   # once the migration adds the state
+      #   "Canceled or Postponed": cancelled   # if the owner answers that postponed reads as cancelled
     caveats:
       - >-
         (TS) is construction-complete but pre-commercial-operation. It is NOT `built`: the unit
@@ -193,3 +227,9 @@ sources:
         operation leaves this sheet for the Operating sheet, so `built` never appears here and
         completion is observable only as a `removed` diff event.
       - 2 rows carry no status and no technology (trailing notes rows in the sheet).
+      - >-
+        "Canceled or Postponed" (September 2026 workbook, measured 2026-10-24): 1,745 units at
+        1,072 plants, 185,356.8 MW nameplate, none of them on the Planned or Operating sheet. A
+        unit keeps its `<Plant ID>-<Generator ID>` across sheets, so a unit that moves from Planned
+        to this sheet is a lifecycle change on the same record once the sheet is loaded, never a
+        removal plus a new record.

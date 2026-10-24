@@ -1,0 +1,295 @@
+Area,ISO 3 code,Area type,Year,Electricity source,Is aggregated source,Generation (TWh),Share of generation (%),Emissions (MtCO2e),Capacity (GW),Generation YoY change (TWh),EU member,OECD member
+World,,Region,2023,Solar,FALSE,1597.63,5.41,,1301.78,,FALSE,FALSE
+World,,Region,2023,Wind,FALSE,2314.05,7.84,,916.77,,FALSE,FALSE
+World,,Region,2023,Hydro,FALSE,4229.14,14.33,,1364.86,,FALSE,FALSE
+World,,Region,2023,Nuclear,FALSE,2695.81,9.14,,400.0,,FALSE,FALSE
+World,,Region,2023,Gas,FALSE,6567.98,22.26,,1874.28,,FALSE,FALSE
+World,,Region,2023,Coal,FALSE,10611.16,35.96,,2250.0,,FALSE,FALSE
+World,,Region,2023,Other renewables,FALSE,100.0,0.34,,18.0,,FALSE,FALSE
+World,,Region,2023,Bioenergy,FALSE,700.0,2.37,,156.85,,FALSE,FALSE
+World,,Region,2023,Other fossil,FALSE,690.83,2.34,,416.49,,FALSE,FALSE
+World,,Region,2023,Clean,TRUE,11636.63,39.44,,,,FALSE,FALSE
+World,,Region,2023,Fossil,TRUE,17869.97,60.56,,,,FALSE,FALSE
+World,,Region,2023,Renewables,TRUE,8940.82,30.3,,,,FALSE,FALSE
+World,,Region,2023,Wind and solar,TRUE,3911.68,13.26,,,,FALSE,FALSE
+World,,Region,2023,Total generation,TRUE,29506.6,100.0,,,,FALSE,FALSE
+World,,Region,2024,Solar,FALSE,2076.92,6.86,,1692.31,,FALSE,FALSE
+World,,Region,2024,Wind,FALSE,2545.45,8.41,,1026.79,,FALSE,FALSE
+World,,Region,2024,Hydro,FALSE,4313.73,14.25,,1392.16,,FALSE,FALSE
+World,,Region,2024,Nuclear,FALSE,2722.77,9.0,,400.0,,FALSE,FALSE
+World,,Region,2024,Gas,FALSE,6633.66,21.92,,1911.76,,FALSE,FALSE
+World,,Region,2024,Coal,FALSE,10505.05,34.71,,2250.0,,FALSE,FALSE
+World,,Region,2024,Other renewables,FALSE,100.0,0.33,,18.0,,FALSE,FALSE
+World,,Region,2024,Bioenergy,FALSE,700.0,2.31,,158.42,,FALSE,FALSE
+World,,Region,2024,Other fossil,FALSE,670.1,2.21,,408.16,,FALSE,FALSE
+World,,Region,2024,Clean,TRUE,12458.87,41.16,,,,FALSE,FALSE
+World,,Region,2024,Fossil,TRUE,17808.81,58.84,,,,FALSE,FALSE
+World,,Region,2024,Renewables,TRUE,9736.1,32.17,,,,FALSE,FALSE
+World,,Region,2024,Wind and solar,TRUE,4622.37,15.27,,,,FALSE,FALSE
+World,,Region,2024,Total generation,TRUE,30267.68,100.0,,,,FALSE,FALSE
+World,,Region,2025,Solar,FALSE,2700.0,8.65,,2200.0,,FALSE,FALSE
+World,,Region,2025,Wind,FALSE,2800.0,8.97,,1150.0,,FALSE,FALSE
+World,,Region,2025,Hydro,FALSE,4400.0,14.1,,1420.0,,FALSE,FALSE
+World,,Region,2025,Nuclear,FALSE,2750.0,8.81,,400.0,,FALSE,FALSE
+World,,Region,2025,Gas,FALSE,6700.0,21.47,,1950.0,,FALSE,FALSE
+World,,Region,2025,Coal,FALSE,10400.0,33.33,,2250.0,,FALSE,FALSE
+World,,Region,2025,Other renewables,FALSE,100.0,0.32,,18.0,,FALSE,FALSE
+World,,Region,2025,Bioenergy,FALSE,700.0,2.24,,160.0,,FALSE,FALSE
+World,,Region,2025,Other fossil,FALSE,650.0,2.08,,400.0,,FALSE,FALSE
+World,,Region,2025,Clean,TRUE,13450.0,43.11,,,,FALSE,FALSE
+World,,Region,2025,Fossil,TRUE,17750.0,56.89,,,,FALSE,FALSE
+World,,Region,2025,Renewables,TRUE,10700.0,34.29,,,,FALSE,FALSE
+World,,Region,2025,Wind and solar,TRUE,5500.0,17.63,,,,FALSE,FALSE
+World,,Region,2025,Total generation,TRUE,31200.0,100.0,,,,FALSE,FALSE
+Europe,,Region,2023,Solar,FALSE,195.27,5.49,,224.85,,FALSE,FALSE
+Europe,,Region,2023,Wind,FALSE,462.81,13.02,,231.19,,FALSE,FALSE
+Europe,,Region,2023,Hydro,FALSE,615.15,17.31,,245.1,,FALSE,FALSE
+Europe,,Region,2023,Nuclear,FALSE,882.27,24.82,,150.0,,FALSE,FALSE
+Europe,,Region,2023,Gas,FALSE,686.21,19.31,,278.74,,FALSE,FALSE
+Europe,,Region,2023,Coal,FALSE,428.53,12.06,,150.0,,FALSE,FALSE
+Europe,,Region,2023,Other renewables,FALSE,20.0,0.56,,4.0,,FALSE,FALSE
+Europe,,Region,2023,Bioenergy,FALSE,200.0,5.63,,49.01,,FALSE,FALSE
+Europe,,Region,2023,Other fossil,FALSE,63.77,1.79,,41.65,,FALSE,FALSE
+Europe,,Region,2023,Clean,TRUE,2375.5,66.84,,,,FALSE,FALSE
+Europe,,Region,2023,Fossil,TRUE,1178.51,33.16,,,,FALSE,FALSE
+Europe,,Region,2023,Renewables,TRUE,1493.23,42.02,,,,FALSE,FALSE
+Europe,,Region,2023,Wind and solar,TRUE,658.08,18.52,,,,FALSE,FALSE
+Europe,,Region,2023,Total generation,TRUE,3554.01,100.0,,,,FALSE,FALSE
+Europe,,Region,2024,Solar,FALSE,253.85,6.9,,292.31,,FALSE,FALSE
+Europe,,Region,2024,Wind,FALSE,509.09,13.83,,258.93,,FALSE,FALSE
+Europe,,Region,2024,Hydro,FALSE,627.45,17.05,,250.0,,FALSE,FALSE
+Europe,,Region,2024,Nuclear,FALSE,891.09,24.21,,150.0,,FALSE,FALSE
+Europe,,Region,2024,Gas,FALSE,693.07,18.83,,284.31,,FALSE,FALSE
+Europe,,Region,2024,Coal,FALSE,424.24,11.53,,150.0,,FALSE,FALSE
+Europe,,Region,2024,Other renewables,FALSE,20.0,0.54,,4.0,,FALSE,FALSE
+Europe,,Region,2024,Bioenergy,FALSE,200.0,5.43,,49.5,,FALSE,FALSE
+Europe,,Region,2024,Other fossil,FALSE,61.86,1.68,,40.82,,FALSE,FALSE
+Europe,,Region,2024,Clean,TRUE,2501.48,67.96,,,,FALSE,FALSE
+Europe,,Region,2024,Fossil,TRUE,1179.17,32.04,,,,FALSE,FALSE
+Europe,,Region,2024,Renewables,TRUE,1610.39,43.75,,,,FALSE,FALSE
+Europe,,Region,2024,Wind and solar,TRUE,762.94,20.73,,,,FALSE,FALSE
+Europe,,Region,2024,Total generation,TRUE,3680.65,100.0,,,,FALSE,FALSE
+Europe,,Region,2025,Solar,FALSE,330.0,8.62,,380.0,,FALSE,FALSE
+Europe,,Region,2025,Wind,FALSE,560.0,14.62,,290.0,,FALSE,FALSE
+Europe,,Region,2025,Hydro,FALSE,640.0,16.71,,255.0,,FALSE,FALSE
+Europe,,Region,2025,Nuclear,FALSE,900.0,23.5,,150.0,,FALSE,FALSE
+Europe,,Region,2025,Gas,FALSE,700.0,18.28,,290.0,,FALSE,FALSE
+Europe,,Region,2025,Coal,FALSE,420.0,10.97,,150.0,,FALSE,FALSE
+Europe,,Region,2025,Other renewables,FALSE,20.0,0.52,,4.0,,FALSE,FALSE
+Europe,,Region,2025,Bioenergy,FALSE,200.0,5.22,,50.0,,FALSE,FALSE
+Europe,,Region,2025,Other fossil,FALSE,60.0,1.57,,40.0,,FALSE,FALSE
+Europe,,Region,2025,Clean,TRUE,2650.0,69.19,,,,FALSE,FALSE
+Europe,,Region,2025,Fossil,TRUE,1180.0,30.81,,,,FALSE,FALSE
+Europe,,Region,2025,Renewables,TRUE,1750.0,45.69,,,,FALSE,FALSE
+Europe,,Region,2025,Wind and solar,TRUE,890.0,23.24,,,,FALSE,FALSE
+Europe,,Region,2025,Total generation,TRUE,3830.0,100.0,,,,FALSE,FALSE
+United States,USA,Country,2023,Solar,FALSE,177.51,4.36,,136.09,,FALSE,TRUE
+United States,USA,Country,2023,Wind,FALSE,380.17,9.34,,127.55,,FALSE,TRUE
+United States,USA,Country,2023,Hydro,FALSE,230.68,5.67,,98.04,,FALSE,TRUE
+United States,USA,Country,2023,Nuclear,FALSE,764.63,18.79,,97.0,,FALSE,TRUE
+United States,USA,Country,2023,Gas,FALSE,1764.53,43.36,,538.25,,FALSE,TRUE
+United States,USA,Country,2023,Coal,FALSE,663.2,16.3,,180.0,,FALSE,TRUE
+United States,USA,Country,2023,Other renewables,FALSE,17.0,0.42,,4.0,,FALSE,TRUE
+United States,USA,Country,2023,Bioenergy,FALSE,45.0,1.11,,12.74,,FALSE,TRUE
+United States,USA,Country,2023,Other fossil,FALSE,26.57,0.65,,26.03,,FALSE,TRUE
+United States,USA,Country,2023,Clean,TRUE,1614.99,39.69,,,,FALSE,TRUE
+United States,USA,Country,2023,Fossil,TRUE,2454.3,60.31,,,,FALSE,TRUE
+United States,USA,Country,2023,Renewables,TRUE,850.36,20.9,,,,FALSE,TRUE
+United States,USA,Country,2023,Wind and solar,TRUE,557.68,13.7,,,,FALSE,TRUE
+United States,USA,Country,2023,Total generation,TRUE,4069.29,100.0,,,,FALSE,TRUE
+United States,USA,Country,2024,Solar,FALSE,230.77,5.52,,176.92,,FALSE,TRUE
+United States,USA,Country,2024,Wind,FALSE,418.18,10.0,,142.86,,FALSE,TRUE
+United States,USA,Country,2024,Hydro,FALSE,235.29,5.62,,100.0,,FALSE,TRUE
+United States,USA,Country,2024,Nuclear,FALSE,772.28,18.46,,97.0,,FALSE,TRUE
+United States,USA,Country,2024,Gas,FALSE,1782.18,42.6,,549.02,,FALSE,TRUE
+United States,USA,Country,2024,Coal,FALSE,656.57,15.7,,180.0,,FALSE,TRUE
+United States,USA,Country,2024,Other renewables,FALSE,17.0,0.41,,4.0,,FALSE,TRUE
+United States,USA,Country,2024,Bioenergy,FALSE,45.0,1.08,,12.87,,FALSE,TRUE
+United States,USA,Country,2024,Other fossil,FALSE,25.77,0.62,,25.51,,FALSE,TRUE
+United States,USA,Country,2024,Clean,TRUE,1718.52,41.08,,,,FALSE,TRUE
+United States,USA,Country,2024,Fossil,TRUE,2464.52,58.92,,,,FALSE,TRUE
+United States,USA,Country,2024,Renewables,TRUE,946.24,22.62,,,,FALSE,TRUE
+United States,USA,Country,2024,Wind and solar,TRUE,648.95,15.51,,,,FALSE,TRUE
+United States,USA,Country,2024,Total generation,TRUE,4183.04,100.0,,,,FALSE,TRUE
+United States,USA,Country,2025,Solar,FALSE,300.0,6.95,,230.0,,FALSE,TRUE
+United States,USA,Country,2025,Wind,FALSE,460.0,10.66,,160.0,,FALSE,TRUE
+United States,USA,Country,2025,Hydro,FALSE,240.0,5.56,,102.0,,FALSE,TRUE
+United States,USA,Country,2025,Nuclear,FALSE,780.0,18.07,,97.0,,FALSE,TRUE
+United States,USA,Country,2025,Gas,FALSE,1800.0,41.7,,560.0,,FALSE,TRUE
+United States,USA,Country,2025,Coal,FALSE,650.0,15.06,,180.0,,FALSE,TRUE
+United States,USA,Country,2025,Other renewables,FALSE,17.0,0.39,,4.0,,FALSE,TRUE
+United States,USA,Country,2025,Bioenergy,FALSE,45.0,1.04,,13.0,,FALSE,TRUE
+United States,USA,Country,2025,Other fossil,FALSE,25.0,0.58,,25.0,,FALSE,TRUE
+United States,USA,Country,2025,Clean,TRUE,1842.0,42.67,,,,FALSE,TRUE
+United States,USA,Country,2025,Fossil,TRUE,2475.0,57.33,,,,FALSE,TRUE
+United States,USA,Country,2025,Renewables,TRUE,1062.0,24.6,,,,FALSE,TRUE
+United States,USA,Country,2025,Wind and solar,TRUE,760.0,17.6,,,,FALSE,TRUE
+United States,USA,Country,2025,Total generation,TRUE,4317.0,100.0,,,,FALSE,TRUE
+China,CHN,Country,2023,Solar,FALSE,650.89,6.71,,621.3,,FALSE,FALSE
+China,CHN,Country,2023,Wind,FALSE,909.09,9.37,,462.37,,FALSE,FALSE
+China,CHN,Country,2023,Hydro,FALSE,1249.52,12.88,,422.91,,FALSE,FALSE
+China,CHN,Country,2023,Nuclear,FALSE,460.74,4.75,,60.0,,FALSE,FALSE
+China,CHN,Country,2023,Gas,FALSE,294.09,3.03,,139.37,,FALSE,FALSE
+China,CHN,Country,2023,Coal,FALSE,5917.76,60.98,,1200.0,,FALSE,FALSE
+China,CHN,Country,2023,Other renewables,FALSE,1.0,0.01,,0.1,,FALSE,FALSE
+China,CHN,Country,2023,Bioenergy,FALSE,200.0,2.06,,34.31,,FALSE,FALSE
+China,CHN,Country,2023,Other fossil,FALSE,21.26,0.22,,5.21,,FALSE,FALSE
+China,CHN,Country,2023,Clean,TRUE,3471.24,35.77,,,,FALSE,FALSE
+China,CHN,Country,2023,Fossil,TRUE,6233.11,64.23,,,,FALSE,FALSE
+China,CHN,Country,2023,Renewables,TRUE,3010.5,31.02,,,,FALSE,FALSE
+China,CHN,Country,2023,Wind and solar,TRUE,1559.98,16.08,,,,FALSE,FALSE
+China,CHN,Country,2023,Total generation,TRUE,9704.35,100.0,,,,FALSE,FALSE
+China,CHN,Country,2024,Solar,FALSE,846.15,8.49,,807.69,,FALSE,FALSE
+China,CHN,Country,2024,Wind,FALSE,1000.0,10.04,,517.86,,FALSE,FALSE
+China,CHN,Country,2024,Hydro,FALSE,1274.51,12.79,,431.37,,FALSE,FALSE
+China,CHN,Country,2024,Nuclear,FALSE,465.35,4.67,,60.0,,FALSE,FALSE
+China,CHN,Country,2024,Gas,FALSE,297.03,2.98,,142.16,,FALSE,FALSE
+China,CHN,Country,2024,Coal,FALSE,5858.59,58.8,,1200.0,,FALSE,FALSE
+China,CHN,Country,2024,Other renewables,FALSE,1.0,0.01,,0.1,,FALSE,FALSE
+China,CHN,Country,2024,Bioenergy,FALSE,200.0,2.01,,34.65,,FALSE,FALSE
+China,CHN,Country,2024,Other fossil,FALSE,20.62,0.21,,5.1,,FALSE,FALSE
+China,CHN,Country,2024,Clean,TRUE,3787.01,38.01,,,,FALSE,FALSE
+China,CHN,Country,2024,Fossil,TRUE,6176.24,61.99,,,,FALSE,FALSE
+China,CHN,Country,2024,Renewables,TRUE,3321.66,33.34,,,,FALSE,FALSE
+China,CHN,Country,2024,Wind and solar,TRUE,1846.15,18.53,,,,FALSE,FALSE
+China,CHN,Country,2024,Total generation,TRUE,9963.25,100.0,,,,FALSE,FALSE
+China,CHN,Country,2025,Solar,FALSE,1100.0,10.69,,1050.0,,FALSE,FALSE
+China,CHN,Country,2025,Wind,FALSE,1100.0,10.69,,580.0,,FALSE,FALSE
+China,CHN,Country,2025,Hydro,FALSE,1300.0,12.63,,440.0,,FALSE,FALSE
+China,CHN,Country,2025,Nuclear,FALSE,470.0,4.57,,60.0,,FALSE,FALSE
+China,CHN,Country,2025,Gas,FALSE,300.0,2.92,,145.0,,FALSE,FALSE
+China,CHN,Country,2025,Coal,FALSE,5800.0,56.36,,1200.0,,FALSE,FALSE
+China,CHN,Country,2025,Other renewables,FALSE,1.0,0.01,,0.1,,FALSE,FALSE
+China,CHN,Country,2025,Bioenergy,FALSE,200.0,1.94,,35.0,,FALSE,FALSE
+China,CHN,Country,2025,Other fossil,FALSE,20.0,0.19,,5.0,,FALSE,FALSE
+China,CHN,Country,2025,Clean,TRUE,4171.0,40.53,,,,FALSE,FALSE
+China,CHN,Country,2025,Fossil,TRUE,6120.0,59.47,,,,FALSE,FALSE
+China,CHN,Country,2025,Renewables,TRUE,3701.0,35.96,,,,FALSE,FALSE
+China,CHN,Country,2025,Wind and solar,TRUE,2200.0,21.38,,,,FALSE,FALSE
+China,CHN,Country,2025,Total generation,TRUE,10291.0,100.0,,,,FALSE,FALSE
+Germany,DEU,Country,2023,Solar,FALSE,44.38,10.71,,65.09,,TRUE,TRUE
+Germany,DEU,Country,2023,Wind,FALSE,115.7,27.91,,59.79,,TRUE,TRUE
+Germany,DEU,Country,2023,Hydro,FALSE,17.3,4.17,,5.77,,TRUE,TRUE
+Germany,DEU,Country,2023,Nuclear,FALSE,0.0,0.0,,0.0,,TRUE,TRUE
+Germany,DEU,Country,2023,Gas,FALSE,68.62,16.56,,33.64,,TRUE,TRUE
+Germany,DEU,Country,2023,Coal,FALSE,102.03,24.62,,35.0,,TRUE,TRUE
+Germany,DEU,Country,2023,Other renewables,FALSE,0.2,0.05,,0.05,,TRUE,TRUE
+Germany,DEU,Country,2023,Bioenergy,FALSE,45.0,10.86,,8.82,,TRUE,TRUE
+Germany,DEU,Country,2023,Other fossil,FALSE,21.26,5.13,,6.25,,TRUE,TRUE
+Germany,DEU,Country,2023,Clean,TRUE,222.58,53.7,,,,TRUE,TRUE
+Germany,DEU,Country,2023,Fossil,TRUE,191.91,46.3,,,,TRUE,TRUE
+Germany,DEU,Country,2023,Renewables,TRUE,222.58,53.7,,,,TRUE,TRUE
+Germany,DEU,Country,2023,Wind and solar,TRUE,160.08,38.62,,,,TRUE,TRUE
+Germany,DEU,Country,2023,Total generation,TRUE,414.49,100.0,,,,TRUE,TRUE
+Germany,DEU,Country,2024,Solar,FALSE,57.69,13.15,,84.62,,TRUE,TRUE
+Germany,DEU,Country,2024,Wind,FALSE,127.27,29.01,,66.96,,TRUE,TRUE
+Germany,DEU,Country,2024,Hydro,FALSE,17.65,4.02,,5.88,,TRUE,TRUE
+Germany,DEU,Country,2024,Nuclear,FALSE,0.0,0.0,,0.0,,TRUE,TRUE
+Germany,DEU,Country,2024,Gas,FALSE,69.31,15.8,,34.31,,TRUE,TRUE
+Germany,DEU,Country,2024,Coal,FALSE,101.01,23.02,,35.0,,TRUE,TRUE
+Germany,DEU,Country,2024,Other renewables,FALSE,0.2,0.05,,0.05,,TRUE,TRUE
+Germany,DEU,Country,2024,Bioenergy,FALSE,45.0,10.26,,8.91,,TRUE,TRUE
+Germany,DEU,Country,2024,Other fossil,FALSE,20.62,4.7,,6.12,,TRUE,TRUE
+Germany,DEU,Country,2024,Clean,TRUE,247.81,56.48,,,,TRUE,TRUE
+Germany,DEU,Country,2024,Fossil,TRUE,190.94,43.52,,,,TRUE,TRUE
+Germany,DEU,Country,2024,Renewables,TRUE,247.81,56.48,,,,TRUE,TRUE
+Germany,DEU,Country,2024,Wind and solar,TRUE,184.96,42.16,,,,TRUE,TRUE
+Germany,DEU,Country,2024,Total generation,TRUE,438.75,100.0,,,,TRUE,TRUE
+Germany,DEU,Country,2025,Solar,FALSE,75.0,16.02,,110.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Wind,FALSE,140.0,29.9,,75.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Hydro,FALSE,18.0,3.84,,6.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Nuclear,FALSE,0.0,0.0,,0.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Gas,FALSE,70.0,14.95,,35.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Coal,FALSE,100.0,21.36,,35.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Other renewables,FALSE,0.2,0.04,,0.05,,TRUE,TRUE
+Germany,DEU,Country,2025,Bioenergy,FALSE,45.0,9.61,,9.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Other fossil,FALSE,20.0,4.27,,6.0,,TRUE,TRUE
+Germany,DEU,Country,2025,Clean,TRUE,278.2,59.42,,,,TRUE,TRUE
+Germany,DEU,Country,2025,Fossil,TRUE,190.0,40.58,,,,TRUE,TRUE
+Germany,DEU,Country,2025,Renewables,TRUE,278.2,59.42,,,,TRUE,TRUE
+Germany,DEU,Country,2025,Wind and solar,TRUE,215.0,45.92,,,,TRUE,TRUE
+Germany,DEU,Country,2025,Total generation,TRUE,468.2,100.0,,,,TRUE,TRUE
+India,IND,Country,2023,Solar,FALSE,94.67,5.0,,71.01,,FALSE,FALSE
+India,IND,Country,2023,Wind,FALSE,74.38,3.93,,41.45,,FALSE,FALSE
+India,IND,Country,2023,Hydro,FALSE,153.79,8.12,,49.98,,FALSE,FALSE
+India,IND,Country,2023,Nuclear,FALSE,53.92,2.85,,8.8,,FALSE,FALSE
+India,IND,Country,2023,Gas,FALSE,44.11,2.33,,24.03,,FALSE,FALSE
+India,IND,Country,2023,Coal,FALSE,1428.43,75.39,,225.0,,FALSE,FALSE
+India,IND,Country,2023,Other renewables,FALSE,0.0,0.0,,0.0,,FALSE,FALSE
+India,IND,Country,2023,Bioenergy,FALSE,40.0,2.11,,10.78,,FALSE,FALSE
+India,IND,Country,2023,Other fossil,FALSE,5.31,0.28,,1.04,,FALSE,FALSE
+India,IND,Country,2023,Clean,TRUE,416.76,22.0,,,,FALSE,FALSE
+India,IND,Country,2023,Fossil,TRUE,1477.85,78.0,,,,FALSE,FALSE
+India,IND,Country,2023,Renewables,TRUE,362.84,19.15,,,,FALSE,FALSE
+India,IND,Country,2023,Wind and solar,TRUE,169.05,8.92,,,,FALSE,FALSE
+India,IND,Country,2023,Total generation,TRUE,1894.61,100.0,,,,FALSE,FALSE
+India,IND,Country,2024,Solar,FALSE,123.08,6.41,,92.31,,FALSE,FALSE
+India,IND,Country,2024,Wind,FALSE,81.82,4.26,,46.43,,FALSE,FALSE
+India,IND,Country,2024,Hydro,FALSE,156.86,8.17,,50.98,,FALSE,FALSE
+India,IND,Country,2024,Nuclear,FALSE,54.46,2.84,,8.8,,FALSE,FALSE
+India,IND,Country,2024,Gas,FALSE,44.55,2.32,,24.51,,FALSE,FALSE
+India,IND,Country,2024,Coal,FALSE,1414.14,73.65,,225.0,,FALSE,FALSE
+India,IND,Country,2024,Other renewables,FALSE,0.0,0.0,,0.0,,FALSE,FALSE
+India,IND,Country,2024,Bioenergy,FALSE,40.0,2.08,,10.89,,FALSE,FALSE
+India,IND,Country,2024,Other fossil,FALSE,5.15,0.27,,1.02,,FALSE,FALSE
+India,IND,Country,2024,Clean,TRUE,456.22,23.76,,,,FALSE,FALSE
+India,IND,Country,2024,Fossil,TRUE,1463.84,76.24,,,,FALSE,FALSE
+India,IND,Country,2024,Renewables,TRUE,401.76,20.92,,,,FALSE,FALSE
+India,IND,Country,2024,Wind and solar,TRUE,204.9,10.67,,,,FALSE,FALSE
+India,IND,Country,2024,Total generation,TRUE,1920.06,100.0,,,,FALSE,FALSE
+India,IND,Country,2025,Solar,FALSE,160.0,8.18,,120.0,,FALSE,FALSE
+India,IND,Country,2025,Wind,FALSE,90.0,4.6,,52.0,,FALSE,FALSE
+India,IND,Country,2025,Hydro,FALSE,160.0,8.18,,52.0,,FALSE,FALSE
+India,IND,Country,2025,Nuclear,FALSE,55.0,2.81,,8.8,,FALSE,FALSE
+India,IND,Country,2025,Gas,FALSE,45.0,2.3,,25.0,,FALSE,FALSE
+India,IND,Country,2025,Coal,FALSE,1400.0,71.61,,225.0,,FALSE,FALSE
+India,IND,Country,2025,Other renewables,FALSE,0.0,0.0,,0.0,,FALSE,FALSE
+India,IND,Country,2025,Bioenergy,FALSE,40.0,2.05,,11.0,,FALSE,FALSE
+India,IND,Country,2025,Other fossil,FALSE,5.0,0.26,,1.0,,FALSE,FALSE
+India,IND,Country,2025,Clean,TRUE,505.0,25.83,,,,FALSE,FALSE
+India,IND,Country,2025,Fossil,TRUE,1450.0,74.17,,,,FALSE,FALSE
+India,IND,Country,2025,Renewables,TRUE,450.0,23.02,,,,FALSE,FALSE
+India,IND,Country,2025,Wind and solar,TRUE,250.0,12.79,,,,FALSE,FALSE
+India,IND,Country,2025,Total generation,TRUE,1955.0,100.0,,,,FALSE,FALSE
+Brazil,BRA,Country,2023,Solar,FALSE,57.69,8.4,,38.46,,FALSE,FALSE
+Brazil,BRA,Country,2023,Wind,FALSE,95.45,13.89,,28.57,,FALSE,FALSE
+Brazil,BRA,Country,2023,Hydro,FALSE,401.96,58.51,,107.84,,FALSE,FALSE
+Brazil,BRA,Country,2023,Nuclear,FALSE,14.85,2.16,,2.0,,FALSE,FALSE
+Brazil,BRA,Country,2023,Gas,FALSE,39.6,5.76,,17.65,,FALSE,FALSE
+Brazil,BRA,Country,2023,Coal,FALSE,12.12,1.76,,3.5,,FALSE,FALSE
+Brazil,BRA,Country,2023,Other renewables,FALSE,0.0,0.0,,0.0,,FALSE,FALSE
+Brazil,BRA,Country,2023,Bioenergy,FALSE,55.0,8.01,,16.83,,FALSE,FALSE
+Brazil,BRA,Country,2023,Other fossil,FALSE,10.31,1.5,,7.14,,FALSE,FALSE
+Brazil,BRA,Country,2023,Clean,TRUE,624.95,90.97,,,,FALSE,FALSE
+Brazil,BRA,Country,2023,Fossil,TRUE,62.03,9.03,,,,FALSE,FALSE
+Brazil,BRA,Country,2023,Renewables,TRUE,610.1,88.81,,,,FALSE,FALSE
+Brazil,BRA,Country,2023,Wind and solar,TRUE,153.14,22.29,,,,FALSE,FALSE
+Brazil,BRA,Country,2023,Total generation,TRUE,686.98,100.0,,,,FALSE,FALSE
+Brazil,BRA,Country,2024,Solar,FALSE,75.0,10.39,,50.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Wind,FALSE,105.0,14.54,,32.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Hydro,FALSE,410.0,56.79,,110.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Nuclear,FALSE,15.0,2.08,,2.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Gas,FALSE,40.0,5.54,,18.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Coal,FALSE,12.0,1.66,,3.5,,FALSE,FALSE
+Brazil,BRA,Country,2024,Other renewables,FALSE,0.0,0.0,,0.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Bioenergy,FALSE,55.0,7.62,,17.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Other fossil,FALSE,10.0,1.39,,7.0,,FALSE,FALSE
+Brazil,BRA,Country,2024,Clean,TRUE,660.0,91.41,,,,FALSE,FALSE
+Brazil,BRA,Country,2024,Fossil,TRUE,62.0,8.59,,,,FALSE,FALSE
+Brazil,BRA,Country,2024,Renewables,TRUE,645.0,89.34,,,,FALSE,FALSE
+Brazil,BRA,Country,2024,Wind and solar,TRUE,180.0,24.93,,,,FALSE,FALSE
+Brazil,BRA,Country,2024,Total generation,TRUE,722.0,100.0,,,,FALSE,FALSE
+World,,Region,2025,Demand,FALSE,,,,,,FALSE,FALSE
+World,,Region,2025,Net imports,FALSE,,,,,,FALSE,FALSE
+Europe,,Region,2025,Demand,FALSE,,,,,,FALSE,FALSE
+Europe,,Region,2025,Net imports,FALSE,,,,,,FALSE,FALSE
+United States,USA,Country,2025,Demand,FALSE,,,,,,FALSE,FALSE
+United States,USA,Country,2025,Net imports,FALSE,,,,,,FALSE,FALSE
+China,CHN,Country,2025,Demand,FALSE,,,,,,FALSE,FALSE
+China,CHN,Country,2025,Net imports,FALSE,,,,,,FALSE,FALSE
+Germany,DEU,Country,2025,Demand,FALSE,,,,,,FALSE,FALSE
+Germany,DEU,Country,2025,Net imports,FALSE,,,,,,FALSE,FALSE
+India,IND,Country,2025,Demand,FALSE,,,,,,FALSE,FALSE
+India,IND,Country,2025,Net imports,FALSE,,,,,,FALSE,FALSE
+Brazil,BRA,Country,2024,Demand,FALSE,,,,,,FALSE,FALSE
+Brazil,BRA,Country,2024,Net imports,FALSE,,,,,,FALSE,FALSE

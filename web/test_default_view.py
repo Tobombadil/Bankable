@@ -284,7 +284,8 @@ def test_proposal_detail_provenance_matches_the_api_envelope(
     provenance = entity["provenance"]
     assert provenance, "API returned a record with no provenance -- should be impossible (DA-2)"
 
-    resp = web_client.get(f"/proposals/{entity['slug']}")
+    # The full Sources panel is the record's Sources tab (docs/30 §11.5, T-4).
+    resp = web_client.get(f"/proposals/{entity['slug']}/sources")
     assert resp.status_code == 200
     # Inside the Sources panel, not anywhere on the page: the source name, URL and date also appear
     # in other blocks (attribution footer, field notes), so a page-wide check survives the panel

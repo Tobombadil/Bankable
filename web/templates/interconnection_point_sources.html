@@ -1,0 +1,17 @@
+{#- A grid connection point's Sources tab (docs/30 §11.5, T-4): the register that names the point, then
+    any other register a listed change credits, one row per source. -#}
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name }} · Sources — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: the registers behind this point, their licences and retrieval dates.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<div class="record-tab">
+{{ m.provenance_panel(provenance_rows) }}
+</div>
+{{ rt.foot(tabs, [], record) }}
+</div>
+{% endblock %}

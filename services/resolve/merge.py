@@ -42,9 +42,10 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import json
 import logging
 import uuid as _uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -1272,9 +1273,20 @@ class OrganizationResolutionReport:
     groups_merged: int = 0
     organizations_absorbed: int = 0
     merge_events: list[Event] = field(default_factory=list)
+    #: The data-centre operator pass (`services/resolve/operators.py`, docs/22 §27), when it ran.
+    operator_links: dict[str, Any] | None = None
+    #: The EIA-860 Schedule 1 type pass (`services/resolve/org_types.py`, docs/22 §27), when it ran.
+    entity_types: dict[str, Any] | None = None
 
 
-def resolve_organizations(session: Session, norm_org_fn: Any = None) -> OrganizationResolutionReport:
+def resolve_organizations(
+    session: Session,
+    norm_org_fn: Any = None,
+    *,
+    link_operators: bool = True,
+    entity_types: bool = True,
+    entity_types_store: Any = None,
+) -> OrganizationResolutionReport:
     """Conservative organization resolution (task step 3): group live organizations by
     `pipeline.normalize.org_key(name_canonical)` -- the one organisation key every consumer uses
     (the ownership loader, the midstream operator edges, the proposal loader) -- and merge every
@@ -1293,7 +1305,15 @@ def resolve_organizations(session: Session, norm_org_fn: Any = None) -> Organiza
     (`data/vendored/organizations/aliases.yaml`), not in a looser key.
 
     `norm_org_fn` stays accepted so an existing caller or test can inject a key; omit it and the
-    canonical `org_key` is used."""
+    canonical `org_key` is used.
+
+    After the merges, two passes over the merged store (2026-10-24, docs/28 lane F6), so the scheduler's
+    `resolve_tick`, which calls only this function, reaches every stored row with them:
+    `link_operators` links each large-load record to the operator its own name names
+    (`services/resolve/operators.py`, docs/22 §27), and `entity_types` types organisations from the
+    latest stored EIA-860 Schedule 1 (`services/resolve/org_types.py`, docs/22 §27; `entity_types_store`
+    is the connector store to read, default the environment's). A failure in either is logged and
+    reported, never raised: the merges above stand and the rest of the resolve pass still runs."""
     key_fn = norm_org_fn if norm_org_fn is not None else org_key
     orgs = session.scalars(select(Organization).where(Organization.merged_into_id.is_(None))).all()
     groups: dict[str, list[Organization]] = {}
@@ -1319,7 +1339,41 @@ def resolve_organizations(session: Session, norm_org_fn: Any = None) -> Organiza
             report.merge_events.append(ev)
             report.organizations_absorbed += 1
         report.groups_merged += 1
+    if link_operators:
+        report.operator_links = _run_pass(session, "operator links", _link_operators)
+    if entity_types:
+        report.entity_types = _run_pass(
+            session, "entity types", lambda s: _apply_entity_types(s, entity_types_store)
+        )
     return report
+
+
+def _link_operators(session: Session) -> dict[str, Any] | None:
+    from services.resolve.operators import link_data_centre_operators
+
+    return link_data_centre_operators(session).as_dict()
+
+
+def _apply_entity_types(session: Session, store: Any) -> dict[str, Any] | None:
+    from services.resolve.org_types import apply_from_store
+
+    result = apply_from_store(session, store=store)
+    return result.as_dict() if result is not None else None
+
+
+def _run_pass(
+    session: Session, what: str, run: Callable[[Session], dict[str, Any] | None]
+) -> dict[str, Any] | None:
+    """One enrichment pass inside a savepoint: on any failure its writes are rolled back, the error is
+    logged and reported, and the caller's transaction (the merges) carries on."""
+    try:
+        with session.begin_nested():
+            result: dict[str, Any] | None = run(session)
+    except Exception as exc:
+        logger.exception("resolve: %s pass failed; organisation merges kept", what)
+        return {"error": type(exc).__name__}
+    logger.info("resolve: %s %s", what, json.dumps(result, default=str) if result is not None else "skipped")
+    return result
 
 
 def _choose_canonical_organization(session: Session, members: Sequence[Organization]) -> Organization:

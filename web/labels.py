@@ -631,6 +631,8 @@ SECTION_LABELS: dict[str, str] = {
     "about_page": "About",
     "about_sources": "Sources & licences",
     "methodology": "Coverage & methodology",
+    # Plain words for every term (lane V7, `/glossary`), after the method it explains in plain language.
+    "glossary": "Glossary",
     "attribution": "Attribution",
     "api": "API & feeds",
     # Infrastructure's two URL tabs.

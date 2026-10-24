@@ -544,8 +544,9 @@ def test_slug_filter_looks_up_a_proposal_and_an_opportunity(client, db):
 
 def test_opportunities_technologies_filter_is_enforced(client, db):
     """web/README.md "Missing from the API" item 5: `technologies` was allowlisted and accepted
-    but silently ignored. Any-of match; an all-source opportunity (empty `technologies[]`) matches
-    every value (api/openapi.yaml `Technologies` parameter)."""
+    but silently ignored. Any-of match; a notice tagged `all_source` (an all-source or capacity
+    solicitation) matches every value, and an untagged one matches none (docs/28 B-1: untagged
+    notices used to match every value, so "Offshore wind (82)" held no offshore-wind notice)."""
     from services.db.models import Opportunity
 
     lic = make_open_licence(db)
@@ -554,17 +555,31 @@ def test_opportunities_technologies_filter_is_enforced(client, db):
     wind = make_visible_opportunity(db, src, public_id_suffix="wind1")
     db.get(Opportunity, wind.id).technologies = ["wind"]
     all_source = make_visible_opportunity(db, src, public_id_suffix="allsrc1")
-    db.get(Opportunity, all_source.id).technologies = []
+    db.get(Opportunity, all_source.id).technologies = ["all_source"]
+    untagged = make_visible_opportunity(db, src, public_id_suffix="untag1")
+    db.get(Opportunity, untagged.id).technologies = []
+    both = make_visible_opportunity(db, src, public_id_suffix="both1")
+    db.get(Opportunity, both.id).technologies = ["wind", "solar_pv"]
     db.commit()
 
     resp = client.get("/v1/opportunities?status=open&technologies=wind")
     ids = {o["public_id"] for o in resp.json()["data"]}
-    assert ids == {wind.public_id, all_source.public_id}
-    assert solar.public_id not in ids
+    assert ids == {wind.public_id, all_source.public_id, both.public_id}
+    assert solar.public_id not in ids and untagged.public_id not in ids
 
     resp2 = client.get("/v1/opportunities?status=open&technologies=solar_pv")
     ids2 = {o["public_id"] for o in resp2.json()["data"]}
-    assert ids2 == {solar.public_id, all_source.public_id}
+    assert ids2 == {solar.public_id, all_source.public_id, both.public_id}
+
+    # Any-of over several values, and the count agrees with the rows (a count shows what it lists).
+    resp3 = client.get("/v1/opportunities?status=open&technologies=wind,nuclear&include=count")
+    ids3 = {o["public_id"] for o in resp3.json()["data"]}
+    assert ids3 == {wind.public_id, all_source.public_id, both.public_id}
+    assert resp3.json()["meta"]["total"] == 3
+
+    # No value of the vocabulary lists the untagged notice.
+    resp4 = client.get("/v1/opportunities?status=open&technologies=wind_offshore")
+    assert {o["public_id"] for o in resp4.json()["data"]} == {all_source.public_id}
 
 
 def test_organization_detail_route(client, db):

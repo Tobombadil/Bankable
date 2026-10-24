@@ -14,6 +14,12 @@ infrastructure (water, roads, buildings) is out of scope by design (docs/22 A-22
 
 The verdict, first match wins:
 
+0. **A curated energy register -> relevant** (v2, docs/28 B-7). The US utility and state RFP
+   registers (`pipeline/connectors/us_rfp`) publish only generation solicitations, classified item
+   by item before they are stored; their titles often name no technology ("2025 SPP Capacity
+   RFP", "2024 RFPs"), so v1 dropped 6 of the 16 for "no energy evidence". The source is read from
+   `identifiers["issuer_registry_id"]` (`register:` code), which every stored `us.rfp.*` row
+   already carries, so the verdict reaches stored rows without a reload.
 1. **Fuel purchase -> not relevant.** docs/16 §4.5 (2026-10-20, before any v2 label existed):
    "many of those are fuel purchases ("Diesel fuel", "Heating oil")". A notice whose CPV codes
    all sit under 091 (fuels) or 092 (petroleum products, oils and lubricants), or whose title or
@@ -37,11 +43,17 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-RELEVANCE_VERSION = "opportunity-relevance@v1"
+RELEVANCE_VERSION = "opportunity-relevance@v2"
+
+#: Registers whose every published notice is an energy solicitation (rule 0): the curated US
+#: utility and state RFP registers, by `issuer_registry_id` prefix.
+ENERGY_REGISTER_PREFIXES: tuple[str, ...] = ("us.rfp.",)
 
 #: CPV prefixes of commodity fuels: 091 "Fuels" (solid, liquid, gaseous fuels; natural gas, diesel,
-#: heating oil, wood fuel) and 092 "Petroleum, coal and oil products" (lubricants).
-FUEL_CPV_PREFIXES: tuple[str, ...] = ("091", "092")
+#: heating oil, wood fuel), 092 "Petroleum, coal and oil products" (lubricants) and, since v2,
+#: 03413 "Fuel wood", which the opportunity tagger now reads as biomass (docs/28 B-5): a heating
+#: oil and firewood purchase (03413000 with 09135100) is still a fuel purchase.
+FUEL_CPV_PREFIXES: tuple[str, ...] = ("091", "092", "03413")
 
 #: CPV prefixes that are energy infrastructure or energy itself, whatever the title says.
 ENERGY_CPV_PREFIXES: tuple[str, ...] = (
@@ -141,8 +153,8 @@ _FUEL_PURCHASE_RE = re.compile(
 @dataclass(frozen=True)
 class Relevance:
     relevant: bool
-    #: `keyword`, `technology tag`, `programme code` (relevant); `fuel purchase`,
-    #: `false friend only`, `no energy evidence` (not relevant).
+    #: `energy register`, `keyword`, `technology tag`, `programme code` (relevant); `fuel
+    #: purchase`, `false friend only`, `no energy evidence` (not relevant).
     reason: str
     #: What decided it: the matched text, token or code; `None` for "no energy evidence".
     evidence: str | None
@@ -155,8 +167,9 @@ class Relevance:
 
 def programme_codes(identifiers: Mapping[str, Any] | None) -> tuple[str, ...]:
     """The programme codes in an opportunity's `identifiers`, as `scheme:code` strings: `cpv:` (TED,
-    Find a Tender), `aln:` (grants.gov Assistance Listing), `wb_sector:` (World Bank) and `nature:`
-    (TED contract nature). The keys are the ones the four opportunity connectors write."""
+    Find a Tender), `aln:` (grants.gov Assistance Listing), `wb_sector:` (World Bank), `nature:`
+    (TED contract nature) and `register:` (the curated RFP registers' `issuer_registry_id`). The
+    keys are the ones the opportunity connectors write."""
     if not identifiers:
         return ()
     out: list[str] = []
@@ -165,6 +178,7 @@ def programme_codes(identifiers: Mapping[str, Any] | None) -> tuple[str, ...]:
         ("aln", "aln"),
         ("sector_codes", "wb_sector"),
         ("contract_nature", "nature"),
+        ("issuer_registry_id", "register"),
     ):
         value = identifiers.get(key)
         values: Iterable[Any] = value if isinstance(value, list | tuple) else ([value] if value else [])
@@ -206,6 +220,9 @@ def assess_relevance(
     text = _text(title, summary)
     cpv = codes_in("cpv", programme_codes)
 
+    for register in codes_in("register", programme_codes):
+        if register.startswith(ENERGY_REGISTER_PREFIXES):
+            return Relevance(True, "energy register", f"register:{register}")
     if cpv and all(c.startswith(FUEL_CPV_PREFIXES) for c in cpv):
         return Relevance(False, "fuel purchase", f"cpv:{cpv[0]}")
     purchase = _FUEL_PURCHASE_RE.search(text)
@@ -257,6 +274,7 @@ def opportunity_relevance(row: Any) -> Relevance:
 
 __all__ = [
     "ENERGY_CPV_PREFIXES",
+    "ENERGY_REGISTER_PREFIXES",
     "ENERGY_TERMS",
     "FALSE_FRIENDS",
     "FUEL_CPV_PREFIXES",

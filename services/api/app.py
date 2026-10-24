@@ -290,6 +290,12 @@ from services.api.prices import router as prices_router  # noqa: E402
 
 app.include_router(prices_router)
 
+# Activity over time (owner decision 2026-10-23; docs/24-trends.md section 10): named series from the
+# official monthly archives (EIA-860M, ERCOT's GIS reports) and the daily record of the public figures.
+from services.api.trends import router as trends_router  # noqa: E402
+
+app.include_router(trends_router)
+
 # Prospecting layers at a point (owner decision 2026-10-22; docs/25 "Prospecting layers"): resource,
 # subsurface, incentive, constraint and hazard values, screening grade, from the compact files the
 # prospect build writes; no database.
@@ -302,6 +308,12 @@ app.include_router(context_sample_router)
 from services.api.site_finder import router as site_finder_router  # noqa: E402
 
 app.include_router(site_finder_router)
+
+# Global electricity figures (owner, 2026-10-23; docs/26-global-figures.md): Ember's operating capacity and
+# generation for World, regions and countries, labelled as operating figures, never a pipeline.
+from services.api.global_figures import router as global_figures_router  # noqa: E402
+
+app.include_router(global_figures_router)
 
 # Lane E6b (US-603, US-703, US-302 AC1): CSV exports, the NDJSON bulk streams and document
 # metadata, each in its own module; `resource_queries.py` is the filter layer the first two and
@@ -322,6 +334,18 @@ from services.api.resource_queries import subject_info as _subject_info  # noqa:
 app.include_router(exports_router)
 app.include_router(bulk_router)
 app.include_router(documents_router)
+
+# The front page's figures (lane front-api, 2026-10-23): capacity by technology and lifecycle state,
+# and the pulse of genuine changes, each figure with the list query it is the total of.
+from services.api.front import router as front_router  # noqa: E402
+
+app.include_router(front_router)
+
+# Planned against operating (owner, 2026-10-23; docs/24-trends.md section 11): EIA-860M's planned and
+# operating MW from one month, planned by stage, and data centres by power, each figure cited.
+from services.api.planned_operating import router as planned_operating_router  # noqa: E402
+
+app.include_router(planned_operating_router)
 
 # "My pipeline" (docs/19 §6.1; ADR 0009): the private projects under `/v1/my/`, session only, every
 # read and write through `services.projects.authz`. The only router that may import the private

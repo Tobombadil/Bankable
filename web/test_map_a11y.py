@@ -214,7 +214,10 @@ def test_status_chip_words_meet_aa_on_the_chip_fill(theme: str, family: str) -> 
 
 def test_the_neutral_chip_holds_the_measured_fix() -> None:
     light = THEMES["light"]
-    assert round(_contrast("#5b6b7c", light["--family-neutral-fill"]), 2) == 4.47  # what axe flagged
+    # What axe flagged on 2026-09-27: `#5b6b7c` on the neutral chip fill of the time, `#e4e9ed`.
+    assert round(_contrast("#5b6b7c", "#e4e9ed"), 2) == 4.47
+    # The brand system's neutral pair (docs/31-brand-identity.md §4): 8.59:1, well past the fix's 5.4.
+    assert light["--family-neutral-text"] == "#3d4254" and light["--family-neutral-fill"] == "#eceef3"
     assert round(_contrast(light["--family-neutral-text"], light["--family-neutral-fill"]), 2) >= 5.4
     # The map key prints the same token on the page ground (home_map.html, legend row "Announced").
     for theme in THEMES.values():
@@ -249,9 +252,20 @@ def test_the_in_view_list_only_ever_holds_plain_list_items() -> None:
     assert [(close, tag) for close, tag, _ in top_level] == [("", "li"), ("/", "li")]
     assert "role=" not in top_level[0][2]
     # The drawer is a dialog; the search field's suggestions (owner, 2026-10-22) are a listbox of
-    # named groups of options (`renderSuggestions`), none of them in this list.
-    assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog", "group", "option"}
+    # options (`renderSuggestions`), none of them in this list: one ranked list since lane
+    # stacked-lists, each option naming its kind, so no named groups any more.
+    assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog", "option"}
     assert ".role =" not in MAP_JS
+
+
+def test_map_js_declares_each_top_level_name_once() -> None:
+    """map.js is one function scope, where a second `function name()` silently replaces the first for
+    every caller. Lane stacked-lists' fix round first named the search's quick-view rank `regionRank`,
+    the map's own name for which region level a tap lands on, and every region tap stopped opening its
+    summary (web/test_e2e.py's region-tap tests caught it)."""
+    names = re.findall(r"^  (?:function|var|let|const) ([A-Za-z_$][\w$]*)", MAP_JS, re.M)
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    assert repeated == [], repeated
 
 
 def _map_notice(**context: object) -> str:
@@ -343,6 +357,9 @@ def test_the_panel_keeps_its_words_readable_over_any_basemap(theme: str, block: 
     assert found is not None
     share = int(found.group(1)) / 100
     assert "--text-muted: var(--family-neutral-text);" in panel
+    # The panel re-points the in-process words to the accent's small-text step (brand system, 2026-10-23):
+    # the evergreen `#1d7356` measured 4.37:1 here over black.
+    assert "--family-progress-text: var(--color-accent-deep);" in panel
     tokens = THEMES[theme]
     declared = _block(block) + _block(":root {")
     words = {
@@ -350,6 +367,7 @@ def test_the_panel_keeps_its_words_readable_over_any_basemap(theme: str, block: 
         "muted": tokens["--family-neutral-text"],
         "link": _resolve(tokens, declared, "--link"),
         **{family: tokens[f"--family-{family}-text"] for family in FAMILIES},
+        "progress": tokens["--color-accent-deep"],
     }
     surface = _resolve(tokens, declared, "--surface")
     for backdrop in ("#000000", "#ffffff"):

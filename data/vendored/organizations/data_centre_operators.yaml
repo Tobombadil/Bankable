@@ -1,0 +1,671 @@
+# Data-centre operators: which company a large-load record's own name names (docs/22 §27; docs/28 B-9).
+#
+# Read by `services/resolve/operators.py`, which the resolve pass runs on every store
+# (`services/resolve/merge.py::resolve_organizations`, called by the scheduler's `resolve_tick` after every
+# load and daily). For each live `kind = load` proposal with no sponsor, the pass reads the record's name and
+# the name each active source link carries (Virginia DEQ `PLA_NAME`, EPA ICIS-Air `FACILITY_NAME`), and links
+# the record to the operator below whose name it carries. Every link is a `sponsor_linked` event on the
+# proposal (non-public, reversible: `services.resolve.operators.unlink`).
+#
+# THE EVIDENCE RULE. Precision over recall: a wrong sponsor is a false claim on a public record.
+#   1. The record's name carries the operator's own name (`names`: its legal, trading or former names, as
+#      whole words). The pass checks this on every match at run time: a pattern whose matched text holds
+#      none of the row's names links nothing. `services/resolve/test_operators.py` checks it on every row's
+#      `examples`, which are names copied from the register.
+#   2. A project vehicle is linked only when its own name carries the operator's name: `QTS Richmond V LLC`
+#      and `Vantage Data Centers VA41 LLC` are linked; `SI NVA05D LLC` (STACK names its Virginia vehicles
+#      so), `VADATA Inc` (an Amazon vehicle), `Digital Filigree LLC` and `Quality Investment Properties
+#      Suwanee, LLC` are not, because the record does not say whose they are. A shell name nobody can read
+#      (`SICULUS, INC.`, `MORNING HORNET, LLC`) is left unlinked rather than guessed.
+#   3. A company only. Public bodies, universities, schools, hospitals and other non-profits are not listed
+#      (The World Bank, the Smithsonian, U.S. Customs and Border Protection, USGS, NASA, Dartmouth College,
+#      Sentara, Inova, Kaiser Permanente), nor is any natural person: `organization` must classify as an
+#      organisation under `services/personal_names.py` (tested), and the pass never links a row flagged as
+#      a natural person.
+#   4. A name two operators share links neither (`OPTUM C/O UNITED HEALTH GROUP`): a conflict is counted,
+#      not resolved by guessing.
+#   5. The link is to the operator named, at the level the name gives. A subsidiary named by the record
+#      (`Amazon Data Services, Inc.`, `Northrop Grumman Systems Corporation`) is linked to the group the
+#      row names (`Amazon.com, Inc.`, `Northrop Grumman Corporation`) only when the record also names the
+#      group: every Amazon-named facility carries "Amazon". The record keeps its own name, so the legal
+#      entity that filed is still on the page.
+#
+# How the organisation is found: `pipeline.normalize.org_key(organization)` over every live organisation's
+# name and aliases (`services/ingest/organizations.py::org_key_multimap`), the one key the loaders and the
+# merge pass use; so `Microsoft Corporation` joins an existing `MICROSOFT CORP`. If none holds the key, the
+# organisation is created with type `other` and the country below.
+#
+# Schema:
+#   operators:
+#     - key           stable id of the row (snake case); recorded on every link event
+#       organization  the organisation's canonical name (created if no live organisation has its org_key)
+#       country       ISO 3166-1 alpha-2, used only when the organisation is created
+#       names         the operator's own names: the evidence tokens of rule 1
+#       patterns      optional regular expressions (case-insensitive, searched in the record's name). Absent:
+#                     one pattern per name, whole words, any punctuation or none between its words
+#       exclude       optional regular expression: a record name it matches is not linked by this row
+#       examples      record names from the register this row must link (the guard test)
+#       note          optional
+#
+# Built 2026-10-24 from the 582 large-load records of the public register (pulled 2026-10-23 23:16 UTC,
+# docs/28 §1), by reading every name. Precision on a hand-checked seeded sample is in docs/22 §27.
+
+version: 1
+operators:
+  # ------------------------------------------------------------------------------- cloud and hyperscale
+  - key: amazon
+    organization: Amazon.com, Inc.
+    country: US
+    names: [Amazon]
+    examples:
+      - Amazon Data Services Inc - DCA-060
+      - AMAZON DATA SVCS INC PNE100
+      - Amazon DCA-50
+      - AMAZON COM SERVICES LLC DTB9
+      - AMAZON.COM LLC - DK01
+    note: >-
+      Amazon files its data-centre permits under Amazon Data Services, Inc. (70 of the 75 records), and a few
+      under Amazon.com Services LLC, Amazon.com LLC or the bare name. Every one names Amazon, so all are
+      linked to the group. VADATA Inc. records are not: they do not name Amazon (rule 2).
+  - key: microsoft
+    organization: Microsoft Corporation
+    country: US
+    names: [Microsoft]
+    examples: [Microsoft Corp - AVC17 Datacenter, MICROSOFT, MICROSOFT HOFFMAN ESTATES (CHI05) DATA CENTER]
+  - key: google
+    organization: Google LLC
+    country: US
+    names: [Google]
+    examples: ['GOOGLE, INC.']
+  - key: apple
+    organization: Apple Inc.
+    country: US
+    names: [Apple]
+    patterns: ['^APPLE[\W_]+INC\b']
+    examples: [APPLE INC, APPLE INC.]
+  - key: oracle
+    organization: Oracle Corporation
+    country: US
+    names: [Oracle]
+    examples: [ORACLE KC-7/8 DATA CENTERS, ORACLE AMERICA - BROOMFIELD CAMPUS]
+  # ------------------------------------------------------------------------------- colocation and wholesale
+  - key: equinix
+    organization: Equinix, Inc.
+    country: US
+    names: [Equinix]
+    examples: [Equinix LLC - DC 13, EQUINIX, EQUINIX ATLANTA DATA CENTER]
+  - key: digital_realty
+    organization: Digital Realty Trust, Inc.
+    country: US
+    names: [Digital Realty]
+    examples:
+      - Digital Realty - Lemur Properties, LLC (VA3)
+      - DIGITAL REALTY TRUST LP
+      - Digital Realty (Digital Loudoun 3 & 4, LLC)
+    note: >-
+      Digital Realty's Virginia vehicles are mostly named "Digital <something> LLC"; only those whose record
+      also says "Digital Realty" are linked (rule 2). `Digital Filigree LLC`, `Digital Western Lands LLC`,
+      `Digital Loudoun Pkwy Center N LLC` and `DIGITAL GRAND AVENUE 3 LLC` are not.
+  - key: cyrusone
+    organization: CyrusOne
+    country: US
+    names: [CyrusOne, Cyrus One]
+    examples: [CYRUS ONE LLC, CyrusOne Kincora, CYRUSONE - MESA]
+  - key: qts
+    organization: QTS Data Centers
+    country: US
+    names: [QTS, Quality Technology Services]
+    examples:
+      - QTS Richmond V LLC
+      - ASH2 Lockridge Data Center - QTS Investment Properties Ashburn II LLC
+      - QUALITY TECHNOLOGY SERVICES LLC
+    note: >-
+      `QUALITY INVESTMENT PROPERTIES ... LLC` (three records) are QTS vehicles by repute, but their records do
+      not say QTS and no QTS document naming them was read for this file (EDGAR asks a declared contact, which
+      this lane did not have), so they stay unlinked.
+  - key: vantage
+    organization: Vantage Data Centers
+    country: US
+    names: [Vantage]
+    patterns: ['\bVANTAGE[\W_]+DATA[\W_]*CENTERS?\b', '^VANTAGE[\W_]+(?:TX|WI)\b']
+    examples: [Vantage Data Centers VA41 LLC, VANTAGE DATA CENTER TX2, VANTAGE WI-1, VANTAGE TX 11]
+  - key: aligned
+    organization: Aligned Data Centers
+    country: US
+    names: [Aligned Data Centers, Aligned Data Center, Aligned Energy]
+    examples: [Aligned Data Centers IAD03, ALIGNED DATA CENTER (EGV) PROPCO LLC, APS - ALIGNED ENERGY DATA CENTER]
+  - key: stack
+    organization: STACK Infrastructure
+    country: US
+    names: [STACK Infrastructure]
+    examples: [STACK Infrastructure - SI NVA06A LLC]
+    note: The `SI NVA..` vehicles whose record does not say STACK are not linked (rule 2).
+  - key: compass
+    organization: Compass Datacenters
+    country: US
+    names: [Compass]
+    patterns: ['\bCOMPASS[\W_]+(?:[A-Z0-9]+[\W_]+)?DATA[\W_]*CENTERS?\b']
+    examples: [COMPASS DATACENTERS PHX II, Compass IAD Datacenter, COMPASS DATACENTERS ORD I LLC]
+    note: Linked only where the record also says data centre, since Compass is a common word.
+  - key: edgeconnex
+    organization: EdgeConneX
+    country: US
+    names: [EdgeConneX, Edge Connex]
+    examples: ['EDGECONNEX ATL11, LLC', EDGE CONNEX DATA CENTER]
+  - key: cologix
+    organization: Cologix
+    country: US
+    names: [Cologix]
+    examples: [Cologix ASH1, COLOGIX]
+  - key: coresite
+    organization: CoreSite Realty Corporation
+    country: US
+    names: [CoreSite]
+    examples: [CORESITE - DE1, 'CoreSite Real Estate Sunrise Technology Park, LLC']
+  - key: flexential
+    organization: Flexential
+    country: US
+    names: [Flexential]
+    examples: [FLEXENTIAL - DEN03 DATA CENTER, FLEXENTIAL CORPORATION]
+  - key: databank
+    organization: DataBank
+    country: US
+    names: [DataBank]
+    examples: [DataBank Data Center Culpeper LLC, DATABANK MSP3]
+    note: '`DB DATA CENTER BOULDER PARK, LLC` does not say DataBank and is not linked.'
+  - key: tierpoint
+    organization: TierPoint
+    country: US
+    names: [TierPoint]
+    examples: [TIERPOINT ILLINOIS LLC, TIERPOINT LLC/BETHLEHEM 2 DATA CTR]
+  - key: h5
+    organization: H5 Data Centers
+    country: US
+    names: [H5]
+    # A bare "H5" is also a building or unit code: only the shapes H5 files under.
+    patterns: ['(?<![A-Za-z0-9])H5[\W_]+(?:DATA[\W_]*CENTERS?|FUND|VA)\b']
+    examples: [H5 Data Centers - Ashburn, 'H5 FUND VII, LLC', 'Chantilly Technology Partners, LLC/H5 VA']
+  - key: ntt
+    organization: NTT Global Data Centers Americas, Inc.
+    country: US
+    names: [NTT Global Data Centers]
+    examples: [NTT Global Data Centers VA10 LLC, NTT GLOBAL DATA CENTERS CH LLC]
+  - key: iron_mountain
+    organization: Iron Mountain Incorporated
+    country: US
+    names: [Iron Mountain]
+    examples: [Iron Mountain Information Management LLC, IRON MOUNTAIN DATA CENTERS - FORTRUST]
+  - key: sabey
+    organization: Sabey Data Centers
+    country: US
+    names: [Sabey]
+    examples: [SABEY DATA CENTER]
+    note: '`Intergate - Ashburn, LLC` is Sabey''s campus brand, but the record does not say Sabey (rule 2).'
+  - key: switch
+    organization: Switch, Inc.
+    country: US
+    names: [Switch, SUPERNAP]
+    patterns: ['^SWITCH[\W_]+LTD\b', '\bSUPERNAP\b']
+    examples: [SWITCH LTD., SUPERNAP SITE]
+    note: SUPERNAP is Switch's own name for its data centres; a bare "switch" is a common word and links nothing.
+  - key: novva
+    organization: Novva Data Centers
+    country: US
+    names: [Novva]
+    examples: [NOVVA DATA CENTERS, NOVVA SLC COMMON]
+  - key: t5
+    organization: T5 Data Centers
+    country: US
+    names: [T5]
+    # A bare "T5" is also a building or terminal code: T5's own "T5@<city>" naming, or its full name.
+    patterns: ['(?<![A-Za-z0-9])T5(?:\s*@|[\W_]+DATA[\W_]*CENTERS?\b)']
+    examples: ['T5@ATLANTA III, LLC', T5@CHICAGO II LP, T5@CHICAGO III LP]
+  - key: prime
+    organization: Prime Data Centers
+    country: US
+    names: [Prime Data Centers]
+    examples: [PRIME DATA CENTERS (DBA SVO)]
+  - key: stream
+    organization: Stream Data Centers
+    country: US
+    names: [Stream Data Centers]
+    examples: [STREAM DATA CENTERS ORDC CAMPUS]
+  - key: netrality
+    organization: Netrality Data Centers
+    country: US
+    names: [Netrality]
+    examples: [NETRALITY DATA CENTERS - KC2 (AIR)]
+  - key: markley
+    organization: Markley Group
+    country: US
+    names: [Markley]
+    examples: [MARKLEY LOWELL]
+  - key: lightedge
+    organization: LightEdge Solutions
+    country: US
+    names: [LightEdge]
+    examples: [LIGHTEDGE DATA CENTER]
+  - key: edged
+    organization: Edged Energy
+    country: US
+    names: [Edged]
+    examples: [EDGED CHICAGO LLC, EDGED ENERGY ATLANTA DATA CENTER]
+  - key: three_sixty_five
+    organization: 365 Data Centers
+    country: US
+    names: [365 Data Centers]
+    examples: [365 DATA CENTERS]
+  - key: evoque
+    organization: Evoque Data Center Solutions
+    country: US
+    names: [Evoque]
+    examples: [EVOQUE DATA CENTER SOLUTIONS - PNJ1]
+  - key: cyxtera
+    organization: Cyxtera Technologies
+    country: US
+    names: [Cyxtera]
+    examples: [CYXTERA - NJ2X]
+  - key: telx
+    organization: Telx
+    country: US
+    names: [Telx]
+    examples: [TELX-CLIFTON LLC]
+  - key: peak_10
+    organization: Peak 10, Inc.
+    country: US
+    names: [Peak 10]
+    examples: [Peak 10 Incorporated]
+  - key: sungard
+    organization: Sungard Availability Services
+    country: US
+    names: [Sungard]
+    examples: [SUNGARD AVAILABILITY SERVICES]
+  - key: yondr
+    organization: Yondr Group
+    country: GB
+    names: [Yondr]
+    examples: [Yondr Data Center]
+  - key: chirisa
+    organization: Chirisa Technology Parks
+    country: US
+    names: [Chirisa]
+    examples: [Chirisa Richmond LLC]
+  - key: tecfusions
+    organization: TECfusions
+    country: US
+    names: [TECfusions]
+    examples: [TECfusions Clarksville LLC]
+  - key: clean_arc
+    organization: Clean Arc Data Centers
+    country: US
+    names: [Clean Arc]
+    examples: [Clean Arc Data Centers - VA-1 Campus]
+  - key: joule
+    organization: Joule Capital Partners
+    country: US
+    names: [Joule Capital Partners]
+    examples: ['JOULE CAPITAL PARTNERS, LLC - SITE #1 DATA CENTER']
+  - key: cloudhq
+    organization: CloudHQ
+    country: US
+    names: [CloudHQ, Cloud HQ]
+    examples: [Cloud HQ]
+  - key: core_scientific
+    organization: Core Scientific, Inc.
+    country: US
+    names: [Core Scientific]
+    examples: [CORE SCIENTIFIC-DALTON 01]
+  - key: ark
+    organization: Ark Data Centers
+    country: US
+    names: [Ark Data Centers]
+    examples: [ARK DATA CENTERS]
+  - key: ensono
+    organization: Ensono
+    country: US
+    names: [Ensono]
+    examples: [ENSONO OMAHA DATA CENTER]
+  - key: oneneck
+    organization: OneNeck IT Solutions
+    country: US
+    names: [OneNeck]
+    examples: [ONENECK IT-DENVER DATA CENTER]
+  - key: encore
+    organization: Encore Technologies
+    country: US
+    names: [Encore Technologies]
+    examples: [ENCORE TECHNOLOGIES DATA CENTER]
+  - key: congruity
+    organization: Congruity360
+    country: US
+    names: [Congruity360, Congruity 360]
+    examples: [CONGRUITY 360 LLC]
+  - key: data_cave
+    organization: Data Cave, Inc.
+    country: US
+    names: [Data Cave]
+    examples: ['DATA CAVE, INC.']
+  - key: cross_connect
+    organization: Cross Connect Solutions
+    country: US
+    names: [Cross Connect Solutions]
+    examples: [CROSS CONNECT SOLUTIONS]
+  - key: clearblue
+    organization: ClearBlue Technologies
+    country: US
+    names: [ClearBlue Technologies]
+    examples: [CLEARBLUE TECHNOLOGIES/OAKBROOK INC]
+  - key: colovore
+    organization: Colovore
+    country: US
+    names: [Colovore]
+    examples: [COLOVORE LLC]
+  - key: oso_grande
+    organization: Oso Grande Technologies
+    country: US
+    names: [Oso Grande]
+    examples: [OSO GRANDE TECHNOLOGY]
+  - key: one_two_three_net
+    organization: 123NET
+    country: US
+    names: [123NET]
+    examples: [123NET]
+  # ------------------------------------------------------------------------------- telecommunications
+  - key: att
+    organization: AT&T Inc.
+    country: US
+    names: [AT&T]
+    examples: [AT & T DATA CENTER, 'BELLSOUTH TELECOMMUNICATIONS, LLC DBA AT&T NORTH CAROLINA']
+  - key: verizon
+    organization: Verizon Communications Inc.
+    country: US
+    names: [Verizon]
+    examples: ['Verizon Business Network Services, Inc.', VERIZON FAIRLAND DATA CENTER]
+  - key: comcast
+    organization: Comcast Corporation
+    country: US
+    names: [Comcast]
+    examples: [Comcast Cablevision of Virginia Incorporated]
+  - key: zayo
+    organization: Zayo Group
+    country: US
+    names: [Zayo]
+    examples: ['Zayo Group, LLC']
+  - key: level_3
+    organization: Level 3 Communications
+    country: US
+    names: [Level 3]
+    examples: [Level 3 Commuications Herndon Gateway]
+  - key: consolidated_communications
+    organization: Consolidated Communications Holdings, Inc.
+    country: US
+    names: [Consolidated Communications]
+    examples: [CONSOLIDATED COMMUNICATIONS - DATA CENTER MANCHESTER]
+  - key: firstlight
+    organization: FirstLight Fiber
+    country: US
+    names: [FirstLight]
+    examples: [FIRSTLIGHT FIBER INC. BEDFORD]
+  - key: pioneer_telephone
+    organization: Pioneer Telephone Cooperative
+    country: US
+    names: [Pioneer Telephone]
+    examples: [PIONEER TELEPHONE COOP INC / KINGFISHER DATA CENTER I II]
+  - key: verisign
+    organization: VeriSign, Inc.
+    country: US
+    names: [VeriSign]
+    examples: [VeriSign Incorporated Broad Run Facility2]
+  - key: oath
+    organization: Oath Inc.
+    country: US
+    names: [Oath]
+    patterns: ['^OATH[\W_]+(?:INC|HOLDINGS)\b']
+    examples: ['Oath, Inc.', OATH HOLDINGS INCORPORATED DATA CENTER]
+  # ------------------------------------------------------------------------------- IT services and technology
+  - key: kyndryl
+    organization: Kyndryl Holdings, Inc.
+    country: US
+    names: [Kyndryl]
+    examples: ['KYNDRYL, INC.']
+  - key: dxc
+    organization: DXC Technology Company
+    country: US
+    names: [DXC Technology]
+    examples: [DXC TECHNOLOGY SERVICES LLC / CHEROKEE DATA CENTER]
+  - key: adp
+    organization: Automatic Data Processing, Inc.
+    country: US
+    names: [ADP]
+    patterns: ['^ADP(?:[\W_]+(?:DATA[\W_]+CENTER|OF[\W_]+WASHINGTON)\b|[\W_]*$)']
+    examples: [ADP, ADP DATA CENTER (DC1), ADP OF WASHINGTON]
+    note: '`ADP Appomattox Data Hub LLC` is a project vehicle whose owner the record does not state; not linked.'
+  - key: fis
+    organization: Fidelity National Information Services, Inc.
+    country: US
+    names: [FIS Global]
+    examples: [FIS GLOBAL]
+  - key: first_data
+    organization: First Data Corporation
+    country: US
+    names: [First Data]
+    examples: [FIRST DATA RESOURCES INC]
+  - key: fidessa
+    organization: Fidessa
+    country: GB
+    names: [Fidessa]
+    examples: [FIDESSA]
+  - key: data_recognition
+    organization: Data Recognition Corporation
+    country: US
+    names: [Data Recognition]
+    examples: [DATA RECOGNITION CORP]
+  - key: control_data
+    organization: Control Data Corporation
+    country: US
+    names: [Control Data]
+    examples: [CONTROL DATA CORP.]
+  - key: xerox
+    organization: Xerox Holdings Corporation
+    country: US
+    names: [Xerox]
+    examples: [XEROX PITTSBURGH DATA CENTER]
+  - key: general_electric
+    organization: General Electric Company
+    country: US
+    names: [General Electric, GE Information Systems]
+    examples: ['GENERAL ELECTRIC, ROCKVILLE', GE INFORMATION SYSTEMS]
+  - key: lockheed_martin
+    organization: Lockheed Martin Corporation
+    country: US
+    names: [Lockheed Martin]
+    examples: [LOCKHEED MARTIN - DENVER DATA CENTER]
+  - key: northrop_grumman
+    organization: Northrop Grumman Corporation
+    country: US
+    names: [Northrop Grumman]
+    examples: [Northrop Grumman Systems Corporation, Northrop Grumman Services Corporation]
+  # ------------------------------------------------------------------------------- finance and insurance
+  - key: jpmorgan_chase
+    organization: JPMorgan Chase & Co.
+    country: US
+    names: [JP Morgan Chase]
+    examples: [JP MORGAN CHASE - 4001 GOVERNOR PRINTZ BLVD, JPMORGAN CHASE - PROJECT SYCAMORE AURORA]
+  - key: bank_of_america
+    organization: Bank of America Corporation
+    country: US
+    names: [Bank of America]
+    examples: [Bank of America - Villa Park Data Center]
+  - key: citigroup
+    organization: Citigroup Inc.
+    country: US
+    names: [Citi, Citigroup]
+    examples: [CITI MIDWEST DATA CENTER]
+  - key: capital_one
+    organization: Capital One Financial Corporation
+    country: US
+    names: [Capital One]
+    examples: [Capital One Services Incorporated]
+  - key: visa
+    organization: Visa Inc.
+    country: US
+    names: [Visa]
+    patterns: ['^VISA[\W_]+(?:USA|INC)\b']
+    examples: [Visa USA Incorporated, VISA USA - O.C.C. DATA CENTER CAMPUS]
+  - key: mastercard
+    organization: Mastercard Incorporated
+    country: US
+    names: [Mastercard]
+    examples: [MASTERCARD INTERNATIONAL]
+  - key: morgan_stanley
+    organization: Morgan Stanley
+    country: US
+    names: [Morgan Stanley]
+    examples: [MORGAN STANLEY DATA CENTER]
+    note: The bank's name has a person's shape; `personal_data_overrides.yaml` lists it as not personal.
+  - key: barclays
+    organization: Barclays PLC
+    country: GB
+    names: [Barclays]
+    examples: [BARCLAYS CAPITAL DATA CENTER]
+  - key: bloomberg
+    organization: Bloomberg L.P.
+    country: US
+    names: [Bloomberg]
+    examples: [BLOOMBERG PISCATAWAY DATA CTR]
+  - key: fidelity_investments
+    organization: Fidelity Investments
+    country: US
+    names: [Fidelity Investments, Fidelity Real Estate]
+    examples: [FIDELITY INVESTMENTS DATA CTR, FIDELITY REAL ESTATE CO.- FIDELITY MORRISVILLE DATA CENTER]
+  - key: pnc
+    organization: The PNC Financial Services Group, Inc.
+    country: US
+    names: [PNC]
+    examples: [PNC PITTSBURGH DATA CENTER]
+  - key: northern_trust
+    organization: Northern Trust Corporation
+    country: US
+    names: [Northern Trust]
+    examples: [THE NORTHERN TRUST CO]
+  - key: liberty_mutual
+    organization: Liberty Mutual Insurance Company
+    country: US
+    names: [Liberty Mutual]
+    examples: [LIBERTY MUTUAL DATA CENTER, LIBERTY MUTUAL]
+  - key: travelers
+    organization: The Travelers Companies, Inc.
+    country: US
+    names: [Travelers]
+    examples: [THE TRAVELERS INDEMNITY CO, TRAVELERS DATA CENTER]
+  - key: allstate
+    organization: The Allstate Corporation
+    country: US
+    names: [Allstate]
+    examples: [ALLSTATE DATA CENTER]
+  - key: aig
+    organization: American International Group, Inc.
+    country: US
+    names: [AIG]
+    examples: [EASTGREEN INC AIG DATA CENTER]
+  - key: freddie_mac
+    organization: Federal Home Loan Mortgage Corporation
+    country: US
+    names: [Freddie Mac]
+    examples: [Freddie Mac Corporation, Freddie Mac Building - 8250 Jones Branch Drive]
+  - key: fannie_mae
+    organization: Federal National Mortgage Association
+    country: US
+    names: [Fannie Mae]
+    examples: [FANNIE MAE UTC DATA CENTER]
+    note: Fannie Mae and Freddie Mac are the trading names of these two corporations; both have a person's shape.
+  - key: copt
+    organization: Corporate Office Properties Trust
+    country: US
+    names: [Corporate Office Properties Trust, COPT]
+    examples: [Corporate Office Properties Trust (COPT - DC6)]
+  # ------------------------------------------------------------------------------- other companies' own data centres
+  - key: hca
+    organization: HCA Healthcare, Inc.
+    country: US
+    names: [HCA]
+    examples: [HCA IT&S]
+  - key: unitedhealth
+    organization: UnitedHealth Group Incorporated
+    country: US
+    names: [UnitedHealth Group, United Health Group]
+    examples: [UNITED HEALTH GROUP NEXT TECHNOLOGY CENTER]
+  - key: optum
+    organization: Optum, Inc.
+    country: US
+    names: [Optum]
+    examples: [OPTUM, OPTUM TECHNOLOGY]
+  - key: anthem
+    organization: Elevance Health, Inc.
+    country: US
+    names: [Anthem, Elevance Health]
+    # Anthem is also a town in Arizona and a common development name: the company's shapes only.
+    patterns: ['^ANTHEM[\W_]+(?:CDC|INC|DATA[\W_]*CENTERS?)\b', '\bELEVANCE[\W_]+HEALTH\b']
+    examples: [Anthem CDC 3]
+    note: Anthem, Inc. renamed itself Elevance Health, Inc. in 2022; Anthem is its former name.
+  - key: csl_behring
+    organization: CSL Behring
+    country: US
+    names: [CSL Behring]
+    examples: [CSL BEHRING DATA CTR/KING OF PRUSSIA]
+  - key: walmart
+    organization: Walmart Inc.
+    country: US
+    names: [Walmart, Wal-Mart]
+    examples: ['WAL-MART -COLORADO DATA CENTER #7497', WALMART EAST DATA CENTER/DAVID GLASS TECHNOLOGY CENTER]
+  - key: conagra
+    organization: Conagra Brands, Inc.
+    country: US
+    names: [Conagra]
+    examples: [CONAGRA FOODS INC DATA CENTER]
+  - key: hb_fuller
+    organization: H.B. Fuller Company
+    country: US
+    names: [H.B. Fuller]
+    examples: [HB FULLER CO - DATA CENTER - ARDEN HILLS]
+  - key: emerson
+    organization: Emerson Electric Co.
+    country: US
+    names: [Emerson]
+    examples: [EMERSON GLOBAL DATA CENTER]
+  - key: deere
+    organization: Deere & Company
+    country: US
+    names: [Deere]
+    examples: [DEERE & CO]
+  - key: american_honda
+    organization: American Honda Motor Co., Inc.
+    country: US
+    names: [American Honda]
+    examples: [AMERICAN HONDA MOTORS CO. - DATA CENTER]
+  - key: nissan
+    organization: Nissan North America, Inc.
+    country: US
+    names: [Nissan]
+    examples: [NISSAN N. AMERICA - NISSAN DATA CENTER]
+  - key: gannett
+    organization: Gannett Co., Inc.
+    country: US
+    names: [Gannett]
+    examples: [GANNETT COMPANY]
+  - key: mcgraw_hill
+    organization: McGraw Hill
+    country: US
+    names: [McGraw Hill]
+    examples: [MCGRAW HILL INC]
+  - key: nalco
+    organization: Nalco Company
+    country: US
+    names: [Nalco]
+    examples: [NALCO WATER]
+  - key: bp
+    organization: BP p.l.c.
+    country: GB
+    names: [BP Amoco]
+    examples: [BP AMOCO / 512 S CINCINNATI AVE SHARED SERVICE CE]
+    note: BP Amoco p.l.c. was BP p.l.c.'s name from 1998 to 2001.

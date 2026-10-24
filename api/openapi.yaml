@@ -93,6 +93,10 @@ tags:
     description: Clustered GeoJSON for the map-first surface (docs/04 §2.2). Same filters and tier rules as the lists.
   - name: Prices
     description: Energy prices (docs/29) — hub and zone statistics, the latest price where the source's terms allow raw rows, and EIA's state retail averages. Context data with no lifecycle; every value carries its provenance and credit.
+  - name: Global
+    description: Global electricity figures (docs/26-global-figures.md) — Ember's operating capacity, generation and shares for World, regions and countries. Operating figures, never a pipeline; context data with no lifecycle; Ember credited in every response.
+  - name: Trends
+    description: Activity over time (docs/24-trends.md) — monthly series from EIA-860M's and ERCOT's official archives and the daily record of the platform's public figures. One source per series; changes only like for like.
   - name: Interconnection points
     description: Where proposals connect to the grid, as each register names it (docs/21 §3.24), with the queue behind each point. Totals are computed per request over the proposals the caller's tier may see.
   - name: Sites
@@ -354,6 +358,7 @@ paths:
         - $ref: '#/components/parameters/Technology'
         - $ref: '#/components/parameters/LifecycleState'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/Iso'
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
@@ -439,6 +444,7 @@ paths:
         - $ref: '#/components/parameters/Technology'
         - $ref: '#/components/parameters/LifecycleState'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/Iso'
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
@@ -662,6 +668,7 @@ paths:
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
@@ -724,6 +731,7 @@ paths:
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
@@ -1207,7 +1215,8 @@ paths:
         `changed_keys`) and `observed_at[from]`/`observed_at[to]` (inclusive). There is no `q`: an event has no
         text of its own to search, and `q` is a `400 unknown_parameter` here (search the subject lists and filter
         by `subject_id`). Saved searches and webhooks with `entity=event` take exactly these filters and match
-        exactly what this list returns. Public tier: `public_at <= now()`;
+        exactly what this list returns. Four view filters since 2026-10-23 narrow the list for a front-page figure that names it
+        (`country`, `genuine`, `to_state`, `relevance`); a saved search or webhook may not carry them. Public tier: `public_at <= now()`;
         no event whose `licence_id` resolves to a restricted or unknown licence, at any tier (docs/21 §8 item 2).
         An event is visible only when its subject is: the subject proposal or opportunity must itself pass the
         record-level visibility predicate for the caller's tier (`publish_state = public`, publishable
@@ -1235,6 +1244,10 @@ paths:
         - $ref: '#/components/parameters/ChangedKey'
         - $ref: '#/components/parameters/ObservedAtFrom'
         - $ref: '#/components/parameters/ObservedAtTo'
+        - $ref: '#/components/parameters/RecordCountry'
+        - $ref: '#/components/parameters/Genuine'
+        - $ref: '#/components/parameters/ToState'
+        - $ref: '#/components/parameters/EventRelevance'
       responses:
         '200':
           description: A page of events.
@@ -1532,6 +1545,233 @@ paths:
                 $ref: '#/components/schemas/LicenceDetailResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/stats/capacity:
+    get:
+      operationId: getCapacityStats
+      tags: [Proposals, Map]
+      summary: Counts and MW of any proposal view, by technology and lifecycle state
+      description: >-
+        For any filter set `GET /v1/proposals` takes (`country`, `jurisdiction`, `iso`, `kind`, `technology`,
+        `lifecycle_state`, `listed`, ...): counts and summed MW by technology, by lifecycle state, by both and by kind,
+        with the records that state no MW (since 2026-10-23, for the front page's figures).
+
+
+        **Each figure is the total of a list.** Every bucket carries `list_queries`, each `{path, query}`: the records
+        counted are the ones `GET <path>?<query>&include=count` counts, summed over its lists, selected by the list's own
+        filters and visibility predicate, so nothing a list would not show is counted (a restricted or unknown-terms
+        source, a register not cleared for the caller's tier such as PJM, a record not yet public). `list_query` is the
+        one list when one suffices. A bucket with no stated technology has no list (no filter selects a null). A
+        visible record whose stored value for a counted field came from a source the tier may not read is counted as
+        served, never as stored, as the map's totals are; `served_not_stored` says how many, the only records that can
+        make a figure differ from its list (none on the normal store).
+
+
+        **Records no register lists any more are never counted in an active state** (`announced` to
+        `under_construction`), as the site never lists them in a view of those states. Whenever no `listed` is given
+        (`hides_not_listed: true`), whatever the lifecycle states asked for: a figure counts the listed records of its
+        active states, whose list carries `listed=true`, and every record of its other states (built, withdrawn,
+        cancelled, unknown), whose list carries no `listed`; the dropped ones are tallied in `not_listed` under
+        `listed=false`. A figure for one state, or for a selection of only active or only other states, is one list. A
+        figure that spans both (the total, a technology or a kind when every state or a mix is asked for) is the sum
+        of two lists, `list_query` null, because no one list selects that set. So "US filed" is the same figure from
+        `country=US` and from `country=US&lifecycle_state=filed`. With `listed` given, nothing is hidden and each figure
+        is one list carrying it. `selection` is the caller's filters as a list: `total.records + not_listed.records`.
+
+
+        **MW.** `capacity_mw` sums generating and storage capacity (every kind but those below); `demand_mw` sums the
+        demand of `load` records (data centres and other large loads), never added to capacity; `transmission`,
+        `pipeline`, `lng`, `ccs` and `hydrogen` MW is never summed (`not_summed_records`). `mw_missing` counts records of a
+        summed kind that state no MW; `records = capacity_records + demand_records + mw_missing + not_summed_records`. A
+        sum over nothing stated is `null`, never `0`. `storage_mwh` where stated. `meta.capacity_gw`, `meta.demand_gw`
+        and `meta.storage_gwh` give the totals in GW and GWh. The tally is the daily metrics recorder's own
+        (docs/24-trends.md §4), so these figures and the recorded series agree.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-101, US-104]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/ProposalKind'
+        - $ref: '#/components/parameters/Technology'
+        - $ref: '#/components/parameters/LifecycleState'
+        - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
+        - $ref: '#/components/parameters/Iso'
+        - $ref: '#/components/parameters/StateCode'
+        - $ref: '#/components/parameters/CountyFips'
+        - $ref: '#/components/parameters/Placement'
+        - $ref: '#/components/parameters/Slipped'
+        - $ref: '#/components/parameters/SlipBucket'
+        - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/SponsorScope'
+        - $ref: '#/components/parameters/Listed'
+        - $ref: '#/components/parameters/InterconnectionPointId'
+        - $ref: '#/components/parameters/SourceIdFilter'
+        - $ref: '#/components/parameters/CapacityMwGte'
+        - $ref: '#/components/parameters/CapacityMwLte'
+        - $ref: '#/components/parameters/StorageMwhGte'
+        - $ref: '#/components/parameters/FirstSeenFrom'
+        - $ref: '#/components/parameters/FirstSeenTo'
+        - $ref: '#/components/parameters/LastChangedFrom'
+        - $ref: '#/components/parameters/LastChangedTo'
+        - $ref: '#/components/parameters/UpdatedSince'
+        - $ref: '#/components/parameters/SlugFilter'
+      responses:
+        '200':
+          description: The figures inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityStatsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/stats/planned-vs-operating:
+    get:
+      operationId: getPlannedVsOperating
+      tags: [Trends, Proposals]
+      summary: Planned against operating power plants (EIA-860M, by stage) and data centres by power
+      description: >-
+        What is planned against what runs today, in one unit and one scope (since 2026-10-24; docs/24-trends.md §11).
+
+
+        **Power plants: one survey, one month.** Both sides are EIA-860M's, from the newest month `GET /v1/trends`
+        serves: the Operating sheet (every status on it: EIA's operating inventory) and the Planned sheet, generators
+        counted and net summer MW summed, the 50 states and DC. Nothing from the queue register is mixed in. Every
+        figure is the point at that month of a trends series: `series` names the queries (`GET /v1/trends?<query>`)
+        and `lines` the line keys whose values at the month add up to it. A line the series lacks is zero only because
+        every key read is one the month tallies: a technology must be a key of the month's technology tally (any
+        other token is a 400, never a false zero).
+
+
+        **Planned is split by stage** (`stage_mapping`): construction complete, not yet in commercial operation (EIA
+        code TS), under construction (U, V), regulatory approvals received (T), approvals pending (L), early or other
+        (P, OT); a code outside the vocabulary is its own `unmapped` row, so the stages add up to the total. The
+        month's document tallies status for the 50 states and DC together, so under a `state` or `technology` filter
+        `by_stage` and `by_status` are null and `by_stage_note` says why.
+
+
+        **The completion rate is one fixed, cited line** (Berkeley Lab, Queued Up 2026: 13% of the capacity that
+        requested interconnection in 2000-2020 reached commercial operation by the end of 2025, 75% was withdrawn). It
+        describes queue requests, not EIA's planned generators.
+
+
+        **Data centres by power, never site counts.** `planned` is the demand MW of the `load` records (data centres
+        and other large loads) in the 50 states and DC in an active lifecycle state that a register still lists,
+        counted as `GET /v1/stats/capacity` counts (the same licence gate, served values, `list_query`), with how many
+        state MW (`demand_records`) and how many do not (`mw_missing`); a sum over no stated MW is null. Without a
+        `state` filter it is set against today's average US data-centre demand and its 2028 range, each cited; those
+        figures have no state split, so under a `state` filter `average_demand` is null and `average_demand_note` says
+        why. Site counts appear only as `sites_we_track`, with their coverage. A `technology` filter leaves data
+        centres out; `state` and `technology` together are refused.
+
+
+        **Who sees what.** The power plants are served only while `us.eia.860m.history` is visible at the caller's tier,
+        as for `GET /v1/trends`; otherwise `power_plants` is null and `power_plants_note` says which reason holds (not
+        served at the tier, no month read, or the month lacks a tally the figures read). The licence summary has one
+        row for the EIA month read and one per source of the data-centre records read.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-101, US-105]
+      security: *sec_public
+      parameters:
+        - name: state
+          in: query
+          description: >-
+            US states and DC as `US-XX` (either case), comma-separated for several: the power plants' state lines and
+            the data centres' `jurisdiction`. Not with `technology`.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: '^[Uu][Ss]-[A-Za-z]{2}$'
+        - name: technology
+          in: query
+          description: >-
+            Technology tokens the served EIA-860M month tallies, operating or planned (the `technology` keys of
+            `by_technology` without a filter; a 400 names them), comma-separated for several: the power plants'
+            technology lines; data centres are left out. A register token EIA-860M's classifier never produces
+            (`solar_pv`, `bess`, `gas`, `load`, `transmission`) is refused, never read as zero. Not with `state`.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: The comparison inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlannedVsOperatingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/pulse:
+    get:
+      operationId: getPulse
+      tags: [Events]
+      summary: What genuinely changed in the last days, with the lists that show it
+      description: >-
+        The change events of the last `days` (7 by default, at most 90) that the genuine-change rule counts
+        (`genuine=true` on `GET /v1/events`; the daily metrics recorder's `genuine-change-v2`, docs/24-trends.md §6):
+        new proposals a source newly listed (`new_proposal`), moves to each lifecycle state (`status_change` with
+        `to_state`: permitted, contracted, under construction, built, withdrawn, cancelled, ...; a withdrawal that
+        names no state is one to `withdrawn`; a move to `unknown`, a register that stopped stating a status, is not
+        reported, though `to_state=unknown` lists it), departures from a register that announces them (`delisted`,
+        reason not stated, never a withdrawal) and newly open, energy-relevant notices (`new_open_opportunity`: first
+        listed open, or moved to open, and kept by `relevance=energy`). A source's first load, a run released from a
+        data-quality hold and anything no source run wrote are never counted. Since 2026-10-23, for the front page.
+
+
+        **Each figure is the total of a list.** Every `changes[]` entry and every `by_country` entry within it carries
+        `list_query`: `GET /v1/events?<query>&include=count` answers it. `total` and the top-level `by_country` are sums
+        of several lists, each named in `list_queries`. Countries are read from each record's stored jurisdiction, as
+        the `country` filter reads it; `country: null` is a jurisdiction no code selects (`global`) and has no list.
+        An item's `record` is served, so its `country` differs from the one its event was counted under only for a
+        record whose stored jurisdiction came from a source the tier may not read; `served_not_stored` counts those
+        events (none on the normal store).
+        `subjects` counts the distinct records the events changed (a project that changed twice is two events, one
+        subject).
+
+
+        **Limits.** The date is the fetch that saw the change, not the register's own action date, so a weekly
+        register shows its week on its poll day and a register that was down shows the gap on the day it recovers. A
+        connector change that widens a source by less than the 30 % row-drift hold reads as new rows. A run released
+        from a hold is left out whole, genuine changes in it too. A load committed later with an earlier fetch time
+        adds to a past window, so a list query re-run later can count more. `items` pages the counted events, newest
+        first (`limit`, `cursor`), each with its record (served fields and link), its source and its date.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-703, US-202]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PulseDays'
+        - $ref: '#/components/parameters/RecordCountry'
+      responses:
+        '200':
+          description: The pulse inside the attribution envelope, with a page of the counted events.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PulseResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         <<: *common_errors
 
   /v1/meta/vocabularies:
@@ -2506,6 +2746,157 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetailPriceListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  # ───────────────────────── Global electricity figures (docs/26-global-figures.md; owner, 2026-10-23) ─────────────────────────
+  /v1/global/electricity:
+    get:
+      operationId: getGlobalElectricity
+      tags: [Global]
+      summary: Operating capacity and generation by source for World, a region or a country (Ember)
+      description: |
+        Ember's electricity data (CC BY 4.0) for one area: the latest year's **operating** capacity (GW) and
+        generation (TWh) by source, each with its change on the year before; the clean share (solar, wind, hydro,
+        nuclear, bioenergy and other renewables, as a share of generation) and its change; the yearly series since
+        2000 or the window `years` names; the latest month of Ember's monthly data where it has one; and the ten
+        countries that added the most solar plus wind capacity in the latest complete capacity year.
+
+        **These are operating figures, not a pipeline.** Field names say so (`operating_capacity_gw`,
+        `generation_twh`, `measure: operating`). For `area=US`, `us_pipeline` links by URL to Inframation's own
+        count of active proposed US projects (`GET /v1/stats/capacity` with `lifecycle_state` announced through
+        under construction and `listed=true`), labelled `measure: pipeline`: a different measure, never to be
+        added to or set beside these as one.
+
+        **Coverage.** Ember's latest yearly data covers fewer countries than earlier years until national
+        statistics report, and Ember estimates World and regional figures for that year. `latest_complete_year` is
+        the newest year whose countries are at least 90% of the year before's; `latest_year_estimated` is true for
+        World or a region whose latest year is newer than that, and every block and series row of such a year
+        carries `estimated: true`. `coverage` lists countries per year.
+
+        **Changes.** A total's or a share's change compares two years only when both carry the same generation
+        types; otherwise it is null and `sources_differ` names the types present in one year only. Capacity
+        added (`added_gw`, `change_gw`) is a net change: retirements subtract. Solar capacity is AC or DC as each
+        country reports it.
+
+        Gated by the visibility predicate: before the first load, or when the source is not on the caller's surface,
+        `data.loaded` is `false` and no figure is served. Ember is credited in every response (`notes.credits`, in
+        Ember's own citation form, with the licence URL and the statement of changes). An unknown area is `404`.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: area
+          in: query
+          description: >-
+            `World` (default), an ISO 3166-1 alpha-2 country code (alpha-3 is read too), or a region's name or slug
+            as Ember names it (`Europe`, `EU`, `G20`, `latin-america-and-caribbean`); any case.
+          schema:
+            type: string
+            examples: [World, US, DE, Europe]
+        - name: years
+          in: query
+          description: >-
+            The series window, both ends included (`YYYY`, `YYYY-YYYY`, `YYYY-` or `-YYYY`). The headline figures
+            always read the latest year.
+          schema:
+            type: string
+            pattern: '^(\d{4})?-?(\d{4})?$'
+            examples: ['2015-', '2010-2025']
+      responses:
+        '200':
+          description: The area's figures inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalElectricityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  # ───────────────────────── Activity over time (owner, 2026-10-23; docs/24-trends.md §10) ─────────────────────────
+  /v1/trends:
+    get:
+      operationId: getTrends
+      tags: [Trends]
+      summary: Named series over time — official monthly archives and the daily record of the public figures
+      description: |
+        Without `metric`: the catalogue, every series the caller may read, each with its source, licence, method,
+        frequency (`monthly` or `daily`) and first and last dates. With `metric`: that series, one line (`key:
+        total`), or one line per key of a breakdown (`by`), bounded by `from` and `to` (inclusive; `YYYY-MM` or
+        `YYYY-MM-DD`, read at the series' grain).
+
+        Monthly series come from the official archives: EIA-860M's monthly generator inventory since July 2015
+        (`us_operating_capacity_mw`, `us_planned_capacity_mw`, `us_retired_capacity_mw`, ...; net summer MW, the
+        50 states and DC) and ERCOT's monthly GIS reports since December 2018 (`ercot_queue_mw`,
+        `ercot_queue_projects`). Daily series are the platform's own record of its public figures, from
+        2026-10-23 (`inframation_active_projects`, `inframation_changes`, ...). Series from different sources are
+        never joined into one line; a chart sets them side by side.
+
+        Like for like: every point carries its `basis` (what was counted and how; for a daily series also which
+        sources contributed and how many were withheld, so a register going live is a break, not growth). `mom`
+        and `yoy` compare a point with the point one month and twelve months before (a daily series: the same
+        day of the month), only when both exist, both have a value, both have the same basis and, for a monthly
+        series, one parser read both months; otherwise `null`. A line by a year a stock waits for (expected
+        year, planned retirement year, projected COD year) computes no change from the start of that year. A
+        change of basis or parser between consecutive points is listed under the line's `breaks`. A month or
+        day with no document has no point. A month held by its data-quality checks is left out and listed
+        under `withheld`; a served month's newer reading that its checks hold is listed under `held_readings`.
+
+        Attribution: the licence summary lists every source a response read, one row per month or day it
+        contributed to (`record_count`), each with its own credit; a daily series lists every source behind
+        the counts of the days served.
+
+        A monthly series is served only while its source is on the caller's surface and its licence publishable
+        under the platform posture; under the `commercial` posture, daily documents computed under
+        `noncommercial` are not read.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-703, US-105]
+      security: *sec_public
+      parameters:
+        - name: metric
+          in: query
+          description: A series name from the catalogue. Omit for the catalogue.
+          schema:
+            type: string
+            pattern: '^[a-z][a-z0-9_]*$'
+            examples: [us_planned_capacity_mw, ercot_queue_mw]
+        - name: by
+          in: query
+          description: >-
+            One of the series' `dimensions` (`technology`, `state`, `status`, `expected_year`, `zone`, ...). Needs
+            `metric`.
+          schema:
+            type: string
+            pattern: '^[a-z_]+$'
+        - name: from
+          in: query
+          description: First period, inclusive (`YYYY-MM` or `YYYY-MM-DD`). Needs `metric`.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}(-\d{2})?$'
+        - name: to
+          in: query
+          description: Last period, inclusive (`YYYY-MM` or `YYYY-MM-DD`). Needs `metric`.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}(-\d{2})?$'
+      responses:
+        '200':
+          description: The catalogue, or one series, inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         <<: *common_errors
@@ -9524,7 +9915,7 @@ components:
     Technologies:
       name: technologies
       in: query
-      description: Any-of over the opportunity's `technologies[]`; comma-separated. Values are the `opportunity_technology` vocabulary of `/v1/meta/vocabularies` (`solar_pv`, `bess`, `gas`, ...), not the proposal `technology` tokens. All-source opportunities (empty array) match every value.
+      description: Any-of over the opportunity's `technologies[]`; comma-separated. Values are the `opportunity_technology` vocabulary of `/v1/meta/vocabularies` (`solar_pv`, `bess`, `gas`, ...), not the proposal `technology` tokens. An opportunity tagged `all_source` (an all-source or capacity solicitation the RFP registers name as such) matches every value; one with no technology read (empty array) matches none.
       style: form
       explode: false
       schema:
@@ -9644,6 +10035,75 @@ components:
       schema:
         type: string
         format: date-time
+    RecordCountry:
+      name: country
+      in: query
+      description: >-
+        ISO 3166-1 alpha-2 country codes, comma-separated for OR, any case (since 2026-10-23). A record's country is the
+        part of its `jurisdiction` before the first `-`, when it is two letters: `US` selects `US` and every `US-XX`
+        (the states, `US-OCS`), `GB` selects `GB`, `DE` a TED notice whose buyer is German, `EU` a TED notice that names
+        no buyer country. A jurisdiction with no such part (`global`, a World Bank notice with no project country) is
+        selected by no code. On `GET /v1/events` it reads the event's subject's jurisdiction. Anything but two
+        letters is a `400 validation_error`. A list view filter: a saved search or webhook may not carry it
+        (`400 unknown_parameter`), because the alert matcher does not evaluate it; exports and the `Accept: text/csv`
+        twins take it.
+      style: form
+      explode: false
+      example: US
+      schema:
+        type: array
+        items:
+          type: string
+          pattern: '^[A-Za-z]{2}$'
+    Genuine:
+      name: genuine
+      in: query
+      description: >-
+        `true`: only the change events the genuine-change rule counts (`genuine-change-v2`, the daily metrics
+        recorder's rule, docs/24-trends.md §6): written by a source run that is not the source's first run here (a seed
+        or first fetch, whose rows are all new to the store) and was not released from a data-quality hold. Events no
+        source run wrote (matches, merges, edits) are left out. A run's trigger label changes nothing. `false`: exactly
+        the events the rule leaves out. The date is the fetch that saw the change (`observed_at`), not the register's
+        own action date. A list view filter (saved searches and webhooks refuse it). Since 2026-10-23.
+      schema:
+        type: boolean
+    ToState:
+      name: to_state
+      in: query
+      description: >-
+        The state an event moved its subject to, `after.lifecycle_state` (a lifecycle state for a proposal, a status
+        for an opportunity: the diff writes both under that key), comma-separated for OR. `created`, `status_change`
+        and `withdrawn` events carry it. A proposal's `withdrawn` event that names no state (a row that left a register
+        whose departures mean withdrawal) moved it to `withdrawn`. Any other event without it (a capacity change, a
+        `delisted` departure) is selected by no value. An unknown value is a `400 validation_error`. A list view
+        filter. Since 2026-10-23.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn,
+                 cancelled, open, frozen, reinstated, closed, awarded]
+    EventRelevance:
+      name: relevance
+      in: query
+      description: >-
+        `energy`: only events whose subject is a notice `relevance=energy` keeps on `GET /v1/opportunities` (the
+        matcher's energy verdict over the notice's stored fields), so a proposal's event never passes. `all`, or
+        absent: every event. A list view filter. Since 2026-10-23.
+      schema:
+        type: string
+        enum: [energy, all]
+    PulseDays:
+      name: days
+      in: query
+      description: The window, in days back from now. Default 7; outside 1..90 is a `400 validation_error`.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 90
+        default: 7
     # Map (US-104)
     Bbox:
       name: bbox
@@ -12161,6 +12621,15 @@ components:
               type: string
               enum: [current, stale, missing]
           additionalProperties: false
+        capacity_gw:
+          type: [number, 'null']
+          description: '`GET /v1/stats/capacity` only: `data.total.capacity_mw` in GW, to three places.'
+        demand_gw:
+          type: [number, 'null']
+          description: '`GET /v1/stats/capacity` only: `data.total.demand_mw` in GW.'
+        storage_gwh:
+          type: [number, 'null']
+          description: '`GET /v1/stats/capacity` only: `data.total.storage_mwh` in GWh.'
         site_finder:
           $ref: '#/components/schemas/SiteFinderMeta'
       additionalProperties: false
@@ -13152,7 +13621,7 @@ components:
           description: ISO 3166-2, or `US` for federal.
         technologies:
           type: array
-          description: Empty for all-source.
+          description: The technologies read from the notice; `["all_source"]` for a solicitation open to every resource; empty when none was read (it then matches no technology filter).
           items:
             type: string
         capacity_sought_mw:
@@ -14186,6 +14655,24 @@ components:
         capacity_mw_sum:
           type: number
           minimum: 0
+        capacity_mw_by_lifecycle_state:
+          type: object
+          description: >-
+            Generating and storage MW of the members by lifecycle state (since 2026-10-23, docs/30 §11.11 B-4): every
+            member of a summed kind that states MW, so the parts add up exactly (to the column's 0.001 MW). Demand
+            (`load`) is in `demand_mw_sum`; transmission, pipeline, LNG, CCS and hydrogen MW is in neither.
+            `capacity_mw_sum` is unchanged: every stated MW of every member.
+          additionalProperties:
+            type: number
+        capacity_mw_by_technology:
+          type: object
+          description: The same MW by technology; a member with no technology is in the lifecycle split only.
+          additionalProperties:
+            type: number
+        demand_mw_sum:
+          type: number
+          minimum: 0
+          description: The demand MW of the members of kind `load` (data centres and other large loads).
         dominant_lifecycle_state:
           $ref: '#/components/schemas/LifecycleState'
         dominant_technology:
@@ -14328,6 +14815,24 @@ components:
             type: integer
         capacity_mw_sum:
           type: number
+        capacity_mw_by_lifecycle_state:
+          type: object
+          description: >-
+            Generating and storage MW of the members by lifecycle state (since 2026-10-23, docs/30 §11.11 B-4): every
+            member of a summed kind that states MW, so the parts add up exactly (to the column's 0.001 MW). Demand
+            (`load`) is in `demand_mw_sum`; transmission, pipeline, LNG, CCS and hydrogen MW is in neither.
+            `capacity_mw_sum` is unchanged: every stated MW of every member.
+          additionalProperties:
+            type: number
+        capacity_mw_by_technology:
+          type: object
+          description: The same MW by technology; a member with no technology is in the lifecycle split only.
+          additionalProperties:
+            type: number
+        demand_mw_sum:
+          type: number
+          minimum: 0
+          description: The demand MW of the members of kind `load` (data centres and other large loads).
     GeoFeature:
       type: object
       required: [type, geometry, properties]
@@ -14398,6 +14903,862 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/GeoFeatureCollection'
+
+    # ---------- Front page figures (lane front-api, 2026-10-23) ----------
+    ListQueryRef:
+      type: object
+      description: The list a figure is the total of; `GET <path>?<query>&include=count` answers it.
+      required: [path, query]
+      properties:
+        path:
+          type: string
+          enum: [/v1/proposals, /v1/events]
+        query:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: false
+    CapacityTally:
+      type: object
+      description: >-
+        One bucket of proposals (the daily metrics recorder's tally, docs/24-trends.md §4). `records` is always
+        `capacity_records + demand_records + mw_missing + not_summed_records`; a sum over nothing stated is `null`.
+      required: [records, capacity_mw, capacity_records, demand_mw, demand_records, mw_missing, not_summed_records,
+                 storage_mwh, storage_mwh_records]
+      properties:
+        records:
+          type: integer
+          minimum: 0
+        capacity_mw:
+          type: [number, 'null']
+          description: Generating and storage MW of the records of a summed kind that state one.
+        capacity_records:
+          type: integer
+          minimum: 0
+        demand_mw:
+          type: [number, 'null']
+          description: Demand MW of the `load` records that state one, never added to `capacity_mw`.
+        demand_records:
+          type: integer
+          minimum: 0
+        mw_missing:
+          type: integer
+          minimum: 0
+          description: Records of a summed kind (or `load`) that state no MW.
+        not_summed_records:
+          type: integer
+          minimum: 0
+          description: Records whose MW is never summed (`transmission`, `pipeline`, `lng`, `ccs`, `hydrogen`).
+        storage_mwh:
+          type: [number, 'null']
+        storage_mwh_records:
+          type: integer
+          minimum: 0
+    CapacityBucket:
+      allOf:
+        - $ref: '#/components/schemas/CapacityTally'
+        - type: object
+          required: [list_query, list_queries]
+          properties:
+            list_queries:
+              type: array
+              maxItems: 2
+              description: >-
+                The lists whose `include=count` totals add up to `records` (and whose served rows' tallies add up to
+                the bucket): one, or two for a figure that spans active and other lifecycle states (the active ones
+                with `listed=true`, the others with no `listed`); none for a bucket no filter selects (no stated
+                technology or kind).
+              items:
+                $ref: '#/components/schemas/ListQueryRef'
+            list_query:
+              oneOf:
+                - $ref: '#/components/schemas/ListQueryRef'
+                - type: 'null'
+              description: The one list when `list_queries` holds one; null when it holds two or none.
+    CapacityStats:
+      type: object
+      required: [selection, hides_not_listed, rule, total, not_listed, by_technology, by_lifecycle_state,
+                 by_technology_and_lifecycle_state, by_kind, served_not_stored]
+      properties:
+        selection:
+          $ref: '#/components/schemas/ListQueryRef'
+          description: >-
+            The caller's filters as a list: every record read, so its `include=count` total is `total.records` plus
+            `not_listed.records`. Not a figure's list; each figure carries its own.
+        hides_not_listed:
+          type: boolean
+          description: >-
+            True when the caller named no `listed`: records no register lists any more are then never counted in an
+            active state and are tallied apart in `not_listed` (the operation's description).
+        rule:
+          type: object
+          required: [capacity, demand_kinds, not_summed_kinds, capacity_not_summed_kinds, listed_only_states]
+          properties:
+            capacity:
+              type: string
+            demand_kinds:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProposalKind'
+            not_summed_kinds:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProposalKind'
+            capacity_not_summed_kinds:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProposalKind'
+            listed_only_states:
+              type: array
+              description: The states whose figures count listed records only (empty when the caller named `listed`).
+              items:
+                $ref: '#/components/schemas/LifecycleState'
+        total:
+          $ref: '#/components/schemas/CapacityBucket'
+        not_listed:
+          oneOf:
+            - $ref: '#/components/schemas/CapacityBucket'
+            - type: 'null'
+          description: >-
+            Present when `hides_not_listed`: the selection's records in an active state that no register lists any
+            more, with their `listed=false` list (none when the selection has no active state).
+        by_technology:
+          type: array
+          description: Largest generating and storage MW first, then demand MW, then records; no stated technology last.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [technology]
+                properties:
+                  technology:
+                    type: [string, 'null']
+        by_lifecycle_state:
+          type: array
+          description: Active states in lifecycle order, then the rest, `unknown` last; states with no record are left out.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [lifecycle_state]
+                properties:
+                  lifecycle_state:
+                    $ref: '#/components/schemas/LifecycleState'
+        by_technology_and_lifecycle_state:
+          type: array
+          description: The cross of the two, in `by_technology` order, then lifecycle order.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [technology, lifecycle_state]
+                properties:
+                  technology:
+                    type: [string, 'null']
+                  lifecycle_state:
+                    $ref: '#/components/schemas/LifecycleState'
+        by_kind:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [kind]
+                properties:
+                  kind:
+                    type: [string, 'null']
+        served_not_stored:
+          type: object
+          description: Counted records whose served value for a counted field differs from the stored one the list filters on, in all and by field.
+          required: [records, by_field]
+          properties:
+            records:
+              type: integer
+              minimum: 0
+            by_field:
+              type: object
+              additionalProperties:
+                type: integer
+    CapacityStatsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CapacityStats'
+
+    # ---------- Planned against operating (lane planned-operating, 2026-10-24) ----------
+    TrendSeriesRef:
+      type: object
+      description: A trends series one month long; `GET <path>?<query>` answers it, and a figure is the sum of its `lines` there.
+      required: [path, query]
+      properties:
+        path:
+          type: string
+          enum: [/v1/trends]
+        query:
+          type: object
+          required: [metric, from, to]
+          properties:
+            metric:
+              type: string
+            by:
+              type: string
+            from:
+              type: string
+              pattern: '^\d{4}-\d{2}$'
+            to:
+              type: string
+              pattern: '^\d{4}-\d{2}$'
+          additionalProperties: false
+      additionalProperties: false
+    EiaSeriesPair:
+      type: object
+      description: The series the MW and the generator count are points of.
+      required: [mw, generators]
+      properties:
+        mw:
+          $ref: '#/components/schemas/TrendSeriesRef'
+        generators:
+          $ref: '#/components/schemas/TrendSeriesRef'
+      additionalProperties: false
+    EiaFigure:
+      type: object
+      description: EIA-860M generators counted and net summer MW summed; the sum of `lines` at the month of the series named beside it.
+      required: [generators, mw, lines]
+      properties:
+        generators:
+          type: integer
+          minimum: 0
+        mw:
+          type: number
+        lines:
+          type: array
+          items:
+            type: string
+    EiaSide:
+      allOf:
+        - $ref: '#/components/schemas/EiaFigure'
+        - type: object
+          required: [basis, series, dq_warnings]
+          properties:
+            basis:
+              type: string
+              description: What was counted and how (the series' like-for-like basis).
+            series:
+              $ref: '#/components/schemas/EiaSeriesPair'
+            dq_warnings:
+              type: array
+              description: The month's data-quality checks that warned on this sheet.
+              items:
+                type: string
+    EiaStatusRow:
+      allOf:
+        - $ref: '#/components/schemas/EiaFigure'
+        - type: object
+          required: [status, label]
+          properties:
+            status:
+              type: string
+            label:
+              type: [string, 'null']
+    PlannedStageRow:
+      allOf:
+        - $ref: '#/components/schemas/EiaFigure'
+        - type: object
+          required: [stage, label, codes, share_of_planned_pct]
+          properties:
+            stage:
+              type: string
+              enum: [construction_complete, under_construction, approvals_received, approvals_pending, early_or_other,
+                     unmapped]
+            label:
+              type: string
+            codes:
+              type: array
+              description: EIA's planned status codes the stage holds (for `unmapped`, the codes found).
+              items:
+                type: string
+            share_of_planned_pct:
+              type: [number, 'null']
+    PlannedOperatingRow:
+      type: object
+      description: One technology or state, both sides; `technology` rows carry a `label`.
+      required: [operating, planned, planned_share_of_operating_pct]
+      properties:
+        technology:
+          type: string
+        state:
+          type: string
+          pattern: '^US-[A-Z]{2}$'
+        label:
+          type: string
+        operating:
+          $ref: '#/components/schemas/EiaFigure'
+        planned:
+          $ref: '#/components/schemas/EiaFigure'
+        planned_share_of_operating_pct:
+          type: [number, 'null']
+    PlannedOperatingBreakdown:
+      type: object
+      required: [series, rows]
+      properties:
+        series:
+          type: object
+          required: [operating, planned]
+          properties:
+            operating:
+              $ref: '#/components/schemas/EiaSeriesPair'
+            planned:
+              $ref: '#/components/schemas/EiaSeriesPair'
+        rows:
+          type: array
+          description: Most planned MW first, then most operating MW.
+          items:
+            $ref: '#/components/schemas/PlannedOperatingRow'
+    CitedSource:
+      type: object
+      description: A publication a fixed figure is quoted from, with credit.
+      required: [name, publisher, url, as_of, licence, credit]
+      properties:
+        name:
+          type: string
+        publisher:
+          type: string
+        report:
+          type: string
+        url:
+          type: string
+          format: uri
+        read_at:
+          type: string
+          format: uri
+          description: Where it was read, when that differs from `url`.
+        as_of:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        licence:
+          type: object
+          required: [basis, note]
+          properties:
+            basis:
+              type: string
+              enum: [citation]
+            note:
+              type: string
+        credit:
+          type: string
+    PlannedVsOperatingPowerPlants:
+      type: object
+      required: [as_of, unit, measure, geography, source, parser_version, operating, planned,
+                 planned_share_of_operating_pct, stage_mapping, by_technology, by_state, newer_months_withheld,
+                 held_reading]
+      properties:
+        as_of:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+          description: The EIA-860M data month both sides are read from.
+        unit:
+          type: string
+          enum: [MW]
+        measure:
+          type: string
+        geography:
+          type: string
+        source:
+          type: object
+          required: [source_id, name, operator, url, retrieved_at, licence, credit]
+          properties:
+            source_id:
+              type: string
+            name:
+              type: string
+            operator:
+              type: [string, 'null']
+            url:
+              type: string
+              description: The month's workbook.
+            retrieved_at:
+              type: string
+            licence:
+              type: object
+              required: [licence_id, name, url, reuse_class]
+              properties:
+                licence_id:
+                  type: string
+                name:
+                  type: string
+                url:
+                  type: [string, 'null']
+                reuse_class:
+                  type: string
+            credit:
+              type: string
+              description: With the month EIA published the data, as its acknowledgment asks.
+        parser_version:
+          type: string
+        operating:
+          allOf:
+            - $ref: '#/components/schemas/EiaSide'
+            - type: object
+              required: [by_status]
+              properties:
+                by_status:
+                  oneOf:
+                    - type: object
+                      required: [series, rows]
+                      properties:
+                        series:
+                          $ref: '#/components/schemas/EiaSeriesPair'
+                        rows:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/EiaStatusRow'
+                    - type: 'null'
+        planned:
+          allOf:
+            - $ref: '#/components/schemas/EiaSide'
+            - type: object
+              required: [by_stage, by_stage_note]
+              properties:
+                by_stage:
+                  oneOf:
+                    - type: object
+                      required: [series, rows]
+                      properties:
+                        series:
+                          $ref: '#/components/schemas/EiaSeriesPair'
+                        rows:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/PlannedStageRow'
+                    - type: 'null'
+                  description: Null under a `state` or `technology` filter (`by_stage_note`).
+                by_stage_note:
+                  type: [string, 'null']
+        planned_share_of_operating_pct:
+          type: [number, 'null']
+        stage_mapping:
+          type: array
+          items:
+            type: object
+            required: [stage, label, codes]
+            properties:
+              stage:
+                type: string
+              label:
+                type: string
+              codes:
+                type: array
+                items:
+                  type: object
+                  required: [code, label]
+                  properties:
+                    code:
+                      type: string
+                    label:
+                      type: string
+        by_technology:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedOperatingBreakdown'
+            - type: 'null'
+          description: Null under a `state` filter.
+        by_state:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedOperatingBreakdown'
+            - type: 'null'
+          description: Null under a `technology` filter.
+        newer_months_withheld:
+          type: array
+          description: Months after `as_of` that their data-quality checks hold back.
+          items:
+            type: object
+        held_reading:
+          type: [object, 'null']
+          description: A newer reading of `as_of`'s month held beside it, if any.
+    PlannedVsOperatingDataCentres:
+      type: object
+      required: [geography, rule, planned, planned_not_listed, sites_we_track, served_not_stored, as_of,
+                 retrieved_at_max, sources, average_demand, average_demand_note]
+      properties:
+        geography:
+          description: >-
+            Without a `state` filter, the 50 states and DC (the lists name their 51 jurisdictions, so Puerto Rico,
+            the territories and records placed only to the US are not counted); else the states asked for.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+                pattern: '^US-[A-Z]{2}$'
+        rule:
+          type: string
+        planned:
+          $ref: '#/components/schemas/CapacityBucket'
+        planned_not_listed:
+          oneOf:
+            - $ref: '#/components/schemas/CapacityBucket'
+            - type: 'null'
+          description: Records in an active state that no register lists any more, never counted in `planned`.
+        sites_we_track:
+          type: object
+          required: [coverage, total, by_lifecycle_state, not_listed]
+          properties:
+            coverage:
+              type: string
+            total:
+              $ref: '#/components/schemas/CapacityBucket'
+            by_lifecycle_state:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/CapacityBucket'
+                  - type: object
+                    required: [lifecycle_state]
+                    properties:
+                      lifecycle_state:
+                        $ref: '#/components/schemas/LifecycleState'
+            not_listed:
+              oneOf:
+                - $ref: '#/components/schemas/CapacityBucket'
+                - type: 'null'
+        served_not_stored:
+          type: object
+          required: [records, by_field]
+          properties:
+            records:
+              type: integer
+              minimum: 0
+            by_field:
+              type: object
+              additionalProperties:
+                type: integer
+        as_of:
+          type: [string, 'null']
+          description: The month of the latest retrieval among the records read.
+        retrieved_at_max:
+          type: [string, 'null']
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/LicenceSummarySource'
+        average_demand:
+          type: [object, 'null']
+          description: >-
+            Today's average US data-centre demand and its 2028 range, each cited. Null under a `state` filter: the
+            figures have no state split, so a state's planned MW is never set against all-US demand
+            (`average_demand_note`).
+          required: [conversion, geography, measured_2023, projected_2028, comparison_note]
+          properties:
+            conversion:
+              type: string
+            geography:
+              type: string
+            measured_2023:
+              type: object
+              required: [year, twh, share_of_us_electricity_pct, average_gw, source]
+              properties:
+                year:
+                  type: integer
+                twh:
+                  type: number
+                share_of_us_electricity_pct:
+                  type: number
+                average_gw:
+                  type: number
+                source:
+                  $ref: '#/components/schemas/CitedSource'
+            projected_2028:
+              type: object
+              required: [year, twh_low, twh_high, share_of_us_electricity_pct_low, share_of_us_electricity_pct_high,
+                         average_gw_low, average_gw_high, source]
+              properties:
+                year:
+                  type: integer
+                twh_low:
+                  type: number
+                twh_high:
+                  type: number
+                share_of_us_electricity_pct_low:
+                  type: number
+                share_of_us_electricity_pct_high:
+                  type: number
+                average_gw_low:
+                  type: number
+                average_gw_high:
+                  type: number
+                source:
+                  $ref: '#/components/schemas/CitedSource'
+            comparison_note:
+              type: string
+        average_demand_note:
+          type: [string, 'null']
+          description: Why `average_demand` is null, under a `state` filter.
+    PlannedVsOperating:
+      type: object
+      required: [geography, power_plants, power_plants_note, completion_rate, data_centres, data_centres_note]
+      properties:
+        geography:
+          type: object
+          required: [country, states, technologies]
+          properties:
+            country:
+              type: string
+              enum: [US]
+            states:
+              type: [array, 'null']
+              items:
+                type: string
+            technologies:
+              type: [array, 'null']
+              items:
+                type: string
+        power_plants:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedVsOperatingPowerPlants'
+            - type: 'null'
+        power_plants_note:
+          type: [string, 'null']
+          description: >-
+            Why `power_plants` is null: the archive is not served at this tier, no month of it has been read, or the
+            newest served month lacks a tally the figures read.
+        completion_rate:
+          type: object
+          required: [text, reached_operation_pct, withdrawn_pct, still_active_pct, cohort, as_of, applies_to, source]
+          properties:
+            text:
+              type: string
+            reached_operation_pct:
+              type: number
+            withdrawn_pct:
+              type: number
+            still_active_pct:
+              type: number
+            cohort:
+              type: string
+            as_of:
+              type: string
+            applies_to:
+              type: string
+            source:
+              $ref: '#/components/schemas/CitedSource'
+        data_centres:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedVsOperatingDataCentres'
+            - type: 'null'
+        data_centres_note:
+          type: [string, 'null']
+    PlannedVsOperatingResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PlannedVsOperating'
+    PulseCount:
+      type: object
+      required: [events, subjects]
+      properties:
+        events:
+          type: integer
+          minimum: 0
+          description: Change events; the `include=count` total of the figure's list.
+        subjects:
+          type: integer
+          minimum: 0
+          description: Distinct records those events changed.
+    PulseCountryEntry:
+      allOf:
+        - $ref: '#/components/schemas/PulseCount'
+        - type: object
+          required: [country, list_query]
+          properties:
+            country:
+              type: [string, 'null']
+              description: ISO 3166-1 alpha-2, or null for a jurisdiction no code selects.
+            list_query:
+              oneOf:
+                - $ref: '#/components/schemas/ListQueryRef'
+                - type: 'null'
+    PulseChange:
+      allOf:
+        - $ref: '#/components/schemas/PulseCount'
+        - type: object
+          required: [type, to_state, list_query, by_country]
+          properties:
+            type:
+              type: string
+              enum: [new_proposal, status_change, delisted, new_open_opportunity]
+            to_state:
+              type: [string, 'null']
+              description: The lifecycle state moved to (`status_change`), `open` for `new_open_opportunity`, else null.
+            list_query:
+              $ref: '#/components/schemas/ListQueryRef'
+            by_country:
+              type: array
+              items:
+                $ref: '#/components/schemas/PulseCountryEntry'
+    PulseItem:
+      type: object
+      description: One counted change event, with its record, its source and its date.
+      required: [type, to_state, from_state, observed_at, event_id, headline, record, provenance]
+      properties:
+        type:
+          type: string
+          enum: [new_proposal, status_change, delisted, new_open_opportunity]
+        to_state:
+          type: [string, 'null']
+        from_state:
+          type: [string, 'null']
+        observed_at:
+          type: string
+          format: date-time
+          description: The fetch that saw the change.
+        event_id:
+          type: string
+        headline:
+          type: string
+        reason:
+          type: [string, 'null']
+        record:
+          type: [object, 'null']
+          description: The record as the caller's tier is served it, with its page.
+          required: [subject_type, public_id, name, url]
+          properties:
+            subject_type:
+              type: string
+              enum: [proposal, opportunity]
+            public_id:
+              type: string
+            name:
+              type: string
+            url:
+              type: string
+              format: uri
+            kind:
+              type: [string, 'null']
+            jurisdiction:
+              type: [string, 'null']
+            country:
+              type: [string, 'null']
+            technology:
+              type: [string, 'null']
+            lifecycle_state:
+              type: [string, 'null']
+            capacity_mw:
+              type: [number, 'null']
+            storage_mwh:
+              type: [number, 'null']
+            status:
+              type: [string, 'null']
+            due_at:
+              type: [string, 'null']
+              format: date-time
+            capacity_sought_mw:
+              type: [number, 'null']
+        provenance:
+          type: object
+          description: The source, its page for the record, when it was retrieved and under which licence.
+          required: [source_id, source_name, source_url, retrieved_at, licence_id, reuse_class]
+          properties:
+            source_id:
+              $ref: '#/components/schemas/SourceIdValue'
+            source_name:
+              type: string
+            source_url:
+              type: string
+            retrieved_at:
+              type: string
+              format: date-time
+            licence_id:
+              $ref: '#/components/schemas/LicenceIdValue'
+            reuse_class:
+              $ref: '#/components/schemas/ReuseClass'
+            attribution_text:
+              type: [string, 'null']
+    Pulse:
+      type: object
+      required: [window, country, rule, total, changes, by_country, served_not_stored, items]
+      properties:
+        served_not_stored:
+          allOf:
+            - $ref: '#/components/schemas/PulseCount'
+          description: >-
+            Counted events whose record is served a jurisdiction of another country than the stored one they were
+            counted under (the operation's description).
+        window:
+          type: object
+          required: [from, to, days]
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+            days:
+              type: integer
+              minimum: 1
+              maximum: 90
+        country:
+          type: [array, 'null']
+          items:
+            type: string
+        rule:
+          type: object
+          required: [name, parameter, statement]
+          properties:
+            name:
+              type: string
+              const: genuine-change-v2
+            parameter:
+              type: string
+            statement:
+              type: string
+        total:
+          allOf:
+            - $ref: '#/components/schemas/PulseCount'
+            - type: object
+              required: [list_queries]
+              properties:
+                list_queries:
+                  type: array
+                  description: The lists whose totals add up to `events` (the change types with any).
+                  items:
+                    $ref: '#/components/schemas/ListQueryRef'
+        changes:
+          type: array
+          description: Every change type, zero counts included, in a fixed order; status changes one per lifecycle state but `unknown`.
+          items:
+            $ref: '#/components/schemas/PulseChange'
+        by_country:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/PulseCount'
+              - type: object
+                required: [country, list_queries]
+                properties:
+                  country:
+                    type: [string, 'null']
+                  list_queries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ListQueryRef'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PulseItem'
+    PulseResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [page]
+          properties:
+            data:
+              $ref: '#/components/schemas/Pulse'
+            page:
+              $ref: '#/components/schemas/Page'
 
     # ---------- Assets (docs/21 §3.22-§3.23, ADR 0008 — generalises the 2026-09-14 context layer) ----------
     AssetGeoProperties:
@@ -16401,6 +17762,549 @@ components:
                   type: [string, 'null']
                 note:
                   type: string
+    GlobalElectricityResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data, notes]
+          properties:
+            data:
+              $ref: '#/components/schemas/GlobalElectricity'
+            notes:
+              $ref: '#/components/schemas/GlobalElectricityNotes'
+    GlobalElectricity:
+      type: object
+      description: >-
+        One area's operating figures from Ember. `loaded: false` (before the first load, or with the source off the
+        caller's surface) carries `reason` and no figure.
+      required: [loaded, measure, measure_note]
+      additionalProperties: false
+      properties:
+        loaded: {type: boolean}
+        reason: {type: string}
+        measure:
+          type: string
+          enum: [operating]
+          description: What every figure here is. Never `pipeline`.
+        measure_note: {type: string}
+        area:
+          $ref: '#/components/schemas/GlobalArea'
+        latest_year: {type: [integer, 'null'], description: The area's newest year with a generation value.}
+        latest_complete_year:
+          type: [integer, 'null']
+          description: The newest year whose countries with a generation value are at least 90% of the year before's.
+        latest_year_estimated:
+          type: boolean
+          description: World or a region whose latest year is newer than the latest complete year (Ember estimates it).
+        coverage:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalCoverage'
+            - type: 'null'
+        generation:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalGeneration'
+            - type: 'null'
+        clean_share:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalCleanShare'
+            - type: 'null'
+        operating_capacity:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalOperatingCapacity'
+            - type: 'null'
+        operating_capacity_withheld_reason: {type: [string, 'null']}
+        latest_month:
+          type: [object, 'null']
+          properties:
+            generation:
+              type: object
+              required: [month, unit, by_source, provenance]
+              properties:
+                month: {type: string, pattern: '^\d{4}-\d{2}$'}
+                unit: {type: string, enum: [TWh]}
+                total_twh: {type: [number, 'null']}
+                by_source:
+                  type: array
+                  items:
+                    type: object
+                    required: [source, label, generation_twh, same_month_last_year_twh, change_pct]
+                    properties:
+                      source: {$ref: '#/components/schemas/GlobalElectricitySource'}
+                      label: {type: string}
+                      generation_twh: {type: [number, 'null']}
+                      same_month_last_year_twh: {type: [number, 'null']}
+                      change_pct: {type: [number, 'null']}
+                clean_share_pct: {type: [number, 'null']}
+                clean_share_change_pp: {type: [number, 'null']}
+                sources_differ:
+                  type: array
+                  description: Generation types present in only one of the two months; the clean share's change is null when any is.
+                  items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+                provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+            wind_solar_capacity:
+              type: object
+              required: [month, unit, by_source, provenance]
+              properties:
+                month: {type: string, pattern: '^\d{4}-\d{2}$'}
+                unit: {type: string, enum: [GW]}
+                by_source:
+                  type: array
+                  items:
+                    type: object
+                    required: [source, label, operating_capacity_gw, same_month_last_year_gw, added_gw]
+                    properties:
+                      source: {type: string, enum: [solar, wind]}
+                      label: {type: string}
+                      operating_capacity_gw: {type: [number, 'null']}
+                      same_month_last_year_gw: {type: [number, 'null']}
+                      added_gw:
+                        type: [number, 'null']
+                        description: Net change on the same month a year earlier (retirements subtract). Solar is AC or DC as the country reports it.
+                note: {type: string}
+                provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+        series:
+          type: array
+          items:
+            type: object
+            required: [year, estimated, generation_twh, total_generation_twh, clean_share_pct, operating_capacity_gw, total_operating_capacity_gw]
+            properties:
+              year: {type: integer}
+              estimated:
+                type: boolean
+                description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+              generation_twh: {type: [object, 'null'], additionalProperties: {type: [number, 'null']}}
+              total_generation_twh: {type: [number, 'null']}
+              clean_share_pct: {type: [number, 'null']}
+              operating_capacity_gw: {type: [object, 'null'], additionalProperties: {type: [number, 'null']}}
+              total_operating_capacity_gw: {type: [number, 'null']}
+        series_window:
+          type: object
+          properties:
+            first_year: {type: [integer, 'null']}
+            last_year: {type: [integer, 'null']}
+        top_wind_solar_additions:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalWindSolarAdditions'
+            - type: 'null'
+        us_pipeline:
+          description: >-
+            For `area=US` only. A link to Inframation's own US pipeline figure, a different measure: the active
+            pipeline (lifecycle states announced through under construction, records a register still lists), so
+            no built or withdrawn record is inside it.
+          oneOf:
+            - type: object
+              required: [measure, path, url, list_query, note]
+              properties:
+                measure: {type: string, enum: [pipeline]}
+                path: {type: string}
+                url: {type: string, format: uri}
+                list_query:
+                  type: object
+                  required: [path, query]
+                  properties:
+                    path: {type: string}
+                    query:
+                      type: object
+                      additionalProperties: {type: string}
+                note: {type: string}
+            - type: 'null'
+    GlobalArea:
+      type: object
+      required: [id, name, kind, iso3]
+      properties:
+        id: {type: string, description: '`world`, a region slug, or an ISO 3166-1 alpha-2 code.'}
+        name: {type: string}
+        kind: {type: string, enum: [world, region, country]}
+        iso3: {type: [string, 'null']}
+    GlobalElectricitySource:
+      type: string
+      description: Ember's nine generation types (its global data has no storage series).
+      enum: [solar, wind, hydro, nuclear, gas, coal, other_renewables, bioenergy, other_fossil]
+    GlobalProvenance:
+      type: object
+      description: Where one block's values came from. `route` is `api` (Ember's API) or `file` (a person's download of Ember's CSV).
+      required: [dataset, route, source_id, source_url, retrieved_at, licence_id, citation, dataset_url]
+      properties:
+        dataset: {type: string, enum: [yearly, monthly, monthly_capacity]}
+        route: {type: string, enum: [api, file]}
+        source_id: {$ref: '#/components/schemas/SourceIdValue'}
+        source_url: {type: string}
+        retrieved_at: {type: string, format: date-time}
+        licence_id: {$ref: '#/components/schemas/LicenceIdValue'}
+        citation: {type: string, description: "Ember's citation form for the dataset."}
+        dataset_url: {type: string, format: uri}
+    GlobalCoverage:
+      type: object
+      required: [latest_year, latest_complete_year, countries_latest_year, countries_by_year, rule, note]
+      properties:
+        latest_year: {type: integer}
+        latest_complete_year: {type: [integer, 'null']}
+        countries_latest_year: {type: integer}
+        countries_latest_complete_year: {type: [integer, 'null']}
+        countries_by_year:
+          type: array
+          items:
+            type: object
+            required: [year, countries]
+            properties:
+              year: {type: integer}
+              countries: {type: integer}
+        rule: {type: string}
+        note: {type: string}
+    GlobalGeneration:
+      type: object
+      required: [year, previous_year, estimated, unit, total_twh, sources_differ, by_source, provenance]
+      properties:
+        year: {type: integer}
+        previous_year: {type: [integer, 'null']}
+        estimated:
+          type: boolean
+          description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+        unit: {type: string, enum: [TWh]}
+        total_twh: {type: [number, 'null']}
+        total_change_twh: {type: [number, 'null'], description: Null when `sources_differ` is not empty.}
+        total_change_pct: {type: [number, 'null']}
+        sources_differ:
+          type: array
+          description: Generation types present in only one of the two years; the total's and the shares' changes are null when any is.
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        by_source:
+          type: array
+          items:
+            type: object
+            required: [source, label, generation_twh, previous_twh, change_twh, change_pct, share_pct, share_change_pp]
+            additionalProperties: false
+            properties:
+              source: {$ref: '#/components/schemas/GlobalElectricitySource'}
+              label: {type: string}
+              generation_twh: {type: [number, 'null']}
+              previous_twh: {type: [number, 'null']}
+              change_twh: {type: [number, 'null']}
+              change_pct: {type: [number, 'null']}
+              share_pct: {type: [number, 'null']}
+              share_change_pp: {type: [number, 'null']}
+        provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+    GlobalCleanShare:
+      type: object
+      required: [year, estimated, pct, previous_year, previous_pct, change_pp, sources_differ, definition, basis]
+      properties:
+        year: {type: integer}
+        estimated:
+          type: boolean
+          description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+        pct: {type: [number, 'null']}
+        previous_year: {type: [integer, 'null']}
+        previous_pct: {type: [number, 'null']}
+        change_pp: {type: [number, 'null'], description: Change in percentage points; null when `sources_differ` is not empty.}
+        sources_differ:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        definition:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        basis: {type: string}
+    GlobalOperatingCapacity:
+      type: object
+      required: [year, previous_year, estimated, unit, total_gw, sources_differ, by_source, provenance]
+      properties:
+        year: {type: integer}
+        previous_year: {type: [integer, 'null']}
+        estimated:
+          type: boolean
+          description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+        unit: {type: string, enum: [GW]}
+        total_gw: {type: [number, 'null']}
+        total_change_gw: {type: [number, 'null'], description: 'Net change (retirements subtract); null when `sources_differ` is not empty.'}
+        total_change_pct: {type: [number, 'null']}
+        sources_differ:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        by_source:
+          type: array
+          items:
+            type: object
+            required: [source, label, operating_capacity_gw, previous_gw, change_gw, change_pct]
+            additionalProperties: false
+            properties:
+              source: {$ref: '#/components/schemas/GlobalElectricitySource'}
+              label: {type: string}
+              operating_capacity_gw: {type: [number, 'null']}
+              previous_gw: {type: [number, 'null']}
+              change_gw: {type: [number, 'null'], description: Net change on the year before (retirements subtract).}
+              change_pct: {type: [number, 'null']}
+        provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+    GlobalWindSolarAdditions:
+      type: object
+      required: [year, latest_capacity_year, basis, unit, countries, countries_compared, note, provenance]
+      properties:
+        year: {type: integer, description: The ranking year (the latest complete capacity year).}
+        latest_capacity_year: {type: integer}
+        basis:
+          type: string
+          enum: [yearly, monthly_december]
+          description: '`yearly` from Ember''s yearly capacity; `monthly_december` from its monthly wind and solar capacity, December against December, which covers fewer countries.'
+        unit: {type: string, enum: [GW]}
+        countries:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [rank, area, added_gw, solar_added_gw, wind_added_gw, operating_wind_solar_gw]
+            properties:
+              rank: {type: integer, minimum: 1}
+              area: {$ref: '#/components/schemas/GlobalArea'}
+              added_gw:
+                type: [number, 'null']
+                description: >-
+                  Net solar plus wind capacity added in the year (end of year against end of the year before, so
+                  retirements subtract). Solar is AC or DC as each country reports it, so two countries' solar
+                  figures need not share a basis.
+              solar_added_gw: {type: [number, 'null'], description: Net; AC or DC as the country reports it.}
+              wind_added_gw: {type: [number, 'null'], description: Net.}
+              operating_wind_solar_gw: {type: [number, 'null']}
+        countries_compared: {type: integer}
+        countries_incomplete: {type: integer}
+        countries_with_capacity_latest_year: {type: integer}
+        countries_with_capacity_previous_year: {type: [integer, 'null']}
+        note: {type: string}
+        provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+    GlobalElectricityNotes:
+      type: object
+      required: [credit, credits]
+      properties:
+        credit: {type: [string, 'null'], description: The manifest credit line with the statement of changes.}
+        credits:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [text, dataset, dataset_url, licence, licence_url, changes, source_id]
+            properties:
+              text: {type: string, description: "Ember's citation form, e.g. 'Yearly electricity data, Ember'."}
+              dataset: {type: string}
+              dataset_url: {type: string, format: uri}
+              licence: {type: string}
+              licence_url: {type: string, format: uri}
+              changes: {type: string}
+              source_id: {$ref: '#/components/schemas/SourceIdValue'}
+        about: {type: string, format: uri}
+        clean_sources:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        sources:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        storage: {type: string}
+    TrendSource:
+      type: object
+      description: The one source a series is read from, its licence and the credit to show with it.
+      required: [source_id, name, licence, credit]
+      properties:
+        source_id:
+          type: string
+        name:
+          type: [string, 'null']
+        operator:
+          type: [string, 'null']
+        url:
+          type: [string, 'null']
+        licence:
+          type: [object, 'null']
+        credit:
+          type: [string, 'null']
+    TrendSeriesSummary:
+      type: object
+      required: [metric, label, unit, frequency, source, method, dimensions, first, last, points]
+      properties:
+        metric:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+        frequency:
+          type: string
+          enum: [monthly, daily]
+        source:
+          $ref: '#/components/schemas/TrendSource'
+        method:
+          type: string
+        dimensions:
+          type: array
+          items:
+            type: string
+        first:
+          type: [string, 'null']
+        last:
+          type: [string, 'null']
+        points:
+          type: integer
+          minimum: 0
+    TrendChange:
+      type: [object, 'null']
+      description: A like-for-like change against the point `from`; null when that point is absent, has no value or another basis.
+      required: [from, value, change, pct]
+      properties:
+        from:
+          type: string
+        value:
+          type: number
+        change:
+          type: number
+        pct:
+          type: [number, 'null']
+    TrendPoint:
+      type: object
+      required: [period, value, basis, mom, yoy]
+      properties:
+        period:
+          type: string
+          pattern: '^\d{4}-\d{2}(-\d{2})?$'
+        value:
+          type: [number, 'null']
+        basis:
+          type: string
+          description: What was counted and how; changes are computed only between points with the same basis.
+        mom:
+          $ref: '#/components/schemas/TrendChange'
+        yoy:
+          $ref: '#/components/schemas/TrendChange'
+        dq_warnings:
+          type: array
+          description: >-
+            Monthly series, present only when the month's data-quality checks warned on this figure's block
+            or on the whole month (`cumulative_shrank`, `cumulative_restated`, `code_vocabulary`, ...): the
+            month is served, and its change may reflect the publisher's restatement rather than the world.
+          items:
+            type: string
+        source_url:
+          type: [string, 'null']
+          description: Monthly series — the publisher's own file for that month.
+        retrieved_at:
+          type: [string, 'null']
+        document:
+          type: [string, 'null']
+          description: Daily series — the day's document (`as_of`).
+        query:
+          type: [string, 'null']
+          description: Daily series — the public list query whose total the figure was that day.
+    TrendLine:
+      type: object
+      required: [key, breaks, points]
+      properties:
+        key:
+          type: string
+          description: '`total`, or a key of the breakdown (`solar`, `US-TX`, `2027`, ...; `_unstated` where the source leaves it blank).'
+        breaks:
+          type: array
+          description: >-
+            Every change of what is compared between consecutive points: the basis; for a monthly series
+            the parser that read the month (`parser_before`, `parser_after`, where they differ); for a daily
+            series the sources that contributed and how many were withheld.
+          items:
+            type: object
+            required: [period, basis_before, basis_after]
+            properties:
+              period:
+                type: string
+              basis_before:
+                type: string
+              basis_after:
+                type: string
+              parser_before:
+                type: [string, 'null']
+              parser_after:
+                type: [string, 'null']
+              sources_added:
+                type: array
+                items:
+                  type: string
+              sources_removed:
+                type: array
+                items:
+                  type: string
+              withheld_before:
+                type: [integer, 'null']
+              withheld_after:
+                type: [integer, 'null']
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+    TrendSeries:
+      allOf:
+        - $ref: '#/components/schemas/TrendSeriesSummary'
+        - type: object
+          required: [by, from, to, changes_rule, lines, withheld, held_readings]
+          properties:
+            by:
+              type: [string, 'null']
+            from:
+              type: [string, 'null']
+            to:
+              type: [string, 'null']
+            changes_rule:
+              type: string
+            lines:
+              type: array
+              items:
+                $ref: '#/components/schemas/TrendLine'
+            withheld:
+              type: array
+              description: Months left out because their data-quality checks held them (no earlier document to serve).
+              items:
+                type: object
+                required: [period, reason]
+                properties:
+                  period:
+                    type: string
+                  reason:
+                    type: string
+                  checks:
+                    type: array
+                    items:
+                      type: string
+            held_readings:
+              type: array
+              description: >-
+                Served months whose newer reading (a re-issue, a correction, a restatement, a file posted under
+                another month's name) its checks hold beside them; the month's earlier document is served until
+                an operator releases the newer one.
+              items:
+                type: object
+                required: [period, reason, checks]
+                properties:
+                  period:
+                    type: string
+                  reason:
+                    type: string
+                  checks:
+                    type: array
+                    items:
+                      type: string
+                  file_id:
+                    type: [string, 'null']
+                  parser_version:
+                    type: [string, 'null']
+    TrendResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [notes]
+          properties:
+            data:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/TrendSeriesSummary'
+                - $ref: '#/components/schemas/TrendSeries'
+            notes:
+              type: object
+              properties:
+                posture:
+                  type: string
+                like_for_like:
+                  type: string
     SiteFinderProvenance:
       type: object
       description: >-
@@ -18126,7 +20030,10 @@ components:
                     description: >-
                       `noncommercial` appears here only while the platform posture is `commercial`
                       (docs/26): under `noncommercial` those sources publish and are not withheld.
-                    enum: [noncommercial, restricted, unknown]
+                      `open` and `attribution` appear only for a register held back by its own
+                      `publication: none` until a step its notes name is done (for example
+                      `global.gem.gipt`, until the licence notice inside the download is recorded).
+                    enum: [open, attribution, noncommercial, restricted, unknown]
                   publication:
                     type: [string, 'null']
                   url:
@@ -18716,7 +20623,7 @@ components:
                   $ref: '#/components/schemas/Account'
     SavedSearchQuery:
       type: object
-      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results. Keys are the filters of the `entity`'s list endpoint, except the proposal list's `sponsor_scope` and `listed`, which the alert matcher does not evaluate yet; any other key is a `400 unknown_parameter` on create and update.
+      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results. Keys are the filters of the `entity`'s list endpoint, except the list view filters the alert matcher does not evaluate yet, `country` on every entity (since 2026-10-23), the proposal list's `sponsor_scope` and `listed`, the opportunity list's `relevance`, and the events list's `genuine`, `to_state` and `relevance` (since 2026-10-23); any other key is a `400 unknown_parameter` on create and update.
       additionalProperties: true
       examples:
         - kind: [storage]

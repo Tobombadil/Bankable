@@ -1,0 +1,40 @@
+{#- A grid connection point's Changes tab (docs/30 §11.5; lane H2): the newest recorded changes to the
+    projects that connect here, most recent first. The API has applied the events visibility rule and the
+    point's own project set; each row credits the register that recorded it. -#}
+{% extends "base.html" %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name }} · Changes — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: recent changes to the projects queued here, each with its source.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<section class="record-tab" aria-label="Recent changes at this point">
+  <h2 class="visually-hidden">Recent changes at this point</h2>
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">The newest recorded changes to the projects that connect here, most recent first.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Observed</th>
+        <th scope="col">Change</th>
+        <th scope="col">Project</th>
+        <th scope="col">Source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in changes %}
+      <tr>
+        <td data-label="Observed" class="tnum">{% if c.date %}<time datetime="{{ c.date }}">{{ c.date | display_date }}</time>{% else %}—{% endif %}</td>
+        <td data-label="Change">{{ c.label }}</td>
+        <td data-label="Project">{% if c.proposal_href %}<a class="row-link" href="{{ c.proposal_href }}">{{ c.proposal_name }}</a>{% else %}{{ c.proposal_name or '—' }}{% endif %}</td>
+        <td data-label="Source">{% if c.source_url %}<a href="{{ c.source_url }}" rel="noopener nofollow">{{ c.source_name or c.attribution_text }}</a>{% else %}{{ c.source_name or '—' }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{ rt.foot(tabs, credits, record) }}
+</div>
+{% endblock %}

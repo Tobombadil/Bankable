@@ -35,7 +35,7 @@ are already a named launch blocker (`docs/00-PLAN.md` decisions log, 2026-09-18 
   an acceptance of any document (counsel question 6.7).
 
 **Parties and law (from the decisions log, not from counsel).** The contracting entity is Compass International
-Trading Group LLC, 1029 E 8th Ave, Suite 806, Denver, CO 80216 (`docs/00-PLAN.md`, 2026-09-18 (5)), rendered from
+Trading Group, LLC, 1029 E 8th Ave, Suite 806, Denver, CO 80218 (`docs/00-PLAN.md`, 2026-09-18 (5)), rendered from
 `SENDER_LEGAL_NAME`/`SENDER_POSTAL_ADDRESS` on any page that shows it. Governing law: Colorado, "unless counsel
 advises otherwise" (`docs/00-PLAN.md` open question 3, answered 2026-09-18). The product name is a placeholder
 (`docs/04` §0.6); the draft says "the Service".
@@ -46,7 +46,7 @@ advises otherwise" (`docs/00-PLAN.md` open question 3, answered 2026-09-18). The
 
 Drafting notes in *italics* are for counsel and are not proposed text.
 
-**1.1 Who these terms are between.** These terms are between you and Compass International Trading Group LLC
+**1.1 Who these terms are between.** These terms are between you and Compass International Trading Group, LLC
 ("we"). They apply when you create an account or use the Service's site, alerts, exports or API. If you use the
 Service for an organisation, you accept them for it and confirm you may.
 

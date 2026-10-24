@@ -238,9 +238,11 @@ def test_detail_page_states_the_derivation_and_the_caveat(web_client: TestClient
     _install(_base([row]))
     html = web_client.get("/proposals/prop_late").text
     assert "overdue by 2.7 years" in html
-    assert "derived at read time" in html
-    assert "stop maintaining this date" in html
     assert "2024-01-01" in html
+    # How "overdue" is derived is on the Timeline tab, behind "About these dates" (docs/30 §11.5).
+    timeline = web_client.get("/proposals/prop_late/timeline").text
+    assert "derived at read time" in timeline
+    assert "stop maintaining this date" in timeline
 
 
 def test_detail_page_without_a_date_says_nothing_about_schedule(web_client: TestClient) -> None:

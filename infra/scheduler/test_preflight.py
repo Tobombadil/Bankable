@@ -369,7 +369,53 @@ def test_a_source_never_run_fails_and_names_the_fetch(tmp_path: Path) -> None:
     out = preflight.check_freshness(ctx)
     assert out.status == FAIL, out
     assert out.actions[0] == "no successful run record (ok or unchanged) in the store: b"
-    assert out.actions[-1].endswith("python -m infra.scheduler.bootstrap fetch")
+    assert out.actions[-1].endswith("python -m infra.scheduler.bootstrap first-fetch")
+
+
+def test_a_success_the_store_lacks_asks_for_the_full_fetch(
+    tmp_path: Path, factory: sessionmaker[Session]
+) -> None:
+    """`first-fetch` queues only what the database never saw succeed, so a source fetched per the
+    database but with no run record in the store is sent to `fetch`."""
+    jobs.record_source_run(factory, CAISO, {"status": "ok", "finished_at": "2026-10-14T08:00:00Z"})
+    with factory() as session:
+        row = session.get(Source, CAISO)
+        assert row is not None
+        row.implemented = True
+        session.commit()
+    out = preflight.check_freshness(_ctx(tmp_path, factory, freshness_rows=_rows(_row(CAISO, "never"))))
+    assert out.status == FAIL, out
+    assert out.actions[-1].endswith("python -m infra.scheduler.bootstrap fetch"), out.actions[-1]
+
+
+def test_a_source_that_never_succeeded_says_why_from_its_last_error(
+    tmp_path: Path, factory: sessionmaker[Session]
+) -> None:
+    """2026-10-24 (docs/28 lane F5): the FAIL names each never-succeeded source's last error, one
+    line, query string and secrets removed, so the owner reads why without the admin pages."""
+    jobs.record_source_run(
+        factory,
+        CAISO,
+        {
+            "status": "blocked",
+            "finished_at": "2026-10-24T03:08:00Z",
+            "error": "BlockedError('GET https://www.caiso.com/PublishedDocuments/PublicQueueReport.xlsx?x=1 "
+            "refused: HTTP 403; server=CloudFront; x-cache=Error from cloudfront')",
+        },
+    )
+    with factory() as session:
+        row = session.get(Source, CAISO)
+        assert row is not None
+        row.implemented = True
+        session.commit()
+    ctx = _ctx(tmp_path, factory, freshness_rows=_rows(_row(CAISO, "never")), env={**GOOD_ENV})
+    out = preflight.check_freshness(ctx)
+    assert out.status == FAIL, out
+    line = next(a for a in out.actions if a.startswith(f"{CAISO} last error: "))
+    assert (
+        "HTTP 403; server=CloudFront" in line and "?x=1" not in line and "(at 2026-10-24T03:08:00Z)" in line
+    )
+    assert out.measured["sources"][CAISO]["last_error"] == line.split("last error: ", 1)[1]
 
 
 def test_the_source_rows_are_assessed_too(tmp_path: Path, factory: sessionmaker[Session]) -> None:

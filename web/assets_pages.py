@@ -29,14 +29,16 @@ import os
 import time
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.datastructures import QueryParams
 
-from web import labels
+from web import labels, record_tabs
 from web.api_client import ApiClient, ApiError, ApiNotFound
+from web.formatting import readable_name
 from web.labels import data_notes, labelled_attributes
 from web.list_sort import ASSET_COLUMNS, ASSET_OTHER, chosen_sort, sort_caption, sort_headers, valid_sort
 from web.page import (
@@ -249,40 +251,71 @@ def _resolve_asset_by_slug(api: ApiClient, slug: str) -> dict[str, Any] | None:
     return entities[0] if entities else None
 
 
-def _retirement_section(
-    api: ApiClient, entity: Mapping[str, Any], record: Mapping[str, Any]
-) -> dict[str, Any] | None:
-    """Lane R1: the Retirement section of a power plant that has retired or scheduled units, with
-    the grid around it (`GET /v1/assets/{id}/nearby-grid`). A failed grid call drops only the grid
-    lists; the dates and capacities come from the asset itself."""
-    if retirement_view(entity) is None:
+def _nearby_grid(api: ApiClient, record: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Lane R1: the grid around a retired or retiring plant (`GET /v1/assets/{id}/nearby-grid`), the
+    whole envelope so its licence summary can credit the lines and points it lists. A failed call drops
+    only the grid lists; the dates, capacities and grid fields come from the asset itself."""
+    if record.get("geometry") is None:
         return None
-    grid: dict[str, Any] | None = None
-    if record.get("geometry") is not None:
-        try:
-            grid = api.get(f"/v1/assets/{record['public_id']}/nearby-grid").get("data")
-        except ApiError:
-            grid = None
-    return retirement_view(entity, grid)
-
-
-@router.get("/assets/{slug}", response_class=HTMLResponse)
-def asset_detail(request: Request, slug: str) -> HTMLResponse:
-    """ADR 0008 asset page: identity, attributes, owners and nearby exact-grade proposals."""
-    api = get_api(request)
-    entity = _resolve_asset_by_slug(api, slug)
-    if entity is None:
-        return not_found_response(request, "asset")
-    # The list row resolves the slug but omits `owners` and `geometry` (API lane 2026-09-19: list
-    # rows never embed geometry); the detail envelope carries both, so the page reads it and
-    # falls back to the list row only when the detail call fails (found on the first Tallgrass
-    # screenshots: "No ownership records" beside 1,126 operator edges).
     try:
-        entity = api.get(f"/v1/assets/{entity['public_id']}")["data"]
+        envelope: Mapping[str, Any] = api.get(f"/v1/assets/{record['public_id']}/nearby-grid")
     except ApiError:
-        pass
-    record = flatten_asset(entity)
-    record.update(_asset_extras(entity))
+        return None
+    return envelope
+
+
+def _grid_data(envelope: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    data = (envelope or {}).get("data")
+    return data if isinstance(data, Mapping) else None
+
+
+def _grid_lists_anything(envelope: Mapping[str, Any] | None) -> bool:
+    """Whether the grid around the plant lists a transmission line or a connection point."""
+    data = _grid_data(envelope) or {}
+    return bool(data.get("transmission_lines") or data.get("interconnection_points"))
+
+
+def _ownership_tab(owners: list[dict[str, Any]]) -> bool:
+    """Whether the asset has an Ownership tab (docs/30 §11.5): two or more ownership records, except one
+    company's owner and operator records, which stay the header line ("Owned and operated by"), each
+    with its source and date."""
+    if len(owners) < 2:
+        return False
+    if len(owners) == 2:
+        roles = sorted(str(o.get("role")) for o in owners)
+        holders = {o.get("public_id") or o.get("name") for o in owners}
+        if roles == ["operator", "owner"] and len(holders) == 1:
+            return False
+    return True
+
+
+#: The Retirement facts the Overview leads with (docs/30 §11.5: "Retiring: N MW by {year}"), in this
+#: order: when the plant retired, or how much is scheduled to retire and by when, then what has gone.
+#: The status itself is the header's badge, so it is not repeated.
+_RETIREMENT_LEAD = (
+    "Retired",
+    "Capacity scheduled to retire",
+    "Next scheduled retirement",
+    "Capacity retired",
+)
+
+
+def _retirement_lead(view: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """The Overview's three Retirement facts: `_RETIREMENT_LEAD` first, then the Retirement tab's order."""
+    facts = [(label, value) for label, value in view.get("facts") or [] if label != "Status"]
+    ranked = sorted(
+        facts,
+        key=lambda f: _RETIREMENT_LEAD.index(f[0]) if f[0] in _RETIREMENT_LEAD else len(_RETIREMENT_LEAD),
+    )
+    return ranked[:3]
+
+
+def _nearby_proposals(
+    api: ApiClient, record: Mapping[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The exact-grade projects within 25 km (ADR 0008), one row per project, not per EIA-860M generator
+    unit, and the map's features: the asset itself and every unit's dot. Every tab reads the list, since
+    whether the Nearby tab exists, and its count, depend on it (T-3)."""
     nearby: list[dict[str, Any]] = []
     features: list[dict[str, Any]] = []
     if record["geometry"] is not None:
@@ -299,12 +332,156 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
                 features.append(_proposal_feature(flat, geometry))
     except ApiError:
         nearby = []
-    # One list row per project, not per EIA-860M generator unit; the map keeps every unit's dot.
-    nearby = group_nearby_proposals(nearby)
-    retirement = _retirement_section(api, entity, record)
-    # The Retirement section prints these two blocks in words; the Attributes table must not print
+    return group_nearby_proposals(nearby), features
+
+
+#: The asset's list in its breadcrumb (docs/30 §11.3: "Market / Infrastructure / {name}").
+_ASSET_TRAIL: tuple[tuple[str, str], ...] = ((labels.SECTION_LABELS["infrastructure"], "/assets"),)
+
+
+@router.get("/assets/{slug}", response_class=HTMLResponse)
+def asset_detail(request: Request, slug: str) -> Response:
+    """ADR 0008 asset page, its Overview (docs/30 §11.5): identity, the map, the first rows of the other
+    tabs and the attributes behind a disclosure."""
+    return _asset_page(request, slug, "overview")
+
+
+def _asset_page(request: Request, slug: str, tab: str) -> Response:
+    """One tab of a plant, pipeline or line: Overview · Retirement · Grid · Ownership · Nearby · Sources,
+    each after Overview only when it has content (docs/30 §11.5; web/record_tabs.py)."""
+    moved = record_tabs.query_tab_redirect(
+        request, f"/assets/{quote(slug, safe='')}", record_tabs.ASSET_TABS, tab
+    )
+    if moved is not None:
+        return moved
+    if tab != "overview" and not record_tabs.is_tab(record_tabs.ASSET_TABS, tab):
+        return not_found_response(request, "page")
+    api = get_api(request)
+    entity = _resolve_asset_by_slug(api, slug)
+    if entity is None:
+        return not_found_response(request, "asset")
+    # The list row resolves the slug but omits `owners` and `geometry` (API lane 2026-09-19: list
+    # rows never embed geometry); the detail envelope carries both, so the page reads it and
+    # falls back to the list row only when the detail call fails (found on the first Tallgrass
+    # screenshots: "No ownership records" beside 1,126 operator edges).
+    try:
+        entity = api.get(f"/v1/assets/{entity['public_id']}")["data"]
+    except ApiError:
+        pass
+    record = flatten_asset(entity)
+    record.update(_asset_extras(entity))
+    nearby, features = _nearby_proposals(api, record)
+    # Retirement and Grid show for a plant with retired or scheduled units; Grid widens to every plant
+    # once the API serves a grid block per plant (docs/30 §11.11 ask B-3).
+    view = retirement_view(entity)
+    retiring = view is not None
+    # Grid has content only when the plant reported grid fields to EIA-860 or the grid around it lists a
+    # line or a connection point (T-3). EIA-860's annual file leaves out a plant that retired before
+    # its report year, so a retired plant often has neither; nor does one without a mapped location, or
+    # when the call fails. The grid around the plant is asked for only when its own fields are empty (or
+    # on the Grid tab itself), so a plant that reports them keeps that call to its Grid tab (T-10).
+    grid_envelope = (
+        _nearby_grid(api, record) if view is not None and (tab == "grid" or not view["grid_rows"]) else None
+    )
+    has_grid = view is not None and (bool(view["grid_rows"]) or _grid_lists_anything(grid_envelope))
+    path = f"/assets/{quote(record['slug'], safe='')}"
+    tabs = record_tabs.Tabs(
+        "asset",
+        path,
+        record_tabs.ASSET_TABS,
+        present={
+            "retirement": retiring,
+            "grid": has_grid,
+            "ownership": _ownership_tab(record["owners"]),
+            "nearby": bool(nearby),
+            "sources": True,
+        },
+        current=tab,
+        counts={
+            "ownership": len(record["owners"]),
+            "nearby": len(nearby),
+            "sources": record_tabs.source_count(record["provenance"]),
+        },
+        absent_lines={} if record["owners"] else {"ownership": "No ownership records for this asset."},
+    )
+    name = readable_name(record["name"])
+    badge = " · ".join(
+        str(part)
+        for part in (record.get("type_label"), record.get("technology_label"), record.get("line_class"))
+        if part
+    )
+    context: dict[str, Any] = {
+        "record": record,
+        "head": {
+            "type": "asset",
+            "crumbs": record_tabs.crumbs(tabs, _ASSET_TRAIL, name),
+            "name": name,
+            "badge": " · ".join(p for p in (badge, record.get("status_label")) if p),
+            "facts": record_tabs.asset_facts(record),
+            "action": record_tabs.primary_action(
+                request,
+                tabs,
+                "asset",
+                record,
+                ("Show on map", record_tabs.map_href(record.get("geometry"))),
+                ("View at source", record.get("source_url")),
+            ),
+        },
+        "delayed": record_tabs.tier_notice(request),
+        "credits": record_tabs.credits(record["provenance"]),
+        "canonical_path": tabs.href(tab),
+    }
+    if tab == "overview":
+        _asset_overview(record, has_grid, nearby, features, context)
+        context["jsonld"] = [
+            breadcrumb_jsonld(request, record_tabs.jsonld_trail(_ASSET_TRAIL, record["name"], path))
+        ]
+        if view is not None:
+            # The Grid block counts the lines and points around the plant when its own fields are empty.
+            context["retirement"] = retirement_view(entity, _grid_data(grid_envelope))
+            context["retirement_lead"] = _retirement_lead(view)
+            if has_grid and not view["grid_rows"]:
+                context["credits"] = record_tabs.credits(
+                    record["provenance"],
+                    record_tabs.row_provenance(nearby),
+                    record_tabs.summary_rows(grid_envelope),
+                )
+    elif tab == "retirement":
+        context["retirement"] = view
+    elif tab == "grid":
+        context["retirement"] = retirement_view(entity, _grid_data(grid_envelope))
+        context["credits"] = record_tabs.credits(
+            record["provenance"], record_tabs.summary_rows(grid_envelope)
+        )
+    elif tab == "ownership":
+        # Each ownership record names the register it came from (`_normalise_owners`).
+        named = [{"source_name": o["source_name"]} for o in record["owners"] if o.get("source_name")]
+        context["credits"] = record_tabs.credits(record["provenance"], named)
+    elif tab == "nearby":
+        context.update(_map_context(record, features), nearby_proposals=nearby)
+        # The map draws the asset too, so its own register is credited beside the projects'.
+        context["credits"] = record_tabs.credits(record["provenance"], record_tabs.row_provenance(nearby))
+    elif tab == "sources":
+        context["provenance_rows"] = provenance_panel_rows(api, record["provenance"])
+    response = record_tabs.render(
+        request, f"asset_{'detail' if tab == 'overview' else tab}.html", context, tabs
+    )
+    # One view of the record per visit (PM-5): the Overview counts, its tabs do not.
+    return count_page_view(request, response, "asset") if tabs.is_overview else response
+
+
+def _asset_overview(
+    record: dict[str, Any],
+    grid_tab: bool,
+    nearby: list[dict[str, Any]],
+    features: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> None:
+    """The Overview's own data: the map of the asset and the projects near it, and the attributes in
+    reader words, less what the Retirement and Grid tabs print themselves."""
+    # The Retirement and Grid tabs print these two blocks in words; the Attributes table must not print
     # them again as raw keys and tokens (`majority_mw_retiring`, `2028-12`).
-    hidden = ("retirement", "grid") if retirement is not None else ("retirement",)
+    hidden = ("retirement", "grid") if grid_tab else ("retirement",)
     record["promoted_attributes"] = [*record.get("promoted_attributes", []), *hidden]
     # The Attributes table in reader words (web/labels.py `labelled_attributes`, audit 2026-09-30
     # F1/D-14): internal matching keys dropped, promoted fields omitted, every key a label, and the
@@ -312,6 +489,17 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
     attributes = record["attributes"]
     record["attributes_display"] = labelled_attributes(attributes, omit=record["promoted_attributes"])
     record["attribute_notes"] = data_notes(attributes)
+    context.update(
+        _map_context(record, features),
+        nearby_proposals=nearby,
+        # The projects drawn on the map and listed under it are credited with the asset's own source.
+        credits=record_tabs.credits(record["provenance"], record_tabs.row_provenance(nearby)),
+    )
+
+
+def _map_context(record: Mapping[str, Any], features: list[dict[str, Any]]) -> dict[str, Any]:
+    """The mini-map of the asset and the exact-grade projects near it: the Overview's, and the Nearby
+    tab's beside its list (a map with the list that carries the magnitudes)."""
     tile_url = (os.environ.get("MAP_TILE_URL") or "").strip() or None
     tile_mode = _tile_mode(tile_url)
     placed = sum(1 for f in features if f["properties"]["kind"] == "proposal")
@@ -322,33 +510,11 @@ def asset_detail(request: Request, slug: str) -> HTMLResponse:
         + ". "
         + _basemap_attribution(tile_mode, tile_url)
     )
-    mini_map = _mini_map(features, label=f"Map of {record['name']}", caption=caption)
-    path = f"/assets/{record['slug']}"
-    response = templates.TemplateResponse(
-        request,
-        "asset_detail.html",
-        {
-            "record": record,
-            "retirement": retirement,
-            "nearby_proposals": nearby,
-            "provenance_rows": provenance_panel_rows(api, record["provenance"]),
-            "mini_map": mini_map,
-            "tile_url": tile_url,
-            "tile_mode": tile_mode,
-            "canonical_path": path,
-            "jsonld": [
-                breadcrumb_jsonld(
-                    request,
-                    [
-                        ("Home", "/"),
-                        (labels.SECTION_LABELS["infrastructure"], "/assets"),
-                        (record["name"], path),
-                    ],
-                )
-            ],
-        },
-    )
-    return count_page_view(request, response, "asset")
+    return {
+        "mini_map": _mini_map(features, label=f"Map of {record['name']}", caption=caption),
+        "tile_url": tile_url,
+        "tile_mode": tile_mode,
+    }
 
 
 @router.get("/assets/by-id/{public_id}")
@@ -364,3 +530,12 @@ def asset_by_public_id(request: Request, public_id: str) -> Response:
     if not slug:
         return not_found_response(request, "asset")
     return RedirectResponse(url=f"/assets/{slug}", status_code=302)
+
+
+@router.get("/assets/{slug}/{tab}", response_class=HTMLResponse)
+def asset_tab(request: Request, slug: str, tab: str) -> Response:
+    """A plant's, pipeline's or line's other tabs (docs/30 §11.10). Registered after
+    `/assets/by-id/{public_id}`, so that route keeps its two segments."""
+    if tab == "overview":
+        return record_tabs.overview_redirect(request, f"/assets/{quote(slug, safe='')}")
+    return _asset_page(request, slug, tab)

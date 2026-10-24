@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
+{#- Coverage & methodology, tab two: What is not here (Navigation v2 lane V7; docs/30 §11.4, §11.10). The
+    absences an empty result would otherwise pass off as a fact about the world: technologies and states
+    no source produces, registers we hold but do not publish, the depth of ownership records, sources per
+    asset type, and the dated coverage notes. Every number is read from `/v1/coverage` on this load; only
+    the notes' paragraphs are written, and each carries its date. -#}
+{% block title %}What is not here: {{ sections.label.methodology | lower }} — Inframation{% endblock %}
+{% block meta_description %}What Inframation's register does not contain: technologies and statuses no source produces, registers held but not published, and how deep its ownership records go.{% endblock %}
+{% block content %}
+<article class="ref-page method-page">
+{% include "partials/_methodology_head.html" %}
+
+<section id="absences" class="method-section" aria-labelledby="absences-title">
+  <h2 id="absences-title">What is not here</h2>
+  <p class="method-lede">
+    <span class="tnum">{{ coverage.sources.registered }}</span> sources are registered and <span class="tnum">{{ coverage.sources.with_rows }}</span> have rows flowing. The register holds <span class="tnum">{{ '{:,}'.format(coverage.records.proposals) }}</span> projects, <span class="tnum">{{ '{:,}'.format(coverage.records.opportunities) }}</span> RFPs and funding notices and <span class="tnum">{{ '{:,}'.format(coverage.records.assets) }}</span> existing assets. An empty result for anything below means we have no source, not that nothing is happening.
+  </p>
+
+  {%- if coverage.technologies.absent %}
+  <h3 id="absent-technologies">Technologies with no rows</h3>
+  <p>Our classifier can produce these, and no loaded source ever has: {% for t in coverage.technologies.absent %}{{ t | technology_label }}{{ ', ' if not loop.last else '.' }}{% endfor %}</p>
+  {%- endif %}
+
+  {%- if coverage.sources.withheld %}
+  <h3 id="withheld">Registers we hold but do not publish</h3>
+  <p>Nothing from these appears on any tier, paid included. <span class="tnum">{{ withheld_supply | length }}</span> of the <span class="tnum">{{ coverage.sources.withheld | length }}</span> are interconnection or connection registers, the absence you would feel on the map.</p>
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Registers we hold but do not publish (scrolls sideways on a narrow screen)">
+  <table class="record-table method-table">
+    <thead>
+      <tr><th scope="col">Register</th><th scope="col">Where</th><th scope="col">Why nothing is shown</th></tr>
+    </thead>
+    <tbody>
+      {%- for s in coverage.sources.withheld %}
+      <tr>
+        <td data-label="Register"><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a>{% if s.supply %}<span class="method-muted"> &middot; connection register</span>{% endif %}</td>
+        <td data-label="Where">{{ s.jurisdiction or s.operator or '—' }}</td>
+        <td data-label="Why nothing is shown">{{ s.reason }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  </div>
+  {%- endif %}
+
+  <h3 id="ownership">Ownership depth</h3>
+  <p><span class="tnum">{{ '{:,}'.format(coverage.ownership.without_recorded_parent) }}</span> of <span class="tnum">{{ '{:,}'.format(coverage.ownership.organizations) }}</span> companies have no recorded parent (<span class="tnum">{{ '{:,}'.format(coverage.ownership.with_recorded_parent) }}</span> do). A company page showing no parent is a company we have no parent <em>record</em> for.</p>
+
+  {%- if asset_sources %}
+  <h3 id="asset-sources">Existing assets: sources per type</h3>
+  {#- Derived on every load: rows and located rows per source, and whether the store can resolve two
+      sources' rows to one asset (`services/api/coverage.py::asset_sources`). A type with two sources and
+      no resolution *can* hold one asset twice; whether it does is a measurement, so that is a dated note,
+      keyed to this fact and dropped the day the fact stops holding. -#}
+  <p>Each type is loaded one row per source record. Where a type has more than one source and nothing yet resolves them to one record per asset, a count over its rows can exceed the number of assets.
+    {%- if not coverage.assets.resolution.exists %} No such resolution layer exists today for any type.{% endif %}</p>
+  <div class="table-scroll" tabindex="0" role="region" aria-label="Existing assets: sources per type (scrolls sideways on a narrow screen)">
+  <table class="record-table method-table">
+    <thead>
+      <tr><th scope="col">Asset type</th><th scope="col" class="num">Rows</th><th scope="col">Sources</th><th scope="col">One record per asset</th></tr>
+    </thead>
+    <tbody>
+      {%- for asset_type, entry in asset_sources %}
+      <tr id="asset-sources-{{ asset_type }}">
+        <td data-label="Asset type"><a href="/assets?asset_type={{ asset_type }}">{{ asset_type_labels.get(asset_type, asset_type | replace('_', ' ')) }}</a></td>
+        <td data-label="Rows" class="num tnum">{{ '{:,}'.format(entry.rows) }}{% if entry.located != entry.rows %}<span class="method-muted"> &middot; {{ '{:,}'.format(entry.located) }} with a location</span>{% endif %}</td>
+        <td data-label="Sources">
+          {%- for source_id, per in entry.sources.items() %}{{ source_names.get(source_id) or source_id }} <span class="tnum">{{ '{:,}'.format(per.rows) }}</span>{% if not loop.last %}<br>{% endif %}{% endfor -%}
+        </td>
+        <td data-label="One record per asset">
+          {%- if entry.source_count < 2 %}One source, so nothing to resolve
+          {%- elif entry.resolved %}Yes
+          {%- else %}<strong>Not yet</strong>{% if asset_notes.get(asset_type) %}: <a href="#note-{{ asset_notes[asset_type].id }}">measured</a>{% endif %}
+          {%- endif -%}
+        </td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  </div>
+  {%- endif %}
+
+  {%- if coverage.states.lifecycle_absent or coverage.states.opportunity_status_absent %}
+  <h3 id="absent-states">Status values no source produces</h3>
+  <p>These words are in the vocabulary and no loaded source maps into them, so no record carries them today: {% for s in coverage.states.lifecycle_absent + coverage.states.opportunity_status_absent %}{{ s | lifecycle_label }}{{ ', ' if not loop.last else '.' }}{% endfor %} <a href="/methodology/status-words">What each means</a>.</p>
+  {%- endif %}
+
+  {%- for note in coverage.notes %}
+  <div class="coverage-note">
+    <h3 id="note-{{ note.id }}">{{ note.headline }}</h3>
+    <p>{{ note.body }}</p>
+    {%- set noted_type = (note.applies_to or {}).get('unresolved_asset_type') %}
+    {%- set noted = coverage.assets.by_type.get(noted_type) if noted_type else none %}
+    {%- if noted %}
+    {#- The derived half, printed beside the written one so a reader can see whether they still agree:
+        the row and source counts move with every load, the estimate does not. -#}
+    <p class="method-muted">On this load: <span class="tnum">{{ '{:,}'.format(noted.rows) }}</span> rows from {{ noted.source_count }} sources, <span class="tnum">{{ '{:,}'.format(noted.located) }}</span> with a location. This note is withdrawn automatically when the type has one source or a resolution exists.</p>
+    {%- endif %}
+    <p class="method-muted">Written <span class="tnum">{{ note.written }}</span>. The numbers above it are measured on every page load; this paragraph is not.</p>
+  </div>
+  {%- endfor %}
+</section>
+</article>
+{% endblock %}

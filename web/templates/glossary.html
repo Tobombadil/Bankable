@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
+{#- The glossary (Navigation v2 lane V7; owner, 2026-10-23): one short entry per term, each with what it
+    means, why it matters to a developer or an investor, and the list that shows it. Entries, groups and
+    anchors are web/glossary.py's; `/glossary#<id>` is a contract other pages link to. A status word also
+    links its formal definition and live count on /methodology/status-words (`#state-<key>` for a project
+    status, `#notice-<key>` for an RFP or funding status). No API call: words and links only. -#}
+{% block title %}Glossary: energy market terms in plain words — Inframation{% endblock %}
+{% block meta_description %}Plain words for the energy market terms on Inframation: interconnection queues, grid operators, capacity, large loads, RFPs, funding calls, PPAs, every project status, and how to cite a record.{% endblock %}
+{% block content %}
+<article class="ref-page glossary-page">
+<header class="ref-head">
+  <h1>Glossary</h1>
+  <p class="ref-head__lede">Plain words for the terms on every page, each with the list that shows it.</p>
+</header>
+
+<nav class="ref-index" aria-label="Glossary sections">
+  <ul>
+    {%- for group, terms in groups %}
+    <li><a href="#{{ group.id }}">{{ group.title }}</a></li>
+    {%- endfor %}
+  </ul>
+</nav>
+
+{%- for group, terms in groups %}
+<section class="gloss-group" aria-labelledby="{{ group.id }}">
+  <h2 id="{{ group.id }}">{{ group.title }}</h2>
+  {%- for t in terms %}
+  <div class="gloss-entry" id="{{ t.id }}">
+    <h3 class="gloss-entry__term">{{ t.term }}</h3>
+    <p class="gloss-entry__means">{{ t.means }}</p>
+    <div class="gloss-entry__more">
+      <p class="gloss-entry__matters"><strong>Why it matters.</strong> {{ t.matters }}</p>
+      <p class="gloss-entry__links">
+        {%- for link in t.links %}<a href="{{ link.href }}">{{ link.text }}</a>{% if not loop.last %} &middot; {% endif %}{% endfor %}
+        {%- if t.status %} &middot; <a href="/methodology/status-words#{{ 'notice' if group.id == 'notices' else 'state' }}-{{ t.id }}">Full definition</a>{% endif -%}
+      </p>
+    </div>
+  </div>
+  {%- endfor %}
+</section>
+{%- endfor %}
+</article>
+{% endblock %}

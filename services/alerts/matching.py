@@ -56,6 +56,7 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from pipeline.connectors.opportunity import ALL_SOURCE
 from services.api import slippage
 from services.api.errors import ProblemError
 from services.api.params import csv_param
@@ -274,9 +275,10 @@ def _opportunity_matches(opportunity: Opportunity, qp: Mapping[str, str], entitl
         if (v := qp.get(key)) and not _in(value, v):
             return False
     if v := qp.get("technologies"):
-        # Any-of, and an all-source opportunity (empty array) matches every value.
-        have = list(opportunity.technologies or [])
-        if have and not set(have) & set(csv_param(v)):
+        # Any-of, and an `all_source` opportunity matches every value; an untagged one (empty
+        # array) matches none (docs/28 B-1, the list's `_opportunity_technologies_filter`).
+        have = set(opportunity.technologies or [])
+        if not have & {*csv_param(v), ALL_SOURCE}:
             return False
     if (v := qp.get("source_id")) and not _source_matches(opportunity.sources, v, entitlement):
         return False

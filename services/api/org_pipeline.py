@@ -49,6 +49,7 @@ from sqlalchemy.orm import Session
 
 from services.api import geo_cache
 from services.api.auth import AuthContext, get_auth_context
+from services.api.capacity_kinds import CAPACITY_NOT_SUMMED_KINDS as _CAPACITY_NOT_SUMMED_KINDS
 from services.api.common import iso
 from services.api.deps import get_db
 from services.api.grid_operators import canonical_iso
@@ -82,8 +83,9 @@ STATE_ORDER: tuple[str, ...] = (
     "unknown",
 )
 #: Kinds whose `capacity_mw` is not generating or storage capacity, so it is never summed (module
-#: docstring). Generation, storage, nuclear and other are summed.
-CAPACITY_NOT_SUMMED_KINDS: tuple[str, ...] = ("load", "transmission", "pipeline", "lng", "ccs", "hydrogen")
+#: docstring). Generation, storage, nuclear and other are summed. Defined in
+#: `services/api/capacity_kinds.py` (the map's cluster sums read it too) and re-exported here.
+CAPACITY_NOT_SUMMED_KINDS: tuple[str, ...] = _CAPACITY_NOT_SUMMED_KINDS
 #: The fields the summary reads: a record whose stored value for one of them came from a hidden
 #: source is read through its served view.
 COUNTED_FIELDS: tuple[str, ...] = ("lifecycle_state", "technology", "iso", "kind", "capacity_mw")

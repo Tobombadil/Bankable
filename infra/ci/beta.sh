@@ -13,9 +13,10 @@
 #   basemap          build and upload it (infra/scripts/build_basemap.sh)
 #   outputs          read the state: mask secrets, write the SSH key and config, APP_HOST
 #   wait-host        SSH answers, cloud-init finished, the tools deploy.sh and the backup need exist
-#   render-env       the env file (beta.py render-env), 0600     deploy    infra/scripts/deploy.sh
+#   render-env       the env file (beta.py render-env), 0600     deploy    infra/scripts/deploy.sh, then first-fetch
+#   first-fetch      a first fetch for each source that never succeeded (bootstrap first-fetch; never fails)
 #   health           health checks through the server, the gate, then public DNS; URLs to the summary
-#   seed | preflight | status    the docs/64 §3 steps on the host
+#   seed | preflight | status    the docs/64 §3 steps on the host (status: each source's last attempt too)
 #   ghcr-logout | known-hosts-save | cleanup                     the always-run tail of the host job
 #
 # Never trace commands here (no xtrace): these steps handle the secrets. Values from the state are
@@ -318,6 +319,30 @@ cmd_deploy() {
     SINGLE_HOST=1 APP_HOST="$APP_HOST" DEPLOY_ENV_FILE="$DEPLOY_ENV_FILE" \
     GHCR_USER="$GHCR_USER" GHCR_READ_TOKEN="$GHCR_TOKEN" DEPLOY_LOG="$work/deploy-log.md" \
     infra/scripts/deploy.sh production "$TAG"
+  cmd_first_fetch
+}
+
+# Every deploy, once deploy.sh has started the stack: a first fetch for each implemented, ungated
+# source that never succeeded and has no fetch queued or running (bootstrap first-fetch, the
+# scheduler's own job and locks, so a repeat queues nothing twice). Without it a source added to a
+# running server waited for its bucket's next tick (docs/28 lane F5). Never fails the deploy: an image
+# older than the action, or a database that will not answer, is a warning and the sources wait for
+# their schedule.
+cmd_first_fetch() {
+  need APP_HOST
+  local out rc=0
+  log "queueing a first fetch for each source that never succeeded (bootstrap first-fetch)"
+  out="$(host_ssh "${compose_remote} run --rm --no-deps -T worker python -m infra.scheduler.bootstrap first-fetch" 2>&1)" || rc=$?
+  printf '%s\n' "$out"
+  if (( rc != 0 )); then
+    warn "bootstrap first-fetch exited ${rc}; the deploy stands and those sources wait for their schedule: $(printf '%s' "$out" | tail -n 1 | cut -c1-300)"
+    md "### First fetch not queued (exit ${rc})" "" \
+      "The deploy stands. Run this workflow with action \`seed\` to queue every fetch, and \`status\` to read each source's last attempt."
+    return 0
+  fi
+  md "### First fetch for the sources that never succeeded" "" \
+    "\`$(printf '%s' "$out" | tail -n 1)\`" "" \
+    "Each source's last attempt and error: run this workflow with action \`status\` once the jobs have run."
 }
 
 wait_for() { # <url> <address to pin, or ""> <text the body must hold, or "">
@@ -414,6 +439,8 @@ echo "== jobs queued or running, by queue and task"
 c exec -T postgres psql -U infraque -d infraque -c "select queue_name, task_name, status, count(*) from procrastinate_jobs where status in ('todo', 'doing') group by 1, 2, 3 order by 1, 2, 3"
 echo "== failed jobs, by task"
 c exec -T postgres psql -U infraque -d infraque -c "select task_name, count(*) from procrastinate_jobs where status = 'failed' group by 1 order by 2 desc"
+echo "== sources: each one's last attempt, the never succeeded, the site finder (bootstrap sources, read-only)"
+c exec -T worker python -m infra.scheduler.bootstrap sources 2>&1 || echo "(not read: is the worker running an image of 2026-10-24 or later?)"
 echo "== seed waiter (infraque-seed-context)"
 systemctl show infraque-seed-context -p ActiveState -p SubState -p Result 2>/dev/null
 journalctl -u infraque-seed-context -n 20 --no-pager -o short-iso 2>/dev/null
@@ -451,6 +478,7 @@ case "${1:-}" in
   wait-host) cmd_wait_host ;;
   render-env) cmd_render_env ;;
   deploy) cmd_deploy ;;
+  first-fetch) cmd_first_fetch ;;
   health) cmd_health ;;
   ghcr-logout) cmd_ghcr_logout ;;
   seed) cmd_seed ;;
@@ -458,5 +486,5 @@ case "${1:-}" in
   status) cmd_status ;;
   known-hosts-save) cmd_known_hosts_save ;;
   cleanup) cmd_cleanup ;;
-  *) sed -n '2,24p' "${BASH_SOURCE[0]}" >&2; exit 2 ;;
+  *) sed -n '2,25p' "${BASH_SOURCE[0]}" >&2; exit 2 ;;
 esac

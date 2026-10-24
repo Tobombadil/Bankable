@@ -367,7 +367,8 @@ def test_the_company_page_opens_with_its_pipeline_and_the_registers_behind_it(cl
     section = body.split('<section class="org-pipeline" id="pipeline"', 1)[1].split(">", 1)[1]
     section = section.split("</section>", 1)[0]
     # Near the top: before the assets, the nearby proposals and the proposal list.
-    assert body.index('id="pipeline"') < body.index("Assets</h2>") < body.index("Proposals</h2>")
+    projects = body.index('id="proposals-title">Projects')
+    assert body.index('id="pipeline"') < body.index("Assets</h2>") < projects
     assert _text(section).startswith(
         "Pipeline 9 proposals sponsored by this company, 6 of them in the active pipeline "
         "(announced, in process or contracted), 370.5 MW. 1 more was last stated as active but is no "
@@ -428,7 +429,7 @@ def test_a_company_that_sponsors_nothing_has_no_pipeline_section(client: TestCli
     _install((200, {"data": {**AGGREGATE, "totals": _t(0)}}), (200, {"data": []}))
     body = client.get("/organizations/cypress-creek").text
     assert 'id="pipeline"' not in body
-    assert "No proposals sponsored by this company." in body
+    assert "No projects sponsored by this company." in body
 
 
 def test_an_unreadable_aggregate_leaves_the_section_out_and_the_list_in(client: TestClient) -> None:
@@ -464,7 +465,7 @@ def test_a_parents_proposals_are_its_groups_and_each_row_names_the_filer(client:
     ]
     _install((200, {"data": aggregate}), (200, {"data": rows, "page": {"has_more": False}}))
     body = client.get("/organizations/cypress-creek").text
-    section = body.split('<section aria-label="Proposals">', 1)[1].split("</section>", 1)[0]
+    section = body.split('aria-labelledby="proposals-title" id="proposals">', 1)[1].split("</section>", 1)[0]
     label = re.search(r'<p class="attribution-line" id="proposals-group">(.*?)</p>', section, re.S)
     assert label is not None and _text(label.group(1)).startswith("Including subsidiaries:")
     assert (
@@ -481,7 +482,7 @@ def test_a_parents_proposals_are_its_groups_and_each_row_names_the_filer(client:
 def test_a_single_company_list_names_no_filer(client: TestClient) -> None:
     _install((200, {"data": AGGREGATE}), (200, {"data": [_proposal(1)], "page": {"has_more": False}}))
     body = client.get("/organizations/cypress-creek").text
-    section = body.split('<section aria-label="Proposals">', 1)[1].split("</section>", 1)[0]
+    section = body.split('aria-labelledby="proposals-title" id="proposals">', 1)[1].split("</section>", 1)[0]
     assert 'id="proposals-group"' not in section and "proposal-filer" not in section
 
 
@@ -489,4 +490,4 @@ def test_a_group_with_no_proposals_says_so_for_the_group(client: TestClient) -> 
     empty = {**AGGREGATE, "scope": {"scope": "all", "organizations": 4}, "totals": _t(0)}
     _install((200, {"data": empty}), (200, {"data": []}))
     body = client.get("/organizations/cypress-creek").text
-    assert "No proposals sponsored by this company or a company it owns." in body
+    assert "No projects sponsored by this company or a company it owns." in body

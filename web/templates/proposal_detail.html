@@ -1,30 +1,15 @@
+{#- A project's Overview, the record's own URL (docs/30 §11.5: Overview · Timeline · Sources; Matches once
+    matches publish). The header is shared by every tab (partials/_record_header.html); the Overview holds
+    the facts, where the project is, the records at its site, Track, and the first rows of its Timeline, so
+    nothing a reader compares is split across tabs (T-5). Each tab ends with its own credits line (T-4). -#}
 {% extends "base.html" %}
-{% import "partials/_sections.html" as sections %}
 {% import "_macros.html" as m %}
+{% import "partials/_record_tabs.html" as rt %}
 {% block title %}{{ record.name | readable_name }} — Inframation{% endblock %}
 {% block meta_description %}{{ record.name }}: {{ record.kind_label if record.technology == record.kind else (record.technology_label or record.kind_label) }} proposal, {{ (record.capacity_mw | mw) ~ ' MW, ' if record.capacity_mw }}{{ record.county ~ ', ' if record.county }}{{ record.state or record.jurisdiction or '' }}.{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <a href="{{ sections.href.projects }}">{{ sections.label.projects }}</a> / {{ record.name | readable_name }}</nav>
-<div class="detail-header">
-  <h1>{{ record.name | readable_name }}</h1>
-  {{ m.status_chip(record.lifecycle_state, record.lifecycle_family, record.status_raw) }}
-  {{ m.slip_note(record.slip) }}
-</div>
-{% if not_listed %}<p class="attribution-line" id="not-listed">No longer listed in any register{% if not_listed.since %} since <time datetime="{{ not_listed.since }}">{{ not_listed.since | display_date }}</time>{% endif %}.</p>{% endif %}
-{{ m.as_filed(record.name) }}
-{#- docs/16 U-2: who is behind the project, on the record's first lines, linked to its company page,
-    with the parent where one is recorded. The parent is an ownership claim, so its source and date
-    sit under it (web/ownership.py). A natural person named in a register keeps their page's
-    `noindex` (the link says `nofollow`) and is labelled "Sponsor", not "Company". With no company
-    the line says "not recorded", never "not named in the source": the API serves no sponsor both
-    when the register names none and when the company is not public (docs/21 §8 item 3). -#}
-{% set co = record.company %}
-<p class="record-company" id="record-company"><span class="record-company__label">{{ 'Sponsor' if co and co.personal_data else 'Company' }}</span>
-{%- if co %} {% if co.href %}<a href="{{ co.href }}"{% if co.personal_data %} rel="nofollow"{% endif %}>{{ co.name | readable_name }}</a>{% else %}{{ co.name | readable_name }}{% endif %}
-{%- if record.company_parent %}<span class="record-company__group"> &middot; part of {% if record.company_parent.href %}<a href="{{ record.company_parent.href }}">{{ record.company_parent.name | readable_name }}</a>{% else %}{{ record.company_parent.name | readable_name }}{% endif %}</span>{% endif %}
-{%- else %} <span class="record-company__none">not recorded</span>{% endif %}</p>
-{% if record.company_parent and record.company_parent.note %}<p class="ownership-claim record-company__claim{% if not record.company_parent.dated %} ownership-claim--undated{% endif %}" id="record-company-claim">{{ record.company_parent.note }}</p>{% endif %}
-{{ m.delayed_banner(delayed) }}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
 
 <dl class="field-grid">
   {#- When the technology token only repeats the kind (`load`/`load`, `storage`/`storage`,
@@ -48,74 +33,32 @@
   <div><dt>{{ record.queue_id_label }}</dt><dd class="mono">{{ record.queue_ids | join(', ') if record.queue_ids else '—' }}</dd></div>
   {% if 'eia_ids' in fields %}<div><dt>EIA plant / generator ID</dt><dd class="mono">{{ record.eia_ids or '—' }}</dd></div>{% endif %}
 </dl>
+{%- if select_basis %}
+<ul class="record-basis" id="why-data-centre">
+  {%- for b in select_basis %}
+  <li>{{ b.line }}{% if b.source %} <span class="record-basis__source">{{ b.source }}</span>{% endif %}</li>
+  {%- endfor %}
+</ul>
+{%- endif %}
+{% set track_type = "proposal" %}{% include "partials/_track.html" %}
 {% include "partials/_proposal_location.html" %}
 {% include "_site_panel.html" %}
-{% set track_type = "proposal" %}{% include "partials/_track.html" %}
 
-{{ m.provenance_panel(provenance_rows, number="1.") }}
-
-{#- The status and date lines name the source that supplied each value (`field_sources`, docs/22
-    §23.4), not the first provenance row: on a merged record they can be different registers. -#}
-{% set status_src = record.status_source %}
-{% set cod_src = record.cod_source %}
-<section aria-label="Lifecycle timeline">
-  {{ m.section_heading("2.", "Lifecycle timeline") }}
-  <p class="attribution-line">{% if record.members|length > 1 %}The current state is the most advanced one the sources below report; the date is read from the same source where it gives one.{% else %}Built from this record&rsquo;s most recent source snapshot: the current state and the dates the source provides.{% endif %} Changes recorded since are listed under History.</p>
+{#- The Timeline's latest rows (T-5); `id="timeline"` and `id="history"` keep the old one-page anchors
+    landing on it (T-8). -#}
+{% call rt.summary("timeline", "Latest changes", tabs, "timeline", timeline.changes | length) %}
+  <span id="history"></span>
+  {%- if timeline.changes %}
   <ul class="timeline">
-    <li>
-      <time datetime="{{ status_src.retrieved_at }}">{{ status_src.retrieved_at | display_date if status_src.retrieved_at else 'unknown date' }}</time>
-      <span class="timeline__event">Observed as <strong>{{ record.lifecycle_state | lifecycle_label | lower }}</strong>{% if status_src.source_name %} in {{ status_src.source_name }}{% endif %}{% if record.status_raw %} (source status: &ldquo;{{ record.status_raw }}&rdquo;){% endif %}.</span>
-    </li>
-    {% if record.proposed_online_date %}
-    <li><time datetime="{{ record.proposed_online_date }}">{{ record.proposed_online_date | display_date }}</time> <span class="timeline__event">Proposed commercial-operation date{% if cod_src.source_name %} stated by {{ cod_src.source_name }}{% endif %} (not a commitment).{% if record.slip %} This date passed <strong>{{ record.slip.amount }}</strong> ago and {{ status_src.source_name or 'its source' }} still reports the project as {{ record.lifecycle_state | lifecycle_label | lower }}.{% endif %}</span></li>
-    {% endif %}
-  </ul>
-  {% if record.slip %}
-  <p class="attribution-line">Overdue is derived at read time by comparing the source-stated date above with today&rsquo;s date; it is not a status the source publishes, and it is only claimed once the date is more than 90 days past. Some registers stop maintaining this date once a project is built, which would leave a finished project reading as overdue &mdash; check the retrieval date on the source row above before relying on it.</p>
-  {% endif %}
-</section>
-
-{% if record.members|length > 1 %}
-<section aria-label="What this record combines">
-  {{ m.section_heading("3.", "What this record combines") }}
-  <p class="attribution-line">Each row is one source&rsquo;s own record of this project, with its own figures. The record above takes capacity from the interconnection request where there is one, and the most advanced status any source reports.</p>
-  <div class="table-scroll">
-  <table class="record-table">
-    <caption>Source records merged into this proposal</caption>
-    <thead><tr><th scope="col">Source</th><th scope="col">Record</th><th scope="col">Name</th><th scope="col">Technology</th><th scope="col" class="num">MW</th><th scope="col">Status</th><th scope="col">Proposed COD</th></tr></thead>
-    <tbody>
-      {% for mbr in record.members %}
-      <tr>
-        <td data-label="Source">{{ mbr.source_label }} <span class="reuse-badge">{{ mbr.role_label }}</span></td>
-        <td data-label="Record" class="mono">{{ mbr.source_record_id or '—' }}</td>
-        <td data-label="Name">{{ mbr.name_canonical or '—' }}</td>
-        <td data-label="Technology">{{ mbr.technology_label or '—' }}</td>
-        <td data-label="MW" class="num tnum">{{ mbr.capacity_mw | mw if mbr.capacity_mw is not none else '—' }}</td>
-        <td data-label="Status">{{ mbr.lifecycle_label or '—' }}{% if mbr.status_raw %} <span class="field-grid__source-value">&ldquo;{{ mbr.status_raw }}&rdquo;</span>{% endif %}{% if mbr.gone_at %} <span class="field-grid__source-value">no longer listed since {{ mbr.gone_at | display_date }}</span>{% endif %}</td>
-        <td data-label="Proposed COD" class="tnum">{{ mbr.proposed_online_date | display_date if mbr.proposed_online_date else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-</section>
-{% endif %}
-
-<section aria-label="History">
-  {{ m.section_heading("4." if record.members|length > 1 else "3.", "History") }}
-  {% if history %}
-  <ul class="timeline">
-    {% for item in history %}
+    {%- for item in timeline.changes[:5] %}
     <li><time datetime="{{ item.date }}">{{ item.date | display_date if item.date else 'unknown date' }}</time> <span class="timeline__event">{{ item.text }}</span></li>
-    {% endfor %}
+    {%- endfor %}
   </ul>
-  {% else %}
-  <p class="attribution-line">No changes recorded since this record was first published.</p>
-  {% endif %}
-</section>
+  {%- else %}
+  <p class="record-summary__empty">No changes recorded since this record was first published.</p>
+  {%- endif %}
+{% endcall %}
 
-{% include "partials/_report_problem.html" %}
-
-{{ m.attribution_line(record) }}
+{{ rt.foot(tabs, credits, record, report=True) }}
+</div>
 {% endblock %}
-{% block extra_scripts %}<script src="/static/js/report.js?v={{ asset_version }}" defer></script>{% endblock %}

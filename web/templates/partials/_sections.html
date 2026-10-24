@@ -38,6 +38,7 @@
   "about_page": "/about",
   "about_sources": "/about/sources",
   "methodology": "/methodology",
+  "glossary": "/glossary",
   "attribution": "/attribution",
   "api": "/docs/api",
   "assets": "/assets",
@@ -56,7 +57,7 @@
   "market": ["map", "site_finder", "projects", "companies", "rfps", "infrastructure", "prices"],
   "my_pipeline": ["tracker", "invitations"],
   "funding": ["funding_grants"],
-  "about": ["about_page", "about_sources", "methodology", "attribution", "api"],
+  "about": ["about_page", "about_sources", "methodology", "glossary", "attribution", "api"],
 } -%}
 {#- The name a section bar is announced by: `<nav aria-label="{name} pages">`. -#}
 {%- set bar_name = {"market": label.market, "my_pipeline": label.my_pipeline, "funding": label.funding, "about": title.about} -%}
@@ -67,7 +68,7 @@
   "market": ["/", "/site-finder", "/proposals", "/sites", "/organizations", "/opportunities", "/assets", "/interconnection-points", "/prices"],
   "my_pipeline": ["/my"],
   "funding": ["/funding"],
-  "about": ["/about", "/methodology", "/attribution", "/docs/api"],
+  "about": ["/about", "/methodology", "/glossary", "/attribution", "/docs/api"],
   "site_finder": ["/site-finder"],
   "projects": ["/proposals", "/sites"],
   "companies": ["/organizations"],

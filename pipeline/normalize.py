@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Normalise the five reachable ISO interconnection queues and the EIA-860M "Planned" sheet
-into one canonical proposal table (docs/02 §5, docs/20 §3.4).
+"""Normalise the five reachable ISO interconnection queues and the EIA-860M "Planned" (and, when
+the status map names it, "Canceled or Postponed") sheet into one canonical proposal table
+(docs/02 §5, docs/20 §3.4).
 
 Reads   data/eval/raw/<source>.<date>.parquet   (evaluation set; re-create with
         `python -m pipeline.connectors run --all`, which replaced the Phase 2 pull.py)
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import hashlib
 import json
 import pathlib
@@ -177,10 +179,52 @@ US_STATES = {
 # - nuclear precedes the steam-turbine rules: ERCOT's "Nuclear - Steam Turbine other than
 #   Combined-Cycle" (STP Unit 2's uprate) fell to `gas_steam`;
 # - `marine` (tidal stream, wave) is a class of its own: NESO "Tidal" fell to `other`;
-# - an LNG terminal is gas: the permits dashboard's "... (Onshore or in State Water) ..." matched
-#   the hydro rule's "water".
+# - an LNG terminal is not hydro: the permits dashboard's "... (Onshore or in State Water) ..."
+#   matched the hydro rule's "water".
+#
+# Taxonomy fixes of 2026-10-24 (filter and tag audit, docs/28 lane F4), pinned by the same table
+# and by `tests/test_technology_families.py` over every raw value the public register held:
+# - an LNG terminal is its own technology and kind, `(lng_terminal, lng)`, not gas generation
+#   (B-2): no LNG proposal is held today, so the kind stays empty until a source sends one;
+# - a pipeline is kind `pipeline` and carbon capture kind `ccs` (B-2, review of lane F4): the
+#   permits dashboard's "Pipelines" was `(transmission, transmission)` (the transmission rule's
+#   `line`), "Interstate Natural Gas Pipelines" `(gas_other, generation)` and "Carbon Capture and
+#   Sequestration" `(other, other)`, so no rule could ever write kind `pipeline`. The rules come
+#   first (see the comment in the list);
+# - NESO "Reactive Compensation" (17 rows) is `(grid_equipment, transmission)` and NESO "CHP
+#   (Combined Heat and Power)" (12) is `(chp, generation)`; both fell to `other` (B-15). A gas
+#   cogeneration plant whose fuel is stated stays gas (the CHP rule follows the gas rules);
+# - EIA "Solar Thermal without Energy Storage" is solar thermal: the hybrid rule read the negated
+#   "Energy Storage" as storage;
+# - EIA "Coal Integrated Gasification Combined Cycle" is coal, not a gas combined cycle;
+# - flywheels are storage; EIA "Other Gases" (blast-furnace, refinery and other fossil gases) is
+#   gas. These three EIA technologies are on no proposal today: they reach the power-plant layer
+#   through EIA-860M's "Operating" sheet, and would reach proposals only through its "Canceled or
+#   Postponed" sheet, which is not loaded (the switch in `pipeline/status_map.yaml`).
+# Nuclear and hydrogen stay technologies whose kind is `generation`; they are not kinds (B-2).
 TECH_RULES: list[tuple[str, str, str]] = [
+    # Not power plants, so ahead of every generation rule (review of lane F4, 2026-10-24): an LNG
+    # terminal first, because the permits dashboard's terminal type ends "... and associated
+    # Natural Gas Pipelines"; then pipelines, which the transmission rule's `line` read as a power
+    # line ("Pipelines") and the gas rule as gas generation ("Interstate Natural Gas Pipelines");
+    # then carbon capture, which the storage rule would read as a battery ("Carbon Capture and
+    # Storage") and which otherwise fell to `other`. A natural-gas pipeline is `gas_pipeline`; a
+    # pipeline whose product the source does not state is `pipeline` (the dashboard has its own
+    # type for interstate gas lines, so its bare "Pipelines" is not known to be gas). Hydrogen,
+    # oil and CO2 pipelines are pipelines too, which is why these precede the hydrogen and oil
+    # rules. Known limit: a power station described together with its capture plant would be
+    # `ccs` (no such value is held; the generation rules cannot see past this one).
+    (r"liquefied\s*natural\s*gas|\blng\b", "lng_terminal", "lng"),
+    (r"\bgas\b.*\bpipe\s*-?\s*lines?\b|\bpipe\s*-?\s*lines?\b.*\bgas\b", "gas_pipeline", "pipeline"),
+    (r"\bpipe\s*-?\s*lines?\b", "pipeline", "pipeline"),
+    (
+        r"carbon\s*(dioxide\s*)?(capture|sequestration|storage)|\bco2\s*(capture|sequestration|storage)"
+        r"|\bccu?s\b",
+        "ccs",
+        "ccs",
+    ),
     (r"pump(ed)?\s*storage", "pumped_storage", "storage"),
+    (r"solar\s*thermal\s+without\b", "solar_thermal", "generation"),
     (r"(solar|photovolt|\bsun\b|\bpv\b).*(storage|batter|\bbat\b)", "solar_storage", "generation"),
     (r"(storage|batter|\bbat\b).*(solar|photovolt|\bsun\b|\bpv\b)", "solar_storage", "generation"),
     (r"(wind|\bwnd\b).*(storage|batter|\bbat\b)", "wind_storage", "generation"),
@@ -189,8 +233,9 @@ TECH_RULES: list[tuple[str, str, str]] = [
     (r"wind|\bwnd\b", "wind", "generation"),
     (r"solar\s*thermal", "solar_thermal", "generation"),
     (r"solar|photovolt|\bsun\b|\bpv\b", "solar", "generation"),
-    (r"batter|\bbess\b|energy\s*storage|^storage|\bbat\b|\bstorage\b", "storage", "storage"),
+    (r"batter|\bbess\b|energy\s*storage|^storage|\bbat\b|\bstorage\b|flywheel", "storage", "storage"),
     (r"nuclear|\bnuc\b", "nuclear", "generation"),
+    (r"\bcoal\b.*\bgasification\b|\bigcc\b", "coal", "generation"),
     # ERCOT spells out exclusions: "... Turbine, but not part of a Combined-Cycle" (52 rows),
     # "Steam Turbine other than Combined-Cycle" (3 rows). Those must not hit the CC rule.
     (r"steam\s*turbine.*(other than|not part of).*combined", "gas_steam", "generation"),
@@ -206,10 +251,11 @@ TECH_RULES: list[tuple[str, str, str]] = [
     (r"fuel\s*cell|\bfc\b", "fuel_cell", "generation"),
     (r"hydrogen", "hydrogen", "generation"),
     (r"\btidal\b|\bwave\s*(energy|power)\b|marine\s*energy", "marine", "generation"),
-    (r"liquefied\s*natural\s*gas|\blng\b", "gas_other", "generation"),
     (r"hydro|\bwat\b|water", "hydro", "generation"),
     (r"steam\s*turbine|\bst\b", "gas_steam", "generation"),
-    (r"natural\s*gas|methane|dual\s*fuel|\bng\b|^gas", "gas_other", "generation"),
+    (r"natural\s*gas|methane|dual\s*fuel|\bng\b|^gas|other\s*gases", "gas_other", "generation"),
+    (r"\bchp\b|combined\s*heat\s*(and|&)\s*power|cogenerat", "chp", "generation"),
+    (r"reactive\s*(power\s*)?compensat|synchronous\s*condens|\bstatcom\b", "grid_equipment", "transmission"),
     (r"transmission|\bac\b|\bdc\b|line|cable", "transmission", "transmission"),
     (r"load|data\s*cent", "load", "load"),
 ]
@@ -416,8 +462,9 @@ def org_key(v) -> str:
 #: " + " (gridstatus joins `Type-1..3`).
 COMPOUND_SEPARATOR = re.compile(r"\s*;\s*|\s+\+\s+")
 #: Classes a firm generation component must not be to count as "the plant" of a compound: storage
-#: is the add-on being classified away, the renewables keep their hybrid classes, and an
-#: unplaceable component (NESO "Demand", "Reactive Compensation") says nothing.
+#: is the add-on being classified away, the renewables keep their hybrid classes, and a component
+#: that generates nothing (NESO "Demand", "Reactive Compensation") says nothing: "Energy Storage
+#: System;Reactive Compensation" (21 NESO rows) is a battery with grid equipment, not grid equipment.
 _NOT_FIRM_GENERATION = frozenset(
     {
         "storage",
@@ -430,6 +477,11 @@ _NOT_FIRM_GENERATION = frozenset(
         "other",
         "unknown",
         "transmission",
+        "grid_equipment",
+        "lng_terminal",
+        "gas_pipeline",
+        "pipeline",
+        "ccs",
         "load",
     }
 )
@@ -477,6 +529,49 @@ def classify_tech(raw) -> tuple[str, str]:
     if len(parts) > 1:
         return classify_components(parts)
     return _classify_text(s.lower())
+
+
+# ---------------------------------------------------------------- families and kinds (keys only)
+#: `data/vocabulary/technology_families.yaml`: the technology family set of docs/28 §8.1, one set
+#: of keys for projects, power plants, companies and RFPs. A family is a key and its member tokens;
+#: the words a reader sees live with the labels (`services/labels.py`), not here.
+TECHNOLOGY_FAMILIES_PATH = ROOT / "data" / "vocabulary" / "technology_families.yaml"
+#: `data/vocabulary/proposal_kinds.yaml`: the proposal kinds a record can carry, and the retired
+#: ones no classifier or connector emits any more.
+PROPOSAL_KINDS_PATH = ROOT / "data" / "vocabulary" / "proposal_kinds.yaml"
+
+
+@functools.lru_cache(maxsize=1)
+def technology_families() -> dict[str, tuple[str, ...]]:
+    """Family key -> its member technology tokens, in the file's order."""
+    data = yaml.safe_load(TECHNOLOGY_FAMILIES_PATH.read_text(encoding="utf-8"))
+    families = {str(k): tuple(str(t) for t in v) for k, v in data["families"].items()}
+    seen: dict[str, str] = {}
+    for family, members in families.items():
+        for token in members:
+            if token in seen:
+                raise ValueError(f"technology {token!r} is in two families: {seen[token]!r} and {family!r}")
+            seen[token] = family
+    return families
+
+
+def technology_family(token: object) -> str | None:
+    """The family key of a technology token. A missing token is "not stated", which the family
+    set files under `other`; a token no family lists is None (a vocabulary gap the tests catch)."""
+    if token is None or (pd.api.types.is_scalar(token) and pd.isna(token)) or not str(token).strip():
+        return "other"
+    text = str(token).strip()
+    for family, members in technology_families().items():
+        if text in members:
+            return family
+    return None
+
+
+@functools.lru_cache(maxsize=1)
+def proposal_kinds() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(kinds a proposal can carry, retired kinds) from `data/vocabulary/proposal_kinds.yaml`."""
+    data = yaml.safe_load(PROPOSAL_KINDS_PATH.read_text(encoding="utf-8"))
+    return tuple(str(k) for k in data["kinds"]), tuple(str(k) for k in data.get("retired") or ())
 
 
 # ---------------------------------------------------------------- CAISO technology from type + fuel
@@ -855,11 +950,32 @@ def normalize_iso(df: pd.DataFrame, source_id: str, status_map: dict, retrieved_
     return out
 
 
+#: EIA-860M's sheet of units it lists as "Canceled or Indefinitely Postponed" (its title row). The
+#: sheet has no Status column and no planned dates: the sheet is the status, and EIA does not say
+#: which of the two a unit is. A row read from it carries `_sheet` with this value, and its
+#: `status_raw` is the sheet's name, which the eia860m block of `status_map.yaml` maps (or not:
+#: `pipeline/connectors/us_eia_860m/connector.py` loads the sheet only while that map names it).
+EIA_CANCELED_SHEET = "Canceled or Postponed"
+
+
+def eia_status_raw(df: pd.DataFrame) -> pd.Series:
+    """The status text of each EIA-860M row: its `Status` cell, or the sheet's name for a row of the
+    "Canceled or Postponed" sheet (`EIA_CANCELED_SHEET`), whose rows carry no Status."""
+    n = len(df)
+    status = (df["Status"] if "Status" in df.columns else _blank(n)).astype("object").reset_index(drop=True)
+    if "_sheet" not in df.columns:
+        return status
+    sheet = df["_sheet"].astype("object").reset_index(drop=True)
+    canceled = sheet.eq(EIA_CANCELED_SHEET) & status.map(_blank_value)
+    return status.where(~canceled, EIA_CANCELED_SHEET)
+
+
 def normalize_eia(df: pd.DataFrame, status_map: dict, retrieved_at: str) -> pd.DataFrame:
     _, url, licence = SOURCE_META["eia860m"]
+    df = df.reset_index(drop=True)
     n = len(df)
     get = lambda c: df[c] if c in df.columns else _blank(n)  # noqa: E731
-    ctxs = pd.DataFrame({"status_raw": get("Status").astype("object")})
+    ctxs = pd.DataFrame({"status_raw": eia_status_raw(df)})
     harmonised = [harmonise_status("eia860m", r, status_map) for r in ctxs.to_dict("records")]
     tech = [classify_tech(v) for v in get("Technology")]
 

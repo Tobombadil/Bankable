@@ -1,0 +1,75 @@
+# us.epa.echo.icis_npdes_construction: ICIS-NPDES PERMIT_STATUS_CODE of a construction stormwater coverage ->
+# proposal lifecycle (docs/21 §7.1). `field: Status` is the literal pipeline.normalize.harmonise_status recognises;
+# the connector passes each permit's PERMIT_STATUS_CODE under ctx["status_raw"] and "yes"/"no" for a recorded
+# TERMINATION_DATE under ctx["terminated"]. Before this map, the connector reads four cases as `unknown` itself
+# (connector._permit_state), judged at the file's own date: EXP/NON/RET with no termination (rule `not_stated`),
+# coverage in force whose expiration date passed more than a year before the file (`lapsed_coverage`), coverage in
+# force in a state that no longer reports construction coverage to ICIS, unless the coverage is from the last year
+# (`state_not_reporting`), and a termination dated on the coverage's expiration date or the day after
+# (`terminated_at_expiry`). A site's state is its most recent filing's, except that coverage in force filed within
+# a year before the site's latest termination keeps it under construction (connector.site_decision). Codes per the
+# ECHO data element dictionary (https://echo.epa.gov/tools/data-downloads/icis-npdes-download-summary,
+# PERMIT_STATUS_CODE): Effective (EFF), Administratively Continued (ADC), Expired (EXP), Not Needed (NON), Pending
+# (PND), Retired (RET), Terminated (TRM). Measured 2026-10-24 on the 306 coverages of the 229 published sites
+# (current permit version, file of 2026-10-18): EFF 133, TRM 113, EXP 35, ADC 24, PND 1; a TERMINATION_DATE is
+# recorded on all 113 TRM rows and on no other. Rules: map 126, terminated 107, not_stated 35, lapsed_coverage 22,
+# state_not_reporting 10, terminated_at_expiry 6. A value not listed is unmapped -> unknown + a DQ vocabulary
+# warning, never coerced.
+version: 2
+updated: 2026-10-24
+canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+sources:
+  epa_icis_npdes_construction:
+    field: Status
+    refine:
+      # A notice of termination is on file, whatever the status code says (one dated on the coverage's
+      # expiration date never reaches this map: the connector reads it as unknown, terminated_at_expiry).
+      - id: epa_icis_npdes_construction.terminated
+        when: {terminated: "yes"}
+        then: built
+    map:
+      PND: filed
+      EFF: under_construction
+      ADC: under_construction
+      TRM: built
+    # EXP, NON and RET are deliberately absent. They say nothing about construction, so the connector
+    # reads them as `unknown` under the rule `epa_icis_npdes_construction.not_stated`
+    # (connector.NOT_STATED_STATUSES): `unknown` is the fallback no map names
+    # (tests/test_lifecycle_definitions.py), and a fall-through would count as an unmapped value.
+    caveats:
+      - >-
+        PND -> filed. The notice of intent is on file and coverage is not yet granted.
+      - >-
+        EFF and ADC -> under_construction. Coverage exists only for a site in its construction phase, so coverage
+        in force is construction-stage evidence (docs/21 §7.1 lists a permit notice as a construction-start
+        signal). Its limit is that a notice of intent precedes construction: it proves the operator certified that
+        earth-disturbing work would begin and was authorised to begin, not that ground has broken. The gap is days
+        to months, and a stalled project can hold coverage for years (ADC is coverage carried over while the
+        master general permit awaits reissue).
+      - >-
+        Coverage in force is current evidence only while the record is maintained. One whose own expiration date
+        passed more than a year before the file is unknown (lapsed_coverage): states reissue their general permit
+        and re-cover open sites within months (Arizona re-covered its open sites under AZG2025), so a coverage
+        still ADC a year on is a record nobody closed (Virginia's 2019-permit coverages, expired 2024-06-30). One in
+        a state that no longer reports construction coverage to ICIS is unknown (state_not_reporting: fewer than
+        50 construction filings in the year before the file, or under a quarter of the year before that;
+        California, Wyoming, Oklahoma and Guam on the 2026-10-18 file), unless it is itself from that year.
+      - >-
+        TRM -> built. Termination follows construction: the operator certified that earth-disturbing work ended
+        and the site reached final stabilisation, or that another operator took control of the unstabilised areas
+        (that operator's own notice of intent is then another permit of the same site, which keeps the site
+        under_construction). It does not prove the data centre is in service; the raw status stays in status_raw.
+        A termination dated on the coverage's expiration date, or the day after, is the coverage lapsing, not a
+        notice of termination, and is unknown (terminated_at_expiry; 6 coverages on the 2026-10-18 file).
+      - >-
+        EXP is unknown (rule not_stated, in the connector). The coverage lapsed with no notice of termination
+        recorded; the outcome is not stated.
+      - >-
+        NON (not needed) and RET (retired) are unknown the same way. Neither says whether construction happened;
+        neither occurred among the selected coverages on 2026-10-18.
+      - >-
+        A site with several permits takes its most recent filing's state, so a later termination outranks an older
+        coverage still recorded in force. Coverage in force filed within a year before the latest termination, or
+        after it, is the site's continuing construction (a handover's new NOI, often on the same day; a renewal; the
+        next phase) and keeps it under_construction. On the 2026-10-18 file the two rules split 10 sites: the
+        exception is right on 7, the most recent filing on 2, and 1 is uncertain.

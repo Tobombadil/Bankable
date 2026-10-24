@@ -20,10 +20,15 @@ to what the reader picks. Nothing here, and nothing in map.js, calls a third-par
   is. An organisation that is a natural person (`personal_data`, `docs/13` §5.5) is not offered:
   the map's search is for companies, and the minimum of personal data is shown.
 
-Each group asks the API for a few more rows than it shows and lists the names that begin with what
-was typed first. The site's own calls are not metered by the API's search window
-(`services/api/ratelimit.py`: `X-Internal-Token` is exempt); map.js waits for two characters and a
-pause in typing before it asks.
+Each group asks the API for a few more rows than it shows. Every suggestion carries a `rank`
+(`word_rank`, `place_rank`): 0 a whole name or a state's code ("ny"), 1 a name that begins with the
+words typed ("duke" for "Duke Energy Carolinas"), 2 one that begins with the letters typed ("Dukes
+County"), 3 one with a word that begins with them, 4 the rest (a sponsor or a queue id matched).
+map.js shows one list in that order whatever the kind, places before companies before projects
+within a rank, so Enter takes the best match (lane stacked-lists, fix round, 2026-10-24).
+
+The site's own calls are not metered by the API's search window (`services/api/ratelimit.py`:
+`X-Internal-Token` is exempt); map.js waits for two characters and a pause in typing before it asks.
 
 **Busiest areas** (`busiest_areas`, `GET /api/map/areas` in `web/app.py`; `docs/31` §5.19). The
 panel's overview at national and multi-state views names the five states (or countries) holding the
@@ -42,7 +47,7 @@ import re
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -83,15 +88,21 @@ class Place:
     words: tuple[str, ...]
     name_key: str
     abbr: str
+    #: What the place is, as the map's list prints it beside the name (`county_noun`).
+    noun: str = "County"
 
-    def payload(self) -> dict[str, Any]:
-        return {
+    def payload(self, rank: int | None = None) -> dict[str, Any]:
+        out: dict[str, Any] = {
             "kind": self.kind,
             "id": self.region_id,
             "label": self.label,
             "detail": self.detail,
+            "noun": self.noun,
             "bbox": list(self.bbox),
         }
+        if rank is not None:
+            out["rank"] = rank
+        return out
 
 
 def words_of(text: str) -> list[str]:
@@ -128,6 +139,48 @@ def bbox_of(geometry: Mapping[str, Any] | None) -> tuple[float, float, float, fl
 
 def is_independent_city(geoid: str, state_abbr: str) -> bool:
     return state_abbr in _INDEPENDENT_CITY_STATES and geoid[2:] >= "500"
+
+
+#: Alaska's census areas (its county equivalents in the Unorganized Borough), current and former;
+#: its other county equivalents are boroughs, Anchorage a municipality.
+_ALASKA_CENSUS_AREAS = frozenset(
+    {
+        "aleutians west",
+        "bethel",
+        "chugach",
+        "copper river",
+        "dillingham",
+        "hoonah angoon",
+        "kusilvak",
+        "nome",
+        "prince of wales hyder",
+        "southeast fairbanks",
+        "valdez cordova",
+        "yukon koyukuk",
+    }
+)
+_OWN_NOUNS = {"census area": "Census area"}
+
+
+def county_noun(geoid: str, name: str, state_abbr: str) -> str:
+    """What a county-level place is called where it is, as the map's list prints it beside the
+    name (lane stacked-lists, fix round): "Orleans" in Louisiana is a parish, "Kenai Peninsula" an
+    Alaska borough, "Bethel" a census area, "Adjuntas" a municipio."""
+    own = _HAS_OWN_NOUN.search(name)
+    if own:
+        return _OWN_NOUNS.get(own.group(1).lower(), own.group(1))
+    if is_independent_city(geoid, state_abbr):
+        return "City"
+    if state_abbr == "LA":
+        return "Parish"
+    if state_abbr == "AK":
+        key = " ".join(words_of(name))
+        if key == "anchorage":
+            return "Municipality"
+        return "Census area" if key in _ALASKA_CENSUS_AREAS else "Borough"
+    if state_abbr == "PR":
+        return "Municipio"
+    return "County"
 
 
 def county_label(geoid: str, name: str, state_abbr: str, state_name: str | None) -> str:
@@ -168,7 +221,7 @@ def load_places(api: ApiClient) -> list[Place]:
         name_words = tuple(words_of(name))
         code, key = abbr.lower(), " ".join(name_words)
         words = (*name_words, code)
-        places.append(Place("state", region_id, name, "State", box, name_words, words, key, code))
+        places.append(Place("state", region_id, name, "State", box, name_words, words, key, code, "State"))
     for feature in _features(api, "county"):
         props = feature.get("properties") or {}
         geoid, name = str(props.get("region_id") or ""), str(props.get("name") or "")
@@ -181,7 +234,7 @@ def load_places(api: ApiClient) -> list[Place]:
         label = county_label(geoid, name, abbr, state_name)
         name_words = tuple(words_of(name))
         extra = words_of(label[len(name) :]) + words_of(state_name or "")
-        noun = "City" if is_independent_city(geoid, abbr) else "County"
+        noun = county_noun(geoid, name, abbr)
         places.append(
             Place(
                 "county",
@@ -193,6 +246,7 @@ def load_places(api: ApiClient) -> list[Place]:
                 (*name_words, *extra),
                 " ".join(name_words),
                 abbr.lower(),
+                noun,
             )
         )
     return places
@@ -239,13 +293,51 @@ def _starts_a_word(token: str, words: tuple[str, ...]) -> bool:
     return any(w.startswith(token) for w in words)
 
 
-def match_places(places: list[Place], query: str, limit: int = PLACE_LIMIT) -> list[Place]:
-    """The places a query names, best first: a whole name or a state's code ("tx"), then names
-    that begin with the query, then the rest; a state before a county; then by label."""
+#: `word_rank`'s answers, best first (module docstring): one scale for every kind, so map.js can put a
+#: state matched by its code above a company whose name only begins with the same letters.
+RANK_WHOLE, RANK_WORDS, RANK_LETTERS, RANK_A_WORD, RANK_OTHER = range(5)
+
+
+def word_rank(name_words: Sequence[str], tokens: Sequence[str]) -> int:
+    """How well a name answers the words typed: the whole name; its first words, whole ("duke" for
+    "Duke Energy Carolinas", "ny" for "NY CDG 1 LLC"); its first letters ("duke" for "Dukes
+    County"); a word of it begun by each word typed; or none of these (a sponsor or a queue id
+    matched). Words, not letters, so "duke" puts Duke Energy above Dukes County."""
+    name, typed = list(name_words), list(tokens)
+    if not typed:
+        return RANK_OTHER
+    if name == typed:
+        return RANK_WHOLE
+    if name[: len(typed)] == typed:
+        return RANK_WORDS
+    if " ".join(name).startswith(" ".join(typed)):
+        return RANK_LETTERS
+    if all(_starts_a_word(t, tuple(name)) for t in typed):
+        return RANK_A_WORD
+    return RANK_OTHER
+
+
+def place_rank(place: Place, tokens: Sequence[str]) -> int:
+    """`word_rank` for a place, where a state's code ("tx") is its whole name, and so is its name
+    followed by its own noun or its state ("travis county", "harris tx", "orleans louisiana")."""
+    typed = list(tokens)
+    if place.kind == "state" and typed == [place.abbr]:
+        return RANK_WHOLE
+    size = len(place.name_words)
+    if typed[:size] == list(place.name_words) and all(t in place.words for t in typed[size:]):
+        return RANK_WHOLE
+    rank = word_rank(place.name_words, typed)
+    if rank == RANK_OTHER and all(_starts_a_word(t, place.words) for t in typed):
+        return RANK_A_WORD  # "trav alp": its name, then its state, each begun
+    return rank
+
+
+def ranked_places(places: list[Place], query: str, limit: int = PLACE_LIMIT) -> list[tuple[Place, int]]:
+    """The places a query names, best first, each with its `place_rank`: by rank, a state before a
+    county, then by label. The first word typed must begin a word of the name, or be a state's code."""
     tokens = words_of(query)
     if not tokens:
         return []
-    joined = " ".join(tokens)
     scored: list[tuple[int, int, str, Place]] = []
     for place in places:
         if not _starts_a_word(tokens[0], place.name_words):
@@ -253,34 +345,24 @@ def match_places(places: list[Place], query: str, limit: int = PLACE_LIMIT) -> l
                 continue
         if not all(_starts_a_word(t, place.words) for t in tokens[1:]):
             continue
-        if place.name_key == joined or (place.kind == "state" and tokens == [place.abbr]):
-            score = 0
-        elif place.name_key.startswith(joined):
-            score = 1
-        else:
-            score = 2
-        scored.append((score, 0 if place.kind == "state" else 1, place.label, place))
+        scored.append((place_rank(place, tokens), 0 if place.kind == "state" else 1, place.label, place))
     scored.sort(key=lambda row: row[:3])
-    return [row[3] for row in scored[:limit]]
+    return [(row[3], row[0]) for row in scored[:limit]]
 
 
-def _name_rank(name: str, query: str) -> int:
-    """0 when a name begins with the query, 1 when a word of it does, else 2 (a sponsor or a
-    queue id matched)."""
-    words = words_of(name)
+def match_places(places: list[Place], query: str, limit: int = PLACE_LIMIT) -> list[Place]:
+    """The places a query names, best first (`ranked_places`)."""
+    return [place for place, _rank in ranked_places(places, query, limit)]
+
+
+def _ranked(
+    rows: list[dict[str, Any]], name_key: str, query: str, limit: int
+) -> list[tuple[dict[str, Any], int]]:
+    """Rows by the `word_rank` of their name, then in the API's order; each with its rank."""
     tokens = words_of(query)
-    if not tokens:
-        return 2
-    if " ".join(words).startswith(" ".join(tokens)):
-        return 0
-    if all(_starts_a_word(t, tuple(words)) for t in tokens):
-        return 1
-    return 2
-
-
-def _ranked(rows: list[dict[str, Any]], name_key: str, query: str, limit: int) -> list[dict[str, Any]]:
-    order = sorted(range(len(rows)), key=lambda i: (_name_rank(str(rows[i].get(name_key) or ""), query), i))
-    return [rows[i] for i in order[:limit]]
+    ranks = [word_rank(words_of(str(row.get(name_key) or "")), tokens) for row in rows]
+    order = sorted(range(len(rows)), key=lambda i: (ranks[i], i))
+    return [(rows[i], ranks[i]) for i in order[:limit]]
 
 
 def _list(api: ApiClient, path: str, params: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -295,7 +377,7 @@ def company_suggestions(api: ApiClient, query: str) -> list[dict[str, Any]]:
     found = _list(api, "/v1/organizations", {"q": query, "limit": FETCH_LIMIT})
     rows = [r for r in found if not r.get("personal_data")]
     out = []
-    for row in _ranked(rows, "name_canonical", query, COMPANY_LIMIT):
+    for row, rank in _ranked(rows, "name_canonical", query, COMPANY_LIMIT):
         slug = row.get("slug")
         out.append(
             {
@@ -303,6 +385,7 @@ def company_suggestions(api: ApiClient, query: str) -> list[dict[str, Any]]:
                 "label": row.get("name_canonical") or row.get("public_id"),
                 "detail": "Company",
                 "url": f"/organizations/{slug}" if slug else None,
+                "rank": rank,
             }
         )
     return out
@@ -386,13 +469,13 @@ def project_suggestions(api: ApiClient, query: str) -> list[dict[str, Any]]:
     rows = _list(api, "/v1/proposals", {"q": query, "limit": FETCH_LIMIT})
     out: list[dict[str, Any]] = []
     seen: set[tuple[Any, Any]] = set()
-    for row in _ranked(rows, "name_canonical", query, len(rows)):
+    for row, rank in _ranked(rows, "name_canonical", query, len(rows)):
         loc = row.get("location") or {}
         key = (row.get("name_canonical"), loc.get("county_fips") or loc.get("state_code"))
         if key in seen:
             continue
         seen.add(key)
-        out.append(project_suggestion(api, row))
+        out.append({**project_suggestion(api, row), "rank": rank})
         if len(out) == PROJECT_LIMIT:
             break
     return out
@@ -411,7 +494,7 @@ def map_search(request: Request) -> JSONResponse:
     if len(query) < MIN_QUERY_LENGTH:
         return JSONResponse(body)
     api = get_api(request)
-    body["places"] = [p.payload() for p in match_places(PLACES.places(api), query)]
+    body["places"] = [p.payload(rank) for p, rank in ranked_places(PLACES.places(api), query)]
     body["companies"] = company_suggestions(api, query)
     body["projects"] = project_suggestions(api, query)
     return JSONResponse(body)

@@ -1425,6 +1425,89 @@ joins `test_a_section_is_named_in_one_place` in V4's change to that page (build 
 `test_a_section_is_named_in_one_place`"). **V3 and V4:** breadcrumbs that start with the section (`web/test_seo.py`
 row) live in the page bodies, which V1 does not change; V3 does it for record pages, V4 for Companies and RFPs.
 
+**Built: V3, record tabs (2026-10-23, lane record-tabs).** One module, `web/record_tabs.py` (tab orders, the
+absent-tab lines, `Tabs`, the `?tab=` and merged-slug 301s, the per-tab credits line, the header's key facts and
+glossary keys, the one primary action, the Timeline's rows), two partials (`partials/_record_header.html`,
+`partials/_record_tabs.html`) and one template per tab: projects Overview · Timeline · Sources (Matches stays
+unlinked and answers 404, IA-9); plants, pipelines and lines Overview · Retirement · Grid · Ownership · Nearby ·
+Sources; grid connection points Overview · Projects · Changes · Sources. As built, against §11.5:
+
+- **Retirement** is present only where the plant has retired or scheduled-to-retire generators. Its facts leave the
+  status to the header's badge, and the Overview's block leads with when, or how much by when ("Capacity scheduled
+  to retire 320 MW", "Next scheduled retirement December 2028").
+- **Grid** is present only where such a plant reports EIA-860 grid fields or the grid around it
+  (`GET /v1/assets/{id}/nearby-grid`) lists a line or a connection point. The grid call runs on every tab only when
+  the plant's own fields are empty, so a plant that reports them keeps it to the Grid tab (T-10). A plant that
+  retired before EIA-860's report year, one with no mapped location and one whose grid call fails have no Grid tab
+  and no Overview Grid block; their Retirement tab keeps the reuse note behind its disclosure. Grid widens with B-3.
+- **Ownership** is present with two or more ownership records, except one company's owner and operator pair (§11.5:
+  "a sole owner and operator stays the header line"). Without the tab, the header line carries every record's
+  share, source and date whatever its role (an operator-only pipeline included) and keeps the `#owners` anchor.
+- **Nearby** is present only with exact-grade projects within 25 km; a point's **Projects** and **Changes** only when
+  it has them. Changes carries no count: the API serves the newest ten changes, not a total. The point's Overview
+  credits the registers of the change rows it lists (T-4).
+- `{record}/overview` answers 301 to the record; an empty or unknown `?tab=` keeps the path's tab; only the Overview
+  records `page.viewed`, so PM-5's series counts one view per record visit, as the one-page record did.
+
+The header carries the key facts as labels over values (capacity, interconnection queue, queue position, in-service
+date, large load; a plant's year is "Commissioned", which stays true once it retires), each term and the status chip
+linking to `/glossary#<key>`, and the D-3 tier notice, which asset and point pages did not show before. The
+primary action is Track where `track_offer` offers it, otherwise Show on map, Open in Projects or View at source;
+Track itself stays in `partials/_track.html` (V6), included on the Overview. Merged-slug redirects exist only for projects (assets and points have no merges in the API). The sitemap
+lists Overviews only and adds `/prices` because its route exists; `/funding`, `/prices/states`, `/about/sources`
+and the methodology tabs join by themselves once their routes do (`web/sitemaps.py` `sitemap_static_paths`).
+`site.js` maps the old anchors (`#sources`, `#timeline`, `#history`, `#report-problem`, `#retirement`, `#grid`,
+`#owners`, `#nearby`, `#projects`, `#changes`) to their tabs, and only when the tab is linked from the page. Measured
+on a demo store (served on a spare port), words above the fold at 1440x900 and 390x844, before → after: project
+Overview 133 → 130 and 94 → 77, data-centre project 135 → 130 and 91 → 97, plant Overview 113 → 131 and 72 → 98, wind
+farm 81 → 98 and 47 → 80, grid point 179 → 172 and 84 → 83 (the plants gained the tier notice and the facts row);
+page height at 390px 2326 → 2116, 3775 → 2887 and 3745 → 2803. Taste inspector (`--app`): Overviews went from
+1 FAIL 5 WARN (project) and 0 FAIL 5 WARN (plant, point) to 0 FAIL with 1-2 WARN; every tab is 0 FAIL, and the WARNs
+left are the brand palette, the section bar's mono label and its cut "Prices" at 390px (V1, brand lane), and on
+the six-tab bar at 390px a cut neighbour of the current tab (the bar scrolls sideways by design). axe-core 4.10:
+0 violations on all fourteen tabs at 1440 and 390px. Fix round (review of 2026-10-23), on a fake-API demo of the
+reviewer's scenarios (closed disclosures not counted), words above the fold at 1440x900 and 390x844, before →
+after: retiring plant 118 → 116 and 93 → 91, its Retirement tab 209 → 205 and 100 → 105 (the tables move up),
+retired plant 111 → 108 and 89 → 86 (390px height 2138 → 1949, the Grid block gone), its Retirement tab 180 → 179
+and 95 → 94, operator-only pipeline 140 → 146 and 86 → 92 (its record's source and date back on the header line),
+one-company plant 107 → 110 and 87 → 88 (no Ownership tab; 390px height 1928 → 1811), grid point 149 → 148 and
+83 → 82, project unchanged (112, 78); no horizontal scroll at 360, 390 or 1440px. Taste lint unchanged; inspector
+0 FAIL on all ten pages before and after, the retired plant's Retirement tab 3 → 2 WARN (the WARNs left are the
+brand palette and V1's section bar); axe-core 4.10 0 violations and no duplicate id on twelve pages, 404 tabs
+included, at 1440, 390 and 360px.
+
+**Built: V7, search, About and Methodology (2026-10-23, lane search-about).** `/search`: §11.4's tabs in a fixed
+order with counts (`type=`), a top hit (a company's name, else an asset's, that starts with the words), five rows a
+kind on All and fifty on a kind's tab; each "All N" and full-list link shows exactly what its count counted (Projects
+names every lifecycle state; RFPs and Funding carry their kinds and `status=all&relevance=all`; Infrastructure prints
+"50+", as `/v1/assets` has no count); a kind whose read fails costs only itself. `/about`: the reach by region, US
+first, each figure the published registers its `/about/sources` table lists; `#sources`, `#deals`, `#tiers` stay.
+`/about/sources`: every register by cursor (the old page read 100 of 180), counts only for published registers a list
+counts, each a link to that list; Sources & licences joined the About bar. Coverage & methodology: three URL tabs;
+`/methodology` keeps the old anchors on a summary list that links on; status words are `#state-<key>` and
+`#notice-<key>` (no duplicate ids). `/glossary` (`web/glossary.py`): every `LIFECYCLE_LABELS` key at `#<key>`, the
+seven record-page anchors and six more, DefinedTermSet JSON-LD, no API call. Measured on a copy of the e2e store:
+`/methodology` 9,731 to 1,653px tall at 1440, `/search?q=solar` 6,959 to 1,009; taste-gate FAILs `/about` 7 to 4 and
+`/methodology` 8 to 5, search 0 and 0 (`--app`). Fix round (review of 2026-10-23): `/attribution` reads every
+page of `/v1/sources` (it showed 100 of 180 registers, none of the ISO queues); glossary links show what their words
+say (Operating plants `status=operating`; "Earliest stated date first", not "Soonest"; RFPs and funding calls name
+their kinds and no status, so the list's default and Recently closed apply); `/about` counts no news feed or social
+channel as a register and places a blank-jurisdiction or US-clipped register by its id or clip; `/about/sources`
+lists news feeds after the regions, leaves out the site's own channels, keeps each register's count for 15 minutes
+and stacks its cells below 720px; the methodology tabs keep one row; an
+unread platform status prints outside "About this". Left for other lanes: `site.js` `MOVED_FRAGMENTS` rows (`#sources`,
+`#absences`, `#withheld`, `#ownership`, `#asset-sources`, `#absent-technologies`, `#absent-states`, `#states`,
+`#lifecycle`, `#opportunity-statuses`, `#note-*`), `/glossary`, `/about/sources` and the two methodology tabs in
+`web/sitemaps.py`, the footer's `/about#sources` link, Glossary in the About bar, footer and Menu, and
+`web/record_tabs.py` taking its anchors from `web.glossary.RECORD_PAGE_ANCHORS`.
+
+**Integrated: V3 and V7 (2026-10-24, lane w2a-glue).** `site.js` moves `/about#sources` and V7's nine old
+`/methodology` anchors to their new pages, and the `#note-`, `#asset-sources-` and `#state-` families by prefix, each
+row only to a page the one it is on links; the sitemap always lists `/about/sources`, the two methodology tabs and
+`/glossary`; Glossary is in the About bar (so `/glossary` now shows the bar) and §11.3; the footer's Sources & licences
+link is `/about/sources`; `web/record_tabs.py` `GLOSSARY_TERMS` is `RECORD_PAGE_ANCHORS`. Glossary in the footer and the
+phone Menu waits for `base.html` and `partials/_top_bar.html`, which the brand lane holds.
+
 **Asked by the owner, verbatim:** "could we also improve the navigation and various pages? For navigation, use a top
 bar and follow best practices from leading industry platforms to separate the site's major sections Map vs deal
 building vs funding (with whatever names we are using for that). Further, give each page a clear purpose. Do not have
@@ -1553,7 +1636,7 @@ section's bar with its list marked `aria-current="true"`. Pages that are not yet
 | Market | **MARKET INTELLIGENCE** · Map · Site finder · Projects · Companies · RFPs · Infrastructure · Prices · *(right)* source freshness · About & sources | Infrastructure: *Plants, pipelines & lines* · *Grid connection points* (as built). Prices: *Hubs & zones* · *State averages* | Map-shaped tools first (the landing, then the finder), then the record lists in the ratified order, then Prices (aggregates, not records). Site finder joins when its page has results, Prices when its page ships. Alerts leaves the bar: it is a utility in the top bar |
 | My pipeline | **MY PIPELINE** · Tracker · Invitations | None | Invitations shows only while one waits for this user. The Tracker's type filter (All · Projects · Bids · Investments) is a control on the page, not bar items: one list, filtered. Later: Documents, every file across items, when data rooms ship |
 | Funding | **FUNDING** · Grants & loans · Funders | None | Funders after counsel has read `docs/18` §4, invited capital partners only, never a public listing of deals seeking investment |
-| About (reference) | **ABOUT** · About · Sources & licences · Coverage & methodology · Attribution · API & feeds | Coverage & methodology: *Release dates* · *What is not here* · *Status words* | Reached from the footer, the Menu and About & sources. Privacy and the legal pages stay footer links with no bar |
+| About (reference) | **ABOUT** · About · Sources & licences · Coverage & methodology · Glossary · Attribution · API & feeds | Coverage & methodology: *Release dates* · *What is not here* · *Status words* | Reached from the footer, the Menu and About & sources. Privacy and the legal pages stay footer links with no bar |
 
 Search, Alerts, Account, sign-in and the admin surface have no section bar. Admin keeps its own navigation (§1.3).
 
@@ -1561,7 +1644,7 @@ Search, Alerts, Account, sign-in and the admin surface have no section bar. Admi
 Funding `funding`. Section titles: "Market intelligence", "My pipeline", "Funding", "About". New page labels: RFPs
 `rfps` (was "RFPs & funding"), Prices `prices`, Hubs & zones `prices_hubs`, State averages `prices_states`, Grants &
 loans `funding_grants`, Funders `funders`, Tracker `tracker`, Invitations `invitations`, Sources & licences
-`about_sources`, Coverage & methodology `methodology`, Attribution `attribution`, API & feeds `api`. New list H1s: "RFPs
+`about_sources`, Coverage & methodology `methodology`, Glossary `glossary`, Attribution `attribution`, API & feeds `api`. New list H1s: "RFPs
 and tenders" (`/opportunities`) and "Grants, loans and programmes" (`/funding`). Breadcrumbs start with the section,
 as the copy rule asks for "Market" there: "Market / Companies / {name}", "Funding / Grants & loans / {title}", "My
 pipeline / Tracker / {item}".
@@ -1600,7 +1683,7 @@ may run long when it opens with a contents list; a data page may not.
 | Item | `/my/items/{id}` and tabs | Per tab (§11.5) | Per tab | Same tabs for every type |
 | Invitations | `/my/invitations` | Who has invited me, to what? | Accept | Shown only while one is pending; the accept page `/my/invitations/accept` (`docs/19` §6.2) is unchanged |
 | **Utilities and reference** | | | | |
-| Search | `/search?q=` (`&type=`) | Which records match my words? | Open the top hit | Tabs by type with counts and a top hit (`docs/16` §4.4): All · Companies · Projects · Infrastructure · RFPs · Funding |
+| Search | `/search?q=` (`&type=`) | Which records match my words? | Open the top hit | One kind at a time (§11.4.1, lane stacked-lists, 2026-10-24): the kinds with counts down the left (chips on phones), Companies · Projects · Infrastructure · RFPs · Funding, opening on the kind with the most matches; one table under a head that names the kind and count and stays in view; a top hit of another kind above it. "All" and its stacked lists are gone |
 | Alerts | `/alerts` | What am I following, and what changed? | New alert from a search | None |
 | New alert | `/alerts/new` | What should this alert watch? | Save alert | None |
 | Account | `/account` | What does my account hold, and how do I leave? | Download your data | None (one short page) |
@@ -1632,6 +1715,94 @@ page HTML, JSON-LD, social cards, analytics, logs, alerts or the admin dashboard
 it is tracked or by whom (an Investment item is the funder's private note, which keeps it clear of `docs/18` §4's
 solicitation question). This extends the 2026-10-22 consent guardrail and `docs/19` §5.2; `tests/test_private_isolation.py`
 pins it.
+
+### 11.4.1 Lists of different kinds: one kind at a time (lane stacked-lists, 2026-10-24)
+
+Owner, 2026-10-24: "if you search something, it comes up with a bunch of different lists stacked on top of each other
+... say it's companies and it's locations and it's opportunities, in different stacked lists are really confusing to see
+as a user. Like, I don't really know what I'm looking at ... maybe the title follows along with the information below
+it." And: "run the search on a few different parts across the site."
+
+**Audit.** Run on a copy of the e2e store (the eval fixture's queue rows, 2,964 companies, 9,563 projects) with the
+kinds it lacks added from the repo's own real-record fixtures: nine EIA-860M plants with their operators, twelve
+Grants.gov notices, and four utility RFPs named in `docs/28` §6. Searches: a company ("fermi", "indiana michigan"), a
+technology and a title word ("storage"), a county ("pecos"), a queue id ("16INR0049"), a state ("texas"), a broad word
+("energy"). Screenshots at 1440 and 390 are in the lane's report.
+
+| Page | What stacked | What confused | Done |
+|---|---|---|---|
+| `/search` (All) | Companies, Projects, RFPs and Funding under four headings in a 2 x 2 grid, four row shapes, a credit line under each, the empty kinds as one line at the foot | The grid reads in a Z, so the eye leaves one kind mid-list for another; a company row and a project row look alike; a reader cannot tell which list a row came from without looking up | Rebuilt: one kind at a time (below) |
+| Home map's search field | Places, Companies, Projects as three headed groups | This is the owner's "locations": the kind lived only in a small grey group name above the rows | One ranked list, each row naming its kind (below) |
+| Company page | Pipeline tables, Group, then "1. Assets", "2. Proposals near these assets", "3. Proposals", "4. Opportunities", "5. Sources"; Fermi America's page is 7,907px at 1440 with 100 rows of one name | Numbered headings that scroll away; "Proposals" where the bar says "Projects"; a "near these assets" block with a filter and three lines for a company with no assets | Each list headed by its kind and count, no number, held under the top bar while its rows scroll; the nearby block only where there are assets; the URL tabs of §11.5 (lane V4) remain the full fix |
+| Map panel "In view" | By status, Technology, Busiest areas, Projects, Existing infrastructure, Retired plants | Summary blocks and two lists of different kinds | Not changed here: §11.6's four panel tabs (lane V2) split them |
+| Record pages, About, a site page | Record pages are URL tabs since V3; About is prose; a site lists one kind | Nothing stacked | None |
+| Place or state pages | None exist. A county search finds names that contain the word, not the records in the county (`?q=` matches a name, a sponsor or issuer, or a source record id) | A reader typing a county expects its projects | The search field, hint and empty state send a county or state to the map, which finds places |
+
+**Directions** (mocked with the store's real rows at 1440 and 390, critiqued by the taste skill's app-screen rules): A,
+one ranked list, every row naming its kind in a Kind column, chips with counts above (the bolder one); B, open on the
+best kind with the others as tabs; C, two panes, the kinds with counts at the left and one list at the right; D, the
+owner's own idea, the kinds still stacked but each heading held while its rows scroll. A's columns change meaning from
+row to row (issuer or technology, MW or a due date) and companies print as rows of dashes; B hides the counts in a row
+of words that do not line up; D keeps the stacking and its held headings cover half a row at each change of kind. **C
+is built for `/search`, with D's held head; A's rule (the kind on every row) is built for the map's typeahead**, where
+a list of kinds cannot hold tabs.
+
+**Rules (search, and any page that lists more than one kind).**
+
+- **K-1** A list holds one kind, or names the kind of every row in the same place. Never two lists of different kinds
+  stacked under their headings.
+- **K-2** Every kind and its count are in view beside or above the list: a rail from 900px, chips that wrap below it
+  (never a row that scrolls a kind out of sight). A kind with no match is its word and a 0, not a link; a kind that
+  could not be read shows "—" and links to its retry.
+- **K-3** The list's head names the kind and its count ("Projects 1,297 for “storage”") and holds under the top bar
+  while its rows scroll; from 720px the column heads hold under it. The table's caption says the rows shown of that
+  count, so a screen reader hears the kind and how many.
+- **K-4** Without `type`, the page opens on the kind with the most matches, ties going to the fixed order (companies
+  first); a kind that failed is never opened by itself; when nothing matched, one line says so ("Try fewer words or a
+  queue ID; a county or state is on the map") and no empty list opens. With a kind unread, that line names the kinds
+  searched instead ("No match in Companies, Infrastructure, RFPs or Funding."), each failure follows, and with no kind
+  read there is no such line (fix round). `type` picks the kind; an unknown one is ignored.
+- **K-5** The top hit (a company or asset name the words start) shows on the opening view only, above the list, and
+  only when it is of another kind than the list (otherwise it is already one of the list's rows: the first among the
+  rows read whose name the words start, so it may be the second to fifth). Its kind is a word beside its name; "Open
+  company" stays the page's one primary.
+- **K-6** Five reads count every kind (five rows each, enough for the top hit); a sixth reads the opened kind's fifty
+  rows when the page chose it. A `type` view makes five reads.
+- **K-7** Rows are the record lists' own table (`.record-table--compact`), one column set per kind: Companies (Type,
+  Where, Operating GW, Active projects), Projects (Status, Technology, Where, MW, Source), Infrastructure (Type,
+  Operator, Where, MW), RFPs and Funding (Status, Issuer, Where, Due, Source). Below 720px each row is two lines and an
+  empty cell is left off the second.
+- **K-8** Kept from lane V7: each count is exactly what its link lists; a kind whose read fails costs only itself; the
+  glossary link; each view's credit line names the registers behind its rows.
+- **K-9** No example company names in a placeholder, hint or empty state. The field reads "Name, company or queue ID",
+  which is what `?q=` matches, and so does the top bar's field (`partials/_top_bar.html`, fix round).
+- **K-10** A heading's count is the API's figure for what the section lists (its `totals` or `meta.total`, with "+"
+  when the read stopped at a page), never the rendered rows, which are capped and may be grouped; a section whose read
+  failed prints no count and says it could not be read, never "0" or "none" (fix round, 2026-10-24).
+
+**The home map's search field** (`map.js` `renderSuggestions`, `rankSuggestions`; `web/map_search.py` `word_rank`,
+`place_rank`): one ranked list, no group headings. Every suggestion carries the server's rank on one scale for every
+kind: 0 the whole name, a state's code ("ny", "tx") or a place's name with its noun or state ("travis tx"); 1 a name
+whose first words are the words typed ("NY CDG 1 LLC", "Duke Energy Carolinas" for "duke"); 2 a name that begins with
+the letters typed ("Nye County", "Dukes County"); 3 a name with a word begun by each word typed; 4 the rest (a sponsor
+or queue id matched). The list is in rank order, places then companies then projects within a rank, so Enter takes
+New York for "ny" and Texas for "tx" (fix round: the first build compared letters only and put Nye County and four
+"NY ... LLC" companies above New York). Each row names its kind at its right end in the place's own noun ("State",
+"County", "Parish", "Borough", "Census area", "Municipio", "City", "Region", "Company", "Project"), read with the name
+("Orleans Parish, LA, Parish"); a project keeps its status chip and facts on a second line. A visually hidden status
+says how many of which kinds, naming what was typed so a repeat count is still read ("10 suggestions for “pecos”: 1
+place, 3 companies, 6 projects."), and empties when the text drops under two characters.
+
+**The company page** (`organization_detail.html`, until lane V4's tabs): the sections are headed "Assets", "Projects
+near its assets 12", "Projects 157", "RFPs & funding 1" and "Sources", in the section bar's words, without index numbers
+(`docs/31-brand-identity.md` C-5), each heading held under the top bar while its rows scroll (`isolation: isolate` on
+the mini-map keeps MapLibre's layers under it). Each count follows K-10: the nearby figure is the API's
+`proposals_within_radius`, the number its notice says is shown (the first build counted the rows left after the 50-row
+cap and the folding of generator units, so it read "2" over "Showing all 12"); "RFPs & funding" reads "100+" when the
+issuer has more notices than the page read; an unread nearby list prints no figure and "could not be read just now".
+The nearby block shows only when the company holds assets in scope or has nearby rows; its explanation sits behind "How
+these are matched". The nearby filter notice still says "proposals" (`web/relevance.py`), where "listed as N projects"
+tells records from grouped projects; lane V4 renames it with its tab.
 
 ### 11.5 Record pages as URL tabs
 
@@ -1690,6 +1861,12 @@ order plus Sources. From `organization_detail.html` as built, and as the pages l
 published proximity match; later the RFPs that fit its projects, once a rule set clears US-401 AC3 (decision rows
 2026-10-21). It shows when either has rows. The Overview's "Largest assets (5)" and "Recently changed projects (5)"
 link to Portfolio and Pipeline.
+
+*Amended by lane stacked-lists (§11.4.1 K-1, 2026-10-24):* the Overview does not stack those two lists, or any five-row
+previews of other tabs, under one another. Its figure strip names each tab's kind with its count and links to the tab
+(the tab bar's own counts, T-2), and its one list, if any, is the kind the company is best known by (Portfolio for an
+owner or operator of assets, Pipeline otherwise). Until V4 builds the tabs, the one page holds each list under a
+held heading with its count (§11.4.1, "The company page").
 
 **Project** (`/proposals/{slug}`): **Overview · Timeline · Sources · Matches** (Matches once matches publish).
 

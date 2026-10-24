@@ -44,8 +44,18 @@ from sqlalchemy import ColumnElement, exists, select
 from sqlalchemy.orm import Session, defer, joinedload, lazyload, selectinload
 from sqlalchemy.orm.interfaces import LoaderOption
 
+from services.api.change_rule import (
+    EVENT_VIEW_FILTERS,
+    event_relevance_clause,
+    genuine_filter,
+    genuine_param,
+    to_state_clause,
+    to_state_values,
+)
 from services.api.common import WEB_HOST
+from services.api.country import COUNTRY_FILTERS, country_values, event_subject_country_clause
 from services.api.errors import validation_error
+from services.api.opportunity_relevance import relevance_param
 from services.api.opportunity_value import VALUE_FILTERS
 from services.api.params import check_allowed, csv_param, since_seq
 from services.api.records import (
@@ -106,7 +116,13 @@ EVENT_SORT_ALLOWLIST = {"seq", "observed_at"}
 #: spec never documented `q` on this operation, and until this change it was accepted and applied
 #: nothing -- a filter that looks like it works and does not (docs/04 API-3). It is refused with
 #: `400 unknown_parameter`, as on saved searches, webhooks and exports for `entity=event`.
-EVENT_LIST_PARAMS = {"limit", "cursor", "include", "sort"} | EVENT_FILTERS
+#: Since 2026-10-23 (lane front-api) also the view filters a front-page figure names in its list query
+#: (`country`, `genuine`, `to_state`, `relevance`; `services/api/change_rule.py`), which a saved search
+#: or webhook may not carry because the alert matcher does not evaluate them (`EVENT_FILTERS` stays
+#: what a stored query takes).
+EVENT_LIST_PARAMS = (
+    {"limit", "cursor", "include", "sort"} | EVENT_FILTERS | EVENT_VIEW_FILTERS | COUNTRY_FILTERS
+)
 
 #: `changed_key` values: canonical field names as `event.changed_keys` stores them (`lifecycle_state`,
 #: `capacity_mw`, `merged_into_id`; dotted for a nested key). Anything else is a `400
@@ -120,10 +136,14 @@ _CHANGED_KEY_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,100}$")
 #: which describe a page, not a result set.
 #: The opportunity list's USD-equivalent bounds (`VALUE_FILTERS`) are export keys too, so its
 #: `Accept: text/csv` twin and an export of the same view select the same rows (lane rfp-value).
+#: `country` (and on events the other view filters) likewise: the export runs the list's own filter
+#: functions, so it selects what the list selects (lane front-api). `relevance` stays off the
+#: opportunity export, which does not evaluate it (decision row 2026-10-22); the events filter
+#: layer below does evaluate it, so an event export takes it.
 EXPORT_QUERY_KEYS: dict[Resource, set[str]] = {
-    "proposal": PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | {"q", "sort"},
-    "opportunity": OPPORTUNITY_FILTERS | SYNC_FILTERS | VALUE_FILTERS | {"q", "sort"},
-    "event": EVENT_FILTERS | {"sort"},
+    "proposal": PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | COUNTRY_FILTERS | {"q", "sort"},
+    "opportunity": OPPORTUNITY_FILTERS | SYNC_FILTERS | VALUE_FILTERS | COUNTRY_FILTERS | {"q", "sort"},
+    "event": EVENT_FILTERS | EVENT_VIEW_FILTERS | COUNTRY_FILTERS | {"sort"},
 }
 SORT_ALLOWLISTS: dict[Resource, set[str]] = {
     "proposal": PROPOSAL_SORT_ALLOWLIST,
@@ -349,6 +369,16 @@ def event_query_with_filters(request: Request, db: Session, entitlement: str) ->
         stmt = stmt.where(Event.observed_at >= _parse_instant(v, "observed_at[from]", request.url.path))
     if v := qp.get("observed_at[to]"):
         stmt = stmt.where(Event.observed_at <= _parse_instant(v, "observed_at[to]", request.url.path))
+    # The view filters (lane front-api, 2026-10-23; `services/api/change_rule.py`, `country.py`).
+    if (countries := country_values(qp.get("country"), request.url.path)) is not None:
+        stmt = stmt.where(event_subject_country_clause(countries))
+    if (genuine := genuine_param(request)) is not None:
+        stmt = stmt.where(genuine_filter(genuine))
+    if (states := to_state_values(request)) is not None:
+        stmt = stmt.where(to_state_clause(states))
+    # Last: the verdict reads the subjects the other filters leave (`event_relevance_clause`).
+    if relevance_param(request) == "energy":
+        stmt = stmt.where(event_relevance_clause(db, stmt))
     return stmt
 
 

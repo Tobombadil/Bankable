@@ -4,7 +4,7 @@
 # connector puts the raw "Phase" value under ctx["status_raw"] before calling it — the same
 # convention us.permits_dashboard and gb.neso.tec_register use for their own status fields.
 version: 1
-updated: 2026-10-07
+updated: 2026-10-24
 canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
 sources:
   epa_class_vi:
@@ -17,9 +17,13 @@ sources:
       Prepare Final Permit Decision: studied
       Final Permit Decisions Issued: permitted
       Application Withdrawn: withdrawn
+      "Schedule Pending: Completeness Review": filed
+      "Schedule Pending: Technical Review": studied
     caveats:
       - >-
         The six values above are the whole observed vocabulary on 2026-09-22 (68 project rows, Phase counts: Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5, Public Comment Period 2, Prepare Draft Permit 1). On 2026-10-07 it is seven (68 rows: Technical Review 36, Application Withdrawn 13, Final Permit Decisions Issued 11, Completeness Review 5, Prepare Draft Permit 1, Public Comment Period 1, Prepare Final Permit Decision 1). Anything else maps to unknown via `epa_class_vi.unmapped` and surfaces as status-vocabulary drift.
+      - >-
+        Schedule Pending: Completeness Review and Schedule Pending: Technical Review (first seen in the 2026-10-24 read; every row reads Last Updated 10/9/2026) are the two review phases with EPA's own "Schedule Pending?" column at Yes: EPA has not yet set the phase's dates. Of 68 projects, 5 read Schedule Pending: Completeness Review (all 5 of the day's completeness reviews) and 14 Schedule Pending: Technical Review (with 21 plain Technical Review). The pending schedule says nothing new about where the application stands, so each maps to the state of its phase: filed and studied. Until this entry they read `unknown` (epa_class_vi.unmapped) on 19 of 68 rows (27.9 %), and the data-quality gate held every run (vocabulary_unmapped), so no Class VI row had loaded in production (docs/28 lane F5).
       - >-
         Completeness Review is `filed`, not `announced`: EPA already has the application. The tracker starts at the application, so this source never observes `announced` - a Class VI project announced but not yet filed is invisible here and must come from news or a DOE/FECM award.
       - >-

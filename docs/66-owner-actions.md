@@ -8,6 +8,44 @@ coordinator; it is then moved to "Done" with the date.
 Secrets and variables → Actions → New repository secret). Detail lives in the linked docs; this page is the short
 version. Doc links point at the working branch until it merges to `main`.
 
+**Release windows** (owner, 2026-10-24): 8 pm Denver time (primary) and 8 am (secondary). Merge whenever suits; the
+coordinator tells you the moment a release is ready, with what is in it, and the evening notice carries the day's
+list of calls the coordinator made under your recorded rules.
+
+## Run sheet: Saturday evening and Sunday morning (2026-10-24 and 25)
+
+Slow replies first (every day they wait is a day lost), then the instant ones. **Send back** says what the
+coordinator needs from each; paste text in chat, never a key or password.
+
+**Evening, about two hours**
+
+| Order | Item | Links | Send back |
+|---|---|---|---|
+| 0a | ~~Decide: SPP's queue under the noncommercial reading~~ Done 2026-10-24: yes | [`docs/07` §3.3](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/07-terms-sweep-2026-10-24.md) | "yes" or "no" (about 3,000 SPP queue rows, derived fields only, while the site is noncommercial; a connector is then built) |
+| 0e | **Make the code private before sharing it** (owner, 2026-10-24: "We should make the repo private before I share it"). In this order, about 10 minutes: (1) upgrade the account to GitHub Pro, about $4 a month, so the `production` environment and its secrets keep working on a private repository (on the free plan they are ignored, and deploys and data builds stop); (2) make the four container images private: [your packages](https://github.com/Tobombadil?tab=packages) → `bankable-api`, `bankable-web`, `bankable-worker`, `bankable-browser-worker` → Package settings → Change visibility → Private (all four can be pulled without signing in today, and each holds the whole application); (3) [repository settings](https://github.com/Tobombadil/Bankable/settings) → General → Danger Zone → Change visibility → Private. To share it afterwards: Settings → Collaborators → Add people, role Read | [Billing](https://github.com/settings/billing), [packages](https://github.com/Tobombadil?tab=packages), [settings](https://github.com/Tobombadil/Bankable/settings) | "private" |
+| 0d | GitHub variable `SENDER_POSTAL_ADDRESS`: set it to "1029 E 8th Ave, Suite 806, Denver, CO 80218" (1 min). Every email the site sends (alerts, sign-in) prints it in the footer; the repo had 80216 from September, and you gave 80218 on 2026-10-24 | [Variables settings](https://github.com/Tobombadil/Bankable/settings/variables/actions) → `SENDER_POSTAL_ADDRESS` → edit (or New repository variable) | "done" |
+| 0c | GitHub: limit the `production` environment to `main` (2 min). Without this, anything that can push a branch could run a workflow that reads every production secret (`docs/44` §6) | [Environments settings](https://github.com/Tobombadil/Bankable/settings/environments) → `production` → Deployment branches and tags → Selected branches and tags → add `main`; also check Settings → Actions → General → fork pull request workflows: leave "Send write tokens" and "Send secrets" unticked | "done" |
+| 0b | Site finder step (a): Geofabrik's page and robots.txt, **before 2 November** (the first national grid build runs then; our fetcher cannot reach the site) | [download.geofabrik.de](https://download.geofabrik.de/), [robots.txt](https://download.geofabrik.de/robots.txt); what to compare is in step (a) below | one line, e.g. "Geofabrik checked: page and robots match", or what differs |
+| 1 | #8 PJM licence request | draft in [`docs/37` §2](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/37-pjm-data-licence-request.md); email custsvc@pjm.com, signed copy by post to General Counsel, PJM Interconnection, 2750 Monroe Blvd., Audubon, PA 19403 | "sent", with the date |
+| 2 | #2 MISO terms | [Data Exchange](https://data-exchange.misoenergy.org) (pricing API → Terms of Use), [Legal and privacy](https://www.misoenergy.org/meet-miso/legal-and-privacy/), [Terms and conditions](https://www.misoenergy.org/meet-miso/contact-us/terms-and-conditions/) | the PDFs, or the clauses pasted |
+| 3 | #23 SPP and ISO-NE permission letters | drafts in [`docs/37` §5](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/37-pjm-data-licence-request.md): SPP by post to SPP Communications, 201 Worthen Drive, Little Rock, AR 72223-4936, copy to communication@spp.org; ISO-NE to info@iso-ne.com | "sent", with the date |
+| 3b | #24 Louisiana DCE letter (Class VI applications, the largest primacy state) | draft in [`docs/35`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/35-louisiana-dce-data-request.md) | "sent", with the date |
+| 4 | #16 GEM download, #17 GEM email | [GIPT page](https://globalenergymonitor.org/projects/global-integrated-power-tracker) ("Download data"); email info@globalenergymonitor.org ([contact page](https://globalenergymonitor.org/contact-us)), draft in [`docs/06` §1.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) | the downloaded file (attach or say where it is), "sent" |
+| 5 | #18 Parcel states | Wisconsin wlip@wisconsin.gov or help@sco.wisc.edu, and read [SCO's parcels page](https://www.sco.wisc.edu/parcels/data/) (our fetcher fails on it); Florida FloridaGIO@floridadep.gov; Ohio gis.support@das.ohio.gov; Virginia VBMP@VDEM.Virginia.gov; wording in [`docs/06` §2.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) | "sent"; later, each reply |
+| 6 | #19 to #21 and #11 Terms pages only a browser can read | in order of value: [Our Grid Future](https://ourgridfuture.org/) (`docs/62` §9, with its stop rule), [Wyoming DEQ Class VI](https://deq.wyoming.gov/water-quality/groundwater/uic/class-vi/), [Illinois ICC CO2 pipelines](https://www.icc.illinois.gov/programs/carbon-dioxide-pipelines), Minnesota eDockets and South Dakota's disclaimer (`docs/62` §13 and §14), [DOE OCED portfolio](https://www.energy.gov/cmei/oced/portfolio), [Argonne RNG database](https://www.anl.gov/esia/reference/renewable-natural-gas-database) and [notice](https://www.anl.gov/privacy-security-notice), [IEA CCUS database](https://www.iea.org/data-and-statistics/data-product/ccus-projects-database) and [terms](https://www.iea.org/terms) (read signed out; do not create an IEA account yet, registering accepts their terms), [Sodir FactPages](https://factpages.sodir.no/), [Arizona DEQ UIC](https://azdeq.gov/UIC) (low value); every link and what to save is in [`docs/62`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) | per page: a PDF, or the clauses on use, copying, redistribution, commercial use and credit pasted |
+| 7 | #7 Utility RFP letters | twelve drafts in [`docs/39`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/39-utility-rfp-permission-requests.md), send kit §0 first | "sent" per issuer |
+
+**Morning, about an hour**
+
+| Order | Item | Links | Send back |
+|---|---|---|---|
+| 8 | #10 Free API keys | [EIA](https://www.eia.gov/opendata/register.php), [SAM.gov](https://sam.gov/content/home) (Account Details → Public API Key), [NRC ADAMS](https://adams-api-developer.nrc.gov), [api.data.gov](https://api.data.gov/signup/), [Ember](https://ember-energy.org/data/api/) (secret `EMBER_API_KEY`; global figures, then read the first run's World and US figures once, `docs/26` §10) | each key as a [GitHub secret](https://github.com/Tobombadil/Bankable/settings/secrets/actions/new), then the secret names in chat |
+| 9 | #1 ERCOT account | [ERCOT API explorer](https://apiexplorer.ercot.com) | "added the three ERCOT secrets" |
+| 10 | #15 TxGIO licence question | [TxGIO contact](https://www.geographic.texas.gov/contact.html) | "sent"; later, the reply |
+| 11 | #12 Elexon question | [Elexon contact](https://www.elexon.co.uk/contact/) | "sent"; later, the reply |
+| 12 | Decisions: the three from the filter audit; the map's faint infrastructure contrast (`docs/31-brand-identity.md` §7 M-2); the terms sweep's rule for state sites that publish no terms (attribution-restricted, derived-only, held before paid use, as NYISO); whether to read EIA-860M's 2015 to 2026 archive from Catalyst Cooperative's public Zenodo copy (about 1.16 GB once; trend lines then start in 2015); and whether ERCOT's five "MWH" fuel-code projects read as storage (all are named "... Storage") | [`docs/28` §11](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/28-filter-and-tag-audit.md), [`docs/07` §2](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/07-terms-sweep-2026-10-24.md) | one line each in chat |
+| 13 | #3 Deploy, if the coordinator says the next release is ready | [deploy-beta](https://github.com/Tobombadil/Bankable/actions/workflows/deploy-beta.yml) | "deployed" |
+
 ## Now (unlocks work already being built)
 
 | # | Action | Time | Unlocks | Detail |
@@ -22,6 +60,13 @@ Added 2026-10-23 (lane sf-golive; corrected the same day after review). The site
 that run on GitHub's machines, then one deploy. About 30 minutes of clicks, up to about 3 hours of waiting.
 **Start when the coordinator says the release is ready**, except step (a), which comes first. Detail:
 [`docs/25` §2.7, §5, §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/25-grid-interconnection-and-siting.md).
+
+**Where it stands (2026-10-24, 02:20 UTC, lane F5).** Production runs the release with the memory change
+(`/v1/health` build `5c0d6b11af47`) and reads `"site_finder": {"computed": false, "segments": 0}`.
+[tiles.inframation.io/grid/osm-power/latest.json](https://tiles.inframation.io/grid/osm-power/latest.json)
+answers 404: step (b) 1 has not published, and the finder's only line source (OpenStreetMap) reaches the
+server through that file alone, so there is nothing to measure yet. Next: (b), then (d) `seed`. After the
+next deploy, deploy-beta's `status` action ends with a "Site finder:" line naming what is missing.
 
 **The worker's memory.** The Texas run peaked at 1.2 GB, and the server's worker is limited to 1 GB until the
 coordinator raises it to 3 GB (`infra/compose/compose.single.yml`). Until that change is deployed, the server
@@ -170,12 +215,24 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
 
 | # | Action | Time | Unlocks | Detail |
 |---|---|---|---|---|
-| 4 | **Register a PJM account in your company's name** for [Data Miner 2](https://dataminer2.pjm.com), then get an API key from the [PJM API portal](https://apiportal.pjm.com) and [add it as secret](https://github.com/Tobombadil/Bankable/settings/secrets/actions/new) `PJM_API_KEY`. Internal tier only: PJM's terms bar redistribution without a licence. | 15 min | PJM prices for your company's named accounts | [`docs/29`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/29-energy-prices.md) |
+| 4 | **Hold until PJM answers the licence letter (#8):** the letter says we would not use Data Miner or a PJM Tools account, and using them accepts terms that bar non-members from republishing. Then: **Register a PJM account in your company's name** for [Data Miner 2](https://dataminer2.pjm.com), then get an API key from the [PJM API portal](https://apiportal.pjm.com) and [add it as secret](https://github.com/Tobombadil/Bankable/settings/secrets/actions/new) `PJM_API_KEY`. Internal tier only: PJM's terms bar redistribution without a licence. | 15 min | PJM prices for your company's named accounts | [`docs/29`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/29-energy-prices.md) |
 | 5 | **Register an ENTSO-E account** at the [Transparency Platform](https://transparency.entsoe.eu) (Login → Register), then [email transparency@entsoe.eu](mailto:transparency@entsoe.eu?subject=Restful%20API%20access) with the subject "Restful API access" and your account email to get an API token; [add it as secret](https://github.com/Tobombadil/Bankable/settings/secrets/actions/new) `ENTSOE_API_TOKEN`. Internal tier only. | 15 min + their reply | European day-ahead prices for your company's named accounts | [`docs/29`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/29-energy-prices.md) |
 | 6 | **Send the commercial-reuse letters**: AEP by post (address in the letter), then the [AEP contact form](https://www.aep.com/contact/) after 15 business days; the Texas Railroad Commission by [email to Publicassist@rrc.texas.gov](mailto:Publicassist@rrc.texas.gov). Not urgent while the site stays noncommercial. SPP becomes a seventh source to ask before any commercial switch (letter to be drafted). | 30 min | Keeping those sources if Inframation ever charges | [`docs/39` §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/39-utility-rfp-permission-requests.md) |
 | 7 | **Send the utility RFP permission letters** (twelve issuers), in the order the doc gives; each draft names its address. | 1–2 h | More utility RFPs on RFPs & funding | [`docs/39` §0–§3](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/39-utility-rfp-permission-requests.md) |
 | 8 | **Send the PJM data licence request.** | 15 min | PJM rows on the public site | [`docs/37`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/37-pjm-data-licence-request.md) |
 | 15 | **Email TxGIO to confirm the Texas parcels licence** through their [contact page](https://www.geographic.texas.gov/contact.html): ask whether the "Creative Commons Zero v1.0 Universal" label on the StratMap Land Parcels collections ([catalogue record](https://api.tnris.org/api/v1/collections/?search=parcels)) covers showing parcel facts to paying subscribers of a commercial product. Every TxGIO collection carries the same label, so a written yes closes the question. | 10 min + their reply | Texas parcels in Site finder Pro | [`docs/25-siting-parcels.md` §1](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/25-siting-parcels.md) |
+| 16 | **Download Global Energy Monitor's Global Integrated Power Tracker** yourself (GEM's form has a licence box, so no agent submits it): the "Download data" block on the [GIPT page](https://globalenergymonitor.org/projects/global-integrated-power-tracker), with the field values in the doc (use a role address such as data@inframation.io). Hand the file to the coordinator, who records its licence notice and its TransitionZero rows before anything loads. | 10 min | Global pipeline figures beside Ember's operating figures | [`docs/06` §1.7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) |
+| 17 | **Send the GEM email** (drafted; five questions, including paid use and the summary sheets). | 5 min + their reply | GEM in paid tiers; GEM's summary tables | [`docs/06` §1.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) |
+| 18 | **Ask the next parcel states about their terms**: Wisconsin, Florida, Ohio and Virginia (one email each, addresses and wording in the doc; North Carolina needs none). Save each reply with its date. | 20 min + their replies | Site finder parcels beyond Texas (NC first) | [`docs/06` §2.8](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/06-terms-gem-and-parcels.md) |
+| 19 | **Read Our Grid Future's terms** in a browser (Cloudflare blocks our fetcher): open [ourgridfuture.org](https://ourgridfuture.org/), find Terms, About or Data in the footer, save each as a PDF, and note who publishes the site and where its data comes from. If it is built from a private aggregator we do not use it, whatever the terms say. | 10 min | US transmission projects (the Transmission filter has no records today) | [`docs/62`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 20 | **Read IEA's CCUS projects database terms**: the [product page](https://www.iea.org/data-and-statistics/data-product/ccus-projects-database) and [IEA's terms](https://www.iea.org/terms); a free IEA account may be needed to see the licence. | 10 min | Carbon capture and storage projects worldwide | [`docs/62`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 21 | **Read Arizona DEQ's site policies** from the footer of [azdeq.gov/UIC](https://azdeq.gov/UIC) (the site blocks non-browser clients). | 5 min | Arizona Class VI carbon-storage wells | [`docs/62`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 22 | **Read Argonne's RNG database page** ([database](https://www.anl.gov/esia/reference/renewable-natural-gas-database), [notice](https://www.anl.gov/privacy-security-notice)); Argonne is contractor-run, so its data is not public domain by default. | 10 min | Renewable natural gas and biogas projects | [`docs/62` §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/62-browser-tasks-checklist.md) |
+| 23 | **Send the SPP and ISO-NE permission requests** (drafts in `docs/37` §5.1 and §5.2). Both terms are read: SPP needs written authorisation for commercial publication, ISO-NE says duplication or non-personal use may violate copyright. | 15 min | Two more US queues, withheld today (SPP about 3,000 rows, ISO-NE about 1,750) | [`docs/37` §5](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/37-pjm-data-licence-request.md) |
+| 24 | **Send the Louisiana DCE letter** (drafted, was missing from this list). | 10 min + their reply | SONRIS Class VI applications, the largest primacy state | [`docs/35`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/35-louisiana-dce-data-request.md) |
+| 25 | ~~Trademark check on "Inframation"~~ **Done 2026-10-24 by the owner:** the only live mark is INFRAMATION, Serial 75741290, Teledyne FLIR, LLC, class 41 (conducting conferences, its thermography conference). Optional next: file Inframation in classes 42 and 35 (about $350 a class), ideally with counsel. Do not brand an event or conference "Inframation". | — | — | PLAN row 2026-10-24 |
+| 26 | **Ask Prince William County for a data-centre layer licence**: send the drafted email (below, letter A) to the county GIS office at [pwcmaps@pwcgov.org](mailto:pwcmaps@pwcgov.org?subject=Licence%20request%3A%20data%20center%20campus%20layer). Its layer says the county's GIS data is copyrighted and released under a licence-to-use agreement, so nothing of it is fetched or shown until it answers. Fill the sender block first (`docs/39` §0.1). **Send back:** "sent", with the date; later, the county's reply word for word. | 10 min + their reply | 78 Prince William data-centre campuses (about 12 new to us) | [letter A](#a-prince-william-county-licence-for-the-data-centre-campus-layer); [`docs/08-data-centre-sources.md` §4.5](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/08-data-centre-sources.md) |
+| 27 | **Ask Georgia EPD to confirm in writing that facts from its air permit advisories may be republished**: send the drafted letter (below, letter B) to the Air Protection Branch. EPD publishes no reuse terms. Under the silent-site rule you accepted on 2026-10-24 ("just move forward, assume no issue"; `docs/07` §2) a connector may show the facts on the free site now; only paid use waits for EPD's written answer or counsel's. Post it to the address given above the letter, after filling the sender block (`docs/39` §0.1). **Send back:** "sent", with the date; later, EPD's reply word for word. | 10 min + their reply | Georgia data-centre applications before construction (about 3 a month) in paid features | [letter B](#b-georgia-epd-reuse-terms-for-the-air-permit-advisories); [`docs/07` §1.2, §2](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/07-terms-sweep-2026-10-24.md); [`docs/08-data-centre-sources.md` §4.2](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/08-data-centre-sources.md) |
 
 ## When convenient
 
@@ -187,6 +244,107 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
 | 12 | **Ask Elexon** through their [contact page](https://www.elexon.co.uk/contact/) whether their market index data (MID) is inside the open BMRS licence. | 5 min | GB market index prices | [`docs/29`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/29-energy-prices.md) |
 | 13 | **A lawyer's read** of the open questions, when budget allows: the noncommercial posture with a free deal workspace, CAISO's "competitive purposes" clause, the RRC copying conditions, OpenStreetMap share-alike for the derived database. | — | Confidence before charging or promoting My pipeline beyond the beta | [`docs/19` §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/19-build-a-deal.md), [`docs/29`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/29-energy-prices.md), [`docs/13` §6.4](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/13-legal-data-rights.md) |
 | 14 | **Optional, Bankable (Lovable) app:** in your [Lovable dashboard](https://lovable.dev/dashboard), unpublish it, or switch off its open email-sending and AI functions, so nobody can misuse them. You said not to spend time on Bankable, so this is only if it stays online. | 10 min | Removes two abuse risks | Private findings file sent 2026-10-22 |
+
+## Drafted letters: data-centre sources
+
+Drafted 2026-10-24 by lane dc-local for items 26 and 27. **The owner sends them; no agent sends either.** You
+write as yourself, for Inframation: fill the sender block once, as `docs/39` §0.1 says (your name, a role you hold,
+the legal entity that runs Inframation, a contact address on a domain you control, a postal address). Keep the
+facts as written, and tell the coordinator the date sent and, later, the answer word for word: the answer goes into
+`data/sources.yaml` and `docs/13` §6 before anything is built.
+
+Each letter says what Inframation has already read from the source and that nothing from it appears on the site,
+as true on 2026-10-24 (`data/sources.yaml` records each read). Letter A also says the survey's copies of the
+county's rows were deleted on 2026-10-23, as the register records; letter B says nothing about copies, because the
+survey's downloads of the advisories were still held on 2026-10-24. If a connector for either source ships before
+you send, ask the coordinator to update those sentences first.
+
+### A. Prince William County: licence for the data-centre campus layer
+
+Register row: `us.va.pwc.data_center_campuses`.
+
+To: Prince William County GIS, [pwcmaps@pwcgov.org](mailto:pwcmaps@pwcgov.org) (the contact the layer's metadata
+names). Subject: *Licence request: data center campus and building layers (Planning / Build_Out_Analysis)*
+
+> Dear Prince William County GIS team,
+>
+> I'm [Owner name], [Role] at Inframation (https://inframation.io), a free public site that maps proposed and
+> operating energy and infrastructure projects in the United States, each record linked to the public filing it
+> comes from.
+>
+> The county's map service publishes two layers we would like to use:
+> Planning/Build_Out_Analysis/MapServer/10 (data center campuses) and MapServer/9 (data center buildings). The
+> layer metadata says: "The Prince William County GIS database is copyrighted and digital map data will be
+> released under a license-to-use agreement." On 23 October 2026 we queried the two layers to count the campuses
+> and buildings and to compare their locations with records we already hold. Those queries returned whole rows,
+> including the editor user-name fields; we deleted those copies the same day and kept only our counts (78
+> campuses and 247 buildings, by status). Nothing from the layers appears on Inframation, and we will not use them
+> further until we hold that agreement.
+>
+> What we would like to do, if the county agrees:
+> - read the two layers automatically about once a week, at no more than one request every two seconds;
+> - show, for each campus: its name, case number, zoning district, project status, planned and remaining floor
+>   area, acreage, and one point inside the campus (not the outline); and for each campus, how many of its
+>   buildings are planned, pending, under construction or completed;
+> - credit every record "Source: Prince William County, Virginia" (or the wording you prefer), with a link to the
+>   county's data;
+> - never store staff user names or any other personal information.
+>
+> Inframation is run by [Organisation]. It is free to use today. We may later offer paid features to professional
+> users, so we would like a licence that covers both, or to know the terms for each.
+>
+> Could you tell us whether the county can license this use, on what terms (including any fee and the credit
+> wording), and whether the county publishes these layers under an open-data licence elsewhere?
+>
+> Thank you,
+> [Owner name]
+> [Role], Inframation ([Organisation])
+> [Contact email] | [Phone]
+> [Postal address]
+
+### B. Georgia EPD: reuse terms for the air permit advisories
+
+Register row: `us.ga.epd.air_permit_advisories`.
+
+To: Georgia Environmental Protection Division, Air Protection Branch, Atlanta Tradeport, 4244 International
+Parkway, Atlanta, GA 30354, phone (404) 363-7000 (both from [EPD's contact page](https://epd.georgia.gov/about-us/contact-us),
+read 2026-10-24; its link "Contact the Air Protection Branch" opens
+[the branch's own page](https://epd.georgia.gov/air-protection-branch/air-protection-branch)). Subject:
+*Permission to republish facts from the Air Protection Branch public advisories*
+
+> Dear Air Protection Branch,
+>
+> I'm [Owner name], [Role] at Inframation (https://inframation.io), a free public site that maps proposed and
+> operating energy and infrastructure projects in the United States, each record linked to the public filing it
+> comes from.
+>
+> The Air Protection Branch's public advisories
+> (https://epd.georgia.gov/permitting-public-advisories-and-public-notices) list the permit applications the
+> branch has received. We could not find terms on epd.georgia.gov that say whether their contents may be
+> republished. On 23 October 2026 we downloaded the seven advisories then listed on that page (pa0926-2 to
+> pa1026-3) to see what they contain, and counted the applications in them. Nothing from them appears on
+> Inframation.
+>
+> What we would like to do, if EPD agrees:
+> - read the advisories page and each new advisory PDF automatically, about once a week;
+> - show, for each application for a data center or other energy facility: the county, facility name,
+>   application number, facility address, the reason for the application as EPD states it, and the advisory's
+>   date, with a link to the advisory PDF;
+> - credit every record "Source: Georgia Environmental Protection Division" (or the wording you prefer);
+> - never store the name or contact details of any person.
+>
+> Inframation is run by [Organisation]. It is free to use today. We may later offer paid features to professional
+> users, so we would like to know whether the answer differs for that use.
+>
+> May we republish these facts in this way, and is there a credit line or other condition you would like us to
+> follow? If another office handles questions about reuse of EPD's published content, we would be grateful for
+> its name.
+>
+> Thank you,
+> [Owner name]
+> [Role], Inframation ([Organisation])
+> [Contact email] | [Phone]
+> [Postal address]
 
 ## Every January
 

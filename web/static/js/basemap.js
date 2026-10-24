@@ -14,10 +14,10 @@
 
   function mapColors() {
     return {
-      land: cssVar("--map-land") || "#eae6da",
-      water: cssVar("--map-water") || "#cfe0e8",
-      border: cssVar("--map-border") || "#b9c4c9",
-      label: cssVar("--text-muted") || "#5b6b7c",
+      land: cssVar("--map-land") || "#fbfcfd",
+      water: cssVar("--map-water") || "#dfe5ee",
+      border: cssVar("--map-border") || "#c3cad6",
+      label: cssVar("--text-muted") || "#4a5063",
       // "light" | "dark": which Protomaps flavour and sprite sheet the theme starts from
       // (styles.css `--map-flavor`, redefined in both dark-theme blocks).
       flavor: cssVar("--map-flavor") === "dark" ? "dark" : "light"
@@ -27,7 +27,8 @@
   // Same-origin fallback basemap: the tile/pmtiles source is added only after `load` fires
   // (`addBasemap` below) so a blocked/slow/failed basemap source can never keep the whole style
   // from ever loading -- this fallback is always in the initial style and is what the user sees
-  // whenever the real basemap fails, whichever of the three modes is configured.
+  // whenever the real basemap fails, whichever of the three modes is configured. Country and state
+  // lines are 0.75px in --map-border (docs/31-brand-identity.md §5.3), under every data layer.
   function fallbackStyle(colors) {
     return {
       version: 8,
@@ -44,12 +45,12 @@
         {
           id: "fallback-country-lines", type: "line", source: "basemap-fallback",
           filter: ["==", ["get", "level"], "country"],
-          paint: { "line-color": colors.border, "line-width": 0.6 }
+          paint: { "line-color": colors.border, "line-width": 0.75 }
         },
         {
           id: "fallback-state-lines", type: "line", source: "basemap-fallback",
           filter: ["==", ["get", "level"], "us_state"],
-          paint: { "line-color": colors.border, "line-width": 0.5 }
+          paint: { "line-color": colors.border, "line-width": 0.75 }
         }
       ]
     };
@@ -62,7 +63,7 @@
       tileSize: 256,
       attribution: "&copy; OpenStreetMap contributors"
     });
-    // Tinted toward the paper ground and desaturated so tile land/water/borders read as a quiet
+    // Desaturated and lightened so tile land/water/borders read as a quiet
     // backdrop the data sits on top of, not a competing full-colour basemap (docs/30 §7 "Basemap").
     map.addLayer({
       id: "osm", type: "raster", source: "osm",
