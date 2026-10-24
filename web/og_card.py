@@ -21,10 +21,10 @@ The mark (§5.1) is the information sign on a 16-unit grid: a circle of radius 8
 from y 7.35 to 13.25 with corner radius 0.5, and the orange dot at (8, 4.55), radius 1.75. On light the
 circle is navy and the stem white; on dark the circle is `#eef1f5` and the stem `#0e0f11`.
 
-The card is a navy field (a read surface, where Compass's navy may be a ground): the mark beside the
-wordmark, the endorsement, one line saying what the site is, where its records come from, and the national
-map of planned projects in the evergreen tint over faint state lines. It carries no live figure, because a
-cached card would show a stale number; the page's description carries them. Every text colour is at least
+The card is a navy field (a read surface, where Compass's navy may be a ground): the wordmark alone (the mark
+is never beside it), the endorsement, one line saying what the site is, where its records come from, and the
+national map of planned projects in the evergreen tint over faint state lines. It carries no live figure,
+because a cached card would show a stale number; the page's description carries them. Every text colour is at least
 4.5:1 on the navy (`web/test_og_card.py` recomputes it); the orange is the dot over the i only.
 
 The map's points (`--rebuild-map`) are the located active proposals of the committed fixture
@@ -440,17 +440,14 @@ def _circle_path(cx: float, cy: float, r: float) -> str:
 
 
 def _lockup(image: Image.Image, x: float, baseline: float, size: float) -> float:
-    """§5.1 and §5.4 on the navy card: the mark (its dark-ground colours) 1.05em across, centred on the
-    wordmark's ink, then 0.3em of space, then the wordmark from `wordmark.svg` in `MARK_LIGHT` with its
-    orange dot. `size` is the wordmark's em in card px. Returns the x where the wordmark's ink starts."""
+    """§5.1 and §5.4 on the navy card: the wordmark from `wordmark.svg` in `MARK_LIGHT` with its orange dot,
+    its ink starting at `x`. The mark is never drawn beside it (owner, 2026-10-24: the circled i is not
+    next to the spelled-out logo); the wordmark's own dot carries the i. `size` is the wordmark's em in
+    card px. Returns the x where the wordmark's ink starts."""
     word = read_wordmark(WORDMARK_PATH.read_text(encoding="utf-8"))
-    left, top, _, _ = word.bounds()
+    left, _, _, _ = word.bounds()
     scale = size * _SCALE / UNITS_PER_EM
-    across = 1.05 * size
-    centre_y = baseline + top / 2 * size / UNITS_PER_EM  # half-way up the ink, dot included
-    icon = mark(_s(across), circle=MARK_LIGHT, stem=MARK_DARK_STEM)
-    image.alpha_composite(icon, (_s(x), _s(centre_y - across / 2)))
-    word_x = x + across + 0.3 * size
+    word_x = x
     origin = (_s(word_x) - left * scale, _s(baseline))
     _fill_paths(image, [g.d for g in word.glyphs], origin, scale, MARK_LIGHT)
     _fill_paths(image, [_circle_path(*word.dot)], origin, scale, BRAND_DOT)
@@ -541,9 +538,9 @@ def render() -> Image.Image:
     """The card as an RGB image, `WIDTH` x `HEIGHT`."""
     image = Image.new("RGBA", (WIDTH * _SCALE, HEIGHT * _SCALE), NAVY)
     _draw_map(image)
-    # The lockup: the mark beside the wordmark, and under the wordmark the endorsement (text; the Compass
-    # logo is never drawn).
-    word_x = _lockup(image, _LEFT, 128, 64)
+    # The lockup: the wordmark alone (never the mark beside it), and under it the endorsement (text; the
+    # Compass logo is never drawn).
+    word_x = _lockup(image, _LEFT, 128, 72)
     draw = ImageDraw.Draw(image)
     draw.text((_s(word_x), _s(176)), "a Compass company", font=_font(26, 400), fill=MUTED, anchor="ls")
 

@@ -6,8 +6,8 @@ Held in place:
     (so nobody can swap in an outside image or let the file drift from its source);
   - it is the brand system's navy card (docs/31-brand-identity.md §5.4): its text colours keep 4.5:1 on
     the navy, the orange is the dot over the i only, and copper is gone;
-  - its lockup is the information-sign mark beside the outlined wordmark (§5.1): both dots round and
-    centred on their stems, measured in the committed pixels;
+  - its lockup is the outlined wordmark alone, never the mark beside it (§5.1; owner, 2026-10-24): one
+    round dot, centred on its stem, measured in the committed pixels;
   - its map draws only sources whose register entry is reuse-open and published, and credits them;
   - `favicon.svg`, `favicon.ico` and `apple-touch-icon.png` are the §5.1 mark (a circle, the i's stem and
     the orange dot on a 16-unit grid), drawn by the script;
@@ -164,16 +164,26 @@ def _run_centre(image: Image.Image, y: int, near_x: float, colour: tuple[int, ..
     return (left + right) / 2
 
 
-def test_the_cards_dots_are_round_and_centred_on_their_stems() -> None:
-    """§5.1 and §5.4, in the committed pixels: the mark and the wordmark each carry one round orange dot
-    (no triangle), centred on the stem below it to within a pixel: the mark's stem is knocked out of its
-    light circle in near-black, the wordmark's is a light letter on the navy."""
+def test_the_cards_one_dot_is_round_and_centred_on_its_stem() -> None:
+    """§5.1 and §5.4, in the committed pixels: the wordmark's i carries one round orange dot (no triangle),
+    centred on the light stem below it to within a pixel."""
     with Image.open(og_card.OG_CARD_PATH) as card:
         rgb = card.convert("RGB")
-    mark_dot, word_dot = _blobs(rgb, (40, 30, 520, 200), ORANGE)
-    for points, stem in ((mark_dot, (14, 15, 17)), (word_dot, (238, 241, 245))):
-        centre, foot = _round_dot(points)
-        assert abs(_run_centre(rgb, foot + 12, centre, stem) - centre) <= 0.75
+    (word_dot,) = _blobs(rgb, (40, 30, 520, 200), ORANGE)
+    centre, foot = _round_dot(word_dot)
+    assert abs(_run_centre(rgb, foot + 12, centre, (238, 241, 245)) - centre) <= 0.75
+
+
+def test_the_mark_is_never_beside_the_wordmark_on_the_card() -> None:
+    """Owner, 2026-10-24: "make sure the circle I isn't next to the regular spelled out logo". The card
+    draws the wordmark alone: one orange dot on the whole card (the wordmark's), and no light disc the
+    size of the mark anywhere in the lockup's band."""
+    with Image.open(og_card.OG_CARD_PATH) as card:
+        rgb = card.convert("RGB")
+    assert len(_blobs(rgb, (0, 0, og_card.WIDTH, og_card.HEIGHT), ORANGE)) == 1
+    source = Path(og_card.__file__).read_text(encoding="utf-8")
+    lockup = source[source.index("def _lockup(") : source.index("# ----", source.index("def _lockup("))]
+    assert not re.search(r"\bmark\(", lockup), "the card's lockup must not draw the mark"
 
 
 def test_the_card_uses_only_the_self_hosted_fonts() -> None:
