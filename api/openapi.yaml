@@ -1631,6 +1631,93 @@ paths:
           $ref: '#/components/responses/BadRequest'
         <<: *common_errors
 
+  /v1/stats/planned-vs-operating:
+    get:
+      operationId: getPlannedVsOperating
+      tags: [Trends, Proposals]
+      summary: Planned against operating power plants (EIA-860M, by stage) and data centres by power
+      description: >-
+        What is planned against what runs today, in one unit and one scope (since 2026-10-24; docs/24-trends.md §11).
+
+
+        **Power plants: one survey, one month.** Both sides are EIA-860M's, from the newest month `GET /v1/trends`
+        serves: the Operating sheet (every status on it: EIA's operating inventory) and the Planned sheet, generators
+        counted and net summer MW summed, the 50 states and DC. Nothing from the queue register is mixed in. Every
+        figure is the point at that month of a trends series: `series` names the queries (`GET /v1/trends?<query>`)
+        and `lines` the line keys whose values at the month add up to it. A line the series lacks is zero only because
+        every key read is one the month tallies: a technology must be a key of the month's technology tally (any
+        other token is a 400, never a false zero).
+
+
+        **Planned is split by stage** (`stage_mapping`): construction complete, not yet in commercial operation (EIA
+        code TS), under construction (U, V), regulatory approvals received (T), approvals pending (L), early or other
+        (P, OT); a code outside the vocabulary is its own `unmapped` row, so the stages add up to the total. The
+        month's document tallies status for the 50 states and DC together, so under a `state` or `technology` filter
+        `by_stage` and `by_status` are null and `by_stage_note` says why.
+
+
+        **The completion rate is one fixed, cited line** (Berkeley Lab, Queued Up 2026: 13% of the capacity that
+        requested interconnection in 2000-2020 reached commercial operation by the end of 2025, 75% was withdrawn). It
+        describes queue requests, not EIA's planned generators.
+
+
+        **Data centres by power, never site counts.** `planned` is the demand MW of the `load` records (data centres
+        and other large loads) in the 50 states and DC in an active lifecycle state that a register still lists,
+        counted as `GET /v1/stats/capacity` counts (the same licence gate, served values, `list_query`), with how many
+        state MW (`demand_records`) and how many do not (`mw_missing`); a sum over no stated MW is null. Without a
+        `state` filter it is set against today's average US data-centre demand and its 2028 range, each cited; those
+        figures have no state split, so under a `state` filter `average_demand` is null and `average_demand_note` says
+        why. Site counts appear only as `sites_we_track`, with their coverage. A `technology` filter leaves data
+        centres out; `state` and `technology` together are refused.
+
+
+        **Who sees what.** The power plants are served only while `us.eia.860m.history` is visible at the caller's tier,
+        as for `GET /v1/trends`; otherwise `power_plants` is null and `power_plants_note` says which reason holds (not
+        served at the tier, no month read, or the month lacks a tally the figures read). The licence summary has one
+        row for the EIA month read and one per source of the data-centre records read.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-101, US-105]
+      security: *sec_public
+      parameters:
+        - name: state
+          in: query
+          description: >-
+            US states and DC as `US-XX` (either case), comma-separated for several: the power plants' state lines and
+            the data centres' `jurisdiction`. Not with `technology`.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              pattern: '^[Uu][Ss]-[A-Za-z]{2}$'
+        - name: technology
+          in: query
+          description: >-
+            Technology tokens the served EIA-860M month tallies, operating or planned (the `technology` keys of
+            `by_technology` without a filter; a 400 names them), comma-separated for several: the power plants'
+            technology lines; data centres are left out. A register token EIA-860M's classifier never produces
+            (`solar_pv`, `bess`, `gas`, `load`, `transmission`) is refused, never read as zero. Not with `state`.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: The comparison inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlannedVsOperatingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
   /v1/pulse:
     get:
       operationId: getPulse
@@ -14999,6 +15086,475 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/CapacityStats'
+
+    # ---------- Planned against operating (lane planned-operating, 2026-10-24) ----------
+    TrendSeriesRef:
+      type: object
+      description: A trends series one month long; `GET <path>?<query>` answers it, and a figure is the sum of its `lines` there.
+      required: [path, query]
+      properties:
+        path:
+          type: string
+          enum: [/v1/trends]
+        query:
+          type: object
+          required: [metric, from, to]
+          properties:
+            metric:
+              type: string
+            by:
+              type: string
+            from:
+              type: string
+              pattern: '^\d{4}-\d{2}$'
+            to:
+              type: string
+              pattern: '^\d{4}-\d{2}$'
+          additionalProperties: false
+      additionalProperties: false
+    EiaSeriesPair:
+      type: object
+      description: The series the MW and the generator count are points of.
+      required: [mw, generators]
+      properties:
+        mw:
+          $ref: '#/components/schemas/TrendSeriesRef'
+        generators:
+          $ref: '#/components/schemas/TrendSeriesRef'
+      additionalProperties: false
+    EiaFigure:
+      type: object
+      description: EIA-860M generators counted and net summer MW summed; the sum of `lines` at the month of the series named beside it.
+      required: [generators, mw, lines]
+      properties:
+        generators:
+          type: integer
+          minimum: 0
+        mw:
+          type: number
+        lines:
+          type: array
+          items:
+            type: string
+    EiaSide:
+      allOf:
+        - $ref: '#/components/schemas/EiaFigure'
+        - type: object
+          required: [basis, series, dq_warnings]
+          properties:
+            basis:
+              type: string
+              description: What was counted and how (the series' like-for-like basis).
+            series:
+              $ref: '#/components/schemas/EiaSeriesPair'
+            dq_warnings:
+              type: array
+              description: The month's data-quality checks that warned on this sheet.
+              items:
+                type: string
+    EiaStatusRow:
+      allOf:
+        - $ref: '#/components/schemas/EiaFigure'
+        - type: object
+          required: [status, label]
+          properties:
+            status:
+              type: string
+            label:
+              type: [string, 'null']
+    PlannedStageRow:
+      allOf:
+        - $ref: '#/components/schemas/EiaFigure'
+        - type: object
+          required: [stage, label, codes, share_of_planned_pct]
+          properties:
+            stage:
+              type: string
+              enum: [construction_complete, under_construction, approvals_received, approvals_pending, early_or_other,
+                     unmapped]
+            label:
+              type: string
+            codes:
+              type: array
+              description: EIA's planned status codes the stage holds (for `unmapped`, the codes found).
+              items:
+                type: string
+            share_of_planned_pct:
+              type: [number, 'null']
+    PlannedOperatingRow:
+      type: object
+      description: One technology or state, both sides; `technology` rows carry a `label`.
+      required: [operating, planned, planned_share_of_operating_pct]
+      properties:
+        technology:
+          type: string
+        state:
+          type: string
+          pattern: '^US-[A-Z]{2}$'
+        label:
+          type: string
+        operating:
+          $ref: '#/components/schemas/EiaFigure'
+        planned:
+          $ref: '#/components/schemas/EiaFigure'
+        planned_share_of_operating_pct:
+          type: [number, 'null']
+    PlannedOperatingBreakdown:
+      type: object
+      required: [series, rows]
+      properties:
+        series:
+          type: object
+          required: [operating, planned]
+          properties:
+            operating:
+              $ref: '#/components/schemas/EiaSeriesPair'
+            planned:
+              $ref: '#/components/schemas/EiaSeriesPair'
+        rows:
+          type: array
+          description: Most planned MW first, then most operating MW.
+          items:
+            $ref: '#/components/schemas/PlannedOperatingRow'
+    CitedSource:
+      type: object
+      description: A publication a fixed figure is quoted from, with credit.
+      required: [name, publisher, url, as_of, licence, credit]
+      properties:
+        name:
+          type: string
+        publisher:
+          type: string
+        report:
+          type: string
+        url:
+          type: string
+          format: uri
+        read_at:
+          type: string
+          format: uri
+          description: Where it was read, when that differs from `url`.
+        as_of:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        licence:
+          type: object
+          required: [basis, note]
+          properties:
+            basis:
+              type: string
+              enum: [citation]
+            note:
+              type: string
+        credit:
+          type: string
+    PlannedVsOperatingPowerPlants:
+      type: object
+      required: [as_of, unit, measure, geography, source, parser_version, operating, planned,
+                 planned_share_of_operating_pct, stage_mapping, by_technology, by_state, newer_months_withheld,
+                 held_reading]
+      properties:
+        as_of:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+          description: The EIA-860M data month both sides are read from.
+        unit:
+          type: string
+          enum: [MW]
+        measure:
+          type: string
+        geography:
+          type: string
+        source:
+          type: object
+          required: [source_id, name, operator, url, retrieved_at, licence, credit]
+          properties:
+            source_id:
+              type: string
+            name:
+              type: string
+            operator:
+              type: [string, 'null']
+            url:
+              type: string
+              description: The month's workbook.
+            retrieved_at:
+              type: string
+            licence:
+              type: object
+              required: [licence_id, name, url, reuse_class]
+              properties:
+                licence_id:
+                  type: string
+                name:
+                  type: string
+                url:
+                  type: [string, 'null']
+                reuse_class:
+                  type: string
+            credit:
+              type: string
+              description: With the month EIA published the data, as its acknowledgment asks.
+        parser_version:
+          type: string
+        operating:
+          allOf:
+            - $ref: '#/components/schemas/EiaSide'
+            - type: object
+              required: [by_status]
+              properties:
+                by_status:
+                  oneOf:
+                    - type: object
+                      required: [series, rows]
+                      properties:
+                        series:
+                          $ref: '#/components/schemas/EiaSeriesPair'
+                        rows:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/EiaStatusRow'
+                    - type: 'null'
+        planned:
+          allOf:
+            - $ref: '#/components/schemas/EiaSide'
+            - type: object
+              required: [by_stage, by_stage_note]
+              properties:
+                by_stage:
+                  oneOf:
+                    - type: object
+                      required: [series, rows]
+                      properties:
+                        series:
+                          $ref: '#/components/schemas/EiaSeriesPair'
+                        rows:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/PlannedStageRow'
+                    - type: 'null'
+                  description: Null under a `state` or `technology` filter (`by_stage_note`).
+                by_stage_note:
+                  type: [string, 'null']
+        planned_share_of_operating_pct:
+          type: [number, 'null']
+        stage_mapping:
+          type: array
+          items:
+            type: object
+            required: [stage, label, codes]
+            properties:
+              stage:
+                type: string
+              label:
+                type: string
+              codes:
+                type: array
+                items:
+                  type: object
+                  required: [code, label]
+                  properties:
+                    code:
+                      type: string
+                    label:
+                      type: string
+        by_technology:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedOperatingBreakdown'
+            - type: 'null'
+          description: Null under a `state` filter.
+        by_state:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedOperatingBreakdown'
+            - type: 'null'
+          description: Null under a `technology` filter.
+        newer_months_withheld:
+          type: array
+          description: Months after `as_of` that their data-quality checks hold back.
+          items:
+            type: object
+        held_reading:
+          type: [object, 'null']
+          description: A newer reading of `as_of`'s month held beside it, if any.
+    PlannedVsOperatingDataCentres:
+      type: object
+      required: [geography, rule, planned, planned_not_listed, sites_we_track, served_not_stored, as_of,
+                 retrieved_at_max, sources, average_demand, average_demand_note]
+      properties:
+        geography:
+          description: >-
+            Without a `state` filter, the 50 states and DC (the lists name their 51 jurisdictions, so Puerto Rico,
+            the territories and records placed only to the US are not counted); else the states asked for.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+                pattern: '^US-[A-Z]{2}$'
+        rule:
+          type: string
+        planned:
+          $ref: '#/components/schemas/CapacityBucket'
+        planned_not_listed:
+          oneOf:
+            - $ref: '#/components/schemas/CapacityBucket'
+            - type: 'null'
+          description: Records in an active state that no register lists any more, never counted in `planned`.
+        sites_we_track:
+          type: object
+          required: [coverage, total, by_lifecycle_state, not_listed]
+          properties:
+            coverage:
+              type: string
+            total:
+              $ref: '#/components/schemas/CapacityBucket'
+            by_lifecycle_state:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/CapacityBucket'
+                  - type: object
+                    required: [lifecycle_state]
+                    properties:
+                      lifecycle_state:
+                        $ref: '#/components/schemas/LifecycleState'
+            not_listed:
+              oneOf:
+                - $ref: '#/components/schemas/CapacityBucket'
+                - type: 'null'
+        served_not_stored:
+          type: object
+          required: [records, by_field]
+          properties:
+            records:
+              type: integer
+              minimum: 0
+            by_field:
+              type: object
+              additionalProperties:
+                type: integer
+        as_of:
+          type: [string, 'null']
+          description: The month of the latest retrieval among the records read.
+        retrieved_at_max:
+          type: [string, 'null']
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/LicenceSummarySource'
+        average_demand:
+          type: [object, 'null']
+          description: >-
+            Today's average US data-centre demand and its 2028 range, each cited. Null under a `state` filter: the
+            figures have no state split, so a state's planned MW is never set against all-US demand
+            (`average_demand_note`).
+          required: [conversion, geography, measured_2023, projected_2028, comparison_note]
+          properties:
+            conversion:
+              type: string
+            geography:
+              type: string
+            measured_2023:
+              type: object
+              required: [year, twh, share_of_us_electricity_pct, average_gw, source]
+              properties:
+                year:
+                  type: integer
+                twh:
+                  type: number
+                share_of_us_electricity_pct:
+                  type: number
+                average_gw:
+                  type: number
+                source:
+                  $ref: '#/components/schemas/CitedSource'
+            projected_2028:
+              type: object
+              required: [year, twh_low, twh_high, share_of_us_electricity_pct_low, share_of_us_electricity_pct_high,
+                         average_gw_low, average_gw_high, source]
+              properties:
+                year:
+                  type: integer
+                twh_low:
+                  type: number
+                twh_high:
+                  type: number
+                share_of_us_electricity_pct_low:
+                  type: number
+                share_of_us_electricity_pct_high:
+                  type: number
+                average_gw_low:
+                  type: number
+                average_gw_high:
+                  type: number
+                source:
+                  $ref: '#/components/schemas/CitedSource'
+            comparison_note:
+              type: string
+        average_demand_note:
+          type: [string, 'null']
+          description: Why `average_demand` is null, under a `state` filter.
+    PlannedVsOperating:
+      type: object
+      required: [geography, power_plants, power_plants_note, completion_rate, data_centres, data_centres_note]
+      properties:
+        geography:
+          type: object
+          required: [country, states, technologies]
+          properties:
+            country:
+              type: string
+              enum: [US]
+            states:
+              type: [array, 'null']
+              items:
+                type: string
+            technologies:
+              type: [array, 'null']
+              items:
+                type: string
+        power_plants:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedVsOperatingPowerPlants'
+            - type: 'null'
+        power_plants_note:
+          type: [string, 'null']
+          description: >-
+            Why `power_plants` is null: the archive is not served at this tier, no month of it has been read, or the
+            newest served month lacks a tally the figures read.
+        completion_rate:
+          type: object
+          required: [text, reached_operation_pct, withdrawn_pct, still_active_pct, cohort, as_of, applies_to, source]
+          properties:
+            text:
+              type: string
+            reached_operation_pct:
+              type: number
+            withdrawn_pct:
+              type: number
+            still_active_pct:
+              type: number
+            cohort:
+              type: string
+            as_of:
+              type: string
+            applies_to:
+              type: string
+            source:
+              $ref: '#/components/schemas/CitedSource'
+        data_centres:
+          oneOf:
+            - $ref: '#/components/schemas/PlannedVsOperatingDataCentres'
+            - type: 'null'
+        data_centres_note:
+          type: [string, 'null']
+    PlannedVsOperatingResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PlannedVsOperating'
     PulseCount:
       type: object
       required: [events, subjects]

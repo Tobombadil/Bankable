@@ -341,6 +341,12 @@ from services.api.front import router as front_router  # noqa: E402
 
 app.include_router(front_router)
 
+# Planned against operating (owner, 2026-10-23; docs/24-trends.md section 11): EIA-860M's planned and
+# operating MW from one month, planned by stage, and data centres by power, each figure cited.
+from services.api.planned_operating import router as planned_operating_router  # noqa: E402
+
+app.include_router(planned_operating_router)
+
 # "My pipeline" (docs/19 §6.1; ADR 0009): the private projects under `/v1/my/`, session only, every
 # read and write through `services.projects.authz`. The only router that may import the private
 # package (`infra/importlinter.ini`, `private-projects-*`).

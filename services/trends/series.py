@@ -914,12 +914,18 @@ def _credit(spec: SeriesSpec, source: SourceView | None, last: str | None) -> st
     month plus `DATED_CREDIT`'s lag), as EIA's acknowledgment asks."""
     if source is None:
         return None
-    text = source.attribution_text or source.name
-    lag = DATED_CREDIT.get(spec.source_id)
-    if lag is not None and last:
-        year, month = (int(x) for x in shift_period(last[:7], lag).split("-"))
-        text = f"{text} ({calendar.month_abbr[month]} {year})"
-    return text
+    return dated_credit(spec.source_id, source.attribution_text or source.name, last)
+
+
+def dated_credit(source_id: str, text: str, period: str | None) -> str:
+    """`text` with the publication month of the data month `period` for a source whose terms ask
+    for it (`DATED_CREDIT`: "Source: U.S. Energy Information Administration (Oct 2026)" for EIA's
+    September 2026), else `text` unchanged."""
+    lag = DATED_CREDIT.get(source_id)
+    if lag is None or not period:
+        return text
+    year, month = (int(x) for x in shift_period(period[:7], lag).split("-"))
+    return f"{text} ({calendar.month_abbr[month]} {year})"
 
 
 def _daily_credit(days: Sequence[DayPoint]) -> str | None:
@@ -1116,6 +1122,34 @@ def monthly_retrievals(
     ]
 
 
+@dataclass(frozen=True)
+class LatestMonth:
+    """The newest month of a monthly source a reader may see (`latest_month`)."""
+
+    point: MonthPoint
+    #: Months after `point` that their data-quality checks hold back: the source has a newer
+    #: month, and it is not served until an operator releases it.
+    newer_withheld: tuple[Mapping[str, Any], ...]
+    #: A newer reading of `point`'s own month held beside it (`MonthlyRead.held_readings`), or None.
+    held_reading: Mapping[str, Any] | None
+
+
+def latest_month(root: Path, source_id: str) -> LatestMonth | None:
+    """The newest served month of `source_id`, as the series read it (`monthly_points`: held months
+    left out, the same cache), with what is held back after it; None when no month is served. A
+    figure read from it is the point at `point.period` of the series that read the same block
+    (`GET /v1/stats/planned-vs-operating`, docs/24-trends.md §11)."""
+    read = monthly_points(root, source_id)
+    if not read.points:
+        return None
+    point = read.points[-1]
+    return LatestMonth(
+        point=point,
+        newer_withheld=tuple(w for w in read.withheld if w["period"] > point.period),
+        held_reading=next((h for h in read.held_readings if h["period"] == point.period), None),
+    )
+
+
 def daily_source_rows(
     root: Path, posture: str, documents: Iterable[str] | None = None
 ) -> list[dict[str, Any]]:
@@ -1162,6 +1196,8 @@ __all__ = [
     "MONTHLY_SOURCES",
     "STOCK_YEAR_DIMENSIONS",
     "Catalogue",
+    "LatestMonth",
+    "MonthPoint",
     "SeriesError",
     "SeriesSpec",
     "SourceView",
@@ -1171,6 +1207,8 @@ __all__ = [
     "daily_points",
     "daily_source_rows",
     "data_root",
+    "dated_credit",
+    "latest_month",
     "monthly_points",
     "monthly_retrievals",
     "publishable_postures",

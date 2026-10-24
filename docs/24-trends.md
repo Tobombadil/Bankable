@@ -7,6 +7,8 @@ day of the front page's numbers, as the public tier serves them (§1 to §8; lan
 2026-10-23; schema 2 from that day's review fix round). The history before the clock started comes from the
 official monthly archives, EIA-860M since July 2015 and ERCOT's GIS reports since December 2018 (§9), and
 `GET /v1/trends` serves both as named series (§10; lane trends-history, 2026-10-23).
+`GET /v1/stats/planned-vs-operating` sets EIA-860M's newest month of planned capacity, by stage, against its
+operating capacity, and data centres by power (§11; lane planned-operating, 2026-10-24).
 
 Code: `services/trends/snapshot.py` (what is counted), `services/trends/store.py` (where it is kept and how
 it is read back), `infra/scheduler/jobs.py::trends_tick_job` and `tick_trends` in `infra/scheduler/app.py`
@@ -609,3 +611,230 @@ MW and solar 543 MW; ERCOT's queue was 438,496 MW, up 0.1 % on the month and 10.
 basis both ways). By expected year, the 2027 line was 90,769 MW, up 19.1 % on the year; the 2026 line
 shows no change (§10, stocks). `us_retired_capacity_mw` serves 2024-11 (-2.0 %), 2024-12 (+2.9 %), 2026-08
 (+3.6 %) and 2026-09 (-3.2 %) with `dq_warnings` naming the restated or shrunken list.
+
+## 11. Planned against operating: `GET /v1/stats/planned-vs-operating`
+
+Owner, 2026-10-23: "could we show planned projects against active project? 1000 planned projects is even more
+impressive when you see there's only 1000 active running operations today ... Plus it helps put the datacenter
+build out in comparison." The rules are the decisions log row "Planned is shown against operating, so the scale
+of the build-out reads at a glance, and honestly" (docs/00-PLAN.md, 2026-10-23). Code:
+`services/api/planned_operating.py` and the month reader `services/trends/series.py::latest_month`; contract
+`api/openapi.yaml` (`PlannedVsOperatingResponse`). Built after the front-page data (`GET /v1/stats/capacity`)
+and this file's series; read by the full-screen map's front strip (lane V2) and a Market page.
+
+### 11.1 Power plants: one survey, one unit, one month
+
+Both sides come from EIA-860M, from the newest month the monthly documents serve (§9; a month its checks hold
+is skipped and listed under `newer_months_withheld`, a newer reading held beside the month under
+`held_reading`). Operating is the whole Operating sheet, as `us_operating_capacity_mw` counts it and as EIA
+titles it ("Inventory of Operating Generators"): operating (OP), standby (SB) and out of service (OS, OA),
+split by status under `operating.by_status`. OS is "NOT expected to return to service in next calendar year"
+(9,171.9 MW in September 2026), so a line for readers says "in EIA's operating inventory", not "running".
+Planned is the Planned sheet. Both count generators and sum net summer MW for the 50 states and DC. Nothing
+from the queue register is mixed in: the register counts projects, merges sources and holds queue requests
+that never reach EIA's survey.
+
+**Every figure is a series point.** Each figure names the `GET /v1/trends` series it is a point of (`series`:
+one query for MW and one for the generator count, both bounded to the month) and the `lines` whose values at
+the month add up to it: `total` for a national total, the state or technology key for a filtered one, the
+status codes for a stage. A line the series does not have reads as zero only where that zero is true: a
+state is one of the 50 and DC, every one of which the month's state tally covers, and a technology must be a
+key of the month's technology tally on the operating or the planned side. The register's vocabulary
+(`services/labels.py` `TECHNOLOGY_LABELS`) also holds the opportunity and asset tokens (`solar_pv`, `bess`,
+`gas`), `load` and `transmission`, which EIA-860M's classifier never produces: 31 of its 51 tokens are a key in
+none of the 135 monthly documents, July 2015 to September 2026, that a scratch data root holds from the real
+archive (2026-10-24), whose 20 technology keys, operating or planned, are `biomass`,
+`coal`, `gas_cc`, `gas_ct`, `gas_ice`, `gas_other`, `gas_steam`, `geothermal`, `hydro`, `nuclear`, `oil`,
+`other`, `pumped_storage`, `solar`, `solar_thermal`, `storage`, `unknown`, `waste`, `wind`, `wind_offshore`.
+Until the 2026-10-24 review fix, `technology=gas` answered 0 MW on both sides against 295,138.4 MW of
+operating `gas_cc`, and `solar,gas` served solar's figures alone; now any token the served month does not
+tally is a 400 that names the month's tokens. A token held on one side only (coal, not planned in September
+2026) is a true zero on the other. With no month served, the register's vocabulary is the only check and no
+figure is served. The tests ask every figure's series through the app and compare, and the measurement did
+the same on the September 2026 document: 169 figures across the national view, three states and one
+technology filter matched their series.
+
+**Planned is split by stage.** The mapping is served under `stage_mapping`:
+
+| Stage (`stage`) | EIA-860M planned status codes (EIA's own labels) |
+|---|---|
+| Construction complete, not yet in commercial operation (`construction_complete`) | TS "Construction complete, but not yet in commercial operation" |
+| Under construction (`under_construction`) | U "Under construction, less than or equal to 50 percent complete"; V "Under construction, more than 50 percent complete" |
+| Regulatory approvals received (`approvals_received`) | T "Regulatory approvals received. Not under construction" |
+| Regulatory approvals pending (`approvals_pending`) | L "Regulatory approvals pending. Not under construction" |
+| Early or other (`early_or_other`) | P "Planned for installation, but regulatory approvals not initiated"; OT "Other" |
+
+TS is its own stage (review fix, 2026-10-24). The register's lifecycle reads it as `under_construction`
+(`pipeline/status_map.yaml` `eia860m`: built but not in commercial operation is not `built`), and the first
+version of this endpoint did the same, but EIA's label says construction is complete, so "under construction"
+over U, V and TS said something EIA does not: 17,155.2 MW of September 2026's 96,236.0 MW was TS. EIA-860M
+has no interconnection-agreement field, so the PLAN row's "approved or with an interconnection agreement" stage
+is read as regulatory approvals received (T) alone; both readings are proposed for the decisions log (the
+lane hand-back, 2026-10-24). A code outside the vocabulary (EIA's Planned sheet carried an `OP` row in 2015-11,
+2018-11 and 2026-06, §9.4) is its own `unmapped` row with its codes, so the stages always add up to the planned
+total.
+
+**Filters.** `state` (US-XX in either case, comma-separated, the 50 states and DC; anything else is a 400)
+reads the state lines; `technology` (the served month's tokens, above) reads the technology lines. The monthly
+document tallies status for the 50 states and DC together, and state and technology each on its own, so under
+either filter `planned.by_stage` and `operating.by_status` are null and `planned.by_stage_note` says why, and
+the other breakdown is null too; `state` and `technology` together are refused.
+
+**Open: filtered views have no stage split, against the PLAN row's "planned is always split by stage".** The
+review of 2026-10-24 found this a breach of rule (2) of the row, written down here but not in the decisions
+log. Two ways out: (a) add planned-by-state-and-status and
+planned-by-technology-and-status tallies to the EIA-860M monthly document (`pipeline/connectors/history/eia860m`,
+every month restated from its stored snapshot, which each document's `raw.snapshot` names, §9.3) with matching
+`GET /v1/trends` series, so a state's stage split reproduces like every other figure; or (b) the owner accepts
+unsplit filtered views and the decision is recorded in `docs/00-PLAN.md`. Coordinator, 2026-10-24: (a), because
+the PLAN row already sets the rule and (a) needs no new source or licence; it runs as its own lane once the
+filter-fix lane has released `pipeline/connectors/history/eia860m`. Until it lands, a filtered
+view's planned total is served unsplit with the note, and no line for readers should quote a state's or a
+technology's planned MW as if it were split (§11.5's state table is unsplit and says so).
+
+### 11.2 The historical completion rate: one fixed, cited line
+
+"Of the capacity that requested interconnection in 2000-2020, 13% had reached commercial operation by the end
+of 2025; 75% had been withdrawn and 10% was still active." Berkeley Lab, *Queued Up: 2026 Edition,
+Characteristics of Power Plants Seeking Transmission Interconnection As of the End of 2025* (May 2026;
+https://emp.lbl.gov/publications/queued-2026-edition-characteristics; read 2026-10-24 at
+https://eta-publications.lbl.gov/publications/queued-2026-edition-characteristics, which serves the same page,
+because emp.lbl.gov answers non-browser clients with a challenge, docs/13 §2.1). The page's own words, read twice
+on 2026-10-24 (the review and the coordinator): "Only 13% of capacity that submitted interconnection requests from
+2000-2020 had reached commercial operations by the end of 2025; 75% of that capacity had been withdrawn and 10% was
+still active." Served as constants, never computed. It describes interconnection requests, not EIA-860M's planned
+generators, and `applies_to` says so: it is context for how much proposed capacity has been built, not a forecast
+of the planned figures. The page states no licence for the report; the figure is quoted with credit
+(`licence.basis: citation`).
+
+The PLAN row of 2026-10-23 named the 2025 edition (cohort 2000-2019, to the end of 2024: 13% built, 77%
+withdrawn), the newest when it was written. Coordinator, 2026-10-24: the line follows the newest edition, so it
+quotes 2026; the headline 13% is unchanged.
+
+### 11.3 Data centres: by power, never by site counts
+
+`planned` is the demand MW of the register's `load` records (data centres and other large loads, as the site's
+own headline counts them) in the 50 states and DC, in an active lifecycle state, announced to under
+construction, that a register still lists. It is `GET /v1/stats/capacity`'s own tally (`front.served_rows`,
+`capacity_summary`, `CapacitySelection`), so it carries the list query whose `include=count` total it is
+(`kind=load&jurisdiction=<the 51 US-XX codes>&lifecycle_state=<active>&listed=true`, or the states asked for
+under a state filter), counts a value a withheld register supplied as served, never counts a restricted,
+unknown-terms or uncleared register's record or one not yet public, and tallies the records no register lists
+any more apart (`planned_not_listed`). `demand_records` is how many state MW and `mw_missing` how many do not;
+a sum over no stated MW is null, never zero. The first version selected `country=US`, which also holds Puerto
+Rico, the territories and records placed only to `US`; the 51 jurisdictions match the EIA side and the state
+filter's domain (review fix, 2026-10-24). On the e2e store both selections plan the same (SQLite: the search
+runs on `ix_proposal_publish_public_at`, the jurisdiction test is a residual filter either way; no proposal
+index covers `jurisdiction`, and `country=` is `upper(...) LIKE`, not indexable either) and answer in 32.4 /
+46.0 ms against 33.7 / 77.3 ms p50/p95 through the list. Postgres's plan was not read: the sandbox's cluster
+is down and the store is SQLite.
+
+**Neither data-centre register states MW.** Both registers that write `load` records today publish no
+capacity (`us_epa_echo_icis_air`: "ICIS-Air publishes no capacity"; `us_va_deq_data_center_air_sites`: "DEQ
+publishes no generator or load capacity on this layer"), so their records carry `capacity_mw` null. Unless
+a merged source supplies MW, `planned.demand_mw` is null and `mw_missing` counts every record. The power
+comparison has no planned figure until a register that states MW lands.
+
+Against it, today's average US data-centre demand and its 2028 range, each cited to the Department of Energy's
+release of Berkeley Lab's report (20 December 2024,
+https://www.energy.gov/articles/doe-releases-new-report-evaluating-increase-electricity-demand-data-centers):
+176 TWh in 2023 (4.4% of US electricity), 20.1 GW on average (176,000 GWh over 8,760 hours); 325 to 580 TWh in
+2028 (6.7% to 12%), 37.0 to 66.0 GW (over 8,784 hours, 2028 being a leap year). `comparison_note` says what the
+two are: a record's stated MW is often a requested or permitted figure, average demand is energy over hours,
+and a site adds its stated MW to average demand only if it draws it around the clock. The figures are for the
+US as a whole, with no split by state, so under a state filter `average_demand` is null and
+`average_demand_note` says why: a state's planned MW is never set against all-US demand (review fix,
+2026-10-24; the first version served the national figures beside a state's planned MW, the move it refused
+for the stage split).
+
+Site counts appear only as `sites_we_track`: every lifecycle state, each with its list, the coverage stated (no
+complete public inventory of US data centres exists; these are the registers' sites, not a census), and the
+sources behind them. A `technology` filter leaves data centres out (`data_centres_note`).
+
+### 11.4 Who sees what, and attribution
+
+The power plants are served only while `us.eia.860m.history` is visible at the caller's tier
+(`visibility.source_visible`, as for `GET /v1/trends`); otherwise `power_plants` is null and
+`power_plants_note` says which of three reasons holds: the archive is not served at the tier, no month of it
+has been read on this store (or it has no source row yet), or the newest served month lacks a sheet or a
+tally the figures read (it names the month). Every figure carries its source, as-of month, licence and
+credit: the EIA side its source row's licence, the month's workbook URL and retrieval, and EIA's dated
+credit ("Source: U.S. Energy Information Administration (Oct 2026)" for September's data); the data centres
+the licence summary of the records read (`sources`) and the month of their newest retrieval; the two fixed
+lines their publication. The envelope's licence summary has one row for the EIA month read and one per source
+of the data-centre records.
+
+### 11.5 Measured (2026-10-24, this sandbox)
+
+EIA-860M September 2026 (EIA's `september_generator2026.xlsx`, 14,013,970 bytes, read through the history
+connector into a scratch data root; the same totals as §9.6):
+
+| | Generators | MW (net summer) |
+|---|---|---|
+| Operating (whole sheet, EIA's operating inventory) | 28,484 | 1,324,124.6 |
+| of which operating (OP) | 26,235 | 1,300,414.3 |
+| of which standby (SB) | 1,497 | 7,787.6 |
+| of which out of service, not expected back next year (OS) | 536 | 9,171.9 |
+| of which out of service, expected back next year (OA) | 216 | 6,750.8 |
+| Planned | 2,358 | 282,834.4 (21.4% of operating) |
+| Construction complete, not yet in commercial operation (TS) | 157 | 17,155.2 (6.1% of planned) |
+| Under construction (U, V) | 872 | 79,080.8 (28.0%) |
+| Regulatory approvals received (T) | 228 | 26,192.3 (9.3%) |
+| Regulatory approvals pending (L) | 406 | 62,872.6 (22.2%) |
+| Early or other (P, OT) | 695 | 97,533.5 (34.5%) |
+
+The stages add up to the total (2,358 generators, 282,834.4 MW), and TS plus U and V are the first version's
+96,236.0 MW "under construction" (1,029 generators). The states below have no stage split (§11.1, open):
+
+| State | Operating MW (generators) | Planned MW (generators), not split by stage | Planned as % of operating |
+|---|---|---|---|
+| US-TX | 196,421.3 (2,501) | 91,077.4 (539) | 46.4 |
+| US-CA | 104,627.9 (3,243) | 19,937.0 (217) | 19.1 |
+| US-VA | 29,940.6 (756) | 7,300.4 (62) | 24.4 |
+
+By technology, planned storage (63,916.4 MW) exceeds operating storage (55,779.8 MW); planned solar is
+121,024.3 MW against 169,644.1 MW operating; planned gas combined cycle 44,258.1 MW against 295,138.4 MW. The
+Planned sheet's four rows with no technology (500 MW) are counted under `unknown`, and the month's
+`technology_blank` warning rides on `planned.dq_warnings`.
+
+The technology filter on the same document: `gas`, `solar_pv`, `bess`, `load`, `transmission` and `solar,gas`
+each answer 400 naming the month's 20 tokens; `gas_cc` answers 295,138.4 MW operating against 44,258.1 MW
+planned, `solar` 169,644.1 against 121,024.3, `coal` 167,790.5 against 0.0 (no coal generator is planned).
+`state=US-TX` serves `data_centres.average_demand` null with its note.
+
+Response time on a copy of the e2e store (`web/.data/e2e-test.db`, 9,563 proposals) with the
+`us.eia.860m.history` source row added as the history job adds it, in process (`TestClient`), 50 warm requests
+each after one cold. The review fix round, 2026-10-24, the code before and after the fix in the same session,
+the machine shared with other lanes: national 29.7 / 49.9 ms p50/p95 before, 29.3 / 44.8 ms after (29 KB;
+the process's first request about 400 ms, the document read and the app's first request); US-TX 29.1 / 40.9
+ms (9 KB); US-CA 28.3 / 40.2 ms; US-VA 26.1 / 31.0 ms; `technology=solar` 7.5 / 14.9 ms (7 KB, no data-centre
+query). The first round measured 24.4 / 33.8 ms national on a quieter machine. The e2e store holds no `load`
+record (it is built from the 2026-09-12 evaluation fixture, before the data-centre sources), so its data-centre
+block reads zero records, null demand MW and zero sites, and neither the data-centre figure, the reproduction
+of its list on real rows nor its timing with real rows has been measured (the dev store has none either). The
+production figure (582 large-load projects, 73 active, on 2026-10-23, from two registers) is to be measured on
+the production store, and by §11.3 its demand MW will be null unless a merged source states MW.
+
+**The front strip's headline line**, suggested (the strip itself is lane V2's): "282.8 GW of power plants
+planned, 79.1 GW of it under construction, against 1,324.1 GW in EIA's operating inventory (EIA-860M,
+September 2026)". Each number is one served figure: `planned.mw`, the `under_construction` stage (U and V),
+`operating.mw`. The completion rate sits behind its "Why?". There is no data-centre line yet: the planned
+demand MW has no number behind it (§11.3), and none should be written until it does; once a register states
+MW it would read "<planned demand> GW of data centres planned against about 20 GW of US data-centre demand
+today (DOE, 2024)", national only.
+
+### 11.6 Not yet
+
+- A state's or a technology's planned MW by stage: open against the PLAN row until the two-level tally lane
+  lands (option (a), the coordinator's call of 2026-10-24, §11.1).
+- The production store's data-centre figure; the e2e and dev stores have no load records, and the two
+  data-centre registers state no MW (§11.3).
+- A data-centre-only selection: `kind=load` is data centres and other large loads, as the site counts them.
+  Every load record on 2026-10-23 came from a data-centre register (EPA ECHO ICIS-Air, Virginia DEQ), and no
+  list filter selects a register's data-centre basis on its own. ERCOT's large-load queue connector also
+  writes `kind = load` rows, but they are catalogue products and its loader is the catalogue watch, which
+  writes no proposal (`services/ingest/loader.py` `SPECIALISED_LOADERS`). A guard test
+  (`test_only_data_centre_registers_feed_the_data_centre_side`) pins the connectors that write `kind = load`
+  and that route, so a new emitter fails until someone decides whether its records are data centres; one that
+  is not would need `data_centres` narrowed by `source_id`. Queue rows whose technology text reads "load" or
+  "data centre" are also classified `load` by `pipeline/normalize.py` `TECH_RULES`; none is in any local store.
