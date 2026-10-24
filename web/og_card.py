@@ -24,8 +24,8 @@ circle is navy and the stem white; on dark the circle is `#eef1f5` and the stem 
 The card is a navy field (a read surface, where Compass's navy may be a ground): the wordmark alone (the mark
 is never beside it), the endorsement, one line saying what the site is, where its records come from, and the
 national map of planned projects in the evergreen tint over faint state lines. It carries no live figure,
-because a cached card would show a stale number; the page's description carries them. Every text colour is at least
-4.5:1 on the navy (`web/test_og_card.py` recomputes it); the orange is the dot over the i only.
+because a cached card would show a stale number; the page's description carries them. Every text colour is at
+least 4.5:1 on the navy (`web/test_og_card.py` recomputes it); the orange is the dot over the i only.
 
 The map's points (`--rebuild-map`) are the located active proposals of the committed fixture
 `data/eval/normalized.parquet`, counted per county centre (Census outlines), from sources whose register

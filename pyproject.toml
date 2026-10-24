@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 [tool.ruff]
 line-length = 110
 target-version = "py311"
-extend-exclude = ["data", ".venv"]
+extend-exclude = ["data", ".venv", ".claude/skills"]  # vendored skills stay byte-for-byte upstream (VENDORED.md)
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "S", "C4", "DTZ", "T20", "RUF"]
