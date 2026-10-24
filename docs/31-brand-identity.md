@@ -229,6 +229,8 @@ zoom^-0.8.
 
 ### 5.4 Share card
 
+**Chosen by the owner on 2026-10-24** ("This is the one", of the render now committed as `og-card-2.png`).
+
 The card is 1200x630 on a navy field, a read surface, where navy may be a ground. It carries:
 - the wordmark alone, in its dark-ground colours (`#eef1f5` letters, the orange dot), never the mark beside it
   (§5.1), and the endorsement under the wordmark;
