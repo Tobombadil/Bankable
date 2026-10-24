@@ -18776,7 +18776,10 @@ components:
                     description: >-
                       `noncommercial` appears here only while the platform posture is `commercial`
                       (docs/26): under `noncommercial` those sources publish and are not withheld.
-                    enum: [noncommercial, restricted, unknown]
+                      `open` and `attribution` appear only for a register held back by its own
+                      `publication: none` until a step its notes name is done (for example
+                      `global.gem.gipt`, until the licence notice inside the download is recorded).
+                    enum: [open, attribution, noncommercial, restricted, unknown]
                   publication:
                     type: [string, 'null']
                   url:
