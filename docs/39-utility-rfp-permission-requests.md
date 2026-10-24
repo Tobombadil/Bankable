@@ -26,7 +26,7 @@ operating companies, one to the Texas Railroad Commission), with clauses and cha
 | `[Owner name]` | your own name | no persona or alias (`CLAUDE.md`: no impersonation, no fake personas) |
 | `[Role]` | your role | one you actually hold (`docs/37` checklist) |
 | Inframation | fixed text: "Inframation (inframation.io)" | the product's name since 2026-10-16 |
-| `[Organisation]` | the legal entity that runs Inframation | decisions log 2026-09-18: Compass International Trading Group LLC, Denver, Colorado. Recommended: name it. A permission is granted to someone, and the FTC guide quoted in docs/13 §1 says header information must "identify the person or business who initiated the message" |
+| `[Organisation]` | the legal entity that runs Inframation | decisions log 2026-09-18: Compass International Trading Group, LLC, Denver, Colorado. Recommended: name it. A permission is granted to someone, and the FTC guide quoted in docs/13 §1 says header information must "identify the person or business who initiated the message" |
 | `[Contact email]` | your address on a domain you control | SPF, DKIM and DMARC aligned (docs/13 §1, checklist E-US) |
 | `[Phone]` | optional | delete the field if unused |
 | `[Postal address]` | a valid physical postal address | in every draft; see §0.2. A registered PO box is fine (docs/13 §1) |

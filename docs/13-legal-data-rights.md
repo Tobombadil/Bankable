@@ -2664,7 +2664,7 @@ Numbered, in the order they block work.
     The owner's 2026-09-25 decision moved the platform to a `noncommercial` posture "for maximum and best
     data access" and this lane reclassified `us.tx.rrc.class_vi` and `us.tx.rrc.datasets` to the register's
     `noncommercial` class on that basis (§6.2). The underlying legal question is unresolved: whether a
-    pre-revenue LLC (Compass International Trading Group LLC, `docs/00-PLAN.md` 2026-09-18) whose stated
+    pre-revenue LLC (Compass International Trading Group, LLC, `docs/00-PLAN.md` 2026-09-18) whose stated
     purpose is to feed a commercial deal workflow can hold noncommercial status under CC BY-NC 4.0's
     definition ("not primarily intended for or directed towards commercial advantage or monetary
     compensation") and under undefined state-site grants like the RRC's, which name neither the qualifying

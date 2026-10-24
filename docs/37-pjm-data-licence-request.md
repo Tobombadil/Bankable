@@ -108,7 +108,7 @@ the inbox that routes internally. It stays one request.
 >
 > [Organisation] runs Inframation (inframation.io), an attributed public-records aggregator: a free, noncommercial
 > website and API that maps proposed energy and infrastructure projects. Its readers are energy and
-> infrastructure analysts, including analysts at investment firms. It is in private beta, and no PJM queue record
+> infrastructure analysts, including analysts at investment firms. It is in public beta, and no PJM queue record
 > is published on it.
 >
 > For each project on your Serial and Cycle Service Request Status pages, we would publish the project name,
