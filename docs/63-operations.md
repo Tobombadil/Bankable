@@ -442,12 +442,11 @@ likes, reposts, @-mentions or DMs from the automated account; escalations to the
 (`docs/32` §5).
 
 **Channel register** (required by `docs/13-legal-outreach-and-social.md` §0 before any channel is active; it
-named this document's phase as its home). Empty until the owner activates a channel; a row with a blank cell
-does not ship.
+named this document's phase as its home). One row, activated by the owner on 2026-10-24; a row with a blank cell does not ship.
 
 | Channel | Sending identity | Recipient jurisdictions | Legal basis per jurisdiction (doc B §1–§4) | Platform rules checked (§5) | AI-disclosure position (§6) | Automation level and disclosure text (§7) | Suppression / unsubscribe / records (§8) | Activated (owner, date) |
 |---|---|---|---|---|---|---|---|---|
-| — | — | — | — | — | — | — | — | — |
+| Owner's own mailbox and post: data-permission and terms requests to data publishers and RFP issuers | The owner, personally, from his Compass mailbox, signing as President of Compass International Trading Group, LLC | US, UK | US: CAN-SPAM (doc B §1), probably not commercial; its checklist applied anyway (accurate From, honest subject, postal address, a "stop" line). UK (Elexon): PECR reg. 22 does not reach a corporate subscriber; a single business inquiry (doc B §2) | n/a (email, post and a few web contact forms) | None required at L1: a person writes and sends each one (doc B §7.1) | L1, one recipient per send; agents draft, the owner reads and sends | A "stop" reply ends contact with that address within 24 h (doc B §8.2); threads kept in the owner's mailbox; each send and reply noted against its source in `docs/66` | owner, 2026-10-24 ("activate") |
 
 ## 7. Operator checklists
 

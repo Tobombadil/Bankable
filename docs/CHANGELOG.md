@@ -492,3 +492,4 @@
 - 2026-10-24 coordinator: no dark-mode default; navy kept for branded content such as share images (owner); PLAN row.
 - 2026-10-24 coordinator: slow down until the weekly usage reset; one last release, then no new builds (owner); next-cycle queue in the PLAN.
 - 2026-10-24 coordinator: social posts choose light or navy per post at review (owner); PLAN row, docs/31 note.
+- 2026-10-24 coordinator: channel register row 1 activated by the owner (own mailbox and post, L1, data-permission requests); docs/63 §6, PLAN row.
