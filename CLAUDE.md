@@ -71,8 +71,11 @@ URL, sending data out or committing.
   recorded rules already settle, records each call in the decisions log, and lists the day's calls in one short
   digest with the evening release notice; the owner is asked only about money, legal matters, scope or taste. A design
   pick the owner has not made within 12 hours is the coordinator's, and the owner may change it later.
-- Releases (owner, 2026-10-24): windows at 8 pm Denver time (primary) and 8 am (secondary). The owner can merge at
-  any time but must know when a release is ready: say so the moment its pull request is green, with what is in it.
+- Releases (owner, 2026-10-24): timed to the Claude usage reset cycle, not the clock ("try to time deployment with
+  the resetting of Claude usage ... it's okay to have multiple deployments in between"). Before each five-hour reset
+  (read `resetsAt` from the session's rate-limit events) ship whatever is integrated and green, and always ship before
+  the weekly limit runs out, so no finished work waits a week. The owner can merge at any time but must know when a
+  release is ready: say so the moment its pull request is green, with what is in it.
 - Design: every page and screen follows the taste skill (`.claude/skills/taste-skill`, vendored, MIT; owner,
   2026-10-23). Screens people work in (the map, lists, record pages, My pipeline, admin) follow its
   `references/app-screens.md`; pages people read (About, Methodology, a landing section) follow its run. Gate UI work
