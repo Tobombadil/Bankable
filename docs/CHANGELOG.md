@@ -495,3 +495,4 @@
 - 2026-10-24 coordinator: channel register row 1 activated by the owner (own mailbox and post, L1, data-permission requests); docs/63 §6, PLAN row.
 - 2026-10-24 coordinator: clarity before more data (owner): duplicates lane and one-page map mocks running; queue reordered; PLAN row.
 - 2026-10-24 coordinator: owner's matching, merging and tagging method recorded for a later-phase standard; PLAN row.
+- 2026-10-24 coordinator: drill-down hierarchy (holding company > company > project or asset > parts) recorded (owner); PLAN row.
