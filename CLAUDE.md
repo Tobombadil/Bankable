@@ -54,8 +54,13 @@ URL, sending data out or committing.
 - Docs are numbered by phase: `0x` feasibility, `1x` business/product, `2x` architecture/data, `3x` go-to-market,
   `4x` build/launch, `5x` marketplace, `6x` operations. One topic per file. Cite sources with URLs.
 - Python for data work (`.venv`, `pip install -r requirements.txt`). Tests next to code. Lint before commit.
-- Each agent writes only to the paths named in its task and appends a line to `docs/CHANGELOG.md`. One agent per
-  file area at a time; the coordinator verifies (tests, lint, spec) and commits — agents never commit.
+- Each agent writes only to the paths named in its task. One agent per file area at a time; the coordinator
+  verifies (tests, lint, spec) and commits — agents never commit. Lanes (2026-10-24, to cut integration
+  conflicts and reruns without dropping a gate): return the `docs/CHANGELOG.md` line and any decisions-log rows in
+  the result, and the coordinator writes both files; cut the patch once against the commit the lane started from and
+  never rebase (the coordinator merges); run the tests for the lane's own area plus the API contract and register
+  tests with a `--basetemp` of the lane's own, never the full suite (the coordinator runs it once per batch, and CI
+  on every push); read measurement data from the shared copy the task names, never a private copy.
 - CRM system of record is Attio; billing is Stripe; both sit behind the ports in `docs/20` §9 (owner, 2026-09-13).
 - Record any decision in the decisions log in `docs/00-PLAN.md`. Record any assumption in the doc that depends on it.
 - Preferred tone in docs: direct, evidence first, calibrated confidence, no filler.
