@@ -496,3 +496,4 @@
 - 2026-10-24 coordinator: clarity before more data (owner): duplicates lane and one-page map mocks running; queue reordered; PLAN row.
 - 2026-10-24 coordinator: owner's matching, merging and tagging method recorded for a later-phase standard; PLAN row.
 - 2026-10-24 coordinator: drill-down hierarchy (holding company > company > project or asset > parts) recorded (owner); PLAN row.
+- 2026-10-24 coordinator: Market as one section with Map and List views and filterable aspects; list clicks filter the map; nearby RFPs at the bottom of a project or company (owner); PLAN row.
