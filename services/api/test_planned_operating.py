@@ -6,9 +6,9 @@ The contract held here:
   figure is the sum of the named lines at that month of the `GET /v1/trends` series it names, asked
   through the real app;
 - planned splits by stage under the stated mapping (TS, construction complete, is not under
-  construction), the stages add up to the total (a code outside the vocabulary is its own row), and
-  a filter that the document cannot split says so instead of serving a national split under a
-  state's name;
+  construction), the stages add up to the total (a code outside the vocabulary is its own row),
+  under a state or technology filter too, from the month's paired tallies (`US-TX|U`); a month
+  without them serves no filtered figure rather than an unsplit one;
 - a technology the served month does not tally is refused, never read as a zero;
 - the power plants are served only while the EIA archive's source is visible at the tier, and the
   note says which reason holds when they are not;
@@ -38,6 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from pipeline.connectors.history.documents import DOCUMENT_KIND, SCHEMA_VERSION, MonthlyStore
+from pipeline.connectors.history.eia860m.connector import PAIRED, split_pair
 from services.api import planned_operating as po
 from services.api.conftest import make_open_licence, make_public_source, make_visible_proposal
 from services.api.ratelimit import default_limiter
@@ -69,6 +70,15 @@ OPERATING = {
     "by_technology": {"gas_cc": _t(10, 1000.0), "solar": _t(20, 500.0), "wind": _t(5, 250.5)},
     "by_state": {"US-TX": _t(15, 1100.0), "US-CA": _t(20, 650.5)},
     "by_status": {"OP": _t(30, 1600.0), "SB": _t(5, 150.5)},
+    # Each generator once, with its state or technology and its status (the connector's `PAIRED`).
+    "by_state_status": {"US-TX|OP": _t(15, 1100.0), "US-CA|OP": _t(15, 500.0), "US-CA|SB": _t(5, 150.5)},
+    "by_technology_status": {
+        "gas_cc|OP": _t(10, 1000.0),
+        "solar|OP": _t(16, 350.0),
+        "solar|SB": _t(4, 150.0),
+        "wind|OP": _t(4, 250.0),
+        "wind|SB": _t(1, 0.5),
+    },
     "excluded": {},
 }
 PLANNED = {
@@ -91,9 +101,47 @@ PLANNED = {
         "P": _t(2, 140.0),
         "OP": _t(1, 10.0),
     },
+    "by_state_status": {
+        "US-TX|U": _t(2, 200.0),
+        "US-TX|V": _t(2, 150.0),
+        "US-TX|TS": _t(1, 50.0),
+        "US-TX|T": _t(1, 50.0),
+        "US-TX|L": _t(2, 110.0),
+        "US-TX|P": _t(2, 140.0),
+        "US-CA|U": _t(1, 100.0),
+        "US-CA|T": _t(1, 50.0),
+        "US-CA|L": _t(1, 50.0),
+        "US-VA|OP": _t(1, 10.0),
+    },
+    "by_technology_status": {
+        "gas_cc|U": _t(1, 200.0),
+        "unknown|OP": _t(1, 10.0),
+        "storage|V": _t(2, 150.0),
+        "storage|TS": _t(1, 50.0),
+        "storage|L": _t(1, 100.0),
+        "solar|U": _t(2, 100.0),
+        "solar|T": _t(2, 100.0),
+        "solar|L": _t(2, 60.0),
+        "solar|P": _t(2, 140.0),
+    },
     "by_expected_year": {"2027": _t(14, 910.0)},
     "excluded": {},
 }
+
+
+def test_the_fixtures_pairs_hold_each_generator_once() -> None:
+    """The paired tallies summed onto either key are the single tallies, as the connector writes
+    them (`pipeline/connectors/history/eia860m/test_connector.py`), so the figures below are true."""
+    for block in (OPERATING, PLANNED):
+        assert {k[3:] for k in block if k.endswith("_status") and k != "by_status"} == set(PAIRED)
+        for paired, first in PAIRED.items():
+            for side, single in ((0, first), (1, "status")):
+                sums: dict[str, tuple[int, float]] = {}
+                for key, tally in block[f"by_{paired}"].items():
+                    part = split_pair(key)[side]
+                    count, mw = sums.get(part, (0, 0.0))
+                    sums[part] = (count + tally["count"], round(mw + tally["mw"], 3))
+                assert sums == {k: (t["count"], t["mw"]) for k, t in block[f"by_{single}"].items()}
 
 
 def _doc(period: str, *, scale: float = 1.0, held: bool = False) -> dict[str, Any]:
@@ -234,7 +282,7 @@ def test_planned_splits_by_stage_under_the_stated_mapping(client: TestClient, db
     assert sum(r["mw"] for r in rows) == planned["mw"]
     assert sum(r["generators"] for r in rows) == planned["generators"]
     assert rows[1]["share_of_planned_pct"] == 49.5
-    assert planned["by_stage_note"] is None
+    assert [r["lines"] for r in rows][1] == ["U", "V"]  # without a filter, the status lines
     mapping = _get(client)["data"]["power_plants"]["stage_mapping"]
     assert [m["stage"] for m in mapping] == [s.stage for s in po.STAGES]
     codes = {c["code"]: c["label"] for m in mapping for c in m["codes"]}
@@ -268,7 +316,14 @@ def test_a_month_with_no_unmapped_code_has_no_unmapped_row() -> None:
 
 
 @pytest.mark.parametrize(
-    "params", [{}, {"state": "US-TX"}, {"state": "US-TX,US-CA,US-VA"}, {"technology": "solar,storage"}]
+    "params",
+    [
+        {},
+        {"state": "US-TX"},
+        {"state": "US-TX,US-CA,US-VA"},
+        {"technology": "solar,storage"},
+        {"technology": "unknown"},
+    ],
 )
 def test_every_power_plant_figure_is_its_trends_series_point(
     params: dict[str, str], client: TestClient, db: Session
@@ -278,13 +333,14 @@ def test_every_power_plant_figure_is_its_trends_series_point(
     period = plants["as_of"]
     for side in ("operating", "planned"):
         _assert_reproduces(client, plants[side], plants[side]["series"], period)
-    if plants["planned"]["by_stage"]:
-        stages = plants["planned"]["by_stage"]
-        for row in stages["rows"]:
-            _assert_reproduces(client, row, stages["series"], period)
-        statuses = plants["operating"]["by_status"]
-        for row in statuses["rows"]:
-            _assert_reproduces(client, row, statuses["series"], period)
+    stages = plants["planned"]["by_stage"]
+    statuses = plants["operating"]["by_status"]
+    for split, side in ((stages, "planned"), (statuses, "operating")):
+        for row in split["rows"]:
+            _assert_reproduces(client, row, split["series"], period)
+        # The split adds up to its side's figure, filtered or not.
+        assert sum(r["generators"] for r in split["rows"]) == plants[side]["generators"]
+        assert round(sum(r["mw"] for r in split["rows"]), 3) == plants[side]["mw"]
     for name in ("by_technology", "by_state"):
         breakdown = plants[name]
         if breakdown is None:
@@ -295,9 +351,14 @@ def test_every_power_plant_figure_is_its_trends_series_point(
                 _assert_reproduces(client, row[side], breakdown["series"][side], period)
 
 
-def test_a_state_filter_reads_the_state_lines_and_serves_no_national_split(
-    client: TestClient, db: Session
-) -> None:
+def _stage_rows(split: dict[str, Any]) -> list[tuple[Any, ...]]:
+    return [(r["stage"], r["generators"], r["mw"], r["lines"]) for r in split["rows"]]
+
+
+def test_a_state_filter_splits_the_states_planned_capacity_by_stage(client: TestClient, db: Session) -> None:
+    """Coordinator, 2026-10-24 (docs/00-PLAN.md, planned against operating, item 2): planned is
+    always split by stage, so under a state filter the split is the state's own, read from the
+    `state_status` lines (until then `by_stage` was null with a note)."""
     _eia_source(db)
     data = _get(client, {"state": "us-tx"})["data"]
     plants = data["power_plants"]
@@ -305,14 +366,55 @@ def test_a_state_filter_reads_the_state_lines_and_serves_no_national_split(
     assert (plants["operating"]["mw"], plants["planned"]["mw"]) == (1100.0, 700.0)
     assert plants["operating"]["lines"] == ["US-TX"]
     assert plants["planned"]["series"]["mw"]["query"]["by"] == "state"
-    assert plants["planned"]["by_stage"] is None and plants["operating"]["by_status"] is None
-    assert plants["planned"]["by_stage_note"] == po.BY_STAGE_NOTE
+    stages = plants["planned"]["by_stage"]
+    assert stages["series"]["mw"]["query"] == {
+        "metric": "us_planned_capacity_mw",
+        "by": "state_status",
+        "from": "2026-09",
+        "to": "2026-09",
+    }
+    assert _stage_rows(stages) == [
+        ("construction_complete", 1, 50.0, ["US-TX|TS"]),
+        ("under_construction", 4, 350.0, ["US-TX|U", "US-TX|V"]),
+        ("approvals_received", 1, 50.0, ["US-TX|T"]),
+        ("approvals_pending", 2, 110.0, ["US-TX|L"]),
+        ("early_or_other", 2, 140.0, ["US-TX|P"]),
+    ]
+    assert stages["rows"][1]["share_of_planned_pct"] == 50.0  # of Texas's 700 MW, not the nation's 910
+    assert "by_stage_note" not in plants["planned"]
+    statuses = plants["operating"]["by_status"]
+    assert statuses["series"]["generators"]["query"]["by"] == "state_status"
+    assert [(r["status"], r["generators"], r["mw"], r["lines"]) for r in statuses["rows"]] == [
+        ("OP", 15, 1100.0, ["US-TX|OP"])
+    ]
     assert plants["by_technology"] is None
     assert [r["state"] for r in plants["by_state"]["rows"]] == ["US-TX"]
     several = _get(client, {"state": "US-TX,US-VA"})["data"]["power_plants"]
     assert (several["operating"]["mw"], several["planned"]["mw"]) == (1100.0, 710.0)
     # A state the month's complete tally does not hold has none.
     assert [r["operating"]["mw"] for r in several["by_state"]["rows"]] == [1100.0, 0.0]
+    # Virginia's one planned row is an `OP` code on the Planned sheet: its own row, so the sum holds.
+    assert _stage_rows(several["planned"]["by_stage"])[-1] == ("unmapped", 1, 10.0, ["US-VA|OP"])
+    assert sum(r["mw"] for r in several["planned"]["by_stage"]["rows"]) == 710.0
+
+
+@pytest.mark.parametrize(
+    "params",
+    [{"state": s} for s in ("US-TX", "US-CA", "US-VA", "US-NY")]
+    + [{"technology": t} for t in ("solar", "storage", "gas_cc", "unknown", "wind")],
+    ids=str,
+)
+def test_the_stages_add_up_to_each_states_and_each_technologys_planned_total(
+    params: dict[str, str], client: TestClient, db: Session
+) -> None:
+    _eia_source(db)
+    plants = _get(client, params)["data"]["power_plants"]
+    for side, split in (("planned", "by_stage"), ("operating", "by_status")):
+        rows = plants[side][split]["rows"]
+        assert sum(r["generators"] for r in rows) == plants[side]["generators"], side
+        assert round(sum(r["mw"] for r in rows), 3) == plants[side]["mw"], side
+    stages = plants["planned"]["by_stage"]["rows"]
+    assert [r["stage"] for r in stages][:5] == [s.stage for s in po.STAGES]  # every stage, zeros too
 
 
 def test_a_technology_filter_reads_the_technology_lines_and_leaves_data_centres_out(
@@ -328,8 +430,53 @@ def test_a_technology_filter_reads_the_technology_lines_and_leaves_data_centres_
     ]
     storage = plants["by_technology"]["rows"][1]
     assert storage["planned_share_of_operating_pct"] is None  # no storage operates: no share of nothing
-    assert plants["by_state"] is None and plants["planned"]["by_stage"] is None
+    assert plants["by_state"] is None
+    stages = plants["planned"]["by_stage"]
+    assert stages["series"]["mw"]["query"]["by"] == "technology_status"
+    assert _stage_rows(stages) == [
+        ("construction_complete", 1, 50.0, ["storage|TS"]),
+        ("under_construction", 4, 250.0, ["solar|U", "storage|V"]),
+        ("approvals_received", 2, 100.0, ["solar|T"]),
+        ("approvals_pending", 3, 160.0, ["solar|L", "storage|L"]),
+        ("early_or_other", 2, 140.0, ["solar|P"]),
+    ]
+    statuses = plants["operating"]["by_status"]["rows"]
+    assert [(r["status"], r["mw"], r["lines"]) for r in statuses] == [
+        ("OP", 350.0, ["solar|OP"]),
+        ("SB", 150.0, ["solar|SB"]),
+    ]
     assert data["data_centres"] is None and data["data_centres_note"] == po.DATA_CENTRES_WITH_TECHNOLOGY
+
+
+@pytest.mark.parametrize("params", [{"state": "US-TX"}, {"technology": "solar"}], ids=str)
+def test_a_month_without_the_paired_tallies_serves_no_filtered_figure_rather_than_an_unsplit_one(
+    params: dict[str, str], client: TestClient, db: Session, data_root: pathlib.Path, spec: dict[str, Any]
+) -> None:
+    """A month an earlier parser wrote (before 1.1.0, until its restatement) has no `state_status` or
+    `technology_status`: a filtered view of it would have no stage split, so it serves no figure and
+    names the month; the national view, which reads `status`, is served as before."""
+    _eia_source(db)
+    newest = _doc("2026-11")
+    for name in ("operating", "planned"):
+        newest["blocks"][name] = {
+            k: v for k, v in newest["blocks"][name].items() if not k.endswith("_status") or k == "by_status"
+        }
+    newest["parser_version"] = "1.0.0+8ad6632f"
+    MonthlyStore(data_root).write(newest)
+    trends.clear_cache()
+    body = _get(client, params)
+    assert body["data"]["power_plants"] is None
+    note = body["data"]["power_plants_note"]
+    assert note == po.POWER_PLANTS_NOT_RESTATED.format(
+        period="2026-11", parser="1.0.0+8ad6632f", filter=next(iter(params))
+    )
+    assert "restated" in note and "2026-11" in note
+    assert_valid(spec, body)
+    national = _get(client)["data"]["power_plants"]
+    assert national["as_of"] == "2026-11" and national["planned"]["by_stage"]["rows"]
+    default_limiter.reset()
+    refused = client.get(PATH, params={"technology": "gas"})  # a bad token is still a 400, not the note
+    assert refused.status_code == 400
 
 
 @pytest.mark.parametrize(

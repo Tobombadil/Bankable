@@ -106,8 +106,8 @@ def _term(id_: str, group: str, term: str, means: str, matters: str, *links: tup
 #: The proposal list filtered to the states a link names. Naming states replaces the list's default
 #: (the active states), but a selection made only of active states (announced to under construction)
 #: still hides records no register lists any more (`web/unlisted.py`, owner 2026-10-11), as the list does
-#: for every reader; a selection with built, withdrawn, cancelled or unknown in it hides nothing. So
-#: "Filed projects" can count fewer than `/methodology/status-words`, which counts every record.
+#: for every reader; a selection with built, withdrawn, cancelled, postponed or unknown in it hides
+#: nothing. So "Filed projects" can count fewer than `/methodology/status-words`, which counts every record.
 _PROPOSALS = "/proposals?lifecycle_state="
 _NOTICES = "/opportunities?status="
 #: The kinds `/search`'s RFPs and Funding tabs read (web/app.py `SEARCH_RFP_KINDS`, `SEARCH_FUNDING_KINDS`;
@@ -328,6 +328,15 @@ TERMS: tuple[Term, ...] = (
         "Unlike a withdrawal, the decision was someone else's, often over a missed milestone or deposit.",
         ("Cancelled projects", _PROPOSALS + "cancelled"),
         ("Cancelled notices", _NOTICES + "cancelled"),
+    ),
+    _status(
+        "postponed",
+        "projects",
+        "The source lists the project as canceled or indefinitely postponed and does not say which. Today "
+        "that is EIA's monthly list of canceled or postponed generators.",
+        "Not counted as active or as withdrawn. A postponed project can return to the planned list, and "
+        "its site can be worth a second look.",
+        ("Postponed projects", _PROPOSALS + "postponed"),
     ),
     _status(
         "unknown",

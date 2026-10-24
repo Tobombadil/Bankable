@@ -8,7 +8,11 @@ Passes, in the order docs/02 §5 gives:
       facility-registry id (ICIS-Air, FRS) cited by both sides           (deterministic)
   B1  block: state + technology + capacity +/-10%              (candidate generation)
   B2  block: state + county   + capacity +/-10%                (candidate generation)
-  F   fuzzy score over name / sponsor / county / capacity / COD, tunable threshold
+  B3  block: state + first name token                          (candidate generation)
+  B4  block: two load records' exact points within 500 m       (candidate generation, rule L)
+  F   fuzzy score over name / sponsor / county / capacity / COD / point, tunable threshold;
+      vetoes T, N, C, L (two load points more than 2 km apart), Q, and the kind and location
+      checks across a cluster (docs/22 §22, §28)
 
 Reads   data/eval/normalized.parquet
 Writes  data/eval/matches.parquet   (pairwise, with score, components, rationale, cluster_id)
@@ -22,9 +26,12 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import json
+import math
 import pathlib
 import re
 import sys
+from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
@@ -41,13 +48,19 @@ ISO_SOURCES = ["caiso", "ercot", "spp", "nyiso", "isone"]
 # the weighted mean over the components that are actually available, and `evidence` is the sum of
 # those weights. A pair is only eligible for acceptance when evidence >= MIN_EVIDENCE, which stops
 # name-less sources (SPP: 0/3,074 names, 0/3,074 sponsors) being merged on geography alone.
-WEIGHTS = {"name": 0.40, "sponsor": 0.25, "county": 0.20, "capacity": 0.10, "cod": 0.05}
+WEIGHTS = {"name": 0.40, "sponsor": 0.25, "county": 0.20, "capacity": 0.10, "cod": 0.05, "point": 0.20}
 MIN_EVIDENCE = 0.50
 CAP_TOL = 0.10  # +/-10% capacity band for blocking (docs/02 §5)
 #: `cross_refs` namespaces that are facility-registry identifiers (one id = one facility), so two
 #: sources citing the same one are the same facility (D3). `icis_air`: EPA ICIS-Air PGM_SYS_ID;
 #: `frs`: EPA Facility Registry Service id. Name-derived citations (`NYISO:…`) are not in here.
 SHARED_ID_NAMESPACES = frozenset({"icis_air", "frs"})
+#: Registry namespaces whose conflict two near points outweigh (rule L, docs/22 §28): EPA's FRS gives
+#: a construction permit a facility id of its own, so the stormwater notice and the air permit of one
+#: campus cite different FRS ids 47 m apart (Compark, Douglas County CO). Within `POINT_NEAR_M` such a
+#: conflict no longer refuses the pair; farther apart, or with a point missing, it still does. A
+#: different ICIS-Air id is a different air registration and always refuses.
+NEAR_OVERRIDES_NAMESPACES = frozenset({"frs"})
 #: EIA-860M's source id in the evaluation fixture ("eia860m") and in the registry, which is what the
 #: scheduler and the dev store pass ("us.eia.860m"). Both are one plant/generator register.
 EIA_SOURCE_IDS = frozenset({"eia860m", "us.eia.860m"})
@@ -138,6 +151,29 @@ CAP_VETO_FACTOR = 4.0
 #: capacity before a differently numbered request is refused.
 PHASE_COVER = 0.9
 
+# ------------------------------------------------------------------ point evidence (docs/22 §28)
+# Only between two load records (`KIND_CLASSES` "load": data centres) whose sources both state an
+# exact point: the connector writes raw `Latitude`/`Longitude` only for a point that passed its own
+# precision checks (FAA accuracy classes 1-5, NPDES and ICIS-Air geocode checks, a point inside a
+# Loudoun site's land), the same keys the loader promotes to an `exact` location. A county or state
+# centroid is never a point here. Generation is out of scope: a wind or solar plant spans tens of
+# kilometres, and its sources other than EIA-860M state no point.
+
+#: Rule L, location veto (coordinator call, docs/00-PLAN.md 2026-10-24): two load records whose
+#: exact points lie more than this far apart are never one fuzzy match, and never one cluster through
+#: other fuzzy matches (`location_chain_veto`). A shared registry id (a D pass) is not vetoed: two
+#: sources citing one facility-registry id are one facility even when one of them geocodes it far
+#: off (Visa, Loudoun: DEQ's registration point and ICIS-Air's address match are 3.46 km apart).
+LOCATION_VETO_KM = 2.0
+#: Point nearness at or within this distance scores 100, falling linearly to 0 at the veto. 500 m is
+#: the 90th percentile of the distance between two sources' points for one facility (95 ICIS-Air and
+#: Virginia DEQ records sharing an ICIS id: median 195 m, p90 470 m).
+POINT_NEAR_M = 500.0
+#: Nearness is weighted as the county is (`WEIGHTS["point"]`). It supports a name match and never
+#: makes one: rule N still refuses a pair whose name scores below 70, because two different
+#: facilities' points are as close as one facility's two points (56 of 205 Virginia DEQ air sites
+#: have another DEQ site within 300 m).
+
 
 def tech_families(tech: object) -> frozenset[str] | None:
     """The identity families of a technology value; None when unknown (compatible with all)."""
@@ -209,6 +245,67 @@ def capacity_veto(left: dict, right: dict, factor: float = CAP_VETO_FACTOR) -> b
     return max(lcap, rcap) > factor * min(lcap, rcap)
 
 
+EARTH_RADIUS_KM = 6371.0088
+
+
+def km_between(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Great-circle distance in km between two (lat, lon) points."""
+    lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * math.asin(min(1.0, math.sqrt(h)))
+
+
+def raw_point(raw: object) -> tuple[float, float] | None:
+    """(lat, lon) from a raw payload's `Latitude`/`Longitude` (a JSON string or a mapping), under the
+    loader's own test for an exact point (`services.ingest.loader._extract_exact_point`): both
+    numeric, finite, in range, and not the (0, 0) placeholder. None otherwise."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    if not isinstance(raw, Mapping):
+        return None
+    try:
+        lat, lon = float(raw["Latitude"]), float(raw["Longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)) or (lat == 0.0 and lon == 0.0):
+        return None
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    return lat, lon
+
+
+def point_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """`point_lat`, `point_lon` per row: the exact point of a load record (rule L), NaN for every
+    other row, and for every row of a frame without `raw` or `kind`."""
+    lat = np.full(len(df), np.nan)
+    lon = np.full(len(df), np.nan)
+    if "raw" in df.columns and "kind" in df.columns:
+        loads = np.flatnonzero(df["kind"].map(kind_class).eq("load").to_numpy())
+        for pos, raw in zip(loads, df["raw"].to_numpy()[loads], strict=True):
+            if (p := raw_point(raw)) is not None:
+                lat[pos], lon[pos] = p
+    return pd.DataFrame({"point_lat": lat, "point_lon": lon}, index=df.index)
+
+
+def record_point(rec: dict) -> tuple[float, float] | None:
+    """A record's rule-L point (`point_columns`), None when it has none."""
+    lat, lon = rec.get("point_lat"), rec.get("point_lon")
+    if not isinstance(lat, float) or not isinstance(lon, float) or lat != lat or lon != lon:
+        return None  # absent, or NaN: no point (`point_columns` writes floats only)
+    return lat, lon
+
+
+def point_score(km: float) -> float:
+    """100 within `POINT_NEAR_M`, falling linearly to 0 at `LOCATION_VETO_KM`."""
+    metres, veto_m = km * 1000.0, LOCATION_VETO_KM * 1000.0
+    if metres <= POINT_NEAR_M:
+        return 100.0
+    return max(0.0, 100.0 * (veto_m - metres) / (veto_m - POINT_NEAR_M))
+
+
 # ------------------------------------------------------------------ candidate generation
 def _pairs_within_capacity(sub: pd.DataFrame, tol: float = CAP_TOL) -> list[tuple[int, int]]:
     """Two-pointer sweep over capacity-sorted rows; yields index pairs within +/-tol relative."""
@@ -246,6 +343,34 @@ def block_name_token(df: pd.DataFrame, tag: str = "B3_state_nametoken") -> pd.Da
             for b in range(a + 1, len(idx)):
                 if src[a] != src[b]:
                     rows.append((min(idx[a], idx[b]), max(idx[a], idx[b])))
+    out = pd.DataFrame(rows, columns=["li", "ri"])
+    out["block"] = tag
+    return out
+
+
+def block_point_near(
+    df: pd.DataFrame, tag: str = "B4_point_near", km: float = POINT_NEAR_M / 1000.0
+) -> pd.DataFrame:
+    """Cross-source pairs of load rows whose exact points (`point_columns`) lie within `km`
+    (`POINT_NEAR_M`, where nearness scores 100), whatever their names. B3 pairs only names that
+    start with the same word, so a construction permit named for its campus code ("MNZ03 DATA
+    CENTER") never met the air permit named for its operator ("Microsoft - Gainesville Data Center
+    - MNZ03") 350 m away. On the labelled load pairs (docs/22 §28.4) this radius adds 16 right
+    merges and no wrong one; the veto radius (2 km) adds 2 more right and 2 wrong ("Ascent" beside
+    "T5 Data Center Northlake", 808 m). A latitude sweep: rows sorted by latitude, each compared with
+    the rows above it inside the band."""
+    rows: list[tuple[int, int]] = []
+    points = df if "point_lat" in df.columns else df.assign(point_lat=np.nan, point_lon=np.nan)
+    d = points[points["point_lat"].notna()].sort_values(["point_lat", "point_lon"], kind="mergesort")
+    lat, lon = d["point_lat"].to_numpy(), d["point_lon"].to_numpy()
+    idx, src = d.index.to_numpy(), d["source_id"].astype(str).to_numpy()
+    band = km / 110.0  # degrees of latitude, a little over km (one degree is at least 110.57 km)
+    for i in range(len(d)):
+        j = i + 1
+        while j < len(d) and lat[j] - lat[i] <= band:
+            if src[j] != src[i] and km_between((lat[i], lon[i]), (lat[j], lon[j])) <= km:
+                rows.append((min(int(idx[i]), int(idx[j])), max(int(idx[i]), int(idx[j]))))
+            j += 1
     out = pd.DataFrame(rows, columns=["li", "ri"])
     out["block"] = tag
     return out
@@ -465,6 +590,12 @@ def score_pair(left: dict, r: dict, letter_bases: frozenset[str] = frozenset()) 
     else:
         days, comp["cod"] = None, None
 
+    # Rule L: two load records' exact points (`point_columns`). Nearness is evidence; beyond
+    # LOCATION_VETO_KM the pair is vetoed below.
+    lp, rp = record_point(left), record_point(r)
+    apart_km = km_between(lp, rp) if lp is not None and rp is not None else None
+    comp["point"] = point_score(apart_km) if apart_km is not None else None
+
     avail = {k: v for k, v in comp.items() if v is not None}
     evidence = sum(WEIGHTS[k] for k in avail)
     score = (sum(WEIGHTS[k] * v for k, v in avail.items()) / evidence) if evidence else 0.0
@@ -485,11 +616,17 @@ def score_pair(left: dict, r: dict, letter_bases: frozenset[str] = frozenset()) 
         vetoes.append("veto_name_floor")  # Rule N: geography + MW alone never make two named projects one
     if capacity_veto(left, r):
         vetoes.append("veto_capacity")  # Rule C: a request far larger than the whole plant
+    if apart_km is not None and apart_km > LOCATION_VETO_KM:
+        vetoes.append("veto_location")  # Rule L: two load sites' exact points more than 2 km apart
     flags.extend(vetoes)
 
     bits = [
-        f"{k}={comp[k]:.0f}" for k in ("name", "sponsor", "county", "capacity", "cod") if comp[k] is not None
+        f"{k}={comp[k]:.0f}"
+        for k in ("name", "sponsor", "county", "capacity", "cod", "point")
+        if comp[k] is not None
     ]
+    if apart_km is not None:
+        bits.append(f"apart={apart_km:.2f}km")
     rationale = f"{'; '.join(bits)}; evidence={evidence:.2f}" + (f"; {','.join(flags)}" if flags else "")
     return {
         "veto": ",".join(vetoes),
@@ -499,8 +636,10 @@ def score_pair(left: dict, r: dict, letter_bases: frozenset[str] = frozenset()) 
         "county_score": comp["county"],
         "capacity_score": comp["capacity"],
         "cod_score": comp["cod"],
+        "point_score": comp["point"],
         "capacity_ratio": cap_ratio,
         "cod_days": days,
+        "apart_km": apart_km,
         "evidence": round(evidence, 2),
         "rationale": rationale,
     }
@@ -514,8 +653,10 @@ SCORE_COLUMNS = [
     "county_score",
     "capacity_score",
     "cod_score",
+    "point_score",
     "capacity_ratio",
     "cod_days",
+    "apart_km",
     "evidence",
     "rationale",
 ]
@@ -533,10 +674,26 @@ def shared_ids(refs: object) -> dict[str, set[str]]:
     return out
 
 
+def conflicting_namespaces(left_refs: object, right_refs: object) -> set[str]:
+    """The facility-registry namespaces both sides cite without sharing an id."""
+    left, right = shared_ids(left_refs), shared_ids(right_refs)
+    return {ns for ns, ids in left.items() if ns in right and not (ids & right[ns])}
+
+
 def shared_id_conflict(left_refs: object, right_refs: object) -> bool:
     """True when both sides cite a facility-registry id in the same namespace and share none."""
-    left, right = shared_ids(left_refs), shared_ids(right_refs)
-    return any(ns in right and not (ids & right[ns]) for ns, ids in left.items())
+    return bool(conflicting_namespaces(left_refs, right_refs))
+
+
+def id_conflict(left_refs: object, right_refs: object, apart_km: object = None) -> bool:
+    """`shared_id_conflict`, except that a conflict only in `NEAR_OVERRIDES_NAMESPACES` between two
+    load records whose exact points lie within `POINT_NEAR_M` (`apart_km`, from `score_pair`) is no
+    conflict."""
+    spaces = conflicting_namespaces(left_refs, right_refs)
+    if not spaces or not spaces <= NEAR_OVERRIDES_NAMESPACES:
+        return bool(spaces)
+    apart = float(apart_km) if isinstance(apart_km, int | float) else math.nan
+    return not (math.isfinite(apart) and apart * 1000.0 <= POINT_NEAR_M)
 
 
 # ------------------------------------------------------------------ deterministic passes
@@ -638,21 +795,7 @@ def kind_chain_veto(df: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
             members[root] = frozenset({own}) if own else frozenset()
         return members[root]
 
-    acc = matches[matches["accepted"]]
-    is_det = acc["pass"].astype(str).str.startswith("D")
-    ordered = pd.concat(
-        [
-            acc[is_det],
-            acc[~is_det].sort_values(["score", "li", "ri"], ascending=[False, True, True], kind="mergesort"),
-        ]
-    )
-    for idx, li, ri, det in zip(
-        ordered.index,
-        ordered["li"].astype(int),
-        ordered["ri"].astype(int),
-        ordered["pass"].astype(str).str.startswith("D"),
-        strict=True,
-    ):
+    for idx, li, ri, det in _accepted_in_order(matches):
         ra, rb = find(li), find(ri)
         if ra == rb:
             continue
@@ -662,6 +805,71 @@ def kind_chain_veto(df: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
             continue
         parent[ra] = rb
         members[rb] = ca | cb
+    return refused
+
+
+def _accepted_in_order(matches: pd.DataFrame) -> list[tuple[object, int, int, bool]]:
+    """(row index, li, ri, deterministic) of the accepted pairs in the order the cluster checks take
+    them: deterministic passes first (never refused), then fuzzy pairs by descending score with the
+    row indices as the tie-break, so the strongest evidence decides which side a bridging record
+    joins."""
+    acc = matches[matches["accepted"]]
+    is_det = acc["pass"].astype(str).str.startswith("D")
+    ordered = pd.concat(
+        [
+            acc[is_det],
+            acc[~is_det].sort_values(["score", "li", "ri"], ascending=[False, True, True], kind="mergesort"),
+        ]
+    )
+    return list(
+        zip(
+            ordered.index,
+            ordered["li"].astype(int),
+            ordered["ri"].astype(int),
+            ordered["pass"].astype(str).str.startswith("D"),
+            strict=True,
+        )
+    )
+
+
+def location_chain_veto(df: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
+    """Rule L across a cluster: an accepted fuzzy pair that would put two load records whose exact
+    points lie more than `LOCATION_VETO_KM` apart into one cluster is refused, so a record with no
+    point (an ICIS-Air facility placed only at its county) or a chain of near pairs cannot join two
+    campuses the pairwise veto keeps apart. Same order and union-find as `kind_chain_veto`: the
+    stronger evidence decides which side a record joins; deterministic pairs are never refused, but
+    their points count. Returns a boolean Series over `matches.index`, True where the pair is
+    refused."""
+    refused = pd.Series(False, index=matches.index)
+    if "point_lat" not in df.columns or "accepted" not in matches.columns:
+        return refused
+    has = df["point_lat"].notna()
+    lats, lons = df.loc[has, "point_lat"], df.loc[has, "point_lon"]
+    points: dict[int, list[tuple[float, float]]] = {
+        int(i): [(float(a), float(b))] for i, a, b in zip(lats.index, lats, lons, strict=True)
+    }
+    if not points:
+        return refused
+    parent: dict[int, int] = {}
+
+    def find(x: int) -> int:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for idx, li, ri, det in _accepted_in_order(matches):
+        ra, rb = find(li), find(ri)
+        if ra == rb:
+            continue
+        pa, pb = points.get(ra, []), points.get(rb, [])
+        if not det and any(km_between(a, b) > LOCATION_VETO_KM for a in pa for b in pb):
+            refused.at[idx] = True
+            continue
+        parent[ra] = rb
+        if pa:
+            points[rb] = pb + pa
     return refused
 
 
@@ -964,6 +1172,7 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
             print(f"  EIA plant-level rollup records added: {len(extra):,}", file=sys.stderr)
     df.index = range(len(df))
     df[["plant_mw", "plant_poi_mw"]] = plant_extents(df)
+    df[["point_lat", "point_lon"]] = point_columns(df)
 
     det = deterministic(df)
     cand = pd.concat(
@@ -971,6 +1180,7 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
             block(df, ["state", "technology"], "B1_state_tech_cap"),
             block(df, ["state", "county_norm"], "B2_state_county_cap"),
             block_name_token(df),
+            block_point_near(df),
         ],
         ignore_index=True,
     )
@@ -990,16 +1200,26 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
 
     det = det.assign(block="deterministic", evidence=1.0)
     matches = pd.concat([det, fuzzy.drop(columns=["block"])], ignore_index=True, sort=False)
-    matches = matches.sort_values("score", ascending=False).drop_duplicates(subset=["li", "ri"])
+    # One row per pair: the highest score, and on a tie the deterministic pass. The sort is stable,
+    # so the pass a pair keeps never depends on the sort algorithm: a shared registry id scoring 100
+    # beside a fuzzy 100 used to keep either row, and only a deterministic row is exempt from the
+    # vetoes (Visa, Loudoun: D3 on its ICIS id, 3.46 km between the two sources' points).
+    matches = (
+        matches.assign(_det=matches["pass"].str.startswith("D"))
+        .sort_values(["score", "_det"], ascending=[False, False], kind="mergesort")
+        .drop_duplicates(subset=["li", "ri"])
+        .drop(columns=["_det"])
+    )
 
     # A fuzzy pair whose two sides cite *different* ids in the same facility-registry namespace
     # is two facilities (one operator's neighbouring campuses score 75-82 on name + county alone:
     # "Microsoft Corp - LVL Data Center" vs "Microsoft Corp - AVC17 Datacenter"), so it is never
-    # accepted, whatever its score.
+    # accepted, whatever its score; two near load points outweigh an FRS-only conflict (`id_conflict`).
     refs = df["cross_refs"]
+    apart = matches["apart_km"] if "apart_km" in matches.columns else pd.Series(np.nan, index=matches.index)
     matches["id_conflict"] = [
-        shared_id_conflict(refs.at[int(a)], refs.at[int(b)])
-        for a, b in zip(matches["li"], matches["ri"], strict=True)
+        id_conflict(refs.at[int(a)], refs.at[int(b)], d)
+        for a, b, d in zip(matches["li"], matches["ri"], apart, strict=True)
     ]
     matches["veto"] = matches["veto"].fillna("") if "veto" in matches.columns else ""
     eligible = (
@@ -1017,6 +1237,10 @@ def run(threshold: float, normalized: pathlib.Path, rollup: bool = True) -> tupl
     matches.loc[chained, "accepted"] = False
     matches.loc[chained, "veto"] = "veto_tech_class"
     matches.loc[chained, "rationale"] = matches.loc[chained, "rationale"] + "; veto_kind_chain"
+    located = location_chain_veto(df, matches)
+    matches.loc[located, "accepted"] = False
+    matches.loc[located, "veto"] = "veto_location"
+    matches.loc[located, "rationale"] = matches.loc[located, "rationale"] + "; veto_location_chain"
 
     accepted = matches[matches["accepted"]]
     roots = cluster(df, accepted)
@@ -1081,8 +1305,10 @@ def main() -> int:
         "county_score",
         "capacity_score",
         "cod_score",
+        "point_score",
         "capacity_ratio",
         "cod_days",
+        "apart_km",
         "rationale",
         "left_source",
         "right_source",

@@ -316,7 +316,11 @@ def test_the_default_list_hides_them_and_its_counts_are_its_rows(transport: Fake
     # The rows' own total is the notice's active count, so no active bucket is asked for; the other
     # buckets count states outside the view, every record of them.
     outside = [p for p in calls if p.get("limit") == 1 and p.get("listed") != "false"]
-    assert sorted(p["lifecycle_state"] for p in outside) == ["built", "unknown", "withdrawn,cancelled"]
+    assert sorted(p["lifecycle_state"] for p in outside) == [
+        "built",
+        "unknown,postponed",
+        "withdrawn,cancelled",
+    ]
     assert all("listed" not in p for p in outside)
     # One cheap call says how many are hidden; the line says it with a way to them. In all, the
     # default list makes as many calls as before records were hidden (rows and four buckets).
@@ -350,7 +354,10 @@ def test_the_default_map_hides_them_in_its_reads_and_its_notice(transport: FakeT
     page_calls = [
         p
         for p in transport.params_for("/v1/proposals")
-        if p.get("limit") == 1 and "first_seen[from]" not in p and p.get("kind") != "load"
+        if p.get("limit") == 1
+        and "first_seen[from]" not in p
+        and p.get("kind") != "load"
+        and p.get("jurisdiction") is None  # the front strip's figures carry the US scope
     ][:5]
     assert [p.get("listed") for p in page_calls] == ["true", None, None, None, "false"]
     fragment = _get(
@@ -547,7 +554,7 @@ def test_the_box_is_labelled_grouped_with_status_and_follows_the_url(
     assert page.box_details[box_id] == f"{prefix}-status"
     assert len(page.ids) == len(set(page.ids)), "ids are unique"
     assert page.styled == [], "no style attributes (the CSP forbids them)"
-    assert "Always included while Built, Withdrawn or Status unknown is ticked." in _text(html)
+    assert "Always included while Built, Withdrawn, Status unknown or Postponed is ticked." in _text(html)
     assert re.search(
         rf'id="{prefix}-status"[^>]*>\s*<summary>Status:&nbsp;<span data-status-summary>active</span>', html
     )

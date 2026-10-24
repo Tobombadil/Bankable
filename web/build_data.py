@@ -68,6 +68,8 @@ LIFECYCLE_FAMILY: dict[str, Family] = {
     "open": "success",
     "withdrawn": "danger",
     "cancelled": "danger",
+    # `postponed` (2026-10-24): stopped, like a frozen notice; its own word on every chip (D-5).
+    "postponed": "danger",
     "frozen": "danger",
 }
 FAMILY_LABEL: dict[Family, str] = {

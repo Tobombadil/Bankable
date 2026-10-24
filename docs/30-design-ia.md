@@ -1983,6 +1983,78 @@ from 720px, the map's height less 24px; collapsed by default from 720 to 1079px)
   area" and "N open across the map".
 - Each tab ends with its credits line (T-4). The record drawer still opens in the panel's place (`docs/31` §5.19).
 
+**Built: V2, the landing, direction A "Night survey" (2026-10-24, lane v2-landing; owner: "Let's go with your
+recommendation").** `web/templates/home_map.html`, `_map_notice.html`, `web/static/js/map.js`, `web/headline.py`, the
+home route in `web/app.py` and styles.css "8.5 The map landing". Against the plan above:
+
+- **Layout as planned.** The map fills the viewport under the two bars (812px at 1440x900, 752px at 390x844), with no
+  page scroll and no footer at any width, short windows included (844x390 and 915x412 scrolled by 114px and 92px from
+  a minimum height until the review of 2026-10-24). Every piece over it is absolutely placed, so nothing moves another.
+  Below 600px of height from 720px wide, the strip takes the phone's sizes and sits right of the zoom column.
+- **The floating bar is Find · Filters · List.** Grid waits for the list endpoints' `bbox` (B-2). The count line and
+  "Active only. Why?" moved from the bar to the head of the filter sheet, for the word budget (`docs/31-brand-identity.md`
+  §6). What must show at every width shows under the bar: a coverage note, "No status chosen" with Clear all, the
+  filter that emptied the map, the dev-preview label and the error strip (`_map_notice.html`'s "under" part; the
+  sheet takes the "sheet" part).
+- **The intro line became the front strip** (`docs/31-brand-identity.md` M-3; owner, 2026-10-24), at the canvas's
+  bottom left. Its h1 is "Planned US energy projects, each linked to its source.". Under it are three figures
+  (projects, data centres, open calls) and "Sources read {date}". Each figure is counted with exactly the query its
+  link's list sends (`proposal_list_query`, `opportunity_list_query`), so the number and the list's "N match" are one
+  query; `web/test_headline.py` follows each link. The US is every US jurisdiction code (`US_JURISDICTIONS`, 59
+  codes), and a filtered view keeps the map's own heading. The national view is fitted so that no part of the lower
+  48 lies under the strip (map.js `homeCamera`). Once the map moves away, the strip gains a plain surface; on a phone
+  it gives the map back by leaving the screen, not the page: its h1 stays the page's heading for a screen reader,
+  and the strip comes back while focus is inside it (until the review it was `display: none`). The meta description
+  reads "4,167 projects (71 of them data centres) and 9 open calls in the US.", since the data centres are among the
+  projects. The figures are served for a minute, then refreshed beside the request that finds them stale (web
+  `headline.FigureCache`), so after an ingest a figure and its list's "N match" can differ for about a minute (ten
+  before the review). The web cannot read the API's data version cheaply, so the window is a time.
+- **Controls.** Zoom in, zoom out and "Jump to" (a disclosure at every width) sit in a column at the left edge under
+  the bar, or at the right edge on a phone. Reset is drawn only once the map has left the national view. The column
+  shares the strip's layer and follows it, so the strip never lies over Reset (it did once the map had moved).
+- **The credits hold the footer's links** (review of 2026-10-24: the landing hid the footer and nothing led to
+  Privacy, the reuse conditions, the API, the method or the glossary, and the endorsement line was nowhere). They
+  are the page's own disclosure at the canvas's bottom right (`#map-credits`, a `<details>` that works without
+  scripts), not MapLibre's control: closed, a chip reading "© OpenStreetMap" and an "i" (OSMF Attribution
+  Guidelines: the credit in a corner of the map, the licence one click away), in sight from first paint at every
+  width. Open, a card above it holds every credit in full (the basemap and OpenStreetMap's licence, the outline,
+  the registers behind the projects, Attribution), the footer's eight links in the footer's order
+  (`web/test_layout_states.py` holds the lists equal) and the endorsement line (`docs/31-brand-identity.md` B-4).
+  Escape or a tap elsewhere closes it. It sits in the overlay, over the strip and under the filter sheet and the
+  panel, and rises over the panel while open. On a phone the chip (40px tall) stands on the sheet's peek at the
+  right end of "Sources read"; before the review MapLibre's "i" lay under that line and no tap could open it.
+- **The panel has two tabs, "In view" and "Key".** Companies, Infrastructure and RFPs are later lanes (B-1). The head
+  shows the count and capacity ("4,139 in view · 742.7 GW"; the noun "projects" is said to a screen reader only, at
+  every width, which also keeps it apart from the strip's "4,167 projects", the whole country's list), a status bar,
+  and one row per status with its mark, its name and its count. The overview holds four
+  technology rows: 4px bars in the muted ink, the top row in the text ink, with no track. Direction A's 1.54:1 bars are
+  now 7:1 or more. Under the rows are "Zoom in to list them." and an empty slot kept for the planned-against-operating
+  ledger (`#map-ledger`, B's lane). The busiest areas and the "also in view" line left the landing, so the overview
+  now asks the API for nothing of its own (decision row of 2026-10-24; S-2's slots for them are dropped on the
+  landing, §11.7). How many matches no map can place is said in the filter sheet's count line, and in "In view" on a
+  phone.
+- **One mark per status family per place.** In process is a disc in `--dot`, contracted a square, announced a ring.
+  Each is sized by area with its count (radius 2.4 + 1.25√n px, at most 14), never numbered. One symbol layer draws
+  them, smaller over larger. The API's grid is asked at the map's zoom + 6, so a mark is about one place: 1,657
+  features and 68.5 KB gzipped at the national view at 1440x900 (D-13: 2,000 and 300 KB).
+- **The dark theme is the share card's navy on this page only.** The ground and water are `#0b1023`, the land
+  `#161c36` and the lines `#2c3459` (`docs/31-brand-identity.md` §2's exception). The light theme keeps the ledger
+  ground.
+- **Measured on the dev store, against current head, production posture.** Words above the fold, counting what a
+  reader can see, the map's credits included (the coordinator's counter leaves MapLibre's credits control out, and
+  the first build's open credits were 25 words and 5 controls it did not count): 60 at 1440 and 30 at 390, in both
+  themes; controls 23 and 19. The coordinator's counter, which also counts the two off-screen skip links: 69 and 40
+  words, 25 and 22 controls. Both leave out the sandbox's own "Base map unavailable" line, which production does
+  not show. Before: 299 and 66 words, 62 and 24 controls. To fit the credits chip, the panel's noun is said and not
+  drawn, the phone's peek leaves its capacity to the open sheet, and "Sources read" is a statement, not a link.
+  axe (WCAG 2.0-2.2 A/AA): 0 at 1440 and 390 in both themes, before and after, and with the credits open. Taste
+  inspector `--app`: 0 FAIL before and after; after, light 2 WARN (panel-void, the fixed panel box of S-1, and
+  no-data-hue, the technology bars kept neutral because the one hue marks "in process") and dark one more
+  (icon-chips at 390: the map's zoom buttons). Lab, medians of three behind gzip, two rounds in swapped order
+  (lab.py's CDP profile: 390x844 at DPR 3, RTT 562.5 ms, 1.47 Mbit/s, CPU 4x; 1440x900, RTT 40 ms, 10 Mbit/s): mobile
+  LCP 2,100 and 2,036 ms before, 2,132 and 2,068 after; desktop 872 and 852 before, 824 and 840 after; CLS 0.0016
+  and 0.0078-0.0287 before, 0 after (D-31: 2.5 s and 0.1).
+
 ### 11.7 Panel stability rules
 
 **Why it bounced, as built** (`web/static/js/map.js`, 2026-10-23): (1) after one move, up to four answers land
@@ -2003,6 +2075,38 @@ unplaced note, key rows); (6) `resetInViewPages()` on every refetch closes "Show
 | **S-7 Skeletons hold** | From first paint every slot shows a skeleton at its final height (bars in `--border` at line height). A later read never swaps loaded values back to skeletons: the old values stay until the commit, with a 2px progress line at the panel's top edge while a read is out. An empty slot shows a one-line reason at the same height ("No RFPs in this area"); an error shows its line and Retry at the same height. No slot is `display: none` after first paint; only whole tabs hide | e2e with a fake transport (delays, empty answers, errors): slot heights identical across loading, loaded, empty and error |
 | **S-8 Layout-shift budget** | Over the scripted 12-move session, the layout-shift entries whose sources lie in the panel or the floating bar sum to 0.02 or less at 1440×900 and 390×844; the page stays within D-31's 0.1. Drags and pinches are not "input" for CLS (web.dev, §11.1), so these shifts count | e2e: a `PerformanceObserver` on `layout-shift` filtered by source node |
 | **S-9 Tabs and collapse keep their place** | Switching tabs or collapsing changes no box (S-1), and each tab keeps its own scroll (as built). The overview-to-list swap cross-fades over 150ms in the same box; the summary slot above it does not move | e2e: as S-1, across tab switches and collapse and reopen |
+
+**Built on the landing (2026-10-24, lane v2-landing).** This lane put S-1 to S-8 into map.js and the landing's CSS.
+The rules sit on `window.__mapPanelRules` (`nextMode`, `reorder`, `setFigure`) for the e2e case tables.
+
+- **S-1.** The open panel is `min(40rem, the map less its inset and 3rem)` tall in every state, so a short In view and a
+  long list share one box. Its 92% surface sits over the map and turns opaque under `prefers-reduced-transparency`.
+  `test_the_landing_holds_its_boxes_steady_and_its_figures_lead_to_their_lists` records the panel's box and the
+  floating bar's after first idle. It then makes four jumps (zoom 4, 9, 6 and 5), switches both tabs and changes a
+  filter, and checks that neither box changes.
+- **S-2 and S-7.** The status rows and the four technology rows are drawn from first paint. Until the first answer
+  lands, an empty technology row holds a `--border` bar at line height, and a later read never puts the skeleton
+  back. Each status count keeps a 6ch box, so a count growing to 99,999 moves nothing beside it. On the landing the
+  Projects stack is summary, status rows, technology (four rows), the hint and the ledger's slot: S-2's busiest-areas
+  and "also in view" slots are dropped there (decision row of 2026-10-24), and the unplaced count moved to the filter
+  sheet's count line (and "In view" on a phone).
+- **S-3.** `nextMode` replaces `chooseInViewMode`'s single switch (zoom 5, 300 and 25) with the table above. The test
+  zooms 4.8, 5.0, 5.2, 5.0, 4.8 at one centre and allows at most one mode change. It also runs `nextMode` over 280,
+  320 and 280 in view at zoom 4.9, 5.1 and 4.9, which must not flip.
+- **S-4.** The head's count and capacity, the status counts and the technology counts ease over 200ms (ease-out). The
+  first value is set at once, and every frame is rounded and separated. Under reduced motion every value is set at
+  once. The test checks both cases on `setFigure`.
+- **S-5.** The technology rows keep their order under the rule above, and a filter change sorts them exactly. While the
+  pointer is over the panel nothing re-sorts; a waiting re-sort runs 400ms after the pointer leaves. The test runs
+  `reorder` over six cases.
+- **S-6.** An answer that lands while the map moves waits for `moveend`. Answers that land in the same frame commit
+  together. The test watches the panel through a 1.2s `flyTo` and requires no mutation. Not built: the 800ms window
+  that gathers a view's later answers into one commit.
+- **S-8.** The lab layout shift on the landing is 0 at 1440x900 and 390x844 (before: 0.029 and 0.002). Two shifts were
+  found and removed. The phone sheet painted at half height and then folded to its peek; it now paints at its peek
+  until the script marks it ready. The credits control folded after load; the credits are now the page's own
+  disclosure, closed in the HTML, so nothing folds after load at any width.
+- **Not built.** S-7's 2px progress line: the old values stay until the commit, with no line.
 
 ### 11.8 Phones (360px floor)
 
@@ -2028,6 +2132,27 @@ unplaced note, key rows); (6) `resetInViewPages()` on every refetch closes "Show
   action is a full-width 44px button under the header.
 - **At 360px** nothing scrolls sideways: the top bar needs about 110px for the wordmark and 2×44px for the buttons; the
   section bar and tab bars scroll inside themselves.
+
+**Built on the landing at 390x844 (2026-10-24, lane v2-landing).**
+
+- **One finger pans the map.** The record pages' mini-maps keep the two-finger hint.
+- **The floating bar is Find · Filters · List**, 8px from the edges. The count line and "Why?" are at the head of the
+  filter sheet (§11.6 note).
+- **The front strip sits above the sheet's peek**, and it leaves the screen once the map moves away; its h1 stays in
+  the page, and focus inside it brings it back (§11.6 note).
+- **The credits chip** ("© OpenStreetMap" and its "i", 40px tall) stands on the peek at the right end of the strip's
+  "Sources read" line, which keeps clear of it; a tap opens the credits and the footer's links over the map (e2e taps
+  it at 360 and 390). The peek reads "4,138 in view": the capacity shows once the sheet is open, so the first screen
+  keeps its 30 words with the credits counted.
+- **The zoom column is at the right edge with "Jump to"** as a pin icon (44px, named "Jump to"). No control lies over
+  the places at the edge of the lower 48 (e2e checks Seattle, Cape Mendocino, San Diego, Brownsville, Key West and Eastport).
+- **The sheet's peek is 56px rather than 112px:** the handle and the head line with the count. That fits the word
+  budget of 30. The half height is 50% of the map and full is the map less 56px, as planned. Text in the sheet's
+  head, tabs and scroll is set 16px from its edges. The record drawer opens in the sheet at its own height (the
+  desktop drawer height is now inside `min-width: 720px`).
+- **Measured cover.** With the sheet at its peek, overlays cover 33.7% of the map: the strip 17.5%, the peek 8.1%,
+  the bar 6.1% and the credits chip 2% (most of it within the strip's band). With Key open, they cover 58.2%. e2e
+  holds these under 36% and 62%.
 
 ### 11.9 Wireframes
 

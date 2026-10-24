@@ -33,7 +33,7 @@ def doc() -> dict[str, Any]:
 
 def test_committed_rule_file_loads() -> None:
     rules = load_rules()
-    assert rules.version == "match-rules@v2"
+    assert rules.version == "match-rules@v3"
     assert 0 < rules.threshold <= 1
     assert set(rules.weights) == set(RULE_NAMES)
     assert not set(GATE_NAMES) & set(rules.weights)  # a gate never carries a weight

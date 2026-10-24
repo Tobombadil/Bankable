@@ -54,7 +54,7 @@ def test_the_us_402_example_renders_exactly() -> None:
     assert result.is_match
     assert result.rationale_text == "storage, TX, 50–550 MW, due in 45 days"
     assert result.score == 1.0
-    assert result.rule_set_version == "match-rules@v2"
+    assert result.rule_set_version == "match-rules@v3"
     rationale = result.rationale
     # v2: the eligibility gate is a fifth check; it is never in the credits (it has no weight) and
     # its label stays out of the rationale text when it passes.
@@ -276,6 +276,10 @@ def test_format_mw() -> None:
     ("state", "status", "due_days", "passed", "credit", "label"),
     [
         ("withdrawn", "open", 10, False, 0.0, "proposal withdrawn"),
+        ("cancelled", "open", 10, False, 0.0, "proposal cancelled"),
+        ("built", "open", 10, False, 0.0, "proposal built"),
+        # v3: EIA-860M's canceled or indefinitely postponed units are not live projects (docs/21 §7.1).
+        ("postponed", "open", 10, False, 0.0, "proposal postponed"),
         ("studied", "closed", 10, False, 0.0, "closed"),
         ("studied", "awarded", None, False, 0.0, "awarded"),
         ("studied", "open", -3, False, 0.0, "past due (3 days ago)"),

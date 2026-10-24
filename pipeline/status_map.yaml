@@ -4,7 +4,9 @@
 # contracted -> built -> withdrawn/cancelled) plus one documented extension, `under_construction`,
 # which sits between `contracted` and `built`. EIA-860M distinguishes it explicitly and collapsing
 # it into either neighbour would lose the single most commercially useful signal in the file.
-version: 4
+# A second extension, `postponed` (2026-10-24, owner decision; migration 0046), is EIA-860M's
+# "canceled or indefinitely postponed" sheet: off the ladder, and neither active nor withdrawn.
+version: 5
 updated: 2026-10-24
 
 canonical_states:
@@ -17,6 +19,7 @@ canonical_states:
   - built              # in commercial operation / in service
   - withdrawn          # sponsor withdrew the request
   - cancelled          # terminated by the operator or the process
+  - postponed          # EIA-860M: canceled or indefinitely postponed, unsaid which; neither active nor withdrawn
   - unknown            # source gives no status, or a value not in the map
 
 # `field` names the raw column each base mapping keys off.
@@ -184,40 +187,32 @@ sources:
       "(U) Under construction, less than or equal to 50 percent complete": under_construction
       "(V) Under construction, more than 50 percent complete": under_construction
       "(TS) Construction complete, but not yet in commercial operation": under_construction
-      # THE SWITCH for EIA's "Canceled or Postponed" sheet (docs/28 §11 item 2, owner decision
-      # open). The connector reads that sheet from the same workbook and loads its units only
-      # while this map has a key "Canceled or Postponed" (the sheet's name is its rows' status
-      # text: the sheet has no Status column). Absent, as now, the units are parsed and counted on
-      # each run (the count is kept in the run record, snapshot `meta.canceled_or_postponed`) and
-      # nothing is loaded, because no lifecycle state says what EIA says:
-      #   - EIA's title is "Inventory of Canceled or Indefinitely Postponed Projects"; no column
-      #     says which of the two a unit is (EIA-860's own code IP is "canceled, indefinitely
-      #     postponed, or no longer in resource plan");
-      #   - the coordinator's default until the owner answers is that a postponed unit is not
-      #     cancelled, and is counted neither as active nor as withdrawn: that needs a new state,
-      #     `postponed`, and `proposal.lifecycle_state` carries a CHECK (`lifecycle_state_vocab`,
-      #     migration 0001), so a new state is all of these, in one change:
-      #       1. a migration widening `ck_proposal_lifecycle_state_vocab`;
-      #       2. `services/db/models.py` `LIFECYCLE_STATES`;
-      #       3. `canonical_states` at the top of this file (tests/test_status_map.py refuses a
-      #          mapped state that is not listed there);
-      #       4. its definition in `data/vocabulary/lifecycle_states.yaml` `lifecycle_states`;
-      #       5. its label in `services/labels.py` `LIFECYCLE_LABELS`;
-      #       6. the API's vocabulary: `services/api/app.py` `LIFECYCLE_STATE_VALUES` and the
-      #          `LifecycleState` enum in `api/openapi.yaml`;
-      #       7. the trends blocks in `services/trends/snapshot.py` (`ACTIVE_STATES`,
-      #          `WITHDRAWN_STATES`, `BUILT_STATES`, `UNKNOWN_STATES`: a postponed unit in none of
-      #          them is counted in no series, which is the default's "neither active nor
-      #          withdrawn");
-      #     the connector test that flips the switch to `postponed` runs on a copy of this map, so
-      #     it passes without them: it proves the connector, not the vocabulary;
+      # THE SWITCH for EIA's "Canceled or Postponed" sheet (docs/28 §11 item 2; owner decision
+      # 2026-10-24, docs/00-PLAN.md "Owner decisions on the weekend list" item 3). The connector reads
+      # that sheet from the same workbook and loads its units only while this map has the key below
+      # (the sheet's name is its rows' status text: the sheet has no Status column). Each parse also
+      # counts the sheet into the run record (snapshot `meta.canceled_or_postponed`), loaded or not.
+      #   - EIA's title is "Inventory of Canceled or Indefinitely Postponed Projects"; no column says
+      #     which of the two a unit is (EIA-860's own code IP is "canceled, indefinitely postponed, or
+      #     no longer in resource plan"). So the state is `postponed`, its own: in no active, withdrawn
+      #     or built group anywhere (docs/21 §7.1 says where it sits in each count), and a move to it is
+      #     a `status_change` event, never a `withdrawn` one (pipeline/diff.py `TERMINAL`).
+      #   - The state is listed in every place a lifecycle state must be (one change, 2026-10-24):
+      #     migration 0046 widening `ck_proposal_lifecycle_state_vocab`; `services/db/models.py`
+      #     `LIFECYCLE_STATES`; `canonical_states` above; `data/vocabulary/lifecycle_states.yaml`
+      #     `lifecycle_states`; `services/labels.py` `LIFECYCLE_LABELS`; the API's
+      #     `services/api/app.py` `LIFECYCLE_STATE_VALUES` and the `LifecycleState` enum in
+      #     `api/openapi.yaml`. The trends blocks of `services/trends/snapshot.py` (`ACTIVE_STATES`,
+      #     `WITHDRAWN_STATES`, `BUILT_STATES`, `UNKNOWN_STATES`) deliberately name it in none, so a
+      #     postponed unit is counted in no series (the connector test pins every place).
       #   - `unknown` cannot be mapped to: it is the fall-through state, and the published
       #     definitions keep it free of mappings (tests/test_lifecycle_definitions.py).
-      # To load the sheet, add ONE of these lines (a flip is a parser change: the runner restates
-      # the previous output under it, so the flip is never news; the first such run is held by
-      # the row-count gate as a scope change and is released by an operator):
-      #   "Canceled or Postponed": postponed   # once the migration adds the state
-      #   "Canceled or Postponed": cancelled   # if the owner answers that postponed reads as cancelled
+      # Turning the switch on, or off, is a parser change: the runner restates the previous output
+      # under it, so the units already on the sheet are never news; the first such run is held by the
+      # row-count gate as a scope change (2,358 -> 4,103 rows on the September 2026 workbook) and is
+      # released by an operator. Removing the key stops loading the sheet: its units then read as
+      # removals (`removed_from_source`), which change no record's state.
+      "Canceled or Postponed": postponed
     caveats:
       - >-
         (TS) is construction-complete but pre-commercial-operation. It is NOT `built`: the unit
@@ -229,7 +224,8 @@ sources:
       - 2 rows carry no status and no technology (trailing notes rows in the sheet).
       - >-
         "Canceled or Postponed" (September 2026 workbook, measured 2026-10-24): 1,745 units at
-        1,072 plants, 185,356.8 MW nameplate, none of them on the Planned or Operating sheet. A
-        unit keeps its `<Plant ID>-<Generator ID>` across sheets, so a unit that moves from Planned
-        to this sheet is a lifecycle change on the same record once the sheet is loaded, never a
-        removal plus a new record.
+        1,072 plants, 185,356.8 MW nameplate, none of them on the Planned or Operating sheet, all
+        loaded as `postponed` (rule `eia860m.map`) since 2026-10-24. A unit keeps its
+        `<Plant ID>-<Generator ID>` across sheets, so a unit that moves from Planned to this sheet
+        is a `status_change` of the same record, never a removal plus a new record. The sheet states
+        no planned date, so a postponed unit carries no `proposed_cod`.

@@ -1,7 +1,7 @@
 # Published definitions of the lifecycle vocabulary.
 #
 # What this file is for
-#   The ten states in `services/db/models.py::LIFECYCLE_STATES` and the eight in
+#   The eleven states in `services/db/models.py::LIFECYCLE_STATES` and the eight in
 #   `OPPORTUNITY_STATUSES` render as chips on every list, map drawer and record page. Until this
 #   file existed, no reader could find out what any of those words meant. Global Energy Monitor
 #   publishes a methodology page defining each of its statuses; this is the same thing, kept as
@@ -24,7 +24,8 @@
 #   uncertainty  : where the mapping into this state is a judgement rather than a reading, named
 #                  so a reader can discount it. Omitted where the mapping is a direct reading.
 #
-# Prose in this file is written, not derived. `written` below is when.
+# Prose in this file is written, not derived. `written` below is when; `postponed` was added on
+# 2026-10-24 (owner decision, docs/00-PLAN.md "Owner decisions on the weekend list" item 3).
 
 version: 1
 written: 2026-09-21
@@ -132,6 +133,20 @@ lifecycle_states:
       by the sponsor.
     excludes: >-
       Not a sponsor's own withdrawal, which is withdrawn.
+
+  postponed:
+    definition: >-
+      The source lists the project as canceled or indefinitely postponed without saying which: it
+      is not being built on any schedule the source holds, and nobody is recorded as having ended
+      it. Today this is EIA-860M's "Inventory of Canceled or Indefinitely Postponed Projects".
+    excludes: >-
+      Not active pipeline, and not withdrawn or cancelled: it is counted in neither, and a move to it
+      is a status change, not a withdrawal. It is not a judgement that the project will resume, and
+      it carries no planned date, because the source states none.
+    uncertainty: >-
+      EIA does not say whether a unit on the sheet is cancelled or only postponed (EIA-860's own code
+      IP is "canceled, indefinitely postponed, or no longer in resource plan"), so some postponed
+      units are in fact cancelled. The state keeps the two together because the source does.
 
 # ─────────────────────────────────────────────── opportunities (OPPORTUNITY_STATUSES)
 opportunity_statuses:

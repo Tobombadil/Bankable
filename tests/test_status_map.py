@@ -114,6 +114,9 @@ def test_all_six_sources_present():
             "under_construction",
             "eia860m.map",
         ),
+        # The "Canceled or Postponed" sheet's rows carry the sheet's name as their status (owner
+        # decision 2026-10-24): their own state, neither active nor withdrawn or cancelled.
+        ("eia860m", {"status_raw": "Canceled or Postponed"}, "postponed", "eia860m.map"),
     ],
 )
 def test_harmonise(src, ctx, expected, rule):

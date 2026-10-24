@@ -153,6 +153,7 @@ LIFECYCLE_STATES = (
     "built",
     "withdrawn",
     "cancelled",
+    "postponed",
 )
 REPORT_ISSUE_TYPES = ("wrong_merge", "wrong_status", "wrong_sponsor", "other")
 #: Beta feedback (module docstring): a report about the site, not a record, from the private beta's

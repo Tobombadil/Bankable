@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from pipeline.connectors.history.documents import DOCUMENT_KIND, SCHEMA_VERSION, MonthlyStore
+from pipeline.connectors.history.eia860m.connector import PAIRED
 from services.trends import series as trends
 from services.trends.store import TrendStore
 
@@ -141,6 +142,109 @@ def test_a_breakdown_reads_a_missing_key_as_zero_in_a_complete_tally(tmp_path: p
     assert storage["2026-08"]["value"] == 0
     assert storage["2026-09"]["mom"]["change"] == 50.0
     assert [line["key"] for line in result["lines"]] == ["solar", "storage"]
+
+
+def test_a_state_or_a_technology_breaks_down_by_status_in_lines_of_its_own(tmp_path: pathlib.Path) -> None:
+    """docs/24 §11.1: a state's or a technology's stage split is a sum of series lines only if the
+    series has a line per state, or technology, and status. A month read before the paired tallies
+    existed (parser 1.0.0) has no point on them, never a zero."""
+    earlier = _month("2026-08", 100.0, parser="1.0.0+8ad6632f")
+    paired = _month("2026-09", 150.0, parser="1.1.0+bbbbbbbb")
+    paired["blocks"]["planned"]["by_state_status"] = {
+        "US-TX|U": _tally(2, 100.0),
+        "US-TX|TS": _tally(1, 30.0),
+        "US-CA|U": _tally(1, 20.0),
+    }
+    paired["blocks"]["planned"]["by_technology_status"] = {
+        "solar|U": _tally(3, 120.0),
+        "solar|TS": _tally(1, 30.0),
+    }
+    _write(tmp_path, earlier, paired)
+    by_state = trends.series(
+        tmp_path, VIEWS, "noncommercial", metric="us_planned_capacity_mw", by="state_status"
+    )
+    assert [line["key"] for line in by_state["lines"]] == ["US-CA|U", "US-TX|TS", "US-TX|U"]
+    texas_u = _points(by_state, "US-TX|U")
+    assert list(texas_u) == ["2026-09"] and texas_u["2026-09"]["value"] == 100.0
+    assert texas_u["2026-09"]["basis"] == "eia860m/planned/net-summer-mw/50-states-dc"
+    by_tech = trends.series(
+        tmp_path, VIEWS, "noncommercial", metric="us_planned_generators", by="technology_status"
+    )
+    assert {line["key"]: [p["value"] for p in line["points"]] for line in by_tech["lines"]} == {
+        "solar|TS": [1],
+        "solar|U": [3],
+    }
+    for metric in (
+        "us_operating_capacity_mw",
+        "us_operating_generators",
+        "us_planned_capacity_mw",
+        "us_planned_generators",
+    ):
+        assert {"state_status", "technology_status"} <= set(trends.BY_METRIC[metric].dimensions), metric
+        assert "state_status" in trends.BY_METRIC[metric].method
+    for metric in ("us_retired_capacity_mw", "us_planned_retirements_mw", "us_canceled_postponed_mw"):
+        assert "state_status" not in trends.BY_METRIC[metric].dimensions  # those sheets state no status
+    # The series read the tallies the connector writes, under the same names.
+    assert set(trends.EIA_PAIRED) == set(PAIRED)
+
+
+def test_a_bounded_read_is_the_whole_series_cut_to_its_window(tmp_path: pathlib.Path) -> None:
+    """A bounded read reads only its window and the year before it (a one-month query of a paired
+    breakdown has 331 lines on the real archive), yet serves what the whole series cut to the window
+    serves: the same lines, changes computed from points outside the window, and every break of the
+    archive."""
+    _write(
+        tmp_path,
+        _month("2024-09", 50.0, by_technology={"wind": 50.0}),  # a line with no point in the window
+        _month("2025-09", 90.0, parser="0.9.0+old"),
+        _month("2025-10", 95.0),
+        _month("2026-08", 100.0, by_technology={"solar": 60.0, "storage": 40.0}),
+        _month("2026-09", 120.0, by_technology={"solar": 70.0, "storage": 50.0}),
+    )
+    whole = trends.series(tmp_path, VIEWS, "noncommercial", metric="us_planned_capacity_mw", by="technology")
+    bounded = trends.series(
+        tmp_path, VIEWS, "noncommercial", metric="us_planned_capacity_mw", by="technology", start="2026-09"
+    )
+    assert [line["key"] for line in bounded["lines"]] == ["solar", "storage", "wind"]
+    for cut, line in zip(bounded["lines"], whole["lines"], strict=True):
+        assert cut["breaks"] == line["breaks"]  # the parser breaks of 2025-09 and 2025-10, outside the window
+        assert cut["points"] == [p for p in line["points"] if p["period"] >= "2026-09"]
+    assert [b["period"] for b in bounded["lines"][0]["breaks"]] == ["2025-09", "2025-10"]
+    solar = _points(bounded, "solar")["2026-09"]
+    assert solar["mom"]["change"] == 10.0 and solar["yoy"] is None  # 2025-09 was read by another parser
+    early = trends.series(
+        tmp_path, VIEWS, "noncommercial", metric="us_planned_capacity_mw", start="2010-01", end="2010-12"
+    )
+    assert [(line["key"], line["points"]) for line in early["lines"]] == [("total", [])]
+
+
+def test_a_bounded_read_reads_no_month_before_the_year_its_changes_need(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reproduction link of a filtered planned-against-operating figure is one month of a paired
+    breakdown: measured on the restated archive (2026-10-24), building all 135 months of its ~500
+    lines took 536 ms p50 per request, the window and the year before it a tenth of that."""
+    _write(tmp_path, _month("2026-08", 100.0), _month("2026-09", 120.0))
+    asked: list[tuple[str | None, str | None]] = []
+    real = trends.Catalogue.lines
+
+    def spy(self, spec, by, start, end):  # type: ignore[no-untyped-def]
+        if by == "technology":
+            asked.append((start, end))
+        return real(self, spec, by, start, end)
+
+    monkeypatch.setattr(trends.Catalogue, "lines", spy)
+    trends.series(
+        tmp_path,
+        VIEWS,
+        "noncommercial",
+        metric="us_planned_capacity_mw",
+        by="technology",
+        start="2026-09",
+        end="2026-09",
+    )
+    trends.series(tmp_path, VIEWS, "noncommercial", metric="us_planned_capacity_mw", by="technology")
+    assert asked == [("2025-09", "2026-09"), (None, None)]
 
 
 def test_held_months_and_unseen_sources_are_left_out(tmp_path: pathlib.Path) -> None:

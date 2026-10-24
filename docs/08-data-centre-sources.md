@@ -133,10 +133,15 @@ air permitting at all.
   DEQ, 2026-10-09): the resolver merges 11, all checked correct, 9 by a shared FRS id. Citing every permit's FRS id
   stops the wrong merges of the first build (17 merges then, 6 of them joining distinct campuses: Vantage GA1 and
   GA2, 12.7 km apart; TX 11 and TX2; Aligned ORD03 into its Northlake campus; Vantage VA16 into four Virginia
-  campuses). The resolver compares names, counties and registry ids, not points, so `held.yaml` holds the 46 sites
+  campuses). The resolver compared names, counties and registry ids, not points, so `held.yaml` held the 46 sites
   that duplicate a held record (within 300 m, or farther under the held record's own building code) and the one
-  bridge, Vantage VA16, which DEQ rows (no `frs` id) still let chain. A location veto and point evidence in
-  `pipeline/resolve.py` would retire that list (the FAA lane proposes the veto too). 218 sites are new: TX 53, AZ
+  bridge, Vantage VA16, which DEQ rows (no `frs` id) still let chain. *Holds, 2026-10-24 (lane resolver-veto):*
+  with the location veto and point evidence in `pipeline/resolve.py` (docs/22 §28), 12 duplicates now merge with
+  their held record and nothing else, each checked with and without FAA, and are released (H5 Ashburn, Compark,
+  ASH2 Lockridge, Prime ORD-1, One Neck Denver, Vantage V6, ATL East, MNZ03, Sharka, Vantage GA 21, Allstate
+  Rochelle, Aligned Phoenix): 241 sites publish. 35 stay held: 32 whose names score under 70 against their held
+  record (nearness never merges alone), LYH10 and LYH03 (709 m and 1,122 m, named differently), and the VA16
+  bridge, whose cluster still takes in Vantage VA2 (1.15 km). 218 sites are new: TX 53, AZ
   20, VA 14, OR 13, GA 12, CA 10; 98 under construction, 66 of them first covered since 2024. About 3 campuses
   still show twice inside this source (Nexus at Hubbard, 1.4 km apart; Stargate Abilene buildings 9 and 10 filed
   twice, 1.6 km; NTT TX-4 and RagingWire). Lifecycle mapping and its limits: the connector's `status_map.yaml`;
@@ -182,8 +187,9 @@ air permitting at all.
 - **Effort.** M: nine yearly files (current and previous year, 18 files, about 230 MB, once a week, conditional
   where the server allows), the keyword rule, a deterministic site cluster key, and an expiry rule. No text extraction.
 - **Built (2026-10-23, lane dc-faa; fix round 2026-10-24).** Connector `us.faa.oeaaa.part77_cases`
-  (`pipeline/connectors/us_faa_oeaaa_part77_cases/`), 0.1 rps, tests on recorded fixtures. **Not scheduled:** the
-  manifest row has no `cadence` until `pipeline/resolve.py` has a location veto (last item).
+  (`pipeline/connectors/us_faa_oeaaa_part77_cases/`), 0.1 rps, tests on recorded fixtures. **Scheduled weekly
+  from 2026-10-24** (lane resolver-veto): the row had no `cadence` until `pipeline/resolve.py` had a location
+  veto (last item); with it, none of the 14 far merges remains (docs/22 §28.5).
   - *Run.* The 20 requests a run makes (robots.txt, 18 archives, the furlough flag) downloaded live on 2026-10-24 in
     218 s and read offline in 19 s: 240,960 cases (data as of 2026-10-17), 922 data-centre cases, 276 sites, 268
     records (filed 246, built 14, under_construction 8); 8 sites hold no active case. No ETag or Last-Modified, so
@@ -220,7 +226,10 @@ air permitting at all.
     record with no exact point; 8 clusters join held records the held-only run keeps apart. A simulated veto (two
     exact points more than 2 km apart never merge) removes all 14 far merges and 3 of the 8 joins. 93 records have a
     held point within 0.5 km and stay apart: duplicates until a same-place rule exists. The first load is not news;
-    the trends rule handles it.
+    the trends rule handles it. *Veto built, 2026-10-24 (lane resolver-veto, docs/22 §28):* FAA-to-held accepted
+    pairs 41 → 31, more than 2 km apart 14 → 0; clusters wider than 2 km 8 → 1 (a shared registry id). Of the 268
+    records, 26 merge and 242 stand alone: 139 more than 1 km from every held point, 103 within 1 km (92 within
+    0.5 km) kept apart because their names do not match.
 
 ### 4.2 State air permits for backup generators (family 1)
 
@@ -309,7 +318,11 @@ governments in the top market. The rest were student, consultant or advocacy lay
   land-use approval, nothing more). Through the resolver, 5 fold into held records (DEQ's own point lies inside
   their land); the other 76 are new, and 23 / 8 / 6 of them have no held point within 0.5 / 1.0 / 1.5 km. Two
   possible duplicates are reported, not merged (LEGI-2023-0097, STPL-2022-0051). 6 hold a Lane B (FAA) site:
-  known duplicates until the resolver compares places. Nearness is not identity here: ICIS-Air's and DEQ's points
+  known duplicates until the resolver compares places. *Settled 2026-10-24 (lane resolver-veto, docs/22 §28.5):*
+  on the live layer 8 sites hold an FAA site's point; 4 are one site (IAD121, Equinix DC17, ARA4A, Yondr NOV2), 4
+  cannot be told (the FAA site mixes several buildings' structures). The resolver merges none, because the names
+  share nothing and nearness never merges alone; they stay two records each until this connector cites the FAA
+  site whose point lies in its land, as it cites DEQ's air sites. Nearness is not identity here: ICIS-Air's and DEQ's points
   for one Loudoun facility are a median 190 m apart. Rows, counts and terms: `data/sources.yaml`.
 - **Prince William (rank 6).** It is the richest layer found: status, case number and planned floor area per campus
   and per building. It is restricted by its own metadata. The owner should ask the county GIS office

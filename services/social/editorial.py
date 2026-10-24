@@ -65,6 +65,12 @@ LIFECYCLE_LADDER: tuple[str, ...] = (
     "built",
 )
 
+#: A record a source first lists in one of these states earns no `proposal.new` post (2026-10-24,
+#: docs/21 §7.1). EIA re-files a unit under a new generator id, and such a unit can first appear on
+#: EIA-860M's "Canceled or Postponed" sheet; "Newly listed ...; status: postponed" would announce a
+#: project nobody is building as new. A move to `postponed` is off the ladder, so it is not posted either.
+UNPOSTED_NEW_STATES: frozenset[str] = frozenset({"postponed"})
+
 #: docs/32 §3.1 "any transition between canonical stages": every *forward* move on the ladder, skips
 #: included (2026-10-07, content audit F2). The old stepwise whitelist had no `announced` and no skips,
 #: and EIA-860M routinely jumps stages (permitted -> under_construction is 17 of the 22 status changes
@@ -611,6 +617,8 @@ def channels_for_event(event: SocialEvent, config: EditorialConfig = DEFAULT_CON
         return ()
 
     if event.event_type == "proposal.new":
+        if event.status_to in UNPOSTED_NEW_STATES:
+            return ()
         if _unsized_load(event):
             return ("bluesky", "x")
         if not meets_proposal_size_threshold(event, config):

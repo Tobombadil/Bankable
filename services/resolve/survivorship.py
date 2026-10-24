@@ -144,6 +144,9 @@ LIFECYCLE_RANK: dict[str, int] = {
     "built": 7,
 }
 TERMINAL_STATES: frozenset[str] = frozenset({"withdrawn", "cancelled"})
+#: Off the ladder and not terminal (docs/22 §3.3): EIA-860M's canceled or indefinitely postponed
+#: units. Such a unit's MW is not part of a record that is otherwise live (`_quantity`).
+POSTPONED_STATES: frozenset[str] = frozenset({"postponed"})
 
 #: Technology pairs that describe one hybrid project, and the class the vocabulary has for it.
 _HYBRIDS: dict[frozenset[str], str] = {
@@ -205,6 +208,10 @@ class Member:
     @property
     def live(self) -> bool:
         return not self.gone and self.state not in TERMINAL_STATES
+
+    @property
+    def postponed(self) -> bool:
+        return self.state in POSTPONED_STATES
 
     def number(self, name: str) -> float | None:
         value = self.values.get(name)
@@ -366,9 +373,13 @@ def _quantity(members: Sequence[Member], name: str) -> Pick | None:
     stating = [m for m in members if m.number(name) is not None]
     requests = [m for m in stating if m.role == "request"]
     inventory = [m for m in stating if m.role == "inventory"]
+    # A postponed generator is on no schedule EIA holds: it never adds MW beside a live request, and
+    # the plant inventory sums it only when every inventory member stating the quantity is postponed.
+    on_schedule = [m for m in inventory if not m.postponed]
+    inventory = on_schedule or inventory
     live = _dedupe_requests(m for m in requests if m.live)
     if live:
-        uncovered = _uncovered_inventory(live, inventory)
+        uncovered = _uncovered_inventory(live, on_schedule)
         if uncovered:
             return _sum_pick([*live, *uncovered], name, "interconnection_request_plus_inventory")
         return _sum_pick(live, name, "interconnection_request")
@@ -537,10 +548,13 @@ def milestones_entry(picks: Mapping[str, Pick]) -> dict[str, Any]:
 
 
 def _plants(members: Sequence[Member]) -> dict[str, list[Member]]:
+    """The record's inventory by EIA plant. Postponed generators count only when every inventory
+    member is postponed, as in `_quantity`, so the name and the MW come from the same plants."""
+    inventory = [m for m in members if m.role == "inventory" and m.plant_id]
+    on_schedule = [m for m in inventory if not m.postponed]
     plants: dict[str, list[Member]] = {}
-    for m in members:
-        if m.role == "inventory" and m.plant_id:
-            plants.setdefault(m.plant_id, []).append(m)
+    for m in on_schedule or inventory:
+        plants.setdefault(str(m.plant_id), []).append(m)
     return plants
 
 

@@ -1,0 +1,186 @@
+left_id,right_id,origin,apart_km,label,basis
+us.epa.echo.icis_air:AZMCA000000F047638,us.faa.oeaaa.part77_cases:2026-AWP-2713-OE,accepted,,1,"Compass PHX II at Peoria Ave & El Mirage Rd; FAA structures name PHX-II, El Mirage"
+us.epa.echo.icis_air:AZMCA004013X138847,us.faa.oeaaa.part77_cases:2026-AWP-2713-OE,accepted,15.423,0,"Compass PHX I (Bullard Ave) vs the El Mirage PHX II site, 15.4 km"
+us.epa.echo.icis_air:CO0000000800501836,us.faa.oeaaa.part77_cases:2026-ANM-3282-OE,accepted,,0,Flexential DEN03 at an Aurora address vs a Centennial structure
+us.epa.echo.icis_air:GA0000001312100981,us.faa.oeaaa.part77_cases:2025-ASO-24741-OE,accepted,12.516,0,Vantage GA1 (Stacks Rd) vs a crane 12.5 km away
+us.epa.echo.icis_air:GA0000001312100982,us.faa.oeaaa.part77_cases:2025-ASO-24741-OE,accepted,0.339,1,Vantage GA2 (Plummer Rd) and a Vantage crane 339 m away
+us.epa.echo.icis_air:IL000031440ANI,us.faa.oeaaa.part77_cases:2025-AGL-3331-OE,accepted,0.205,1,"Equinix at Lunt Ave, Elk Grove Village, and Equinix CH5 generators 205 m away"
+us.epa.echo.icis_air:IL000031440AWF,us.faa.oeaaa.part77_cases:2025-AGL-616-OE,accepted,,0,Aligned Elk Grove Village (Northwest Point Blvd) vs Aligned Northlake
+us.epa.echo.icis_air:IL000031440AWZ,us.faa.oeaaa.part77_cases:2025-AGL-14428-OE,accepted,0.098,1,"Prime, 1600 E Higgins Rd, and Prime Data Center cases 98 m away"
+us.epa.echo.icis_air:IL000031471AEN,us.faa.oeaaa.part77_cases:2025-AGL-616-OE,accepted,0.174,1,"Aligned, 505 Northwest Ave Northlake, and the Aligned Northlake structure 174 m away"
+us.epa.echo.icis_air:IL000031471AEN,us.faa.oeaaa.part77_cases:2026-AGL-13482-OE,accepted,14.417,0,"Aligned Northlake vs Aligned ORD04, 14.4 km"
+us.epa.echo.icis_air:IL000031600GNA,us.faa.oeaaa.part77_cases:2025-AGL-3331-OE,accepted,32.202,0,"Equinix 350 E Cermak (Chicago) vs Equinix CH5 Elk Grove Village, 32 km"
+us.epa.echo.icis_air:IL000043450ACJ,us.faa.oeaaa.part77_cases:2026-AGL-11518-OE,accepted,0.145,1,"NTT CH, 255 Pierce Rd Itasca, and NTT Itasca structure 145 m away"
+us.epa.echo.icis_air:TX0000004802900726,us.faa.oeaaa.part77_cases:2026-ASW-3260-OE,accepted,,0,"Vantage TX 11 (Omicron Dr) vs TX22, which sits by TX2 on Rogers Rd"
+us.epa.echo.icis_air:TX0000004802900727,us.faa.oeaaa.part77_cases:2026-ASW-3260-OE,accepted,0.502,1,Vantage TX2 (Rogers Rd) and building TX22 502 m away
+us.epa.echo.icis_air:TX0000004802900727,us.faa.oeaaa.part77_cases:2026-ASW-864-OE,accepted,11.37,0,"Vantage TX2 vs TX 12, 11.4 km"
+us.epa.echo.icis_air:VA0000005110774114,us.faa.oeaaa.part77_cases:2025-AEA-5649-OE,accepted,9.418,0,"CyrusOne Kincora vs NVA11, 9.4 km"
+us.epa.echo.icis_air:VA0000005110774290,us.faa.oeaaa.part77_cases:2025-AEA-5649-OE,accepted,,0,CyrusOne NVA14 (Beaumeade Circle) vs NVA11 (Sterling); DEQ puts NVA14 8.1 km from it
+us.epa.echo.icis_npdes_construction:AZC099407,us.faa.oeaaa.part77_cases:2025-AWP-110-OE,accepted,0.357,1,"Stream PHX-02 permits and Stream PHX cranes, Goodyear, 357 m"
+us.epa.echo.icis_npdes_construction:AZC100591,us.faa.oeaaa.part77_cases:2025-AWP-19634-OE,accepted,0.287,1,"EdgeCore Mesa permits and the EdgeCore Mesa structure, 287 m"
+us.epa.echo.icis_npdes_construction:AZC100769,us.faa.oeaaa.part77_cases:2025-AWP-18977-OE,accepted,0.642,1,"Iron Mountain AZP3 Phoenix permits and the Iron Mountain Phoenix structure, 642 m"
+us.epa.echo.icis_npdes_construction:AZC103538,us.faa.oeaaa.part77_cases:2025-AWP-642-OE,accepted,0.352,1,"QTS PHX3-DC14 permit and QTS PHX3 DC structures, 352 m"
+us.epa.echo.icis_npdes_construction:AZC104642,us.faa.oeaaa.part77_cases:2025-AWP-2514-OE,accepted,0.427,1,"Vantage AZ21 permits and AZ21 cranes, 427 m"
+us.epa.echo.icis_npdes_construction:AZC105579,us.faa.oeaaa.part77_cases:2026-AWP-5614-OE,accepted,0.538,1,"Prime PHX01 Avondale permits and Prime PHX 01 structures, 538 m"
+us.epa.echo.icis_npdes_construction:AZC107375,us.faa.oeaaa.part77_cases:2026-AWP-2713-OE,accepted,0.649,1,"Compass PHX II campus permits and the PHX II site, 649 m"
+us.epa.echo.icis_npdes_construction:AZCN83207,us.faa.oeaaa.part77_cases:2026-AWP-2713-OE,accepted,15.718,0,"Compass PHX 1 / Moonraker / Thunderball permits vs the El Mirage PHX II site, 15.7 km"
+us.epa.echo.icis_npdes_construction:AZCN88461,us.faa.oeaaa.part77_cases:2025-AWP-2514-OE,accepted,4.88,0,"Vantage AZ11/AZ14 permits vs AZ21 cranes, 4.9 km"
+us.epa.echo.icis_npdes_construction:AZCN88461,us.faa.oeaaa.part77_cases:2026-AWP-1856-OE,accepted,0.186,1,"Vantage AZ11/AZ14 permits and AZ15 structures, 186 m: one Goodyear campus"
+us.epa.echo.icis_npdes_construction:CAZ538034,us.faa.oeaaa.part77_cases:2026-AWP-11772-OE,accepted,0.588,1,"Skybox Santa Clara permit and the 1200 Memorex Skybox structure, 588 m"
+us.epa.echo.icis_npdes_construction:FLR20HQ69,us.faa.oeaaa.part77_cases:2025-ASO-7518-OE,accepted,0.059,1,"Iron Mountain Miami permit and Iron Mountain MIA-1, 59 m"
+us.epa.echo.icis_npdes_construction:GAR18B724,us.faa.oeaaa.part77_cases:2025-ASO-24741-OE,accepted,0.122,1,Vantage GA 21 permit and a Vantage crane 122 m away
+us.epa.echo.icis_npdes_construction:GAR18BC6A,us.faa.oeaaa.part77_cases:2025-ASO-24741-OE,accepted,12.648,0,Vantage GA 11 permit vs a crane 12.6 km away
+us.epa.echo.icis_npdes_construction:ILR10I822,us.faa.oeaaa.part77_cases:2025-AGL-2488-OE,accepted,0.808,0,"Ascent Northlake permit vs T5 Chicago III structures: two operators, 808 m"
+us.epa.echo.icis_npdes_construction:ILR10ZCQA,us.faa.oeaaa.part77_cases:2025-AGL-15146-OE,accepted,1.333,-1,Cloud HQ Elk Grove Village permit vs Cloud HQ ORD structures 1.33 km away
+us.epa.echo.icis_npdes_construction:ILR10ZCYO,us.faa.oeaaa.part77_cases:2026-AGL-134-OE,accepted,0.085,1,CHI 11 permit and Microsoft CHI12 structures 85 m away: the CHI10-11-12 campus
+us.epa.echo.icis_npdes_construction:ILR10ZDR8,us.faa.oeaaa.part77_cases:2025-AGL-616-OE,accepted,14.412,0,"Aligned ORD03 (Elk Grove Village) vs Aligned Northlake, 14.4 km"
+us.epa.echo.icis_npdes_construction:ILR10ZDR8,us.faa.oeaaa.part77_cases:2026-AGL-13482-OE,accepted,0.325,1,Aligned ORD03 site holds an ORD04 permit; ORD04 structure 325 m away
+us.epa.echo.icis_npdes_construction:NJG372781,us.faa.oeaaa.part77_cases:2025-AEA-11494-OE,accepted,0.331,1,"CoreWeave Kenilworth permits and the CoreWeave Kenilworth structure, 331 m"
+us.epa.echo.icis_npdes_construction:ORR10G145,us.faa.oeaaa.part77_cases:2025-ANM-1368-OE,accepted,0.07,1,"T5 Portland IV Hillsboro permits and the T5 Hillsboro structure, 70 m"
+us.epa.echo.icis_npdes_construction:ORR10J388,us.faa.oeaaa.part77_cases:2025-ANM-3439-OE,accepted,0.136,1,"Prineville 5MW permit and the Oppidan 5MW Prineville structures, 136 m"
+us.epa.echo.icis_npdes_construction:SCR10Z7F5,us.faa.oeaaa.part77_cases:2026-ASO-2343-OE,accepted,0.079,1,"DC Blox Greenville permit and the DC Blox expansion structure, 79 m"
+us.epa.echo.icis_npdes_construction:TN0082279,us.faa.oeaaa.part77_cases:2025-ASO-17212-OE,accepted,0.956,1,"Gallatin data centre permit and the Gallatin data centre structure, 956 m"
+us.epa.echo.icis_npdes_construction:TXR1520QD,us.faa.oeaaa.part77_cases:2026-ASW-3260-OE,accepted,0.316,1,Vantage TX-B permit and building TX22 316 m away
+us.epa.echo.icis_npdes_construction:TXR1520QD,us.faa.oeaaa.part77_cases:2026-ASW-864-OE,accepted,11.43,0,"Vantage TX-B vs TX 12, 11.4 km"
+us.epa.echo.icis_npdes_construction:TXR1530VE,us.faa.oeaaa.part77_cases:2026-ASW-11198-OE,accepted,0.679,1,"Abilene buildings 9-10 permit and the Abilene Ph3 buildings 9-10 structures, 679 m"
+us.epa.echo.icis_npdes_construction:TXR1536ZN,us.faa.oeaaa.part77_cases:2026-ASW-11198-OE,accepted,0.968,1,"Abilene buildings 9 & 10 (second filing) and the same structures, 968 m"
+us.epa.echo.icis_npdes_construction:TXR1540UC,us.faa.oeaaa.part77_cases:2026-ASW-1160-OE,accepted,0.675,1,"SB Energy Orion and Milam building 1 permits and Project Orion, Burlington, 675 m"
+us.epa.echo.icis_npdes_construction:TXR1544QG,us.faa.oeaaa.part77_cases:2026-ASW-3260-OE,accepted,10.952,0,"Vantage TX-A vs TX22, 11.0 km"
+us.epa.echo.icis_npdes_construction:TXR1544QG,us.faa.oeaaa.part77_cases:2026-ASW-864-OE,accepted,0.477,1,Vantage TX-A permit and building TX 12 477 m away
+us.epa.echo.icis_npdes_construction:VAR104158,us.va.deq.data_center_air_sites:73935,accepted,0.122,1,"Intergate Ashburn permit and the Intergate Ashburn air site, 122 m"
+us.epa.echo.icis_npdes_construction:VAR10P669,us.va.deq.data_center_air_sites:74241,accepted,0.126,1,"Gainesville Crossing Ph1 and building 4 permits and the GCDC air site, 126 m"
+us.epa.echo.icis_npdes_construction:VAR10S322,us.va.deq.data_center_air_sites:74260,accepted,0.388,1,"NTT VA10/VA13 permits and the NTT VA10 air site, 388 m"
+us.epa.echo.icis_npdes_construction:VAR10T675,us.va.deq.data_center_air_sites:74162,accepted,0.42,-1,Vantage VA16 permit vs the VA11-VA15 air site 420 m away; DEQ's own VA16 record is 1.39 km away
+us.epa.echo.icis_npdes_construction:VAR10T675,us.va.deq.data_center_air_sites:74242,accepted,1.151,0,"Vantage VA16 permit vs Vantage VA2 (Glenn Dr), 1.15 km"
+us.epa.echo.icis_npdes_construction:VAR10T675,us.va.deq.data_center_air_sites:74284,accepted,10.334,0,"Vantage VA16 permit vs Vantage VA3 (Belmont Ridge Rd), 10.3 km"
+us.epa.echo.icis_npdes_construction:VAR10V351,us.faa.oeaaa.part77_cases:2025-AEA-2945-OE,accepted,0.632,-1,NVA05C permit vs an FAA site that mixes NVA05E with Amazon IAD-313 and DCA 72 cranes
+us.epa.echo.icis_npdes_construction:WAR315647,us.faa.oeaaa.part77_cases:2026-ANM-4630-OE,accepted,0.152,1,Grant Node Moses Lake permit and the one Moses Lake data-centre structure 152 m away
+us.faa.oeaaa.part77_cases:2025-AEA-10559-OE,us.va.deq.data_center_air_sites:74321,accepted,0.137,1,"Belmont Innovation Campus structures and air site, 137 m"
+us.faa.oeaaa.part77_cases:2025-AEA-5649-OE,us.va.deq.data_center_air_sites:74114,accepted,9.492,0,"CyrusOne NVA11 vs Kincora, 9.5 km"
+us.faa.oeaaa.part77_cases:2025-AEA-5649-OE,us.va.deq.data_center_air_sites:74290,accepted,8.132,0,"CyrusOne NVA11 vs NVA14, 8.1 km"
+us.faa.oeaaa.part77_cases:2026-AEA-3584-OE,us.va.deq.data_center_air_sites:73240,accepted,0.588,0,"IAD 169 at 21310 Beaumeade Circle vs the owner of 21571 Beaumeade Circle, 588 m"
+us.epa.echo.icis_npdes_construction:VAR10Q014,us.va.deq.data_center_air_sites:74232,accepted+held,0.051,1,"ASH2 Lockridge permit and the ASH2 Lockridge air site, 51 m"
+us.epa.echo.icis_npdes_construction:VAR10S340,us.va.deq.data_center_air_sites:74276,accepted+held,0.011,1,"H5 Ashburn permit and the H5 Ashburn air site, 11 m"
+us.epa.echo.icis_npdes_construction:VAR10T675,us.va.deq.data_center_air_sites:74287,accepted+held,1.39,1,"Vantage VA16 permit and DEQ's Vantage VA16 record (hold list: same campus), 1.39 km"
+us.epa.echo.icis_npdes_construction:VAR10T763,us.va.deq.data_center_air_sites:74236,accepted+held,0.35,1,"MNZ03 permit and the Microsoft MNZ03 air site, 350 m"
+us.epa.echo.icis_air:AZMCA000000F003392,us.epa.echo.icis_npdes_construction:AZC116834,held,0.0,1,Apple Mesa permit at the same point as the Signal Butte Rd air permit
+us.epa.echo.icis_air:AZMCA004013X135352,us.epa.echo.icis_npdes_construction:AZCN95237,held,0.45,1,"Aligned Phoenix permit and the APS - Aligned Union Hills air permit, 450 m"
+us.epa.echo.icis_air:CABAAA0798,us.epa.echo.icis_npdes_construction:CAZ478830,held,0.218,1,"Vantage V5/V6 Santa Clara permits and Vantage at 2625 Walsh Ave, 218 m"
+us.epa.echo.icis_air:CO0000000800501711,us.epa.echo.icis_npdes_construction:COR03T135,held,0.31,1,"Sycamore permits and Project Sycamore Aurora, 310 m"
+us.epa.echo.icis_air:CO0000000800501711,us.epa.echo.icis_npdes_construction:COR410761,held,0.1,1,"Aurora data centre phase 2 / JPMC Aurora permits and Project Sycamore Aurora, 100 m"
+us.epa.echo.icis_air:CO0000000800501777,us.epa.echo.icis_npdes_construction:COR427306,held,0.27,1,"Gun Club Road phase 2 permit and QTS DEN1 at 1160 N Gun Club Rd, 270 m"
+us.epa.echo.icis_air:CO0000000803500754,us.epa.echo.icis_npdes_construction:COR03K655,held,0.047,1,"Compark permit and the Flexential Compark air permit, 47 m"
+us.epa.echo.icis_air:CO0000000803500770,us.epa.echo.icis_npdes_construction:COR03M055,held,0.111,1,"One Neck Denver permit and the OneNeck Denver air permit, 111 m"
+us.epa.echo.icis_air:GA0000001312100982,us.epa.echo.icis_npdes_construction:GAR18B724,held,0.428,1,"Vantage GA 21 permit and Vantage GA2, 428 m"
+us.epa.echo.icis_air:GA0000001324700076,us.epa.echo.icis_npdes_construction:GAR18B011,held,0.263,1,"ATL East permit and the DCB Atlanta East air permit, Conyers, 263 m"
+us.epa.echo.icis_air:IL000031440AUK,us.epa.echo.icis_npdes_construction:ILR10ZCYO,held,0.103,1,"CHI 11 permit and the Elk Grove Village CHI10-11-12 air permit, 103 m"
+us.epa.echo.icis_air:IL000031440AWZ,us.epa.echo.icis_npdes_construction:ILR10ZC4M,held,0.068,1,"Prime ORD-1 Elk Grove Village permit and Prime's air permit, 68 m"
+us.epa.echo.icis_air:IL000031471AEN,us.epa.echo.icis_npdes_construction:ILR10ZAC4,held,0.026,1,"Northlake permit and Aligned's Northlake air permit, 26 m"
+us.epa.echo.icis_air:IL000043020AHD,us.epa.echo.icis_npdes_construction:ILR10ZE3D,held,0.023,1,"Carol Stream 10MW permit and the Carol Stream air permit, 23 m"
+us.epa.echo.icis_air:IL000043090AKS,us.epa.echo.icis_npdes_construction:ILR10ZGH3,held,0.038,1,"West Chicago ORD-2 permit and the Colovore air permit, 38 m"
+us.epa.echo.icis_air:IL000043407ABA,us.epa.echo.icis_npdes_construction:ILR10ZG30,held,0.212,1,"Aurora ORD-1 permit and the Meridian Parkway air permit, 212 m"
+us.epa.echo.icis_air:IL000043407AEA,us.epa.echo.icis_npdes_construction:ILR10ZCKY,held,0.244,-1,"Aurora 'data center campus' permit vs the Edged Chicago air permit, 244 m (hold list: uncertain)"
+us.epa.echo.icis_air:IL000043450ACJ,us.epa.echo.icis_npdes_construction:ILR10ZEAV,held,0.23,1,"CH3/CH4 Itasca permits and NTT CH at 255 Pierce Rd, 230 m"
+us.epa.echo.icis_air:IL000141050ABT,us.epa.echo.icis_npdes_construction:ILR10J445,held,0.447,1,"Allstate Rochelle permit and the Allstate air permit, 447 m"
+us.epa.echo.icis_air:NC0000003701800601,us.epa.echo.icis_npdes_construction:NCC240803,held,0.252,1,"CLT10 Boyd Farms permit and Microsoft CLT10, 252 m"
+us.epa.echo.icis_air:SC00020600674,us.epa.echo.icis_npdes_construction:SCR10ZJ6G,held,0.261,1,"Spartanburg phase I permit and the Valara HPC air permit, 261 m"
+us.epa.echo.icis_air:TN00004712500339,us.epa.echo.icis_npdes_construction:TNR241940,held,0.778,1,"Foxman Clarksville permits and the Foxman air permit, 778 m"
+us.epa.echo.icis_air:TX0000004811300817,us.epa.echo.icis_npdes_construction:TXR1508CV,held,0.192,1,"QTS Landry DC3 Irving permit and QTS (Quality Investment Properties) Irving, 192 m"
+us.epa.echo.icis_air:TX0000004813901671,us.epa.echo.icis_npdes_construction:TXR15141R,held,0.403,1,"Sharka Midlothian permit and the Sharka air permit, 403 m"
+us.epa.echo.icis_air:VA0000005104100517,us.epa.echo.icis_npdes_construction:VAR10S949,held,0.235,1,"Chirisa / Digital Drive permits and the Chirisa Richmond air permit, 235 m"
+us.epa.echo.icis_air:VA0000005111700071,us.epa.echo.icis_npdes_construction:VAR10Q773,held,0.172,1,"BN49 Boydton permit and Microsoft East Coast, Herbert Dr, 172 m"
+us.epa.echo.icis_npdes_construction:VAR10L220,us.va.deq.data_center_air_sites:74155,held,0.173,1,"Loudoun Center lot 1 / LC3 permits and the LC-1A..LC3 air site, 173 m"
+us.epa.echo.icis_npdes_construction:VAR10M336,us.va.deq.data_center_air_sites:52820,held,0.193,1,"LVL permit and Microsoft LVL air site, 193 m"
+us.epa.echo.icis_npdes_construction:VAR10M817,us.va.deq.data_center_air_sites:80941,held,0.055,1,"Middletown permit and the air permit at the same Valley Pike site, 55 m"
+us.epa.echo.icis_npdes_construction:VAR10O602,us.va.deq.data_center_air_sites:52903,held,0.106,-1,"LVL 08-14 grading permit vs Microsoft Timber, 106 m; a separate LVL air site exists"
+us.epa.echo.icis_npdes_construction:VAR10P913,us.va.deq.data_center_air_sites:74290,held,0.016,1,"AREP Beaumeade permit and CyrusOne NVA14 at 21529 Beaumeade Circle, 16 m"
+us.epa.echo.icis_npdes_construction:VAR10Q048,us.va.deq.data_center_air_sites:74141,held,0.135,1,"ASH1 Broderick permit and QTS at 22271 Broderick Dr, 135 m"
+us.epa.echo.icis_npdes_construction:VAR10Q189,us.va.deq.data_center_air_sites:52973,held,0.262,1,"AVC09 permit and Microsoft AVC09-AVC13, 262 m"
+us.epa.echo.icis_npdes_construction:VAR10Q409,us.va.deq.data_center_air_sites:74239,held,0.026,1,"Avion (Amazon) Chantilly permits and Amazon IAD-134/135/136 Chantilly, 26 m"
+us.epa.echo.icis_npdes_construction:VAR10Q910,us.va.deq.data_center_air_sites:74234,held,0.077,-1,"Dulles Berry LC4/LC8 permits vs the Darab air site, 77 m (hold list: uncertain)"
+us.epa.echo.icis_npdes_construction:VAR10R509,us.va.deq.data_center_air_sites:74287,held,0.291,-1,"Darvish permit vs Vantage VA16 air site, 291 m (hold list: uncertain)"
+us.epa.echo.icis_npdes_construction:VAR10R556,us.va.deq.data_center_air_sites:53072,held,0.709,1,"LYH10 permit and Microsoft LYH10, 709 m"
+us.epa.echo.icis_npdes_construction:VAR10S103,us.va.deq.data_center_air_sites:53198,held,1.122,1,"LYH03 permit and Microsoft LYH03, 1.12 km"
+us.epa.echo.icis_npdes_construction:VAR10S447,us.va.deq.data_center_air_sites:53071,held,0.131,1,"AVC43 permit and Microsoft AVC43, 131 m"
+us.epa.echo.icis_npdes_construction:VAR10T165,us.va.deq.data_center_air_sites:53086,held,0.384,1,"AVC17 permit and Microsoft AVC17, 384 m"
+us.epa.echo.icis_npdes_construction:VAR10T287,us.va.deq.data_center_air_sites:74317,held,0.057,1,"Zumot Manassas permit and Amazon IAD-205/307/317 at Dean Dr, 57 m"
+us.epa.echo.icis_npdes_construction:VAR10T460,us.va.deq.data_center_air_sites:74269,held,0.066,1,"Compass Creek permit and STACK NVA06A on Compass Creek Pkwy, 66 m"
+us.epa.echo.icis_npdes_construction:VAR10W141,us.va.deq.data_center_air_sites:53197,held,0.248,1,"Oppidan Ashland permit and the CLOP Ashland air site, 248 m"
+us.faa.oeaaa.part77_cases:2025-AEA-11102-OE,us.va.loudoun.data_centers:ZMAP-2021-0018,loudoun,0.068,-1,"IAD156 FAA site (25 cases, 15 on EPLAN-2025-0012) vs ZMAP-2021-0018, which holds 1 case"
+us.faa.oeaaa.part77_cases:2025-AEA-1883-OE,us.va.loudoun.data_centers:EPLAN-2024-0205,loudoun,0.168,1,IAD121 FAA site: 16 of 19 cases on EPLAN-2024-0205's land
+us.faa.oeaaa.part77_cases:2025-AEA-2291-OE,us.va.loudoun.data_centers:LEGI-2024-0004,loudoun,0.05,-1,"FAA site mixing Aligned, Dulles Downs and Global Plaza structures; none of its cases on LEGI-2024-0004"
+us.faa.oeaaa.part77_cases:2025-AEA-2292-OE,us.va.loudoun.data_centers:LEGI-2024-0002,loudoun,0.067,-1,"FAA site mixing Concorde, Dulles Downs, IAD 230 and IAD 16; 1 of 6 cases on LEGI-2024-0002"
+us.faa.oeaaa.part77_cases:2025-AEA-2305-OE,us.va.loudoun.data_centers:LEGI-2024-0003,loudoun,0.005,-1,"FAA site mixing Transdulles, Glenn Drive and Silverbrook buildings; 2 of 5 cases on LEGI-2024-0003"
+us.faa.oeaaa.part77_cases:2025-AEA-9224-OE,us.va.loudoun.data_centers:EPLAN-2024-0193,loudoun,0.026,1,"Equinix DC17 FAA site on Beaumeade Parcel C2 (EPLAN-2024-0193, LEGI-2025-0027), 5 of 10 cases"
+us.faa.oeaaa.part77_cases:2025-AEA-951-OE,us.va.loudoun.data_centers:EPLAN-2024-0212,loudoun,0.091,1,"ARA4A (Paradigm) FAA site, one project, centroid on EPLAN-2024-0212's land"
+us.faa.oeaaa.part77_cases:2026-AEA-612-OE,us.va.loudoun.data_centers:EPLAN-2023-0130,loudoun,0.242,1,"Yondr NOV2A/NOV2B FAA site, 4 of 6 cases on EPLAN-2023-0130 (Evergreen Meadows)"
+us.epa.echo.icis_air:IL000031804ACM,us.epa.echo.icis_npdes_construction:ILR10ZCYO,near,0.416,0,T5 Chicago II at 200 Innovation Dr vs the CHI 11 permit by Microsoft's 201 Innovation Dr campus
+us.epa.echo.icis_air:TX0000004811300817,us.faa.oeaaa.part77_cases:2025-ASW-7979-OE,near,0.142,1,"QTS 6431 Longhorn Dr Irving structure and QTS (Quality Investment Properties) at that address, 142 m"
+us.epa.echo.icis_air:VA0000005105900819,us.va.deq.data_center_air_sites:73369,near,0.244,0,H5 at 470 Spring Park Pl vs New Dominion Technology Park at 499 Grove St
+us.epa.echo.icis_air:VA0000005105901046,us.faa.oeaaa.part77_cases:2026-AEA-9020-OE,near,0.301,0,Sungard at 505 Huntmar Park Dr vs a structure at 480 Springpark Pl
+us.epa.echo.icis_air:VA0000005105974300,us.va.deq.data_center_air_sites:74336,near,0.187,0,Amazon IAD-500/501 on Redskin Dr vs Word of Grace on Towerview Rd
+us.epa.echo.icis_air:VA0000005110700814,us.va.deq.data_center_air_sites:74109,near,0.1,-1,"22810 International Dr owner vs CyrusOne at 22811 International Dr, 100 m"
+us.epa.echo.icis_air:VA0000005110700814,us.va.loudoun.data_centers:LEGI-2024-0056,near,0.218,-1,"22810 International Dr owner vs the Holiday Center application, 218 m"
+us.epa.echo.icis_air:VA0000005110701026,us.faa.oeaaa.part77_cases:2025-AEA-2292-OE,near,0.422,1,"Amazon IAD-12/15/16/76/230 at Dulles Summit Ct and the FAA site holding IAD 230 and IAD 16 cranes, 422 m"
+us.epa.echo.icis_air:VA0000005110701026,us.va.loudoun.data_centers:LEGI-2024-0030,near,0.372,-1,"Amazon IAD-12.. campus vs a 2-acre Loudoun Business Park application, 372 m"
+us.epa.echo.icis_air:VA0000005110701036,us.va.deq.data_center_air_sites:73240,near,0.149,-1,"Equinix at 21551 Beaumeade Cir vs the owner of 21571 Beaumeade Cir, 149 m"
+us.epa.echo.icis_air:VA0000005110701036,us.va.deq.data_center_air_sites:73954,near,0.39,0,"Equinix Beaumeade Cir vs VA1 on Guilford Dr, 390 m"
+us.epa.echo.icis_air:VA0000005110774086,us.va.deq.data_center_air_sites:74170,near,0.496,0,CyrusOne Ridgetop Circle vs Amazon IAD-116/117 on Maries Rd
+us.epa.echo.icis_air:VA0000005110774094,us.va.deq.data_center_air_sites:73954,near,0.421,-1,"NTT VA2 at 44610 Guilford Dr vs a VA1 air site at 44664 Guilford Dr, 421 m"
+us.epa.echo.icis_air:VA0000005110774164,us.va.loudoun.data_centers:STPL-2022-0051,near,0.331,0,"CyrusOne Maries Rd vs the Loudoun Tech Center H1 application, 331 m"
+us.epa.echo.icis_air:VA0000005110774164,us.va.loudoun.data_centers:STPL-2023-0008,near,0.459,0,"CyrusOne Maries Rd vs the Loudoun Tech Center application, 459 m"
+us.epa.echo.icis_air:VA0000005110774173,us.va.loudoun.data_centers:EPLAN-2024-0205,near,0.328,0,CyrusOne Sterling IX-XI on Old Ox Rd vs the land holding Amazon IAD121's cases
+us.epa.echo.icis_air:VA0000005110774197,us.faa.oeaaa.part77_cases:2025-AEA-4484-OE,near,0.432,0,"QTS Shellhorn Rd vs CloudHQ LC8 structures, 432 m"
+us.epa.echo.icis_air:VA0000005110774242,us.va.loudoun.data_centers:EPLAN-2025-0027,near,0.219,-1,"Vantage VA2 on Glenn Dr vs the Sterling Business Park application, 219 m"
+us.epa.echo.icis_npdes_construction:ILR10ZAC4,us.faa.oeaaa.part77_cases:2025-AGL-616-OE,near,0.184,1,"Northlake permit and the Aligned Northlake structure, 184 m"
+us.epa.echo.icis_npdes_construction:VAR10D991,us.faa.oeaaa.part77_cases:2025-AEA-4390-OE,near,0.365,1,"Loudoun Metro LM1-LM8 / LC11-LC12 permits and the FAA site holding a Cloud LC11 crane, 365 m"
+us.epa.echo.icis_npdes_construction:VAR10P913,us.va.deq.data_center_air_sites:73240,near,0.323,0,"AREP Beaumeade permit (NVA14, 21529) vs the owner of 21571 Beaumeade Cir"
+us.epa.echo.icis_npdes_construction:VAR10Q014,us.faa.oeaaa.part77_cases:2025-AEA-15173-OE,near,0.457,0,ASH2 Lockridge permit vs Amazon IAD 162 at Import Plaza
+us.epa.echo.icis_npdes_construction:VAR10R509,us.va.loudoun.data_centers:LEGI-2024-0004,near,0.274,-1,"Darvish permit vs the Prologis Park Gateway application, 274 m"
+us.epa.echo.icis_npdes_construction:VAR10T765,us.va.deq.data_center_air_sites:74274,near,0.436,-1,"IAD12 & IAD13 Aldie permit vs Amazon IAD-124..127 on Quail Ridge Ln, 436 m"
+us.epa.echo.icis_npdes_construction:VAR10X424,us.va.deq.data_center_air_sites:74350,near,0.387,-1,"Bogle Drive Chantilly permit vs Flint Road Owner on Flint Lee Rd, 387 m"
+us.faa.oeaaa.part77_cases:2025-AEA-1013-OE,us.va.deq.data_center_air_sites:72367,near,0.343,0,NTT VA7 structures vs Verizon on Loudoun County Pkwy
+us.faa.oeaaa.part77_cases:2025-AEA-11161-OE,us.va.deq.data_center_air_sites:74129,near,0.407,0,Digital Realty Brickyard building B vs Amazon IAD-100..103 on Godwin Dr
+us.faa.oeaaa.part77_cases:2025-AEA-13948-OE,us.va.deq.data_center_air_sites:74323,near,0.232,1,"Amazon IAD 182/183 structures and Amazon IAD-180..183 air site, 232 m"
+us.faa.oeaaa.part77_cases:2025-AEA-14823-OE,us.va.deq.data_center_air_sites:74130,near,0.039,1,"CoreSite VA3-2A structure and CoreSite Sunrise Technology Park, Reston, 39 m"
+us.faa.oeaaa.part77_cases:2025-AEA-201-OE,us.va.deq.data_center_air_sites:73341,near,0.43,0,Liberty Leesburg structures vs VeriSign Broad Run on Dresden St
+us.faa.oeaaa.part77_cases:2025-AEA-2945-OE,us.va.deq.data_center_air_sites:74171,near,0.42,-1,FAA site mixing NVA05E with Amazon IAD-313 and DCA 72 cranes vs Amazon IAD-130/131/313/DCA-072
+us.faa.oeaaa.part77_cases:2025-AEA-2945-OE,us.va.deq.data_center_air_sites:74291,near,0.188,-1,"FAA site mixing NVA05E with Amazon cranes vs STACK SI NVA05D, 188 m"
+us.faa.oeaaa.part77_cases:2026-AEA-3100-OE,us.va.loudoun.data_centers:LEGI-2024-0004,near,0.483,-1,"Amazon IAD 192 structure vs the Prologis Park Gateway application, 483 m"
+us.faa.oeaaa.part77_cases:2026-AEA-7236-OE,us.va.deq.data_center_air_sites:74336,near,0.266,1,"WOG IAD006 structures and the Word of Grace data centre air site, 266 m"
+us.va.deq.data_center_air_sites:73233,us.va.loudoun.data_centers:STMP-2021-0015,near,0.474,-1,"Equinix Filigree Ct vs the Catapult Ventures application, 474 m"
+us.va.deq.data_center_air_sites:74086,us.va.loudoun.data_centers:STPL-2022-0051,near,0.328,-1,"CyrusOne Loudoun Tech Center vs the Loudoun Tech Center H1 application, 328 m"
+us.va.deq.data_center_air_sites:74164,us.va.loudoun.data_centers:STPL-2022-0051,near,0.356,0,"CyrusOne Maries Rd vs the Loudoun Tech Center H1 application, 356 m"
+us.va.deq.data_center_air_sites:74235,us.va.loudoun.data_centers:EPLAN-2025-0028,near,0.324,-1,"Cologix ASH1 vs EPLAN-2025-0028, 324 m"
+us.va.deq.data_center_air_sites:74306,us.va.loudoun.data_centers:STPL-2023-0008,near,0.483,-1,"MECP1 Ashburn 2 vs the Loudoun Tech Center application, 483 m"
+us.va.deq.data_center_air_sites:74308,us.va.loudoun.data_centers:EPLAN-2023-0083,near,0.215,-1,"Digital Filigree vs EPLAN-2023-0083 / LEGI-2024-0047, 215 m"
+us.epa.echo.icis_air:AZMCA000000F047638,us.epa.echo.icis_npdes_construction:AZCN83207,lost,,0,Compass PHX II (El Mirage) vs the Moonraker / PHX 1 permits
+us.epa.echo.icis_air:AZMCA004013X138847,us.epa.echo.icis_npdes_construction:AZC107375,lost,15.923,0,"Compass PHX I (Bullard Ave) vs the PHX II campus permits, 15.9 km"
+us.epa.echo.icis_air:AZMCA004013X138847,us.epa.echo.icis_npdes_construction:AZCN83207,lost,0.3,1,"Compass PHX I and the Moonraker site, which holds a PHX 1 phase 3 building 4 permit, 300 m"
+us.epa.echo.icis_air:GA0000001312100981,us.epa.echo.icis_npdes_construction:GAR18B724,lost,12.596,0,"Vantage GA1 vs the GA 21 permit, 12.6 km"
+us.epa.echo.icis_air:GA0000001312100982,us.epa.echo.icis_npdes_construction:GAR18BC6A,lost,12.309,0,"Vantage GA2 vs the GA 11 permit, 12.3 km"
+us.epa.echo.icis_air:IL000031440AWF,us.epa.echo.icis_npdes_construction:ILR10ZDR8,lost,,-1,Aligned Elk Grove Village (no exact point) vs the ORD03 Elk Grove Village permits
+us.epa.echo.icis_air:IL000031440AWF,us.faa.oeaaa.part77_cases:2026-AGL-13482-OE,lost,,-1,Aligned Elk Grove Village (no exact point) vs the ORD04 structure
+us.epa.echo.icis_air:IL000031471AEN,us.epa.echo.icis_npdes_construction:ILR10ZDR8,lost,14.49,0,"Aligned Northlake vs the ORD03 Elk Grove Village permits, 14.5 km"
+us.epa.echo.icis_air:TX0000004802900726,us.epa.echo.icis_npdes_construction:TXR1544QG,lost,,1,"Vantage TX 11 (Omicron Dr) and TX-A, which sits 477 m from TX 12: the TX1 campus by Vantage's numbering"
+us.epa.echo.icis_air:TX0000004802900726,us.faa.oeaaa.part77_cases:2026-ASW-864-OE,lost,,1,Vantage TX 11 and TX 12: two buildings of the TX1 campus by Vantage's numbering
+us.epa.echo.icis_air:TX0000004802900727,us.epa.echo.icis_npdes_construction:TXR1544QG,lost,11.156,0,"Vantage TX2 vs TX-A, 11.2 km"
+us.epa.echo.icis_air:VA0000005110774114,us.va.deq.data_center_air_sites:74290,lost,1.41,0,"CyrusOne Kincora (Pacific Blvd) vs NVA14 (Beaumeade Circle), 1.41 km"
+us.epa.echo.icis_air:VA0000005110774162,us.va.deq.data_center_air_sites:74284,lost,,0,Vantage VA11-VA15 vs Vantage VA3
+us.epa.echo.icis_air:VA0000005110774162,us.va.loudoun.data_centers:STMP-2022-0016,lost,,0,"Vantage VA11-VA15 vs STMP-2022-0016, the VA3 land"
+us.epa.echo.icis_air:VA0000005110774242,us.va.deq.data_center_air_sites:74284,lost,11.381,0,"Vantage VA2 vs VA3, 11.4 km"
+us.epa.echo.icis_air:VA0000005110774242,us.va.loudoun.data_centers:STMP-2022-0016,lost,11.507,0,"Vantage VA2 vs the VA3 land, 11.5 km"
+us.epa.echo.icis_air:VA0000005110774284,us.epa.echo.icis_npdes_construction:VAR10T675,lost,9.916,0,"Vantage VA3 vs the VA16 permit, 9.9 km"
+us.epa.echo.icis_air:VA0000005110774284,us.va.deq.data_center_air_sites:74162,lost,9.903,0,"Vantage VA3 vs VA11-VA15, 9.9 km"
+us.epa.echo.icis_air:VA0000005110774284,us.va.deq.data_center_air_sites:74242,lost,10.688,0,"Vantage VA3 vs VA2, 10.7 km"
+us.epa.echo.icis_air:VA0000005110774284,us.va.deq.data_center_air_sites:74287,lost,11.306,0,"Vantage VA3 vs VA16, 11.3 km"
+us.epa.echo.icis_air:VA0000005110774290,us.va.deq.data_center_air_sites:74114,lost,,0,CyrusOne NVA14 vs Kincora
+us.epa.echo.icis_npdes_construction:AZC104642,us.faa.oeaaa.part77_cases:2026-AWP-1856-OE,lost,4.832,0,"Vantage AZ21 permits vs AZ15, 4.8 km"
+us.epa.echo.icis_npdes_construction:VAR10T675,us.va.loudoun.data_centers:STMP-2022-0016,lost,10.453,0,"Vantage VA16 permit vs the VA3 land, 10.5 km"
+us.va.deq.data_center_air_sites:74162,us.va.loudoun.data_centers:STMP-2022-0016,lost,10.435,0,"Vantage VA11-VA15 vs the VA3 land, 10.4 km"
+us.va.deq.data_center_air_sites:74242,us.va.loudoun.data_centers:STMP-2022-0016,lost,11.214,0,"Vantage VA2 vs the VA3 land, 11.2 km"
+us.va.deq.data_center_air_sites:74287,us.va.loudoun.data_centers:STMP-2022-0016,lost,11.842,0,"Vantage VA16 vs the VA3 land, 11.8 km"
+us.epa.echo.icis_air:VA0000005110774232,us.epa.echo.icis_npdes_construction:VAR10Q014,gained,0.16,1,"ASH2 Lockridge air permit and the ASH2 Lockridge construction permit, 160 m"
+us.epa.echo.icis_air:VA0000005115374236,us.epa.echo.icis_npdes_construction:VAR10T763,gained,,1,Microsoft MNZ03 air permit and the MNZ03 construction permit
+us.epa.echo.icis_npdes_construction:ILR10ZC4M,us.faa.oeaaa.part77_cases:2025-AGL-14428-OE,gained,0.134,1,Prime ORD-1 Elk Grove Village permit and Prime Data Center structures by Prime's 1600 E Higgins Rd
+us.epa.echo.icis_air:TX0000004802900727,us.epa.echo.icis_npdes_construction:TXR1520QD,gained,0.316,1,Vantage TX2 (Rogers Rd) and the TX-B permit 316 m away

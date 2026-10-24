@@ -1152,10 +1152,15 @@ with no grouping evidence has no membership row and no site; a site that falls t
 eia:<plant ids>`; a record with no EIA plant is a group of its own (`proposal:<public_id>`). Sponsor is never a level;
 the site page lists the members' sponsors.
 
-**Lead** ("the latest and largest filing"): among members not withdrawn or cancelled, the largest `capacity_mw`, ties
-by the latest filing date (the latest `queue_date` among the record's links), then `public_id`. When every member is
-inactive, the largest overall. "Latest" alone would let a small add-on filed last month headline an 11 GW campus;
-excluding withdrawn members is how "latest" wins for re-filings. The site's display name is its lead's.
+**Lead** ("the latest and largest filing"): among live members (not postponed, withdrawn or cancelled), the largest
+`capacity_mw`, ties by the latest filing date (the latest `queue_date` among the record's links), then `public_id`.
+When no member is live, the largest postponed one; when every member is withdrawn or cancelled, the largest overall
+(`rules.lead_order_key`'s three tiers; rule version `2026-10-24.1`). "Latest" alone would let a small add-on filed
+last month headline an 11 GW campus; excluding withdrawn members is how "latest" wins for re-filings. A postponed unit
+(§7.1) is on no schedule its source holds, so it never heads a site or a plant group ahead of a live member, however
+large: in the September 2026 EIA-860M workbook, 7 of the 26 plants holding both a Planned and a postponed unit would
+otherwise have been led by the postponed one (EIA plant 68019: a 250 MW postponed unit over a 50 MW permitted one).
+The site's display name is its lead's.
 
 **Labels** (`rules.label`), each with the rule that fired and a confidence word, never a probability (no labelled
 sample calibrates one). A unit is `unit_of` its own group's head (`parent_proposal_id`), never of a lead that is a unit
@@ -1169,9 +1174,10 @@ of another plant. A group head is labelled against the lead group, first match w
 | `expansion_of` / `expanded_by` | NESO states an MW increase on a connected project (`MW Connected` and `MW Increase` both positive: 17 of 2,225 rows) | high |
 | | The name says expansion / extension / repower / uprate / addition | medium |
 | | One is operating (`built`) and the other a live filing | medium |
+| | (the name marker and the operating-member rows need the addition to be live: a postponed, withdrawn or cancelled one is never an expansion) | |
 | `superseded_by` | The member is withdrawn/cancelled and filed no later than the lead | medium (low when dates unknown or the lead is withdrawn too) |
 | `refiling_of` | The member is withdrawn/cancelled and filed after the lead | low |
-| `same_site` | Grouped, relation unclear | low |
+| `same_site` | Grouped, relation unclear (a postponed group head the rows above do not place: it is neither a live addition nor withdrawn) | low |
 
 `shares_interconnection_point` is not membership: visible proposals at a member's point that the rules did not group
 are computed per request and served as their own list, never as subprojects. No pair rows are stored (the point link
@@ -1584,7 +1590,9 @@ carrying only an opaque subject id. Event ids, timestamps and structure survive 
 
 ### 7.1 Proposal lifecycle
 
-Vocabulary from `docs/02` §1 plus `unknown` for unmappable source values (`docs/10` §4, 216 blank SPP rows).
+Vocabulary from `docs/02` §1 plus `unknown` for unmappable source values (`docs/10` §4, 216 blank SPP rows), and
+`postponed` (2026-10-24, owner decision; migration 0046): a source lists the project as canceled or indefinitely
+postponed without saying which, which today is EIA-860M's "Canceled or Postponed" sheet.
 
 ```mermaid
 stateDiagram-v2
@@ -1614,9 +1622,16 @@ stateDiagram-v2
   permitted --> cancelled
   withdrawn --> filed: re-entered the queue (new request, same project)
   cancelled --> announced: revived
+  announced --> postponed: listed as canceled or indefinitely postponed (EIA-860M)
+  filed --> postponed
+  permitted --> postponed
+  under_construction --> postponed
+  postponed --> announced: back on the source's planned list
+  postponed --> filed
   built --> [*]
   withdrawn --> [*]
   cancelled --> [*]
+  postponed --> [*]
 ```
 
 Rules: the state is always the `after` value of the latest `status_change` event, or `unknown` (US-202 AC3, with
@@ -1624,6 +1639,34 @@ a nightly consistency check). A row that disappears from its register moves no s
 `removed_from_source` event of §7.3, and the record keeps the state its source last stated. Backward transitions
 are legal and common — a re-entered queue position is a `filed` event, not a data error. Terminal states are
 absorbing only for the purpose of alerting; a later event reopens them.
+
+**Where `postponed` sits in every count that groups states (2026-10-24).** The owner's rule is that a postponed
+project is counted neither as active nor as withdrawn or cancelled. It is not built either, and it is not
+terminal: a move to it is a `status_change`, never a `withdrawn` event. Each grouping in the code, and its answer:
+
+| Count or group | `postponed` | Where |
+|---|---|---|
+| The map's and the list's default view (announced to under construction) | Not in it. A status box of its own, "Postponed", after the six the map key names | `web/viewmodels.py` `ACTIVE_PROPOSAL_STATES`, `PROPOSAL_STATUS_GROUPS` |
+| "Withdrawn or cancelled" and `include_withdrawn=1` | Not in it | `WITHDRAWN_PROPOSAL_STATES` |
+| The list's and the map's view notice ("... are hidden by default") | Counted with `unknown` in the notice's one remaining call, and worded "postponed or unknown-state" | `web/app.py` `lifecycle_counts`, `_macros.html` |
+| Active pipeline: company pipeline, the front page's active figures, global figures, slippage, the planned side of planned against operating | Not in it, so never slipped and never planned capacity | `services/api/org_pipeline.py` `ACTIVE_LIFECYCLE_STATES` (= `slippage.SLIP_ACTIVE_STATES`) |
+| `GET /v1/stats/capacity` | An "other" state, like built or unknown: every record counted, listed or not | `services/api/front.py` `OTHER_LIFECYCLE_STATES` |
+| `GET /v1/pulse` | A move to it is reported under its own state. A record a source first lists as postponed is a `created` event, so `new_proposal` counts it, as it counts every newly listed record (its list is `/v1/events?subject_type=proposal&event_type=created`) | `front.PULSE_STATES`, `front.pulse_specs` |
+| Grid point and site totals (`active`, `withdrawn`, `built`, `other`) | `other`, with `unknown` | `services/api/interconnection_points.py` `bucket_of` |
+| Site lead and plant-group head ("the latest and largest filing") | A tier of its own: after every live member (active, built, unknown), before withdrawn or cancelled ones; never `expansion_of` / `expanded_by` by name or by an operating member (§3.25) | `services/sites/rules.py` `lead_order_key`, `Basis.live` |
+| Proposal-opportunity matching | Excluded, like withdrawn, cancelled and built: never offered against an open notice (match-rules@v3) | `data/match_rules.yaml` `timing.proposal_excluded_states` |
+| Daily trends blocks (`active`, `active_not_listed`, `withdrawn`, `built`, `unknown`) | In none: `visible` counts it, so `visible` less the five blocks is the postponed count | `services/trends/snapshot.py` (a sixth block is the trends owner's call) |
+| Change events | `status_change` (`pipeline/diff.py` `TERMINAL` is withdrawn and cancelled only) | `pipeline/diff.py` |
+| One record from several sources | Off the ladder: any member on it decides; a record whose members are all postponed is postponed. Its MW never joins a live request's, and a plant's inventory sums it only when every unit stating MW is postponed | `services/resolve/survivorship.py` `POSTPONED_STATES`, `_quantity` |
+| Records no register lists any more | A view that selects it hides nothing (it is not an active state) | `web/unlisted.py` |
+| Social drafts | None: a move to it is off the ladder, and a record a source first lists as postponed earns no `proposal.new` post | `services/social/editorial.py` `LIFECYCLE_LADDER`, `UNPOSTED_NEW_STATES` |
+| CRM lead signals | A move to it is a `proposal.status_changed` signal (18 points), not `proposal.withdrawn` (12): docs/34 §2.4 has no postponed type, and the owner's rule is that it is not a withdrawal | `services/crm/signals.py` `_MAPPING` |
+| Tracker "Track" and "Start a deal" | Offered (not closed) | `CLOSED_PROPOSAL_STATES` |
+| Status chip | The danger family (stopped, like a frozen notice), with its word "Postponed" (D-5) | `LIFECYCLE_FAMILY` |
+
+`tests/test_lifecycle_postponed.py` reads each of these groups from its module and fails if `postponed` moves into
+an active, withdrawn or built one, or leaves a set or tier that must name it (the matcher's excluded states, the site
+lead's postponed tier).
 
 ### 7.2 Opportunity lifecycle
 
@@ -1667,7 +1710,8 @@ terminal state for the many notices that never publish an award (`docs/02` §4 n
 | Register (never public) | `removed_from_source` |
 
 **`removed_from_source` (2026-10-10, `docs/51` §2.7 item 1).** A `removed` diff row says only that a record is no
-longer in its source's file. EIA-860M units leave the Planned sheet when they start operating or are cancelled,
+longer in its source's file. EIA-860M units leave the Planned sheet when they start operating (a unit that moves
+to the "Canceled or Postponed" sheet is not a removal since 2026-10-24: the sheet is loaded, as `postponed`),
 grants.gov notices leave the open-notice search when they close, ERCOT's GIS report also drops projects that go
 inactive or are re-numbered, and a re-keyed NESO row reads as one removal plus one new row. Each source's connector
 declares what a removal means there (`Connector.removal_meaning`: `withdrawn`, `completed`, `closed`, or `unknown`,
@@ -1719,6 +1763,7 @@ admin panel can show them. The seed for the ISO queues:
 | `COMPLETED`, `Completed`, `In Service` | `built` | gridstatus normalises the ISO variants |
 | `WITHDRAWN`, `Withdrawn` | `withdrawn` | Only from a stated status. A row that disappears is not a withdrawal: it is `delisted` or `removed_from_source` (§7.3) and leaves the state as last stated |
 | `SUSPENDED`, `On Hold` | `filed` with `status_raw` preserved | No separate state; the raw value is shown |
+| EIA-860M "Canceled or Postponed" sheet (its rows carry no Status; the sheet's name is their `status_raw`) | `postponed` | Since 2026-10-24 (owner decision). EIA does not say which of the two a unit is (`docs/22` §3.3) |
 | blank / null | `unknown` | 216 SPP rows (`docs/01` §3.3); raises a DQ warning, not an error |
 | Anything unmapped | `unknown` + DQ vocabulary-drift warning | Never silently coerced |
 

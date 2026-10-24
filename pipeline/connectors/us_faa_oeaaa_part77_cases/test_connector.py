@@ -874,24 +874,24 @@ def test_the_manifest_row_registers_the_connector() -> None:
     assert registry.connector_class(SOURCE_ID) is m.Connector
 
 
-def test_the_source_stays_out_of_the_schedule_until_the_resolver_compares_places(
+def test_the_source_is_scheduled_weekly_now_the_resolver_compares_places(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`pipeline/resolve.py` has no location veto yet, and a replay of this source's records against
-    the held loads accepted fuzzy merges of sites 8 to 32 km apart (docs/08 §4.1 "Built"). The
-    scheduler fetches every manifest row with a `cadence` (`infra/scheduler/app.py`
-    `_load_sources`), so the row carries none until the veto lands: no tick and no deploy bootstrap
-    fetches it. An operator can still run it by hand to measure."""
+    """The row carried no `cadence` while `pipeline/resolve.py` had no location veto: a replay of this
+    source's records against the held loads accepted fuzzy merges of sites 8 to 32 km apart (docs/08
+    §4.1 "Built"). Rule L (docs/22 §28) refuses those, so the archives, regenerated weekly, are
+    fetched by the weekly tick (Monday 04:13 UTC) and by the deploy bootstrap, and by no other tick."""
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@localhost:5432/dummy")
     import infra.scheduler.app as scheduler_app
     from infra.scheduler.bootstrap import fetchable_sources
     from infra.scheduler.cadence import CRON_BY_BUCKET
+    from pipeline import resolve
 
+    assert resolve.LOCATION_VETO_KM == 2.0
     row = next(s for s in Registry().sources.values() if s.id == SOURCE_ID).raw
-    assert "cadence" not in row and "poll" not in row
-    assert "location veto" in row["notes"]
+    assert row["cadence"] == "weekly" and "poll" not in row
     monday = int(dt.datetime(2026, 10, 26, 4, 13, tzinfo=dt.UTC).timestamp())
-    for bucket in CRON_BY_BUCKET:
-        assert SOURCE_ID not in {s["id"] for s in scheduler_app.due_sources(bucket, monday)}, bucket
+    due = {b for b in CRON_BY_BUCKET if SOURCE_ID in {s["id"] for s in scheduler_app.due_sources(b, monday)}}
+    assert due == {"weekly"}
     scheduled = fetchable_sources(scheduler_app._load_sources(), Registry().status())
-    assert SOURCE_ID not in {str(s["id"]) for s in scheduled}
+    assert SOURCE_ID in {str(s["id"]) for s in scheduled}

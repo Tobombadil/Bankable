@@ -1,37 +1,54 @@
-{#- The home map's lifecycle notice: rendered inside `#map-notice` by `home_map` and again, for
-    the filters map.js has just applied, by `/api/proposals/notice` -- one template for both, so the
-    wording cannot drift between first paint and a filter change. Nothing when the link names its
-    own `lifecycle_state` (the page then says nothing it did not choose). -#}
-{#- docs/17 M-6: below 720px the notice was three lines between the count and the map. There the
-    count and a short form of it ("Active only.") share one line, and the notice itself, with what it
-    hides, opens from "Why?" (map.js keeps it open across a filter change). From 720px, and without
-    scripts, the short form is not drawn and the notice reads as before.
-    A coverage note (`iso_gap_notes`: this ISO's own queue has no rows here; what is listed for it
-    comes from EIA-860M) is provenance, not a reason something is hidden, so it is never behind
-    "Why?": it shows at every width, between the short form and what "Why?" opens (docs/17 §6,
-    D-2/D-34: the source on every screen). -#}
+{#- The home map's lifecycle notice: rendered by `home_map` and again, for the filters map.js has just
+    applied, by `/api/proposals/notice` -- one template for both, so the wording cannot drift between
+    first paint and a filter change. Nothing when the link names its own `lifecycle_state` (the page then
+    says nothing it did not choose).
+
+    Two parts, in two places on the landing (docs/30 §11.6): what must show at every width, outside
+    "Why?" (`notice_part == "under"`, under the floating bar), and why the rest of the proposals are
+    hidden (`"sheet"`, at the head of the filter sheet, beside the count of what the filters match).
+    The fragment route sets no part and gets both, each in a `data-notice-part` wrapper that map.js
+    (`refreshNotice`) puts back in its place. -#}
+{#- Under the bar: every Status box unticked (`lifecycle_state=none`, owner 2026-10-22: nothing is drawn,
+    and the notice says why at every width, with the way back; map.js runs "Clear all" in place for the
+    link, and without scripts it is the map's default view); a coverage note (`iso_gap_notes`: this ISO's
+    own queue has no rows here; what is listed for it comes from EIA-860M), which is provenance, not a
+    reason something is hidden (docs/17 §6, D-2/D-34: the source on every screen); and, when nothing
+    matches in any state, the filter that emptied the map with a link to the map without it (docs/31
+    §6, designer D-11; `web/app.py::map_empty_facets`). -#}
 {% import "_macros.html" as m %}
-{#- Every Status box unticked (`lifecycle_state=none`, owner 2026-10-22): nothing is drawn, and the
-    notice says why at every width (not behind "Why?"), with the way back. map.js runs "Clear all"
-    in place for the link; without scripts it is the map's default view. -#}
+{%- set part = notice_part | default("") %}
+{%- macro under() %}
 {%- if no_status %}
 <p class="view-notice map-notice__none" role="status">No status chosen: projects are hidden. Tick a status under Status, or <a href="/" data-clear-all>Clear all</a> to show active proposals.</p>
 {%- endif %}
+{%- for note in iso_gap_notes or [] %}<p class="view-notice view-notice--gap" role="note">{{ note }} <a href="/methodology#withheld">Which registers are withheld</a>.</p>{% endfor -%}
+{%- if empty_facets %}
+<div class="map-empty">{{ m.empty_facets(empty_facets, "proposal", "proposals") }}</div>
+{%- endif -%}
+{%- endmacro %}
+{#- In the sheet: the short form ("Active only." or "Withdrawn included.", or "Some proposals hidden."
+    where only the hidden-records line applies), whose "Why?" opens the notice itself with what it
+    hides (docs/17 M-6; map.js keeps it open across a filter change). -#}
+{%- macro sheet() %}
 {%- set lifecycle_line = not lifecycle_explicit and not no_status -%}
 {%- if lifecycle_line or unlisted_notice %}
 <p class="map-notice__brief">
   {%- if lifecycle_line %}{{ 'Withdrawn included.' if include_withdrawn else 'Active only.' }}
   {%- else %}Some proposals hidden.{% endif %} <button type="button" class="map-notice__why" aria-expanded="false" aria-controls="map-notice-detail">Why?</button></p>
-{%- endif %}
-{%- for note in iso_gap_notes or [] %}<p class="view-notice view-notice--gap" role="note">{{ note }} <a href="/methodology#withheld">Which registers are withheld</a>.</p>{% endfor -%}
-{%- if lifecycle_line or unlisted_notice %}
 <div class="map-notice__detail" id="map-notice-detail">
 {%- if lifecycle_line %}{{ m.active_states_notice(breakdown, include_withdrawn, built_href=built_href) }}{% endif -%}
 {{- m.unlisted_notice(unlisted_notice) -}}
 </div>
 {%- endif %}
-{#- docs/31 §6 (designer D-11): when nothing matches in any state, name the filter that emptied the
-    map and link to the map without it (`web/app.py::map_empty_facets`). -#}
-{%- if empty_facets %}
-<div class="map-empty">{{ m.empty_facets(empty_facets, "proposal", "proposals") }}</div>
-{%- endif -%}
+{%- endmacro %}
+{%- if part == "under" %}{{ under() }}
+{%- elif part == "sheet" %}{{ sheet() }}
+{%- else %}
+{#- Nothing at all when neither part has anything to say (a link that names its own `lifecycle_state`):
+    map.js then empties both places. -#}
+{%- set under_html = under() %}{% set sheet_html = sheet() %}
+{%- if under_html | trim or sheet_html | trim %}
+<div data-notice-part="under">{{ under_html }}</div>
+<div data-notice-part="sheet">{{ sheet_html }}</div>
+{%- endif %}
+{%- endif %}

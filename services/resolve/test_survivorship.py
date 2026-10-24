@@ -99,6 +99,44 @@ def test_without_a_live_request_the_plant_inventory_is_summed() -> None:
     assert survive([gone, _gen("69662-IPD2S", 342.7)])["capacity_mw"].value == 342.7
 
 
+def test_a_postponed_generator_adds_no_mw_to_a_live_record() -> None:
+    """docs/22 §3.3: a postponed unit (EIA-860M's "Canceled or Postponed" sheet) is on no schedule. Beside a
+    live request it is not an uncovered family (an ERCOT storage request and EIA's postponed solar half), and
+    a plant's inventory sums it only when every unit stating MW is postponed (plant 68019: 50 MW permitted,
+    250 MW postponed)."""
+    storage = _m(
+        "us.iso.ercot.gen_queue",
+        "INR1",
+        "generation_queue",
+        capacity_mw=50.4,
+        technology="storage",
+        lifecycle_state="studied",
+    )
+    picks = survive([storage, _gen("1-PV1", 101.0, state="postponed")])
+    assert (picks["capacity_mw"].value, picks["capacity_mw"].rule) == (50.4, "interconnection_request")
+    # The same request with a live solar half still counts it (the Albatross case).
+    assert survive([storage, _gen("1-PV1", 101.0)])["capacity_mw"].value == 151.4
+
+    plant = [_gen("68019-A", 50.0), _gen("68019-B", 250.0, state="postponed")]
+    picks = survive(plant)
+    assert (picks["capacity_mw"].value, picks["capacity_mw"].rule) == (50.0, "plant_inventory")
+    assert picks["lifecycle_state"].value == "permitted"
+    only_postponed = survive(
+        [_gen("68019-B", 250.0, state="postponed"), _gen("68019-C", 20.0, state="postponed")]
+    )
+    assert only_postponed["capacity_mw"].value == 270.0
+    assert only_postponed["lifecycle_state"].value == "postponed"
+    # The name comes from the same plants as the MW: a live record is not named after a larger postponed one.
+    two_plants = survive(
+        [
+            _gen("1-A", 50.0, name_canonical="Live Plant"),
+            _gen("2-B", 250.0, state="postponed", name_canonical="Postponed Plant"),
+        ]
+    )
+    assert two_plants["name_canonical"].value == "Live Plant"
+    assert two_plants["capacity_mw"].value == 50.0
+
+
 def test_with_only_withdrawn_requests_their_sum_is_kept() -> None:
     picks = survive([_req("A", 100.0, state="withdrawn"), _req("B", 50.0, state="withdrawn")])
     assert picks["capacity_mw"].value == 150.0

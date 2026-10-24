@@ -410,8 +410,11 @@ def test_retired_clusters_are_dashed_rings_and_proposal_clusters_stay_solid() ->
     assert "circle-stroke" not in retired  # the old solid ring
     image = _MAP_JS.split("function addRetiredClusterImage() {")[1].split("\n  }\n")[0]
     assert "ctx.setLineDash([" in image and "retiredColors.retired" in image and "mapColors.land" in image
-    proposals = _MAP_JS.split('id: "clusters", type: "circle"')[1].split("});")[0]
-    assert '"circle-stroke-width": 2' in proposals and "dash" not in proposals.lower()
+    # A place's project marks (2026-10-24) are solid shapes: never dashed.
+    proposals = _MAP_JS.split('id: "clusters", type: "symbol"')[1].split("});")[0]
+    assert '"icon-image": ["concat", "mark-"' in proposals and "dash" not in proposals.lower()
+    marks = _MAP_JS.split("function drawPlaceMark(ctx, family, r, c) {")[1].split("\n  }\n")[0]
+    assert "setLineDash" not in marks
     # Hover says what the dashed ring is, as a proposals cluster's tooltip does (D-10).
     assert 'map.on("mouseenter", "retired-clusters"' in _MAP_JS
     assert '"retired or retiring plant"' in _MAP_JS
@@ -429,9 +432,9 @@ def test_the_retired_key_shows_the_cluster_mark_and_follows_the_layer(web_client
     assert "Dashed ring with a number" in cluster.group(1)
     assert "Retiring (most capacity scheduled to retire)" in legend
     assert '<span class="legend__words">Retired</span>' in legend
-    # A project cluster is a solid ring (the key's words, in the panel since 2026-10-22).
+    # A place's projects are solid marks sized by their count (the key's words, in the panel).
     lifecycle = body.split('id="lifecycle-legend"')[1].split("</div>")[0]
-    assert "A ring with a number is a group of nearby projects" in lifecycle
+    assert "A larger mark holds more projects at one place or county" in lifecycle
     # Shown whenever the layer is on, including from `?layers=retired` on load.
     assert 'retiredToggle.checked = filters.layers.indexOf("retired") !== -1;' in _MAP_JS
     assert "setRetiredLayerVisible(retiredToggle.checked);" in _MAP_JS

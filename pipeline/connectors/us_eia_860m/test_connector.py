@@ -222,31 +222,38 @@ def _september() -> RawSnapshot:
 
 
 def _with_switch(c, state: str):
-    """The connector with the one switch set: the eia860m map names the sheet."""
+    """The connector with the one switch set to `state`: the eia860m map names the sheet."""
     status_map = copy.deepcopy(c.status_map)
     status_map["sources"]["eia860m"]["map"][CANCELED_SHEET] = state
     c._status_map = status_map
     return c
 
 
-def test_the_switch_is_off_today_and_the_status_map_says_how_to_turn_it_on():
-    """No lifecycle state says what the sheet says (canceled *or* postponed, unsaid which): the
-    coordinator's default keeps a postponed unit out of `cancelled`, a `postponed` state needs a
-    migration, and `unknown` takes no mapping. So the map names no state for the sheet yet."""
+def _without_switch(c):
+    """The connector with the switch removed (the sheet parsed and counted, nothing loaded)."""
+    status_map = copy.deepcopy(c.status_map)
+    del status_map["sources"]["eia860m"]["map"][CANCELED_SHEET]
+    c._status_map = status_map
+    return c
+
+
+def test_the_switch_is_on_and_loads_the_sheet_as_postponed():
+    """Owner decision 2026-10-24 (docs/00-PLAN.md "Owner decisions on the weekend list" item 3):
+    the sheet's units get their own state, `postponed`, counted neither as active nor as withdrawn
+    or cancelled. The shipped map names it; until then the map named no state for the sheet."""
     c = connector_for(SOURCE_ID)
-    assert canceled_sheet_state(c.status_map) is None
-    text = STATUS_MAP_PATH.read_text(encoding="utf-8")
-    assert '"Canceled or Postponed": postponed' in text
-    assert '"Canceled or Postponed": cancelled' in text
+    assert canceled_sheet_state(c.status_map) == "postponed"
+    assert c.status_map["sources"]["eia860m"]["map"][CANCELED_SHEET] == "postponed"
+    assert "postponed" in c.status_map["canonical_states"]
 
 
-#: Every place the lifecycle states are listed, as the status map's recipe for a `postponed` state
-#: names them: (file, the text that lists the states there, the name the recipe uses).
+#: Every place the lifecycle states are listed, as the status map's comment names them: (file, the
+#: text that lists the states there, the name the comment uses).
 POSTPONED_RECIPE: tuple[tuple[str, str, str], ...] = (
     (
-        "services/db/migrations/versions/0001_initial_schema.py",
-        "ck_proposal_lifecycle_state_vocab",
-        "ck_proposal_lifecycle_state_vocab",
+        "services/db/migrations/versions/0046_lifecycle_postponed.py",
+        'NEW_STATE = "postponed"',
+        "migration 0046",
     ),
     ("services/db/models.py", "LIFECYCLE_STATES = (", "LIFECYCLE_STATES"),
     ("pipeline/status_map.yaml", "canonical_states:", "canonical_states"),
@@ -258,9 +265,9 @@ POSTPONED_RECIPE: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def test_the_recipe_for_a_postponed_state_names_every_place_the_states_are_listed():
-    """Review of lane F4: the recipe left out `canonical_states` and the API's enum, and the
-    `postponed` case below runs on a copy of the map, so nothing would have caught the gap."""
+def test_the_status_map_names_every_place_the_states_are_listed():
+    """Review of lane F4: the list left out `canonical_states` and the API's enum. The comment beside
+    the switch still names every place, now as where the state was added."""
     root = pathlib.Path(__file__).resolve().parents[3]
     text = STATUS_MAP_PATH.read_text(encoding="utf-8")
     start = text.index("THE SWITCH")
@@ -270,8 +277,54 @@ def test_the_recipe_for_a_postponed_state_names_every_place_the_states_are_liste
         assert name in recipe, name
 
 
-def test_the_canceled_sheet_is_parsed_and_counted_but_not_loaded_while_the_switch_is_off(caplog):
+def test_every_place_the_states_are_listed_lists_postponed_and_the_trends_blocks_do_not():
+    """The connector tests below flip the switch on a copy of the map, so they prove the connector,
+    not the vocabulary. This one reads each listing itself: a `postponed` row would otherwise reach
+    a CHECK, a filter or an enum that refuses it."""
+    import yaml
+
+    from services.api.app import LIFECYCLE_STATE_VALUES
+    from services.db.models import LIFECYCLE_STATES
+    from services.labels import LIFECYCLE_LABELS
+    from services.trends import snapshot
+
+    root = pathlib.Path(__file__).resolve().parents[3]
+    spec = yaml.safe_load((root / "api/openapi.yaml").read_text(encoding="utf-8"))
+    vocabulary = yaml.safe_load((root / "data/vocabulary/lifecycle_states.yaml").read_text(encoding="utf-8"))
+    status_map = yaml.safe_load(STATUS_MAP_PATH.read_text(encoding="utf-8"))
+    assert "postponed" in LIFECYCLE_STATES
+    assert "postponed" in LIFECYCLE_STATE_VALUES
+    assert LIFECYCLE_LABELS["postponed"] == "Postponed"
+    assert "postponed" in spec["components"]["schemas"]["LifecycleState"]["enum"]
+    assert "postponed" in vocabulary["lifecycle_states"]
+    assert "postponed" in status_map["canonical_states"]
+    blocks = (
+        snapshot.ACTIVE_STATES,
+        snapshot.WITHDRAWN_STATES,
+        snapshot.BUILT_STATES,
+        snapshot.UNKNOWN_STATES,
+    )
+    assert not any("postponed" in block for block in blocks)
+
+
+def test_the_shipped_map_loads_every_canceled_unit_as_postponed():
     c = connector_for(SOURCE_ID)
+    raw = _september()
+    df = c.normalize(c.parse(raw), raw)
+    canceled = df[df["status_raw"] == CANCELED_SHEET]
+    assert len(df) == 28 + 27
+    assert set(canceled["lifecycle_state"]) == {"postponed"}
+    assert set(df[df["status_raw"] != CANCELED_SHEET]["lifecycle_state"]) <= {
+        "announced",
+        "filed",
+        "permitted",
+        "under_construction",
+    }
+    assert raw.meta["canceled_or_postponed"]["loaded_as"] == "postponed"
+
+
+def test_the_canceled_sheet_is_parsed_and_counted_but_not_loaded_while_the_switch_is_off(caplog):
+    c = _without_switch(connector_for(SOURCE_ID))
     raw = _september()
     with caplog.at_level("INFO", logger="pipeline.connectors.us_eia_860m.connector"):
         rows = c.parse(raw)
@@ -301,10 +354,12 @@ def test_the_switch_loads_every_canceled_unit_with_the_mapped_state(state):
     assert not df["record_id"].duplicated().any()
 
 
-def test_a_unit_keeps_its_record_when_it_moves_from_planned_to_canceled():
+@pytest.mark.parametrize(("state", "event"), [("postponed", "status_change"), ("cancelled", "withdrawn")])
+def test_a_unit_keeps_its_record_when_it_moves_from_planned_to_canceled(state, event):
     """The identity is `<Plant ID>-<Generator ID>` on both sheets, so a move is a lifecycle change of
-    one record (a `withdrawn` diff event under `cancelled`), never a removal plus a new record."""
-    c = _with_switch(connector_for(SOURCE_ID), "cancelled")
+    one record, never a removal plus a new record. Under the shipped `postponed` it is a
+    `status_change` (postponed is not withdrawn); it would be `withdrawn` only under `cancelled`."""
+    c = _with_switch(connector_for(SOURCE_ID), state)
     raw = _september()
     planned = [r for r in c.parse(raw) if "_sheet" not in r][:1]
     dropped = ("Status", "Planned Operation Year", "Planned Operation Month")
@@ -312,7 +367,9 @@ def test_a_unit_keeps_its_record_when_it_moves_from_planned_to_canceled():
     before, after = c.normalize(planned, raw), c.normalize(moved, raw)
     assert list(before["record_id"]) == list(after["record_id"])
     events = diff_snapshots(before, after, observed_at="2026-10-24T00:00:00Z")
-    assert "withdrawn" in set(events["event_type"])
+    lifecycle = events[events["field"] == "lifecycle_state"]
+    assert list(lifecycle["event_type"]) == [event]
+    assert list(lifecycle["after"]) == [state]
     assert not {"new", "removed"} & set(events["event_type"])
 
 
@@ -323,12 +380,12 @@ def test_a_changed_canceled_sheet_fails_the_run_only_when_the_sheet_is_loaded():
     book.save(buffer)
     raw = _september()
     raw.content = buffer.getvalue()
-    off = connector_for(SOURCE_ID)
+    off = _without_switch(connector_for(SOURCE_ID))
     assert len(off.parse(raw)) == 28
     found = raw.meta["canceled_or_postponed"]
     assert found["units"] is None and "layout changed" in found["error"]
     with pytest.raises(ParseError):
-        _with_switch(connector_for(SOURCE_ID), "cancelled").parse(raw)
+        connector_for(SOURCE_ID).parse(raw)  # the shipped map loads the sheet
 
 
 def test_any_failure_reading_the_optional_sheet_leaves_the_planned_load_alone(monkeypatch):
@@ -343,11 +400,11 @@ def test_any_failure_reading_the_optional_sheet_leaves_the_planned_load_alone(mo
 
     monkeypatch.setattr(pd.ExcelFile, "parse", parse)
     raw = _september()
-    rows = connector_for(SOURCE_ID).parse(raw)
+    rows = _without_switch(connector_for(SOURCE_ID)).parse(raw)
     assert len(rows) == 28
     assert raw.meta["canceled_or_postponed"]["error"] == "ValueError: unreadable sheet"
     with pytest.raises(ValueError, match="unreadable sheet"):
-        _with_switch(connector_for(SOURCE_ID), "cancelled").parse(_september())
+        connector_for(SOURCE_ID).parse(_september())  # the shipped map loads the sheet
 
 
 def test_what_the_canceled_sheet_held_is_kept_in_the_run_record(tmp_path):
@@ -358,7 +415,7 @@ def test_what_the_canceled_sheet_held_is_kept_in_the_run_record(tmp_path):
 
     st = Store(tmp_path)
     result = run(SOURCE_ID, store=st, raw=_september())
-    expected = {"units": 27, "plants": 25, "nameplate_mw": 3448.9, "loaded_as": None, "error": None}
+    expected = {"units": 27, "plants": 25, "nameplate_mw": 3448.9, "loaded_as": "postponed", "error": None}
     assert result.run["snapshot"]["meta"]["canceled_or_postponed"] == expected
     stored = st.last_snapshot(SOURCE_ID)
     assert stored is not None

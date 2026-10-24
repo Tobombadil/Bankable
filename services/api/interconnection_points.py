@@ -23,8 +23,10 @@ and so they obey the proposal predicate:
 Lifecycle buckets are the public list's: *active* is the web list's default view (announced through
 under construction, `ACTIVE_LIFECYCLE_STATES`, pinned equal to `web/viewmodels.py` by
 `web/test_interconnection_points.py`), *withdrawn* is withdrawn or cancelled, *built* is built,
-and *other* is `unknown`. Megawatts are the sum of `capacity_mw` where stated; a proposal with no
-capacity counts in its bucket's count and adds nothing to its MW.
+and *other* is `unknown` and `postponed` (EIA-860M's canceled or indefinitely postponed units, owner
+decision 2026-10-24: neither active nor withdrawn; docs/21 §7.1). Megawatts are the sum of
+`capacity_mw` where stated; a proposal with no capacity counts in its bucket's count and adds nothing
+to its MW.
 """
 
 from __future__ import annotations

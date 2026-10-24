@@ -311,9 +311,12 @@ def test_c7_links_are_ink_with_a_fine_offset_underline() -> None:
 
 def test_m1_markers_scale_by_area_and_hold_their_size_on_zoom() -> None:
     assert 'var dotColor = cssVar("--dot") || colors.progress;' in MAP_JS
-    assert '["sqrt", ["+", 196, ["*", 1.66, ["get", "count"]]]]' in MAP_JS
+    # A place's marks (2026-10-24): radius 2.4 + 1.25 sqrt(n), so area grows with the count, drawn ahead
+    # per step of count and held at their screen size from the desktop's national zoom up.
+    assert "function markRadius(n) { return Math.min(14, 2.4 + 1.25 * Math.sqrt(n)); }" in MAP_JS
+    assert '"icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 3.5, 1]' in MAP_JS
     radius = re.findall(r'"circle-radius": \["interpolate", \["linear"\], \["zoom"\]', MAP_JS)
-    assert len(radius) >= 2, "cluster and precision radii interpolate by zoom"
+    assert len(radius) >= 1, "the precision ring's radius interpolates by zoom"
     assert '"icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.85, 8, 1, 12, 1.2]' in MAP_JS
 
 

@@ -652,11 +652,10 @@ sources:
     /oeaaa/oe3a-external-api/downloadArchives.do, the URL the site's own download controller builds),
     served gzip-encoded, 44 columns, quotes inside quoted fields escaped with a backslash, a trailing
     "Data as of" line; no ETag or Last-Modified, so every run downloads the files
-  # No `cadence` on purpose (2026-10-24, review of lane dc-faa): infra/scheduler/app.py fetches every row that has
-  # one, and pipeline/resolve.py has no location veto yet, so a scheduled load would merge these sites into held
-  # loads 8 to 32 km away (docs/08 §4.1 "Built"). The archives are regenerated weekly (Saturday evenings): restore
-  # `cadence: weekly` in the change that lands the veto. Runs by hand (`python -m pipeline.connectors run
-  # us.faa.oeaaa.part77_cases`) still work, for measurement only.
+  # Scheduled weekly (the archives are regenerated on Saturday evenings) since pipeline/resolve.py refuses to merge
+  # two load records whose exact points lie more than 2 km apart (rule L, docs/22 §28, lane resolver-veto,
+  # 2026-10-24): replayed against the held loads, none of the 14 fuzzy merges of points more than 2 km apart remains.
+  cadence: weekly
   rate_limit_rps: 0.1
   license: >-
     US federal government work, public domain (17 U.S.C. §105). The OE3A download page (read 2026-10-23)
@@ -692,9 +691,9 @@ sources:
     Rank 2 of the data-centre survey (docs/08 §4.1). A building or construction crane that is tall or near
     a public airport needs a Part 77 notice (14 CFR 77.9), filed with an exact point, so data-centre
     campuses near Dulles, Phoenix, Dallas and Chicago file buildings and cranes months before they open.
-    NOT SCHEDULED (no `cadence`, 2026-10-24): pipeline/resolve.py has no location veto, and a replay of
-    these records against the held loads accepted 14 fuzzy merges of points more than 2 km apart (up to
-    32 km: same operator, another campus); restore `cadence: weekly` with the veto. The connector reads the
+    Scheduled weekly from 2026-10-24: held back until pipeline/resolve.py had a location veto, because a
+    replay against the held loads accepted 14 fuzzy merges of points more than 2 km apart (up to 32 km: same
+    operator, another campus); with the veto none remains (docs/22 §28). The connector reads the
     current and previous year's regional archives (the page says they are regenerated on Saturday evenings;
     no validators, so every run downloads about 260 MB decoded, served gzip-encoded), keeps the cases that
     name a data centre, an operator or an AWS campus code (or cite such a case), leaves out lines, poles,

@@ -882,6 +882,8 @@ PROPOSAL_KIND_VALUES = [
     "hydrogen",
     "other",
 ]
+#: `postponed` since 2026-10-24 (migration 0046; docs/21 §7.1): appended, as an addition to an open
+#: vocabulary is (docs/04 API-7).
 LIFECYCLE_STATE_VALUES = [
     "unknown",
     "announced",
@@ -893,6 +895,7 @@ LIFECYCLE_STATE_VALUES = [
     "built",
     "withdrawn",
     "cancelled",
+    "postponed",
 ]
 OPPORTUNITY_KIND_VALUES = ["rfp", "foa", "tender", "auction", "loan_program", "procurement_notice", "program"]
 OPPORTUNITY_STATUS_VALUES = [

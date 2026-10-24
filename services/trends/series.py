@@ -28,10 +28,14 @@ break lists the sources added and removed.
 **Breakdowns.** A breakdown (`by`) gives one line per key. A document's tally of a dimension is
 complete, so a key absent from a month that tallied the dimension is a real zero there; a document
 that did not tally the dimension at all (a schema-1 daily document has no `by_state` on the
-withdrawn block) has no point for any key, never a zero or a null. A line by a year a stock is
+withdrawn block, an EIA month read before parser 1.1.0 has no `by_state_status`) has no point for
+any key, never a zero or a null. A line by a year a stock is
 waiting for (EIA's expected year and planned retirement year, ERCOT's projected COD year) empties
 as that year's plants come online or retire, so no change is computed on it from the start of its
-year: its fall then is completion, not a shrinking pipeline.
+year: its fall then is completion, not a shrinking pipeline. EIA's operating and planned series also
+break down by a state or a technology and the status together (`state_status`, `technology_status`:
+one line per pair, keyed `US-TX|U`, `solar|TS`), so a state's or a technology's stage split is a
+sum of series lines like every other figure (docs/24-trends.md §11.1).
 
 **What is served.** A monthly series is served only while its source is visible to the caller
 (`services/api/visibility.py::source_visible`, decided by the API and passed in), and a month its
@@ -142,8 +146,17 @@ _ACTIVITY_METHOD = (
     "and no list query."
 )
 
+_EIA_PAIRS_NOTE = (
+    " The state_status and technology_status breakdowns are one line per state, or technology, and EIA "
+    "status code together (US-TX|U, solar|TS), so a state's or a technology's lines split by status; a "
+    "month read before these tallies existed has no point on them."
+)
 _EIA_DIMS = {"technology": "technology", "state": "state"}
-_OPERATING_DIMS = {**_EIA_DIMS, "status": "status"}
+#: The sheets that state a status are also tallied by each of state and technology with the status:
+#: the EIA-860M connector's `PAIRED` (a test holds the two equal; this module reads documents and
+#: imports no connector).
+EIA_PAIRED: tuple[str, ...] = ("state_status", "technology_status")
+_OPERATING_DIMS = {**_EIA_DIMS, "status": "status", **{name: name for name in EIA_PAIRED}}
 _PROPOSAL_DIMS = {
     "kind": "by_kind",
     "technology": "by_technology",
@@ -162,7 +175,7 @@ CATALOGUE: tuple[SeriesSpec, ...] = (
         "operating",
         "mw",
         _OPERATING_DIMS,
-        _EIA_METHOD,
+        _EIA_METHOD + _EIA_PAIRS_NOTE,
     ),
     SeriesSpec(
         "us_operating_generators",
@@ -173,7 +186,7 @@ CATALOGUE: tuple[SeriesSpec, ...] = (
         "operating",
         "count",
         _OPERATING_DIMS,
-        _EIA_METHOD,
+        _EIA_METHOD + _EIA_PAIRS_NOTE,
     ),
     SeriesSpec(
         "us_planned_capacity_mw",
@@ -184,7 +197,7 @@ CATALOGUE: tuple[SeriesSpec, ...] = (
         "planned",
         "mw",
         {**_OPERATING_DIMS, "expected_year": "expected_year"},
-        _EIA_METHOD + _STOCK_NOTE.format(what="expected year", who="plants come online"),
+        _EIA_METHOD + _EIA_PAIRS_NOTE + _STOCK_NOTE.format(what="expected year", who="plants come online"),
     ),
     SeriesSpec(
         "us_planned_generators",
@@ -195,7 +208,7 @@ CATALOGUE: tuple[SeriesSpec, ...] = (
         "planned",
         "count",
         {**_OPERATING_DIMS, "expected_year": "expected_year"},
-        _EIA_METHOD + _STOCK_NOTE.format(what="expected year", who="plants come online"),
+        _EIA_METHOD + _EIA_PAIRS_NOTE + _STOCK_NOTE.format(what="expected year", who="plants come online"),
     ),
     SeriesSpec(
         "us_retired_capacity_mw",
@@ -788,15 +801,20 @@ def _number(value: Any) -> float | int | None:
 def _monthly_lines(
     spec: SeriesSpec, read: MonthlyRead, by: str | None, start: str | None, end: str | None
 ) -> dict[str, list[dict[str, Any]]]:
+    """The lines of a monthly series, with a point for each month from `start` to `end`. Every key
+    any month tallied is a line, with no point outside the bounds, so a bounded read lists the
+    same lines as the whole series."""
     index = _VALUE_INDEX[spec.value or "mw"]
     dim = spec.dimensions[by] if by else None
-    lines: dict[str, list[dict[str, Any]]] = {}
     keys: set[str] = set()
     if dim:
         for month in read.points:
             block = month.blocks.get(spec.block)
             if block:
                 keys.update((block["dims"].get(dim) or {}).keys())
+        lines: dict[str, list[dict[str, Any]]] = {key: [] for key in keys}
+    else:
+        lines = {"total": []} if any(spec.block in m.blocks for m in read.points) else {}
     for month in read.points:
         if (start and month.period < start) or (end and month.period > end):
             continue
@@ -804,18 +822,14 @@ def _monthly_lines(
         if block is None:
             continue
         base = {
-            "basis": block["basis"],
+            **_compared(block, month),
             "source_url": month.source_url,
             "retrieved_at": month.retrieved_at,
-            "_parser": month.parser_version,
-            "_like": (block["basis"], month.parser_version),
         }
         if block.get("warnings"):
             base["dq_warnings"] = list(block["warnings"])
         if dim is None:
-            lines.setdefault("total", []).append(
-                {"period": month.period, "value": _number(block["total"][index]), **base}
-            )
+            lines["total"].append({"period": month.period, "value": _number(block["total"][index]), **base})
             continue
         tallied = block["dims"].get(dim)
         if tallied is None:
@@ -823,8 +837,33 @@ def _monthly_lines(
         for key in keys:
             # A complete tally without this key holds none of it (module docstring).
             value = _number(tallied[key][index]) if key in tallied else 0
-            lines.setdefault(key, []).append({"period": month.period, "value": value, **base})
+            lines[key].append({"period": month.period, "value": value, **base})
     return lines
+
+
+def _compared(block: Mapping[str, Any], month: MonthPoint) -> dict[str, Any]:
+    """What a monthly point's change compares, and its break reports: the block's basis and the
+    parser that read the month (module docstring, "Like for like")."""
+    return {
+        "basis": block["basis"],
+        "_parser": month.parser_version,
+        "_like": (block["basis"], month.parser_version),
+    }
+
+
+def _monthly_skeleton(spec: SeriesSpec, read: MonthlyRead, by: str | None) -> list[dict[str, Any]]:
+    """The months a monthly series' lines have a point in, each with what a change compares
+    (`_compared`): one sequence for every line of a breakdown, since a complete tally gives every
+    key a point (a zero where it holds none) in every month that tallied the dimension. Its `breaks`
+    are therefore every line's breaks, over the whole archive, whatever the window."""
+    dim = spec.dimensions[by] if by else None
+    out = []
+    for month in read.points:
+        block = month.blocks.get(spec.block)
+        if block is None or (dim is not None and block["dims"].get(dim) is None):
+            continue
+        out.append({"period": month.period, **_compared(block, month)})
+    return out
 
 
 def _coverage(spec: SeriesSpec, day: DayPoint) -> tuple[str, ...]:
@@ -1065,9 +1104,16 @@ def series(
         raise SeriesError("from", "from is after to")
     description = cat.describe(spec)
     stocks = by is not None and spec.dimensions[by] in STOCK_YEAR_DIMENSIONS
-    # Changes need the point a month and a year before the window, so they are computed over the
-    # whole series and the window is cut after.
-    lines = cat.lines(spec, by, None, None)
+    # Changes need the point a month and a year before the window, so they are computed with those
+    # months and the window is cut after. A bounded monthly read reads no month earlier than that
+    # (a one-month query of a paired breakdown, 331 lines, costs its window, not 135 months); its
+    # lines' breaks are the archive's own (`_monthly_skeleton`), as an unbounded read lists them.
+    shared_breaks: list[dict[str, Any]] | None = None
+    if spec.frequency == "monthly" and (lo or hi):
+        lines = cat.lines(spec, by, shift_period(lo, -12) if lo else None, hi)
+        shared_breaks = breaks(_monthly_skeleton(spec, cat.monthly(spec.source_id), by))
+    else:
+        lines = cat.lines(spec, by, None, None)
     out_lines = []
     for key in sorted(lines, key=_line_order):
         stock_year = key if stocks and key.isdigit() else None
@@ -1077,7 +1123,8 @@ def series(
             for p in points
             if (lo is None or p["period"] >= lo) and (hi is None or p["period"] <= hi)
         ]
-        out_lines.append({"key": key, "breaks": breaks(points), "points": windowed})
+        line_breaks = [dict(b) for b in shared_breaks] if shared_breaks is not None else breaks(points)
+        out_lines.append({"key": key, "breaks": line_breaks, "points": windowed})
     read = cat.monthly(spec.source_id) if spec.frequency == "monthly" else MonthlyRead()
     return {
         **description,
@@ -1192,6 +1239,7 @@ __all__ = [
     "CHANGES_RULE",
     "DAILY",
     "EIA",
+    "EIA_PAIRED",
     "ERCOT",
     "MONTHLY_SOURCES",
     "STOCK_YEAR_DIMENSIONS",

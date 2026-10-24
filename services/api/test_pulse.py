@@ -262,8 +262,9 @@ def test_every_pulse_figure_is_the_total_of_the_list_it_names(client: TestClient
             if entry["country"] is not None:
                 assert entry["events"] == sum(list_count(client, ref) for ref in entry["list_queries"])
         assert sum(e["events"] for e in data["by_country"]) == data["total"]["events"]
-    # New proposals, a status change to each of nine states (not `unknown`), departures, notices.
-    assert checked == len(PARAMS) * 12
+    # New proposals, a status change to each of ten states (not `unknown`; `postponed` since
+    # 2026-10-24), departures, notices.
+    assert checked == len(PARAMS) * 13
 
 
 def test_only_genuine_reported_changes_are_counted(client: TestClient, world: World) -> None:

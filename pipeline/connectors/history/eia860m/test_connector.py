@@ -10,6 +10,7 @@ import io
 import json
 import shutil
 import zipfile
+from typing import Any
 
 import pytest
 
@@ -28,10 +29,13 @@ from pipeline.connectors.history.conftest import (
 from pipeline.connectors.history.documents import MonthlyStore
 from pipeline.connectors.history.dq import check_month
 from pipeline.connectors.history.eia860m.connector import (
+    PAIRED,
     archive_url,
     find_xlsx_links,
+    pair_key,
     period_from_name,
     period_from_url,
+    split_pair,
     status_code,
     technology_token,
 )
@@ -174,6 +178,90 @@ def test_generators_listed_without_a_plant_id_are_left_out_and_counted(connector
     block = summary.blocks["retired"].as_dict()
     assert summary.rows == 1 and block["total"]["count"] == 1
     assert block["excluded"] == {"no_plant_id": {"count": 2, "mw": 1077.0, "mw_stated": 2}}
+
+
+def _marginal(paired: dict[str, dict[str, Any]], side: int) -> dict[str, dict[str, Any]]:
+    """A paired tally summed onto one of its two keys (0: the state or technology, 1: the status),
+    every field of the tally (count, MW, nameplate MW and how many rows stated each); a sum over
+    no stated value stays None, as the single tally writes it."""
+    out: dict[str, dict[str, Any]] = {}
+    for key, tally in paired.items():
+        bucket = out.setdefault(split_pair(key)[side], {})
+        for name, value in tally.items():
+            held = bucket.get(name)
+            bucket[name] = value if held is None else round(held + (value or 0), 3)
+    return out
+
+
+@pytest.mark.parametrize("fixture", [CURRENT, OLD], ids=["2026-09", "2015-07"])
+def test_operating_and_planned_are_tallied_by_state_and_by_technology_with_status(connector, fixture) -> None:
+    """A state's or a technology's planned capacity splits by stage only if the month tallies the
+    two together (docs/24 §11.1). Each paired tally holds every row exactly once: summed onto its
+    first key it is the state or technology tally, summed onto the status it is the status tally,
+    count, MW and nameplate MW alike, in the oldest layout and the current one."""
+    out = connector.summarise(_month(fixture_bytes(fixture), hint="2015-07" if fixture is OLD else None))
+    for name in ("operating", "planned"):
+        block = out["blocks"][name]
+        for paired, first in PAIRED.items():
+            tally = block[f"by_{paired}"]
+            assert tally, f"{name} has no {paired} tally"
+            assert all(key.count("|") == 1 for key in tally)
+            assert _marginal(tally, 0) == block[f"by_{first}"]
+            assert _marginal(tally, 1) == block["by_status"]
+    for name in ("retired", "canceled_postponed", "planned_retirements"):
+        assert not [k for k in out["blocks"][name] if k.endswith("_status")]
+
+
+#: The Planned sheet's header (September 2026, the columns the tallies read) and three rows: Texas
+#: under construction, a Texas row with a blank status, and a California solar row.
+PLANNED_HEADER = [
+    "Plant ID", "Generator ID", "Plant State", "Technology", "Nameplate Capacity (MW)",
+    "Net Summer Capacity (MW)", "Status", "Planned Operation Year",
+]  # fmt: skip
+UNDER_CONSTRUCTION = "(U) Under construction, less than or equal to 50 percent complete"
+COMPLETE = "(TS) Construction complete, but not yet in commercial operation"
+PLANNED_ROWS = [
+    (1, "A", "TX", "Batteries", 100.0, 100.0, UNDER_CONSTRUCTION, 2027),
+    (1, "B", "TX", "Batteries", 50.0, 50.0, " ", 2027),
+    (2, "1", "CA", "Solar Photovoltaic", 80.0, 75.5, COMPLETE, 2026),
+]  # fmt: skip
+
+
+def test_a_row_without_a_status_is_paired_with_unstated_as_the_status_tally_counts_it(connector) -> None:
+    summary = connector._tally_sheet("planned", PLANNED_HEADER, iter(PLANNED_ROWS))
+    block = summary.blocks["planned"].as_dict()
+    assert sorted(block["by_state_status"]) == ["US-CA|TS", "US-TX|U", "US-TX|_unstated"]
+    assert sorted(block["by_technology_status"]) == ["solar|TS", "storage|U", "storage|_unstated"]
+    assert block["by_status"]["_unstated"]["mw"] == block["by_state_status"]["US-TX|_unstated"]["mw"] == 50.0
+    assert block["by_state_status"]["US-CA|TS"] == block["by_technology_status"]["solar|TS"]
+    assert block["by_state_status"]["US-CA|TS"]["mw"] == 75.5
+    assert pair_key("US-TX", None) == "US-TX|_unstated" and split_pair("solar|TS") == ("solar", "TS")
+    assert pair_key(None, "U") == "_unstated|U"  # a blank first key, as `Block.add` buckets it
+
+
+def test_every_stored_month_is_restated_from_its_own_snapshot_with_the_paired_tallies(
+    registry, store
+) -> None:
+    """A document an earlier parser wrote, without the paired tallies, is read again from the snapshot
+    its `raw.snapshot` names on the next run, without a request for the file, and then holds them
+    (docs/24 §9.3: the parser version is the declared version and a digest of the code)."""
+    run(SID, "monthly", store=store, http=FakeHttp(_origin_routes()), registry=registry, now=clock())
+    monthly = MonthlyStore(store.base_root)
+    earlier = monthly.load(SID, "2026-09")
+    for name in ("operating", "planned"):
+        for paired in PAIRED:
+            del earlier["blocks"][name][f"by_{paired}"]
+    earlier["parser_version"] = "1.0.0+8ad6632f"  # the parser that wrote the archive until 2026-10-24
+    monthly.write(earlier)
+    result = run(SID, "monthly", store=store, http=FakeHttp(_origin_routes()), registry=registry, now=clock())
+    [restate] = [i for i in result.record["items"] if i["route"] == "restate"]
+    assert restate["status"] == "ok" and restate["months"][0]["outcome"] == "replaced"
+    assert result.record["bytes"] == 0  # the stored snapshot; the origin answered 304
+    doc = monthly.load(SID, "2026-09")
+    assert doc["parser_version"].startswith("1.1.0+")
+    assert doc["raw"]["snapshot"] == earlier["raw"]["snapshot"]
+    planned = doc["blocks"]["planned"]
+    assert _marginal(planned["by_state_status"], 0) == planned["by_state"]
 
 
 def test_eia_labels_the_shared_classifier_misreads_are_read_by_label() -> None:

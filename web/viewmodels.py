@@ -42,6 +42,8 @@ LIFECYCLE_FAMILY: dict[str, Family] = {
     "open": "success",
     "withdrawn": "danger",
     "cancelled": "danger",
+    # `postponed` (2026-10-24): stopped, like a frozen notice; its own word on every chip (D-5).
+    "postponed": "danger",
     "frozen": "danger",
 }
 
@@ -58,6 +60,9 @@ ACTIVE_PROPOSAL_STATES: tuple[str, ...] = (
     "under_construction",
 )
 WITHDRAWN_PROPOSAL_STATES: tuple[str, ...] = ("withdrawn", "cancelled")
+#: EIA-860M's "canceled or indefinitely postponed" units (owner decision 2026-10-24; docs/21 §7.1): in
+#: neither the default view nor the withdrawn toggle, behind a status box of their own.
+POSTPONED_PROPOSAL_STATES: tuple[str, ...] = ("postponed",)
 # ADR 0008 sitemap task: every lifecycle state a proposal can carry, `built`/`unknown` included --
 # unlike ACTIVE_PROPOSAL_STATES (product defect A's default view), the sitemap must list every
 # published proposal's page regardless of which lifecycle-state bucket it is in.
@@ -68,6 +73,7 @@ ALL_PROPOSAL_LIFECYCLE_STATES: tuple[str, ...] = (
         "built",
         "unknown",
     )
+    + POSTPONED_PROPOSAL_STATES
 )
 
 # Reader-facing words for every vocabulary token live in `web/labels.py` (audit 2026-09-30, F1/D-7);
@@ -286,7 +292,9 @@ WORLD_BBOX = "-179,-85,179,85"
 #: The "Status" control on the map and the list (audit 2026-10-07 UX-1; docs/30 §4.1 `lifecycle▾`,
 #: docs/31 §5.9). One checkbox per group, in the map legend's words and order, each submitting its
 #: states as one csv under `lifecycle_state` (the docs/23 §7 grammar, nothing new in the URL). The
-#: first three groups are exactly `ACTIVE_PROPOSAL_STATES`, the default view.
+#: first three groups are exactly `ACTIVE_PROPOSAL_STATES`, the default view. `postponed`
+#: (2026-10-24) is a group of its own, never inside "Withdrawn or cancelled", and comes last so the six
+#: earlier boxes keep their places (the map key names those six; docs/21 §7.1).
 PROPOSAL_STATUS_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("announced", "Announced", ("announced",)),
     ("in_process", "In process", ("filed", "studied", "permitted", "under_construction")),
@@ -294,6 +302,7 @@ PROPOSAL_STATUS_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("built", "Built or operating", ("built",)),
     ("withdrawn", "Withdrawn or cancelled", WITHDRAWN_PROPOSAL_STATES),
     ("unknown", "Status unknown", ("unknown",)),
+    ("postponed", "Postponed", POSTPONED_PROPOSAL_STATES),
 )
 
 
@@ -305,6 +314,7 @@ STATUS_SHORT_NAMES: dict[str, str] = {
     "built": "built",
     "withdrawn": "withdrawn",
     "unknown": "unknown status",
+    "postponed": "postponed",
 }
 
 

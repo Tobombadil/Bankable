@@ -5,7 +5,11 @@ per month (`docs/24-trends.md` §9).
 more on four sheets: Operating, Planned, Retired, and Canceled or Postponed. A document tallies
 each sheet (generators counted, net summer MW summed) by technology, state and status, the
 Planned sheet by expected year too, the Operating sheet's planned retirements by their year, and
-the Retired sheet by retirement year.
+the Retired sheet by retirement year. The Operating and Planned sheets are also tallied by state
+and status together (`by_state_status`) and by technology and status together
+(`by_technology_status`), each key the pair joined by `PAIR` (`US-TX|U`, `solar|TS`), so a
+state's or a technology's planned capacity splits by stage as the national figure does
+(`GET /v1/stats/planned-vs-operating`, docs/24-trends.md §11.1; parser 1.1.0, 2026-10-24).
 
 **Like for like** (`documents.py`). Three things changed across the archive, and each is in a
 block's `basis` so no month-on-month or year-on-year change crosses it:
@@ -65,6 +69,7 @@ from urllib.parse import urljoin, urlsplit
 from pipeline.connectors.base import ConnectorError, ParseError
 from pipeline.connectors.history.base import (
     BLANK_LABEL,
+    UNSTATED,
     XLSX_MAGIC,
     ArchiveItem,
     Block,
@@ -134,6 +139,32 @@ NAMEPLATE = ("Nameplate Capacity (MW)",)
 BASIS_ROOT = "eia860m"
 GEOGRAPHY = "50-states-dc"
 MEASURE = "net-summer-mw"
+#: Joins a state or a technology and a status code into one key of a paired tally (`US-TX|U`). Never
+#: in a state key (`US-XX`) or a technology token (`[a-z_]+`), so the key splits at its first `|`.
+PAIR = "|"
+#: The paired tallies, each a dimension and the status (module docstring): `by_state_status` and
+#: `by_technology_status` on the sheets that state a status.
+PAIRED: dict[str, str] = {"state_status": "state", "technology_status": "technology"}
+#: What each sheet is tallied by (`Block.dimensions`).
+DIMENSIONS: dict[str, tuple[str, ...]] = {
+    "operating": ("technology", "state", "status", *PAIRED),
+    "planned": ("technology", "state", "status", "expected_year", *PAIRED),
+    "retired": ("technology", "state", "retirement_year"),
+    "canceled_postponed": ("technology", "state"),
+}
+
+
+def pair_key(key: str | None, status: str | None) -> str:
+    """The paired-tally key of a state or a technology and a status code; a part the row leaves
+    blank is `_unstated`, as `Block.add` counts it in the single tally, so each paired tally summed
+    onto either key is that key's single tally."""
+    return f"{key or UNSTATED}{PAIR}{status or UNSTATED}"
+
+
+def split_pair(key: str) -> tuple[str, str]:
+    """`("US-TX", "U")` for `US-TX|U`: the inverse of `pair_key`."""
+    first, _, status = key.partition(PAIR)
+    return first, status
 
 
 def archive_url(period: str) -> str:
@@ -187,7 +218,9 @@ def status_code(value: Any) -> str | None:
 class Connector(HistoryConnector):
     source_id: ClassVar[str] = SOURCE_ID
     shared_source_id: ClassVar[str | None] = SHARED_SOURCE_ID
-    parser_version: ClassVar[str] = "1.0.0"
+    #: 1.1.0 (2026-10-24): the paired tallies (module docstring); every stored month is restated
+    #: from its own snapshot (`raw.snapshot`) on the next run.
+    parser_version: ClassVar[str] = "1.1.0"
 
     def rate_limits(self) -> dict[str, float]:
         limits = {self.source.host: self.source.max_rps}
@@ -625,15 +658,10 @@ class Connector(HistoryConnector):
             raise ParseError(f"{block_name} sheet lacks a column the tallies read: {list(header)[:24]}")
         has_nameplate = idx["nameplate"] is not None
         alt = "nameplate_mw" if has_nameplate else None
-        dims: dict[str, tuple[str, ...]] = {
-            "operating": ("technology", "state", "status"),
-            "planned": ("technology", "state", "status", "expected_year"),
-            "retired": ("technology", "state", "retirement_year"),
-            "canceled_postponed": ("technology", "state"),
-        }
+        dimensions = DIMENSIONS[block_name]
         block = Block(
             basis=f"{BASIS_ROOT}/{block_name}/{MEASURE}/{GEOGRAPHY}",
-            dimensions=dims[block_name],
+            dimensions=dimensions,
             alt_name=alt,
         )
         retirements = (
@@ -694,6 +722,9 @@ class Connector(HistoryConnector):
                 keys["status"] = code
                 if code and known is not None and code not in known:
                     out.unknown_status.add(code)
+            for paired, first in PAIRED.items():
+                if paired in dimensions:
+                    keys[paired] = pair_key(keys[first], keys.get("status"))
             if block_name == "planned":
                 keys["expected_year"] = _year_key(cell(row, idx["planned_year"]))
             if block_name == "retired":
@@ -773,13 +804,18 @@ def _file_sha256(path: Path) -> str:
 
 __all__ = [
     "ARCHIVE_URL",
+    "DIMENSIONS",
     "INDEX_URL",
+    "PAIR",
+    "PAIRED",
     "SHARED_SOURCE_ID",
     "SOURCE_ID",
     "Connector",
     "archive_url",
     "find_xlsx_links",
+    "pair_key",
     "period_from_name",
     "period_from_url",
+    "split_pair",
     "status_code",
 ]

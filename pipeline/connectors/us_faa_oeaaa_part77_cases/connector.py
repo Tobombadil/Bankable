@@ -32,10 +32,10 @@ is on; the page's own script reads the flag from `FURLOUGH_FLAG_URL` (on 2026-10
 on; the banner's text is then kept in the run record as a source-health note
 (`RawSnapshot.meta["site_notice"]`), never a failure: a shutdown stops new filings, not the archives.
 
-Schedule. The manifest row carries no `cadence` until `pipeline/resolve.py` refuses to merge two
-load records whose exact points are far apart: a replay of these records against the held loads
-accepted fuzzy merges of points up to 32 km apart (docs/08 §4.1 "Built"), and the scheduler fetches
-every row with a cadence. Runs by hand still work.
+Schedule. Weekly (`cadence: weekly` in the manifest row) since `pipeline/resolve.py` refuses to merge
+two load records whose exact points lie more than 2 km apart (rule L, docs/22 §28). Until then the row
+had no cadence: a replay of these records against the held loads accepted fuzzy merges of points up
+to 32 km apart (docs/08 §4.1 "Built"), and the scheduler fetches every row with a cadence.
 
 The stored snapshot is the candidate table, not the 260 MB of upstream bytes (the ICIS-Air
 connector makes the same choice): `fetch` keeps the rows `is_candidate` accepts (looser than the

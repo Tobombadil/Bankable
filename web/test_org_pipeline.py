@@ -169,6 +169,28 @@ def test_status_rows_count_listed_active_records_and_drop_the_unlisted_into_thei
     ]
 
 
+def test_a_postponed_project_has_a_row_of_its_own_counted_listed_or_not() -> None:
+    """Owner decision 2026-10-24: EIA-860M's canceled or indefinitely postponed units are neither active nor
+    withdrawn. A company with one gets a "Postponed" row (until then the row's family lookup raised), its
+    unlisted records counted in it as for any state outside the active ones, and it adds nothing to active."""
+    aggregate = {
+        **AGGREGATE,
+        "totals": _t(11, 890.5, capacity=9, not_summed=1),
+        "by_lifecycle_state": [
+            *AGGREGATE["by_lifecycle_state"],
+            _state("postponed", _t(1, 60.0), _t(1, 40.0)),
+        ],
+    }
+    summary = pipeline_summary(aggregate)
+    assert summary is not None
+    rows = {r["label"]: r for r in summary["by_status"]}
+    assert (rows["Postponed"]["count"], rows["Postponed"]["mw"]) == (2, 100.0)
+    assert rows["Postponed"]["family"] == "danger"
+    assert _query(rows["Postponed"]["href"]) == {"sponsor_id": [ORG_ID], "lifecycle_state": ["postponed"]}
+    assert (summary["active"]["count"], summary["active"]["mw"]) == (6, 370.5)  # unchanged
+    assert [r["label"] for r in summary["by_status"]][-1] == "Postponed"
+
+
 def test_technology_and_iso_rows_are_the_apis_buckets_in_its_order() -> None:
     summary = pipeline_summary(AGGREGATE)
     assert summary is not None
@@ -221,6 +243,7 @@ def test_every_count_links_with_the_apis_list_query_and_its_buckets_filter() -> 
         "cancelled",
         "built",
         "unknown",
+        "postponed",
     ]
 
 
@@ -247,7 +270,7 @@ def test_sources_name_each_register_with_how_many_proposals_it_backs() -> None:
     assert sources[1] == ("EIA-860M", 1, "2026-09-12T00:00:00Z")
     href = _query(summary["sources"][1]["href"])
     assert href["source_id"] == ["us.eia.860m"] and href["sponsor_id"] == [ORG_ID]
-    assert len(href["lifecycle_state"][0].split(",")) == 10
+    assert len(href["lifecycle_state"][0].split(",")) == 11  # every state, `postponed` included
 
 
 def test_nothing_sponsored_or_nothing_read_renders_no_summary() -> None:

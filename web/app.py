@@ -38,7 +38,16 @@ from web.auth import router as auth_router
 from web.empty_state import empty_result_facets, range_error
 from web.formatting import readable_name
 from web.head_requests import HeadAsGetMiddleware
-from web.headline import LANDINGS, Landing, figures_sentence, landing_for, opening_figures, shows_figures
+from web.headline import (
+    LANDINGS,
+    Landing,
+    figures_sentence,
+    landing_for,
+    opening_figures,
+    shows_figures,
+    sources_read,
+    strip_line,
+)
 from web.labels import PLANT_FAMILY_LABELS, SECTION_LABELS
 from web.legal import controller_identity
 from web.list_sort import (
@@ -424,6 +433,9 @@ def lifecycle_counts(
     hidden = listed_param(qp)
     # `built` and `unknown` are counted apart (UX-1) so the notice can offer the built ones, which
     # the status control shows; `other` stays their sum for the sentences that say "outside this view".
+    # The `unknown` bucket is every other state outside the view, so since 2026-10-24 it also holds
+    # `postponed` (`OTHER_PROPOSAL_STATES`): one call, not a fifth, and the notice's words name both
+    # ("postponed or unknown-state", `_macros.html`), never calling a postponed project unknown.
     for bucket, states in (
         ("active", ACTIVE_PROPOSAL_STATES),
         ("withdrawn", WITHDRAWN_PROPOSAL_STATES),
@@ -551,10 +563,13 @@ def home_map(request: Request) -> HTMLResponse:
     # server-side to `publish_state=public` so a gated-but-listed source never counts.
     sources_env = api.get("/v1/sources", params={"limit": 100, "publish_state": "public"})
     regions = [_region_context(r) for r in regions_with_data(sources_env["data"])]
-    # The opening figures and the preview card's words (web/headline.py): on the plain map and on a
-    # landing such as `/texas`, never on a view someone filtered.
+    # The front strip (web/headline.py; docs/31-brand-identity.md M-3, docs/30 §11.6): on the plain map
+    # and on a landing such as `/texas`, the one plain line and three live figures, each counted with
+    # the query its link's list sends; on a view someone filtered, the map's own heading and no
+    # figures. "Sources read" is the scheduled sources' last fetches, from the cached coverage.
     landing = landing_for(qp)
-    figures = opening_figures(api, landing, breakdown["active"]) if shows_figures(qp) else []
+    front = shows_figures(qp)
+    figures = opening_figures(api, landing) if front else []
     lead = figures_sentence(figures, landing)
     return templates.TemplateResponse(
         request,
@@ -563,15 +578,19 @@ def home_map(request: Request) -> HTMLResponse:
             "delayed": delayed_notice(request, "proposal"),
             "landing": landing,
             "headline_figures": figures,
-            "page_title": f"{landing.name} energy projects, large loads and RFPs | Inframation"
+            "figures_place": "In " + (landing.name if landing else "the United States") + " now",
+            "sources_read": sources_read(source_freshness(request, api)),
+            # docs/30 §11.6: the home title is the copy rule's ("Market intelligence"); a landing
+            # names its place.
+            "page_title": f"{landing.name} energy projects, data centres and open calls | Inframation"
             if landing
-            else "Inframation: planned energy projects, large loads and RFPs",
+            else "Inframation — Energy market intelligence",
             "technology_options": _technology_options(vocab),
             "kind_options": _proposal_kind_options(vocab),
             "plant_families": list(PLANT_FAMILY_LABELS.items()),
             "sources_phrase": proposal_sources_phrase(),
             # The heading and the meta description (so og:/twitter: description) from one table.
-            "map_heading": f"{map_heading()} in {landing.name}" if landing else map_heading(),
+            "map_heading": strip_line(landing) if front else map_heading(),
             "map_description": f"{lead} {map_description()}" if lead else map_description(),
             # Which field rows each proposal kind cannot carry, so the drawer leaves out the rows
             # the record page leaves out (`#proposal-fields`).

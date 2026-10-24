@@ -51,6 +51,9 @@ SOURCE_PUBLISH_STATES = ("ingest_only", "api_only", "public")
 #: is an answer, not a gap, and never silently becomes the fetch date.
 SOURCE_VINTAGE_BASES = ("artefact_filename", "shapefile_member", "not_stated")
 RECORD_PUBLISH_STATES = ("pending_review", "ingest_only", "api_only", "public", "unpublished")
+#: `postponed` (migration 0046; owner decision 2026-10-24, docs/00-PLAN.md "Owner decisions on the
+#: weekend list" item 3): EIA-860M's "canceled or indefinitely postponed" units. Appended, as a
+#: vocabulary addition is: it is in no active, withdrawn or built group (docs/21 §7.1).
 LIFECYCLE_STATES = (
     "unknown",
     "announced",
@@ -62,6 +65,7 @@ LIFECYCLE_STATES = (
     "built",
     "withdrawn",
     "cancelled",
+    "postponed",
 )
 OPPORTUNITY_STATUSES = (
     "unknown",

@@ -1572,7 +1572,7 @@ paths:
         `under_construction`), as the site never lists them in a view of those states. Whenever no `listed` is given
         (`hides_not_listed: true`), whatever the lifecycle states asked for: a figure counts the listed records of its
         active states, whose list carries `listed=true`, and every record of its other states (built, withdrawn,
-        cancelled, unknown), whose list carries no `listed`; the dropped ones are tallied in `not_listed` under
+        cancelled, postponed, unknown), whose list carries no `listed`; the dropped ones are tallied in `not_listed` under
         `listed=false`. A figure for one state, or for a selection of only active or only other states, is one list. A
         figure that spans both (the total, a technology or a kind when every state or a mix is asked for) is the sum
         of two lists, `list_query` null, because no one list selects that set. So "US filed" is the same figure from
@@ -1649,11 +1649,14 @@ paths:
         other token is a 400, never a false zero).
 
 
-        **Planned is split by stage** (`stage_mapping`): construction complete, not yet in commercial operation (EIA
-        code TS), under construction (U, V), regulatory approvals received (T), approvals pending (L), early or other
-        (P, OT); a code outside the vocabulary is its own `unmapped` row, so the stages add up to the total. The
-        month's document tallies status for the 50 states and DC together, so under a `state` or `technology` filter
-        `by_stage` and `by_status` are null and `by_stage_note` says why.
+        **Planned is always split by stage** (`stage_mapping`): construction complete, not yet in commercial operation
+        (EIA code TS), under construction (U, V), regulatory approvals received (T), approvals pending (L), early or
+        other (P, OT); a code outside the vocabulary is its own `unmapped` row, so the stages add up to the total, and
+        operating splits by status (`by_status`) the same way. Under a `state` or `technology` filter the split is the
+        states' or technologies' own, read from the series' `state_status` or `technology_status` lines (one per
+        state, or technology, and status code: `US-TX|U`, `solar|TS`); a served month without those tallies (one an
+        earlier parser wrote) serves no figure under the filter (`power_plants` null, `power_plants_note` names the
+        month), never an unsplit one.
 
 
         **The completion rate is one fixed, cited line** (Berkeley Lab, Queued Up 2026: 13% of the capacity that
@@ -1727,7 +1730,7 @@ paths:
         The change events of the last `days` (7 by default, at most 90) that the genuine-change rule counts
         (`genuine=true` on `GET /v1/events`; the daily metrics recorder's `genuine-change-v2`, docs/24-trends.md §6):
         new proposals a source newly listed (`new_proposal`), moves to each lifecycle state (`status_change` with
-        `to_state`: permitted, contracted, under construction, built, withdrawn, cancelled, ...; a withdrawal that
+        `to_state`: permitted, contracted, under construction, built, withdrawn, cancelled, postponed, ...; a withdrawal that
         names no state is one to `withdrawn`; a move to `unknown`, a register that stopped stating a status, is not
         reported, though `to_state=unknown` lists it), departures from a register that announces them (`delisted`,
         reason not stated, never a withdrawal) and newly open, energy-relevant notices (`new_open_opportunity`: first
@@ -1960,7 +1963,7 @@ paths:
         The substation buses and line taps proposals connect at, one row per register spelling group (docs/21 §3.24;
         the grouping key is `services/ingest/interconnection.py`'s documented rule and never merges across ISOs or
         registers). Each row carries `totals`: queued MW and counts by lifecycle bucket (active = announced through
-        under construction; withdrawn = withdrawn or cancelled; built; other = unknown) and by technology,
+        under construction; withdrawn = withdrawn or cancelled; built; other = unknown or postponed) and by technology,
         **computed per request over the proposals the caller's tier may see**. A point with no visible proposal is
         absent, and a point named by a register the tier may not see (a restricted or unknown licence, PJM
         included, or a source not on the surface) is absent even beside a visible proposal. Default sort is active
@@ -2037,8 +2040,9 @@ paths:
         answering docs/51 §7 Q6): the same EIA plant id; the same exact point with the same sponsor or a shared name
         stem; the same interconnection point with the same sponsor or a shared name stem. County and state centroids
         group nothing. The members are existing proposals, which keep their own ids. `lead` is "the latest and
-        largest filing": among members not withdrawn or cancelled, the largest `capacity_mw`, then the latest filing
-        date, then `public_id`; the site's `name` is the lead's. Each member carries its `relation` to the lead
+        largest filing": among live members (not postponed, withdrawn or cancelled), the largest `capacity_mw`, then
+        the latest filing date, then `public_id`; with no live member, the largest postponed one; the site's `name`
+        is the lead's. Each member carries its `relation` to the lead
         (`unit_of`, `phase_of`, `co_located`, `refiling_of`, `superseded_by`, `expansion_of`, `expanded_by`,
         `same_site`), the `relation_rule` that fired, a `confidence` word (`high | medium | low`, not a probability)
         and the `grouping_rule` that put it in the site. Every member, count and total is computed over the members
@@ -2872,8 +2876,10 @@ paths:
         - name: by
           in: query
           description: >-
-            One of the series' `dimensions` (`technology`, `state`, `status`, `expected_year`, `zone`, ...). Needs
-            `metric`.
+            One of the series' `dimensions` (`technology`, `state`, `status`, `expected_year`, `zone`, ...). EIA-860M's
+            operating and planned series also take `state_status` and `technology_status`: one line per state, or
+            technology, and EIA status code, keyed `US-TX|U`, `solar|TS` (a month read before parser 1.1.0 has no
+            point on them). Needs `metric`.
           schema:
             type: string
             pattern: '^[a-z_]+$'
@@ -10084,7 +10090,7 @@ components:
         items:
           type: string
           enum: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn,
-                 cancelled, open, frozen, reinstated, closed, awarded]
+                 cancelled, postponed, open, frozen, reinstated, closed, awarded]
     EventRelevance:
       name: relevance
       in: query
@@ -12313,8 +12319,14 @@ components:
       enum: [generation, storage, load, transmission, pipeline, lng, nuclear, ccs, hydrogen, other]
     LifecycleState:
       type: string
-      description: Proposal lifecycle (docs/21 §7.1 incl. `under_construction` per docs/04 §10 pick 3). Documented-open; additions announced ≥ 30 days ahead.
-      enum: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+      description: >-
+        Proposal lifecycle (docs/21 §7.1 incl. `under_construction` per docs/04 §10 pick 3). Documented-open;
+        once `v1` is frozen at MVP launch, additions are announced ≥ 30 days ahead (docs/04 API-7). `postponed`
+        (added 2026-10-24, during the private beta, before that freeze) is a source listing the project as
+        canceled or indefinitely postponed without saying which (EIA-860M's "Canceled or Postponed" sheet): it is in
+        neither the active states nor withdrawn or cancelled, and a move to it is a `status_change`.
+      enum: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled,
+             postponed]
     OpportunityKind:
       type: string
       enum: [rfp, foa, tender, auction, loan_program, procurement_notice, program]
@@ -13974,7 +13986,7 @@ components:
           minimum: 0
           description: >-
             Active pipeline: visible sponsored proposals announced through under construction that a readable register
-            still lists (withdrawn, built, cancelled, unknown-state and delisted ones are not).
+            still lists (withdrawn, built, cancelled, postponed, unknown-state and delisted ones are not).
         pipeline_mw:
           type: [number, 'null']
           description: Their generating and storage MW (loads, lines, pipelines, LNG, CCS and hydrogen are not summed).
@@ -15304,38 +15316,40 @@ components:
               required: [by_status]
               properties:
                 by_status:
-                  oneOf:
-                    - type: object
-                      required: [series, rows]
-                      properties:
-                        series:
-                          $ref: '#/components/schemas/EiaSeriesPair'
-                        rows:
-                          type: array
-                          items:
-                            $ref: '#/components/schemas/EiaStatusRow'
-                    - type: 'null'
+                  type: object
+                  description: >-
+                    The operating figure by EIA status code; its rows add up to it. Without a filter the series'
+                    `status` lines; under a `state` or `technology` filter its `state_status` or `technology_status`
+                    lines for the keys asked.
+                  required: [series, rows]
+                  properties:
+                    series:
+                      $ref: '#/components/schemas/EiaSeriesPair'
+                    rows:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/EiaStatusRow'
         planned:
           allOf:
             - $ref: '#/components/schemas/EiaSide'
             - type: object
-              required: [by_stage, by_stage_note]
+              required: [by_stage]
               properties:
                 by_stage:
-                  oneOf:
-                    - type: object
-                      required: [series, rows]
-                      properties:
-                        series:
-                          $ref: '#/components/schemas/EiaSeriesPair'
-                        rows:
-                          type: array
-                          items:
-                            $ref: '#/components/schemas/PlannedStageRow'
-                    - type: 'null'
-                  description: Null under a `state` or `technology` filter (`by_stage_note`).
-                by_stage_note:
-                  type: [string, 'null']
+                  type: object
+                  description: >-
+                    The planned figure by stage, every stage listed (zeros too), `unmapped` only when a code needs
+                    it; the rows add up to the figure. Without a filter the series' `status` lines; under a `state` or
+                    `technology` filter its `state_status` or `technology_status` lines for the keys asked
+                    (`US-TX|U`), so the states' or technologies' own split.
+                  required: [series, rows]
+                  properties:
+                    series:
+                      $ref: '#/components/schemas/EiaSeriesPair'
+                    rows:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/PlannedStageRow'
         planned_share_of_operating_pct:
           type: [number, 'null']
         stage_mapping:
@@ -15521,7 +15535,8 @@ components:
           type: [string, 'null']
           description: >-
             Why `power_plants` is null: the archive is not served at this tier, no month of it has been read, or the
-            newest served month lacks a tally the figures read.
+            newest served month lacks a tally the figures read (under a filter, the `state_status` or
+            `technology_status` tally its stage split reads).
         completion_rate:
           type: object
           required: [text, reached_operation_pct, withdrawn_pct, still_active_pct, cohort, as_of, applies_to, source]
@@ -16632,7 +16647,7 @@ components:
         withdrawn_mw: {type: number, minimum: 0}
         built_count: {type: integer, minimum: 0}
         built_mw: {type: number, minimum: 0}
-        other_count: {type: integer, minimum: 0, description: 'Lifecycle state `unknown`.'}
+        other_count: {type: integer, minimum: 0, description: 'Lifecycle state `unknown` or `postponed`.'}
         other_mw: {type: number, minimum: 0}
         by_technology:
           type: array
@@ -16928,7 +16943,7 @@ components:
       type: object
       description: >-
         Over the visible members, by lifecycle bucket (the interconnection point's buckets): active is announced
-        through under construction, withdrawn is withdrawn or cancelled, built is built, other is unknown. MW is the
+        through under construction, withdrawn is withdrawn or cancelled, built is built, other is unknown or postponed. MW is the
         sum of stated `capacity_mw`; a member stating none counts and adds nothing.
       required: [member_count, total_mw, active_count, active_mw, withdrawn_count, withdrawn_mw, built_count, built_mw, other_count, other_mw]
       properties:
@@ -17008,8 +17023,8 @@ components:
           maxItems: 500
           description: >-
             Two levels where EIA provides them (site > plant group > unit): the lead's group first, then each
-            other group in the lead order of its head (active before withdrawn, larger before smaller, later
-            before earlier), each head followed by its units.
+            other group in the lead order of its head (live before postponed before withdrawn, larger before
+            smaller, later before earlier), each head followed by its units.
           items:
             $ref: '#/components/schemas/SiteMemberRow'
         members_truncated: {type: boolean}
@@ -18194,7 +18209,7 @@ components:
       properties:
         key:
           type: string
-          description: '`total`, or a key of the breakdown (`solar`, `US-TX`, `2027`, ...; `_unstated` where the source leaves it blank).'
+          description: '`total`, or a key of the breakdown (`solar`, `US-TX`, `2027`, ...; `_unstated` where the source leaves it blank; a pair of a paired breakdown joined by `|`, `US-TX|U`).'
         breaks:
           type: array
           description: >-

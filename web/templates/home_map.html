@@ -1,170 +1,63 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
+{#- The footer's links and words, for the credits that hold them on this page (it has no footer). -#}
+{% import "partials/_sections.html" as sections %}
 {% block title %}{{ page_title }}{% endblock %}
-{% block masthead_modifier %} masthead--keep{% endblock %}
 {% block meta_description %}{{ map_description }}{% endblock %}
 {% block extra_head %}
 {{ m.cdn_style("maplibre_css") }}
 {% endblock %}
-{#- D-13: a second skip link goes straight to what is in view, past the filters and the canvas (the
+{#- D-13: a second skip link goes straight to what is in view, past the floating bar and the canvas (the
     panel's "In view" tab, which map.js opens if the panel is collapsed). -#}
 {% block skip_links %}<a class="skip-link" href="#in-view-list">Skip to results in view</a>{% endblock %}
 {% block content %}
-{#- Designer D-3 / frontend F6: the map is the landing surface, so the page opens with what is on
-    the map, one plain statement of what the product does for its reader (review 2026-10-10 §2.6
-    item 2: the first viewport explained lateness before value), what to do, then the map. How
-    current the sources are is said once, in the masthead link (`masthead_modifier` keeps it below
-    720px on this page); the tier notice block is not repeated here. The source list is in the
-    attribution line under the map. -#}
-{#- docs/17 M-6: below 720px the lede is its first sentence; the rest, with how to use the map, is
-    behind "About this map" (map.js wires it; keyed on `.js`, so without scripts it is all shown).
-    The full stop is drawn only while the rest is closed. On a touch screen map.js says "Tap"
-    for "Click" (`data-touch-words`). -#}
-<div class="map-intro">
-  <h1 class="map-intro__title">{{ map_heading }}</h1>
-  <p class="map-intro__lede" id="map-intro-lede">Projects from public grid-queue and permit filings in the US and GB, matched across registers<span class="map-intro__more" id="map-intro-more">: every claim linked to its source, every status change dated, and <a href="/alerts">alerts</a> when something you follow moves. <strong data-touch-words="Tap a cluster to zoom in, or a dot to open its record.">Click a cluster to zoom in, or a dot to open its record.</strong></span><span class="map-intro__stop" aria-hidden="true">.</span> <button type="button" class="map-intro__about" id="map-intro-about" aria-expanded="false" aria-controls="map-intro-more">About this map</button></p>
-{%- if headline_figures %}
-  {#- Live counts, each a link to its list (web/headline.py): what a contact opening the link sees
-      before the map has drawn. -#}
-  <ul class="map-figures" aria-label="{{ 'In ' ~ landing.name ~ ' now' if landing else 'On the register now' }}">
-    {%- for f in headline_figures %}
-    <li><a href="{{ f.href }}" data-figure="{{ f.key }}"><strong>{{ '{:,}'.format(f.count) }}</strong> <span>{{ f.words }}</span></a></li>
-    {%- endfor %}
-  </ul>
-{%- endif %}
-</div>
-{{ m.preview_banner(delayed) }}
-
-{{ m.filter_toggle("map-filters") }}
-<form id="map-filters" class="filter-bar filter-bar--map" data-collapse aria-label="Map filters" data-passthrough="{{ passthrough_filters|join(',') }}">
-  {#- docs/17 M-11: below 720px the open bar is taller than the screen, so "Show the map" is at its top
-      as well as its foot (site.js wires every `data-filter-done`). Not drawn from 720px. -#}
-  <button type="button" class="filter-bar__done filter-bar__done--top" data-filter-done>Show the map</button>
-  <div class="filter-field">
-    <label for="mf-technology">Technology</label>
-    <select id="mf-technology" name="technology">
-      <option value="">All</option>
-      {% for value, label in technology_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-    </select>
-  </div>
-  <div class="filter-field">
-    <label for="mf-kind">Kind</label>
-    <select id="mf-kind" name="kind">
-      <option value="">All</option>
-      {% for value, label in kind_options %}<option value="{{ value }}"{% if filters.get('kind') == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-  </div>
-  <div class="filter-field">
-    <label for="mf-jurisdiction">Jurisdiction</label>
-    <input id="mf-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX">
-  </div>
-  {#- UX-1: which lifecycle states to draw (default: active), the same control as the list's. -#}
-  {{ m.status_filter("mf", status_choices, unlisted_toggle) }}
-  <div class="filter-field filter-field--checkbox">
-    <label for="mf-layer-plants">
-      <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1" data-default="checked">
-      Existing assets
-    </label>
-  </div>
-  {# Lane R1 (owner, 2026-10-06): retired and retiring power plants, a powered-land signal. Its own
-     layer and its own styling (hollow rings, by status), never drawn as an operating plant. #}
-  <div class="filter-field filter-field--checkbox">
-    <label for="mf-layer-retired">
-      <input id="mf-layer-retired" type="checkbox" name="layer_retired" value="1" data-default="checked">
-      Retired &amp; retiring plants
-    </label>
-  </div>
-  {# Existing-asset types (docs/00-PLAN.md 2026-09-19, option (a)): one checkbox per type so
-     pipelines, plants, ethanol and RNG can be drawn together; a type listed without data behind
-     it yet would be disabled "(coming)", never silently absent. map.js reads/writes `asset_type=`
-     as a csv and shows this fieldset only while the layer is on. #}
-  {#- Owner, 2026-10-20: the asset layers are on by default, so their type and plant-type controls sit
-      in a closed disclosure, like Location precision below: open, they pushed the map from under
-      450px to 528px at 1440x900. map.js hides the whole disclosure while the layer is off. -#}
-  <details class="filter-more" id="mf-assets-more" hidden>
-  <summary>Asset types</summary>
-  <div class="filter-more__body">
-  <fieldset class="filter-field filter-field--asset-types" id="mf-asset-types" hidden>
-    <legend>Asset types</legend>
-    {% for value, label, live in asset_types %}
-    <label for="mf-asset-type-{{ value }}"{% if not live %} class="is-disabled"{% endif %}>
-      <input id="mf-asset-type-{{ value }}" type="checkbox" name="asset_type" value="{{ value }}" data-default="checked"{% if not live %} disabled{% endif %}>
-      {{ label }}{% if not live %} (coming){% endif %}
-    </label>
-    {% endfor %}
-  </fieldset>
-  <div class="filter-field" id="mf-plant-technology-field" hidden>
-    <label for="mf-plant-technology">Plant type</label>
-    <select id="mf-plant-technology" name="plant_technology">
-      <option value="">All types</option>
-      {% for value, label in plant_families %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-    </select>
-  </div>
-  </div>
-  </details>
-  {#- Placement changes which grades are drawn, not which proposals match, and is rarely changed:
-      a closed disclosure, so the bar stays short and the map starts higher (designer D-3). It opens
-      on arrival when the link set a non-default placement. -#}
-  <details class="filter-more" id="mf-more"{% if filters.get('placement') and filters.get('placement') != 'exact,region' %} open{% endif %}>
-  <summary>Location precision</summary>
-  <div class="filter-more__body">
-  <fieldset class="filter-field filter-field--placement">
-    <legend>Show proposals located</legend>
-    <label for="mf-placement-exact">
-      <input id="mf-placement-exact" type="checkbox" name="placement_exact" value="1" data-default="checked" checked>
-      At a site
-    </label>
-    <label for="mf-placement-region">
-      <input id="mf-placement-region" type="checkbox" name="placement_region" value="1" data-default="checked" checked>
-      By county or state
-    </label>
-    <label for="mf-placement-none">
-      <input id="mf-placement-none" type="checkbox" name="placement_none" value="1">
-      Count those with no location
-    </label>
-  </fieldset>
-  </div>
-  </details>
-  <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
-  <button type="button" class="filter-bar__done" data-filter-done>Show the map</button>
-</form>
-
-{#- One status row: how many match and the lifecycle notice, then what to do with the search: the
-    Projects list with the same filters and saving it as an alert (whose page also offers it as an
-    RSS feed). Owner, 2026-10-22: the "View as Map / List / RSS feed" row is gone from the map; the
-    proposals list keeps its own switch. Below 720px (docs/17 M-6) the count and the notice's short
-    form share one line and the notice itself opens from "Why?" (`_map_notice.html`). Every Status
-    box unticked (`lifecycle_state=none`) says so from first paint, and there is nothing to list or
-    to save. -#}
-<div class="map-status">
-  {#- Every match anywhere, and from 720px how many of them no map can place (map.js
-      `renderCountLine`), in the panel's noun, so its "N projects in view" reads against it. -#}
-  <p class="result-count" id="map-result-count"{% if not no_status %} aria-hidden="true"{% endif %}>{% if no_status %}0 projects match these filters.{% else %}Loading projects&hellip;{% endif %}</p>
-  {#- docs/31 §6 error state: the RFC 9457 title and request id, a retry, and the list as a way on
-      (map.js fills it; designer D-11 found the map stuck on "Loading proposals…" for good). -#}
-  <div class="map-error" id="map-error" role="alert" hidden></div>
-  <div id="map-notice">{% include "_map_notice.html" %}</div>
-  <p class="map-status__actions" id="map-status-actions"{% if no_status %} hidden{% endif %}>
-    <a class="map-status__list" id="map-list-link" href="{{ list_href }}">Open these in the list</a>
-    {%- if save_alert_href %}<span class="map-status__sep" aria-hidden="true"> &middot; </span><a class="map-status__save" href="{{ save_alert_href }}" id="mf-save-alert">Save this search as an alert</a>{% endif %}
-  </p>
-</div>
-
-{#- Owner, 2026-10-22 (docs/00-PLAN.md): the map takes the full width, and one panel floating over
-    its top right holds what is in view and the key (docs/31 §5.19). Below 720px the panel does not
-    float: it is a bar under the map that opens in the page, as the key used to (docs/17 M-1). -#}
+{#- The full-screen map landing, direction A "Night survey" (owner, 2026-10-24; docs/30 §11.6-§11.8,
+    docs/31-brand-identity.md M-3 and its navy exception). The whole US map is the picture: it fills the
+    viewport under the top bar and the section bar, every active project a dot where its source places
+    it, existing infrastructure faint beneath. Over it, and only over it: the floating bar (Find, Filters,
+    List), the zoom column, the front strip (the one plain line as the h1, three linked figures, when the
+    sources were read) at the bottom left, and the panel at the top right (a bottom sheet on a phone).
+    The landing does not scroll from 720px and has no footer (styles.css "8.5 The map landing"): its
+    links and the endorsement are in the map's credits (`#map-credits`). Nothing on it moves when data lands:
+    every slot is drawn from first paint (§11.7). -#}
+<div class="map-landing" id="map-landing">
 <div class="map-frame" id="map-frame">
-    {#- Zoom and region jumps sit on the map, top left, as map controls do, so nothing stands
-        between the filters and the canvas (D-3). Below 720px (docs/17 M-1) the controls are one
-        column of 44px buttons on the map's right edge (`.map-overlay__rail`): zoom in, zoom out,
-        "Jump to" (the region jumps and "Whole map", which stands in for Reset) and "Key", which
-        opens the panel's Key tab under the map. From 720px the rail and the "Jump to" wrapper lay
-        out as if absent (`display: contents`) and "Key" is not drawn: the key is a tab of the panel. -#}
+    {#- The map's text equivalent is the in-view list once zoomed in, and the Projects list (List) for
+        every match (keyboard-only and screen-reader optimisation stays deferred, owner 2026-10-22). -#}
+    <div id="map" role="application" aria-label="Map of project locations. The panel beside it lists the projects in view once the map is zoomed in; the Projects list, linked as List beside the search field, has every match." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
+
+    {#- The front strip (docs/31-brand-identity.md M-3; owner, 2026-10-24), first in reading order (styles.css
+        places it at the canvas's bottom left): the one plain line as the page's
+        h1, then three live figures, each a link to the list that holds exactly what it counts (36px lead,
+        28px siblings, 14px labels; web/headline.py), then when the sources were read. Text straight on
+        the map's ground, as on the share card, at the national view, where the fit leaves this corner
+        clear of the projects (map.js `homeCamera`); once the map moves away it gains a plain surface
+        (`.is-away`), so a project drawn under it never lowers its contrast. A filtered view keeps the
+        map's own heading and has no figures: its notice counts what it shows. -#}
+    <section class="map-strip" id="map-strip" aria-labelledby="map-title">
+      <h1 class="map-strip__title" id="map-title">{{ map_heading }}</h1>
+      {%- if headline_figures %}
+      <ul class="map-figures" aria-label="{{ figures_place }}">
+        {%- for f in headline_figures %}
+        <li><a href="{{ f.href }}" data-figure="{{ f.key }}"><strong>{{ '{:,}'.format(f.count) }}</strong> <span>{{ f.words }}</span></a></li>
+        {%- endfor %}
+      </ul>
+      {%- endif %}
+      {%- if sources_read %}
+      {#- A statement, not a link: which source was read when is one tap away in the credits ("Sources &
+          licences", "Coverage & methodology"), which keeps the first screen at 25 controls with the credits
+          counted (docs/31-brand-identity.md §6) and leaves no small target beside the credits on a phone. -#}
+      <p class="map-strip__stamp">Sources read {% for text, iso in sources_read.parts %}{% if not loop.first %}{{ sources_read.separator }}{% endif %}<time datetime="{{ iso }}">{{ text }}</time>{% endfor %}</p>
+      {%- endif %}
+    </section>
+
     <div class="map-overlay">
-    {#- Owner, 2026-10-22: a search field that finds a project, a company or a place and moves the
-        map to it (map.js, over `/api/map/search`, web/map_search.py; no third-party geocoder). On
-        the map, top left, from 720px; below 720px a full-width bar above the canvas, so nothing
-        covers the map on a phone. Without scripts it is the site search (`/search`). -#}
+    {#- The floating bar (docs/30 §11.6): one row, top left. Find (owner, 2026-10-22: a project, a company
+        or a place, over `/api/map/search`, web/map_search.py; without scripts it is the site search),
+        Filters, which opens the filter sheet under the bar, and List, the Projects list with the map's
+        filters. The count of what matches and why the rest is hidden are said where the filters are,
+        at the head of the sheet; the panel says what is in view. -#}
+    <div class="map-float">
     <form class="map-search" id="map-search" action="/search" method="get" role="search" aria-label="Find on the map">
       <label class="visually-hidden" for="map-search-input">Find a project, company or place</label>
       <svg class="map-search__icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4 14.2 14.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -176,15 +69,172 @@
           which kinds, to a screen reader. -#}
       <p class="visually-hidden" id="map-search-count" role="status"></p>
     </form>
+    {{ m.filter_toggle("map-filters") }}
+    {#- "List" carries the filters and the viewport (map.js `writeFilters`); with every Status box
+        unticked there is nothing to list, and it waits. -#}
+    <p class="map-float__links" id="map-status-actions"{% if no_status %} hidden{% endif %}><a class="map-float__list" id="map-list-link" href="{{ list_href }}">List</a></p>
+    </div>
+
+    {#- Under the bar, only when there is something to say (docs/30 §11.6): the dev-preview label, the
+        error strip (the RFC 9457 title, the request id, Retry and the list as a way on; the panel keeps
+        its last state), and what must show at every width, outside "Why?": a coverage note (provenance,
+        docs/17 §6), "No status chosen" with the way back, and which filter emptied the map. -#}
+    <div class="map-under" id="map-under">
+      {{ m.preview_banner(delayed) }}
+      {#- docs/31 §6 error state (designer D-11 found the map stuck on "Loading proposals…" for good). -#}
+      <div class="map-error" id="map-error" role="alert" hidden></div>
+      <div class="map-notice-under" id="map-notice-under">{% set notice_part = "under" %}{% include "_map_notice.html" %}</div>
+    </div>
+
+    {#- The filter sheet (docs/30 §11.6): today's filter form under the floating bar, scrolling inside
+        itself, opened by Filters (site.js; Escape or "Show the map" closes it and returns to Filters).
+        Its head says how many projects these filters match anywhere and how many no map can place
+        (map.js `renderCountLine`), and why the rest are hidden ("Active only. Why?", the lifecycle
+        notice and the hidden-records line). Its foot: Clear all, saving the search as an alert (whose
+        page also offers it as an RSS feed), and back to the map. -#}
+    <form id="map-filters" class="filter-bar filter-bar--map map-sheet" data-collapse aria-label="Map filters" data-passthrough="{{ passthrough_filters|join(',') }}">
+      <div class="map-sheet__head">
+        {#- Every match anywhere, in the panel's noun, so its "N projects in view" reads against it. -#}
+        <p class="result-count" id="map-result-count"{% if not no_status %} aria-hidden="true"{% endif %}>{% if no_status %}0 projects match these filters.{% else %}Loading projects&hellip;{% endif %}</p>
+        <div id="map-notice">{% set notice_part = "sheet" %}{% include "_map_notice.html" %}</div>
+      </div>
+      <div class="filter-field">
+        <label for="mf-technology">Technology</label>
+        <select id="mf-technology" name="technology">
+          <option value="">All</option>
+          {% for value, label in technology_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="mf-kind">Kind</label>
+        <select id="mf-kind" name="kind">
+          <option value="">All</option>
+          {% for value, label in kind_options %}<option value="{{ value }}"{% if filters.get('kind') == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="mf-jurisdiction">Jurisdiction</label>
+        <input id="mf-jurisdiction" type="text" name="jurisdiction" placeholder="e.g. US-TX">
+      </div>
+      {#- UX-1: which lifecycle states to draw (default: active), the same control as the list's. -#}
+      {{ m.status_filter("mf", status_choices, unlisted_toggle) }}
+      <div class="filter-field filter-field--checkbox">
+        <label for="mf-layer-plants">
+          <input id="mf-layer-plants" type="checkbox" name="layer_plants" value="1" data-default="checked">
+          Existing assets
+        </label>
+      </div>
+      {# Lane R1 (owner, 2026-10-06): retired and retiring power plants, a powered-land signal. Its own
+         layer and its own styling (hollow rings, by status), never drawn as an operating plant. #}
+      <div class="filter-field filter-field--checkbox">
+        <label for="mf-layer-retired">
+          <input id="mf-layer-retired" type="checkbox" name="layer_retired" value="1" data-default="checked">
+          Retired &amp; retiring plants
+        </label>
+      </div>
+      {# Existing-asset types (docs/00-PLAN.md 2026-09-19, option (a)): one checkbox per type so
+         pipelines, plants, ethanol and RNG can be drawn together; a type listed without data behind
+         it yet would be disabled "(coming)", never silently absent. map.js reads/writes `asset_type=`
+         as a csv and shows this fieldset only while the layer is on. #}
+      {#- Owner, 2026-10-20: the asset layers are on by default, so their type and plant-type controls sit
+          in a closed disclosure, like Location precision below. map.js hides the whole disclosure while
+          the layer is off. -#}
+      <details class="filter-more" id="mf-assets-more" hidden>
+      <summary>Asset types</summary>
+      <div class="filter-more__body">
+      <fieldset class="filter-field filter-field--asset-types" id="mf-asset-types" hidden>
+        <legend>Asset types</legend>
+        {% for value, label, live in asset_types %}
+        <label for="mf-asset-type-{{ value }}"{% if not live %} class="is-disabled"{% endif %}>
+          <input id="mf-asset-type-{{ value }}" type="checkbox" name="asset_type" value="{{ value }}" data-default="checked"{% if not live %} disabled{% endif %}>
+          {{ label }}{% if not live %} (coming){% endif %}
+        </label>
+        {% endfor %}
+      </fieldset>
+      <div class="filter-field" id="mf-plant-technology-field" hidden>
+        <label for="mf-plant-technology">Plant type</label>
+        <select id="mf-plant-technology" name="plant_technology">
+          <option value="">All types</option>
+          {% for value, label in plant_families %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      </div>
+      </details>
+      {#- Placement changes which grades are drawn, not which proposals match, and is rarely changed:
+          a closed disclosure. It opens on arrival when the link set a non-default placement. -#}
+      <details class="filter-more" id="mf-more"{% if filters.get('placement') and filters.get('placement') != 'exact,region' %} open{% endif %}>
+      <summary>Location precision</summary>
+      <div class="filter-more__body">
+      <fieldset class="filter-field filter-field--placement">
+        <legend>Show proposals located</legend>
+        <label for="mf-placement-exact">
+          <input id="mf-placement-exact" type="checkbox" name="placement_exact" value="1" data-default="checked" checked>
+          At a site
+        </label>
+        <label for="mf-placement-region">
+          <input id="mf-placement-region" type="checkbox" name="placement_region" value="1" data-default="checked" checked>
+          By county or state
+        </label>
+        <label for="mf-placement-none">
+          <input id="mf-placement-none" type="checkbox" name="placement_none" value="1">
+          Count those with no location
+        </label>
+      </fieldset>
+      </div>
+      </details>
+      <div class="map-sheet__foot">
+        <button class="filter-bar__submit" type="button" id="mf-clear">Clear all</button>
+        {%- if save_alert_href %}
+        <a class="map-sheet__save" href="{{ save_alert_href }}" id="mf-save-alert"{% if no_status %} hidden{% endif %}>Save this search as an alert</a>
+        {%- endif %}
+        <button type="button" class="filter-bar__done" data-filter-done>Show the map</button>
+      </div>
+    </form>
+
+    {#- The map's credits (D-13, D-27) and, since the landing has no footer, the footer's links and the
+        endorsement (docs/30 §11.6: "the footer's links are in the Menu, the section bar's right end and
+        the map's attribution strip"; docs/31-brand-identity.md B-4). One disclosure at the canvas's
+        bottom right, at every width and without scripts. Closed, it reads "© OpenStreetMap" and its "i":
+        the credit the basemap's licence asks for in a corner of the map, with the licence one click
+        away (OSMF Attribution Guidelines). Open, it lies over the map: every credit in full, the
+        footer's links in the footer's order (web/test_layout_states.py holds the two lists equal) and
+        the endorsement line. It sits in the overlay, above the front strip, so nothing on the strip
+        lies over it; the filter sheet and the panel lie over it. -#}
+    <details class="map-credits" id="map-credits">
+      <summary class="map-credits__toggle" title="Credits, about and legal"><span class="map-credits__osm">&copy; OpenStreetMap</span><svg class="map-credits__icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="4.9" r="1" fill="currentColor"/><path d="M8 7.2v4.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="visually-hidden">: credits, sources, about and legal</span></summary>
+      <div class="map-credits__body" id="map-credits-body">
+        <p class="map-attribution" id="map-attribution">{{ basemap_attribution }} <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap&rsquo;s copyright and licence</a>. Outline beneath it, shown if the basemap is unavailable: <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposals: {{ sources_phrase }} (<a href="/about/sources">About &amp; sources</a>). Full credits: <a href="/attribution">Attribution</a>.</p>
+        <nav class="map-credits__nav" aria-label="About, sources and legal">
+          <ul class="map-credits__links">
+            <li><a href="{{ sections.href.about }}">{{ sections.label.about }}</a></li>
+            <li><a href="{{ sections.href.about_sources }}">{{ sections.label.about_sources }}</a></li>
+            <li><a href="{{ sections.href.methodology }}">{{ sections.label.methodology }}</a></li>
+            <li><a href="{{ sections.href.glossary }}">{{ sections.label.glossary }}</a></li>
+            <li><a href="{{ sections.href.attribution }}">{{ sections.label.attribution }}</a></li>
+            <li><a href="/legal/reuse">Reuse conditions</a></li>
+            <li><a href="{{ sections.href.api }}">{{ sections.label.api }}</a></li>
+            <li><a href="/privacy">Privacy</a></li>
+          </ul>
+        </nav>
+        <p class="map-credits__endorse">Inframation is a Compass company. Compass International Trading Group, LLC, Denver, Colorado.</p>
+      </div>
+    </details>
+    </div>
+
+    {#- Zoom, the quick views and (on a phone) the Key: one column on the map, at the left edge under the
+        bar from 720px and at the right edge above the sheet below it (docs/30 §11.6, §11.8; 44px buttons
+        on a phone). "Jump to" opens the region jumps and "Whole map" as a list beside the column. Reset
+        fits the lower 48 again; it is drawn only once the map has left that view (map.js `syncAway`),
+        so the national view carries nothing that does nothing. -#}
     <div class="map-overlay__rail">
     <div class="map-controls map-controls--zoom" role="group" aria-label="Map zoom">
-      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
-      <button type="button" id="zoom-out" aria-label="Zoom out">&minus;</button>
-      <button type="button" id="zoom-reset" aria-label="Reset view">Reset</button>
+      <button type="button" id="zoom-in" aria-label="Zoom in"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      <button type="button" id="zoom-out" aria-label="Zoom out"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
     </div>
     {% if regions %}
     <div class="map-controls map-controls--jump">
-      <button type="button" class="map-jump__toggle" id="map-jump-toggle" aria-expanded="false" aria-controls="map-regions" hidden>Jump to</button>
+      {#- A phone's 44px column draws the button's pin alone; its name stays "Jump to" at every width. -#}
+      <button type="button" class="map-jump__toggle" id="map-jump-toggle" aria-label="Jump to" aria-expanded="false" aria-controls="map-regions" hidden><svg class="map-jump__icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14.5s-4.5-4.2-4.5-7.6a4.5 4.5 0 0 1 9 0c0 3.4-4.5 7.6-4.5 7.6Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="8" cy="6.9" r="1.6" fill="currentColor"/></svg><span class="map-jump__words">Jump to</span></button>
       <div class="map-controls map-controls--regions" id="map-regions" role="group" aria-label="Jump to region">
         {% for r in regions %}
         <button type="button" class="region-btn" data-region="{{ r.code }}" data-bbox="{{ r.bbox }}">{{ r.label }}</button>
@@ -193,21 +243,26 @@
       </div>
     </div>
     {% endif %}
+    <div class="map-controls map-controls--reset">
+      <button type="button" id="zoom-reset" aria-label="Reset view">Reset</button>
+    </div>
     <div class="map-controls map-controls--key">
       <button type="button" id="map-key-toggle" aria-expanded="false" aria-controls="map-panel-body" hidden>Key</button>
     </div>
     </div>
-    </div>
-    {#- The map's text equivalent is the in-view list once zoomed in, and the Projects list for every
-        match (keyboard-only and screen-reader optimisation stays deferred, owner 2026-10-22). -#}
-    <div id="map" role="application" aria-label="Map of project locations. The panel beside it lists the projects in view once the map is zoomed in; the Projects list, linked above the map, has every match." data-tile-url="{{ tile_url or '' }}" data-tile-mode="{{ tile_mode }}"></div>
-    {#- What is in view and the key: one panel (owner, 2026-10-22). Its header says how many projects
-        the view holds and their capacity, with a bar by status family in the map's own colours;
-        one click on it collapses the panel to that header. "In view" follows the zoom: an overview
-        at national and multi-state views, the list once zoomed in (map.js `inViewMode`). "Key" says
+
+    {#- What is in view and the key: one panel (owner, 2026-10-22), floating at the top right from 720px,
+        translucent, its box set by the viewport alone (docs/30 §11.7 S-1); a bottom sheet below 720px
+        (§11.8). Its head says how many projects the view holds and their generating and storage
+        capacity, then a bar by status family in the map's own colours and its key: each status the
+        Status filter shows, with the map's mark and its count (all of them drawn from first paint, a
+        zero as a muted "0", S-2). One click on the head collapses the panel to the count and a row of
+        marks and counts. "In view" follows the zoom: an overview of the technologies at national and
+        multi-state views (and the place kept for the planned-against-operating ledger, which joins the
+        panel when its endpoint is live), the list once zoomed in (map.js `nextMode`, S-3). "Key" says
         what every mark means in plain words; hovering a row of it highlights those marks on the map.
-        A record's drawer opens in the panel's place from 720px. Without scripts the panel shows its
-        key and says nothing is loaded. -#}
+        A record's drawer opens in the panel's place from 720px. Without scripts the panel shows its key
+        and says nothing is loaded. -#}
     <section class="map-panel" id="map-panel" aria-label="What is in view, and the map key">
       <div class="map-panel__head">
         {#- The panel's title is its count, an h2 holding the disclosure button (the accordion
@@ -219,10 +274,19 @@
         </button>
         </h2>
         <button type="button" class="map-panel__keybtn" id="map-panel-keybtn" aria-controls="map-panel-body" hidden>Key</button>
-        {#- The bar's parts are drawn by map.js in the status families' own colours; its words say
-            the same counts, each with the key's glyph, so the bar is never colour alone (D-5). -#}
+        {#- The bar's parts are drawn by map.js in the status families' own colours; the rows under it
+            say the same counts, each with the map's mark and its name, so the bar is never colour alone
+            (D-5). One row per status the filter shows, from first paint, so nothing below moves when the
+            counts land. -#}
         <div class="map-panel__bar" id="map-panel-bar" aria-hidden="true"></div>
-        <p class="map-panel__families" id="map-panel-families"></p>
+        {#- The status groups' families, as map.js `GROUP_FAMILY` and the key name them. -#}
+        {%- set group_family = {"announced": "neutral", "in_process": "progress", "contracted": "committed", "built": "success", "withdrawn": "danger", "unknown": "neutral"} %}
+        <ul class="map-panel__families" id="map-panel-families" aria-label="Projects in view by status">
+          {%- for b in status_choices.boxes if b.checked %}
+          {%- set family = group_family.get(b.key, "neutral") %}
+          <li class="map-panel__family in-view-summary__family--{{ family }}" data-status-group="{{ b.key }}" data-family="{{ family }}"><svg class="legend__icon" width="12" height="12" aria-hidden="true"><use href="#icon-{{ family }}"></use></svg><span class="map-panel__fname">{{ b.label }}</span> <span class="map-panel__fcount tnum" data-count></span></li>
+          {%- endfor %}
+        </ul>
       </div>
       <div class="map-panel__body" id="map-panel-body">
         <div class="map-panel__tabs" role="tablist" aria-label="Panel">
@@ -232,21 +296,23 @@
         <div class="map-panel__scroll" id="map-panel-scroll">
         <div class="map-panel__tabpanel" role="tabpanel" id="map-tabpanel-inview" aria-labelledby="map-tab-inview">
           <a id="in-view-list" tabindex="-1"></a>
-          <div aria-live="polite" class="map-live-region" id="map-live-region"></div>
-          {#- Below 720px the count line above the map has no room to say how many matches no map can
-              place, so "In view" opens with it; from 720px the count line says it, and this is not drawn. -#}
+          <div aria-live="polite" class="map-live-region visually-hidden" id="map-live-region"></div>
+          {#- How many matches no map can place: said in the filter sheet's count line, and here, where
+              "In view" opens, below 720px. -#}
           <p id="unplaced-note" class="map-panel__unplaced" hidden></p>
-          {#- National and multi-state views: what the view holds in a few lines, not a list. Its first
-              line says why there is no list and how to get one, where it reads without a scroll. -#}
+          {#- National and multi-state views: the technologies in view, four rows kept from first paint,
+              each a name, a thin bar of its share (3:1 or more against the panel, the top row in ink)
+              and its count; then how to get a list. -#}
           <div class="map-overview" id="map-overview" hidden>
-            <p class="map-overview__hint" id="map-overview-hint">Zoom in or search to list projects.</p>
-            <h3 class="map-panel__heading">By status</h3>
-            <ul class="map-overview__rows" id="map-overview-status"></ul>
-            <h3 class="map-panel__heading">Technology <span class="map-panel__aside">(top four, by projects)</span></h3>
-            <ul class="map-overview__rows" id="map-overview-tech"></ul>
-            <h3 class="map-panel__heading">Busiest areas</h3>
-            <ol class="map-overview__rows map-overview__areas" id="map-overview-areas"></ol>
-            <p class="map-overview__also" id="map-overview-also" hidden></p>
+            <h3 class="map-panel__heading">Technology</h3>
+            <ul class="map-overview__rows map-overview__tech" id="map-overview-tech">
+              {%- for _ in range(4) %}<li class="map-overview__row is-empty"></li>{% endfor %}
+            </ul>
+            <p class="map-overview__hint" id="map-overview-hint">Zoom in to list them.</p>
+            {#- The place kept for B's planned-against-operating ledger (owner, 2026-10-24: "add B's
+                ledger later"): its own slot under the technologies, drawn by a later lane once its
+                endpoint is live. Until then nothing is drawn here. -#}
+            <div class="map-overview__ledger" id="map-ledger" data-slot="ledger" hidden></div>
           </div>
           {#- Zoomed in: the projects, then the regions, existing assets and retired plants in view. -#}
           <ul class="in-view-list" id="in-view-items"></ul>
@@ -262,16 +328,17 @@
         <div class="map-key" id="map-key">
           <div class="legend legend--lifecycle" id="lifecycle-legend" role="group" aria-label="Project status key">
             <h3 class="map-panel__heading">Projects</h3>
-            <p class="map-key__intro">Each dot is one project. Its colour and mark show its status:</p>
+            <p class="map-key__intro">Each mark is a project where its source places it. Its shape and colour show its status:</p>
             <span class="legend__item" data-legend-family="neutral" data-highlight="family:neutral"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-neutral"></use></svg> <span class="legend__words">Announced, or Status unknown</span></span>
             <span class="legend__item" data-legend-family="progress" data-highlight="family:progress"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-progress"></use></svg> <span class="legend__words">In process <span class="legend__detail">(filed, studied, permitted or under construction)</span></span></span>
             <span class="legend__item" data-legend-family="committed" data-highlight="family:committed"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-committed"></use></svg> <span class="legend__words">Contracted</span></span>
             <span class="legend__item" data-legend-family="success" data-highlight="family:success"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-success"></use></svg> <span class="legend__words">Built or operating</span></span>
             <span class="legend__item" data-legend-family="danger" data-highlight="family:danger"><svg class="legend__icon" width="14" height="14" aria-hidden="true"><use href="#icon-danger"></use></svg> <span class="legend__words">Withdrawn or cancelled</span></span>
-            <span class="legend__item legend__item--mark" data-legend-mark="cluster" data-highlight="clusters"><svg class="legend__sample" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="9.5" fill="none" stroke="currentColor" stroke-width="1.6"/><text x="11" y="14.5" text-anchor="middle" font-size="9" fill="currentColor">12</text></svg> <span class="legend__words">A ring with a number is a group of nearby projects: the number is how many, the ring&rsquo;s colour the status most of them share. <span data-touch-words="Tap it to zoom in.">Click it to zoom in.</span></span></span>
+            <span class="legend__item legend__item--mark" data-legend-mark="cluster" data-highlight="clusters"><svg class="legend__sample" width="22" height="22" aria-hidden="true"><circle cx="6" cy="15" r="2.6" fill="currentColor"/><circle cx="14.5" cy="10" r="6.5" fill="currentColor"/></svg> <span class="legend__words">A larger mark holds more projects at one place or county: its area grows with the count. <span data-touch-words="Tap it to zoom in.">Click it to zoom in.</span></span></span>
             <span class="legend__item legend__item--mark" data-legend-mark="precision" data-highlight="precision"><svg class="legend__sample" width="22" height="22" aria-hidden="true"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="11" cy="11" r="10" fill="none" stroke="currentColor" stroke-width="1"/></svg> <span class="legend__words">A second, thinner ring: the source&rsquo;s licence lets the map show the project only near its site, not at it.</span></span>
             {#- UX-5: the grey areas were unexplained. map.js shows this row while any region is drawn. -#}
-            <span class="legend__item legend__item--region" id="region-legend" data-highlight="regions" hidden><svg class="legend__sample" width="28" height="12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" fill="currentColor" fill-opacity="0.3" stroke="currentColor" stroke-width="1"/><rect x="15" y="1" width="12" height="10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/></svg> <span class="legend__words">A shaded county, or a dashed state or country outline, holds projects the source places only by area, not at a site<span class="legend__detail">: darker shading holds more, and the number is how many</span>. <span data-touch-words="Tap it for a summary.">Click it for a summary.</span></span></span>
+            <span class="legend__item legend__item--region" id="region-legend" data-highlight="regions" hidden><svg class="legend__sample" width="28" height="12" aria-hidden="true"><rect x="1" y="1" width="12" height="10" fill="currentColor" fill-opacity="0.3" stroke="currentColor" stroke-width="1"/><rect x="15" y="1" width="12" height="10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/></svg> <span class="legend__words">A shaded county, or a dashed state or country outline, holds projects the source places only by area, not at a site<span class="legend__detail">: darker shading holds more, and the number is how many; at the national view a county&rsquo;s projects are a mark at its middle</span>. <span data-touch-words="Tap it for a summary.">Click it for a summary.</span></span></span>
+            <p class="map-key__intro">GW in the panel is generating and storage capacity; a data centre&rsquo;s MW is demand and is not added to it.</p>
           </div>
           {# One group per existing-asset type; map.js hides the groups whose type is not checked, so
              the key only ever names what is drawn (docs/31 §1.6). Shape and words carry the type, hue
@@ -312,7 +379,7 @@
               <span class="legend__note">only the lines FERC Form 1 filers own (LBNL), not the whole grid</span>
             </div>
           </div>
-          {#- Retired clusters are dashed rings and project clusters solid ones, so the two never differ
+          {#- Retired clusters are dashed rings and project marks solid ones, so the two never differ
               by hue alone (D-5; docs/31 §1.6). map.js shows this key whenever the layer is on. -#}
           <div class="legend legend--retired" id="retired-legend" role="group" aria-label="Retired and retiring plants key" aria-hidden="true" hidden>
             <h3 class="map-panel__heading">Retired and retiring plants</h3>
@@ -330,7 +397,7 @@
       </div>
     </section>
 </div>
-<p class="map-attribution">{{ basemap_attribution }} Outline layer beneath it (shown if tiles are unavailable): <a href="https://www.naturalearthdata.com/about/terms-of-use/" rel="noopener">Natural Earth</a> and <a href="https://www.census.gov/programs-surveys/geography.html" rel="noopener">US Census Bureau</a>, both public domain. Proposals: {{ sources_phrase }} (<a href="/about#sources">About &amp; sources</a>). Full credits: <a href="/attribution">Attribution</a>.</p>
+</div>
 
 {# The server's label maps (`web/viewmodels.py::map_labels_json`): map.js names a technology
    token in the in-view list, the overview and the drawer from these, exactly as the proposal list does. #}

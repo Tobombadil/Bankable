@@ -28,6 +28,7 @@ from web.api_client import ApiClient
 from web.app import app as web_app
 from web.app import map_view_href
 from web.empty_state import range_error
+from web.headline import strip_line
 from web.page import templates
 from web.proposal_location import proposal_location
 from web.viewmodels import PROPOSAL_GROUP_SUBJECTS, PROPOSAL_SOURCE_LABELS, map_description, map_heading
@@ -288,7 +289,8 @@ def test_no_status_chosen_shows_nothing_from_first_paint(transport: FakeTranspor
     summary = re.search(r"<span data-status-summary>([^<]*)</span>", html)
     assert summary is not None and summary.group(1) == "none"
     assert not re.search(r'id="mf-status-\w+"[^>]*\schecked[\s>]', html)  # no box ticked
-    actions = re.search(r'<p class="map-status__actions" id="map-status-actions"([^>]*)>', html)
+    # "List" in the floating bar waits for a status (docs/30 §11.6).
+    actions = re.search(r'<p class="map-float__links" id="map-status-actions"([^>]*)>', html)
     assert actions is not None and "hidden" in actions.group(1)
     assert geo["data"]["features"] == [] and geo["data"]["totals"]["records"] == 0
     assert not [p for p in transport.params_for("/v1/proposals/geo") if p.get("lifecycle_state") == "none"]
@@ -338,28 +340,41 @@ def test_the_map_heading_names_every_group_of_sources_on_the_map() -> None:
 def test_the_map_page_heading_and_its_meta_share_one_source(transport: FakeTransport) -> None:
     with TestClient(web_app) as client:
         html = client.get("/").text
-    title = re.search(r'<h1 class="map-intro__title">(.*?)</h1>', html, re.S)
+        filtered = client.get("/?technology=solar").text
+    # The plain map's h1 is the front strip's one line (web/headline.py `strip_line`, owner 2026-10-24);
+    # a view someone filtered keeps the map's own heading, built from the same table as the meta.
+    title = re.search(r'<h1 class="map-strip__title" id="map-title">(.*?)</h1>', html, re.S)
+    assert title is not None and unescape(title.group(1)) == strip_line(None)
+    title = re.search(r'<h1 class="map-strip__title" id="map-title">(.*?)</h1>', filtered, re.S)
     assert title is not None and unescape(title.group(1)) == map_heading()
     # The description ends with the map's own sentence; on the plain map it opens with the live
     # figures first (web/headline.py, owner 2026-10-23), so a link preview says something specific.
-    for attr in ('name="description"', 'property="og:description"', 'name="twitter:description"'):
-        match = re.search(rf'<meta {attr} content="([^"]*)"', html)
-        assert match is not None and unescape(match.group(1)).endswith(map_description()), attr
+    for page in (html, filtered):
+        for attr in ('name="description"', 'property="og:description"', 'name="twitter:description"'):
+            match = re.search(rf'<meta {attr} content="([^"]*)"', page)
+            assert match is not None and unescape(match.group(1)).endswith(map_description()), attr
     assert "Planned power plants, batteries and data centres<" not in html
 
 
 def test_the_map_page_opens_on_a_plain_line_not_a_source_list(transport: FakeTransport) -> None:
     with TestClient(web_app) as client:
         html = client.get("/").text
-    intro = re.search(r'<div class="map-intro">(.*?)</div>', html, re.S)
-    assert intro is not None
-    text = _text(intro.group(1))
-    assert text.startswith(map_heading())
-    assert "Click a cluster to zoom in, or a dot to open its record." in text
+    strip = re.search(r'<section class="map-strip" id="map-strip"[^>]*>(.*?)</section>', html, re.S)
+    assert strip is not None
+    text = _text(strip.group(1))
+    assert text.startswith(strip_line(None))
     assert not re.search(r"\b(ERCOT|CAISO|NYISO|EIA-860M|NESO)\b", text)
-    # The map comes before the in-view list and nothing but the filters and one status row sit
-    # between the intro and the canvas.
-    assert html.index('id="map-filters"') < html.index('class="map-status"') < html.index('id="map"')
+    # How to use the marks is the key's to say ("Click it to zoom in."), not the landing's.
+    key = _text(html.split('id="lifecycle-legend"', 1)[1].split('id="plants-legend"', 1)[0])
+    assert "Click it to zoom in." in key
+    # The canvas first, then the strip over its bottom left (first in reading order), then the floating
+    # bar and the filter sheet it opens over the canvas's top left (docs/30 §11.6).
+    assert (
+        html.index('<div id="map"')
+        < html.index('id="map-strip"')
+        < html.index('class="map-float"')
+        < html.index('id="map-filters"')
+    )
 
 
 # ---- Review 2026-10-10 §2.6 item 2: value first, lateness once, the key on the map ----
@@ -419,13 +434,18 @@ def test_the_map_page_says_what_the_product_does_before_anything_else(transport:
     "One record per project" is not claimed until it is measured (docs/51 §2.8)."""
     with TestClient(web_app) as client:
         html = client.get("/").text
-    intro = re.search(r'<div class="map-intro">(.*?)</div>', html, re.S)
-    assert intro is not None
-    lede = _text(intro.group(1)).removeprefix(map_heading()).strip()
-    assert lede.startswith("Projects from public grid-queue and permit filings in the US and GB, matched")
-    for claim in ("every claim linked to its source", "every status change dated", "alerts when"):
-        assert claim in lede
-    assert '<a href="/alerts">alerts</a>' in intro.group(1)
+    # Direction A (owner, 2026-10-24): the one plain line of the share card is the first thing in the
+    # page's main content and its h1, and it states the promise, a source behind every project.
+    main = html.split('<main id="main"', 1)[1]
+    first_text = _text(main.split('<section class="map-strip"', 1)[0].split(">", 1)[1])
+    assert first_text == ""  # only the canvas comes before it
+    heading = re.search(r'<h1 class="map-strip__title" id="map-title">(.*?)</h1>', main, re.S)
+    assert (
+        heading is not None and heading.group(1) == "Planned US energy projects, each linked to its source."
+    )
+    assert main.index("<h1") < main.index('class="map-float"')
+    # The rest of the old lede lives in the meta description and on About, not over the map.
+    assert map_description().endswith("each record attributed to its source register.")
     assert "Each dot is a proposal filed" not in html
 
 
@@ -540,8 +560,10 @@ def test_the_key_names_each_status_as_the_status_filter_does(transport: FakeTran
         "danger": "Withdrawn or cancelled",
     }, rows
     words = _text(lifecycle)
-    assert "Each dot is one project." in words
-    assert "A ring with a number is a group of nearby projects" in words and "Click it to zoom in." in words
+    assert "Each mark is a project where its source places it." in words
+    # No numbered rings since 2026-10-24: a place's projects are one mark per status, sized by area.
+    assert "A larger mark holds more projects at one place or county: its area grows with the count." in words
+    assert "Click it to zoom in." in words
     plants = _text(html.split('id="plants-legend"', 1)[1].split('id="retired-legend"', 1)[0])
     assert "Power plants: small squares, coloured by fuel" in plants and "Transmission lines" in plants
     retired = _text(html.split('id="retired-legend"', 1)[1].split("</section>", 1)[0])
@@ -581,6 +603,21 @@ def test_the_panel_floats_translucent_and_is_a_bar_below_720px() -> None:
     assert ".map-frame > .map-drawer {" in css and ".map-panel.is-covered { visibility: hidden; }" in css
 
 
+def test_the_landing_lets_a_tap_through_its_basemap_note_and_keeps_the_phone_sheet_one_column() -> None:
+    """Lane v2-landing e2e (2026-10-24): on a phone the failed-basemap note sits under the floating bar,
+    where map.js eases a tapped point, and it swallowed the tap; and the filter sheet, a wrapping column
+    under a max-height, broke into narrow columns, so its disclosures were no longer full-width rows
+    (docs/17 M-11)."""
+    css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
+    landing = css.split("/* ---------- 8.5 The map landing", 1)[1].split("/* ---------- end 8.5", 1)[0]
+    note = landing.split(".map-landing .map-basemap-note {\n", 1)[1].split("}", 1)[0]
+    assert "pointer-events: none;" in note
+    phone = landing[landing.index("@media (max-width: 719px) {") :]
+    sheet = phone.split("  .map-landing .map-sheet {", 1)[1].split("}", 1)[0]
+    assert "flex-wrap: nowrap;" in sheet
+    assert ".map-sheet__head, .map-sheet__foot { flex-basis: auto; }" in phone
+
+
 def test_map_js_keeps_the_panel_choice_per_browser_and_follows_the_width() -> None:
     map_js = (WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
     default = map_js.split("function panelDefaultOpen() {", 1)[1].split("\n  }\n", 1)[0]
@@ -607,7 +644,10 @@ def test_the_map_filter_bar_is_a_disclosure_from_720_to_1079_px(transport: FakeT
     assert toggle is not None and 'aria-expanded="false"' in toggle.group(0)
     assert home.index('aria-controls="map-filters"') < home.index('<form id="map-filters"')
     form = home.split('<form id="map-filters"', 1)[1].split("</form>", 1)[0]
-    assert form.startswith(' class="filter-bar filter-bar--map" data-collapse') and "data-filter-done" in form
+    assert (
+        form.startswith(' class="filter-bar filter-bar--map map-sheet" data-collapse')
+        and "data-filter-done" in form
+    )
     css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
     tablet = _media_block(css, "(min-width: 720px) and (max-width: 1079px)")
     assert '.js .filter-toggle[aria-controls="map-filters"] { display: inline-flex;' in tablet
@@ -618,6 +658,9 @@ def test_the_map_filter_bar_is_a_disclosure_from_720_to_1079_px(transport: FakeT
     assert ".js .filter-toggle {" not in tablet and ".js .filter-bar[data-collapse]" not in tablet
     rules = [line.strip() for line in tablet.splitlines()[1:] if line.strip()]
     assert rules and all(rule.startswith(".js ") for rule in rules)
+    # On the full-screen landing the bar is the sheet Filters opens at every width (docs/30 §11.6).
+    assert ".js .map-landing .map-sheet[data-collapse]:not(.is-open) { display: none; }" in css
+    assert ".js .map-landing .filter-toggle {" in css
 
 
 # ---- D-8: the proposal page says where the record is and links to the map ----
@@ -1240,6 +1283,46 @@ def test_about_and_sources_is_a_utility_link_not_a_section(transport: FakeTransp
     assert f".section-bar__items a[aria-current] {marked}" in css
     marked = "{ font-weight: 600; border-bottom-color: currentColor; }"
     assert f".top-bar__sections a[aria-current], .top-bar__link[aria-current] {marked}" in css
+
+
+def test_the_landing_holds_the_footers_links_and_the_endorsement_in_its_credits(
+    transport: FakeTransport,
+) -> None:
+    """Review of lane v2-landing, blocking 1: the landing hides the footer (docs/30 §11.6), and nothing
+    else on it led to Privacy, the reuse conditions, the API, the method or the glossary, or said the
+    endorsement line (docs/31-brand-identity.md B-4). The map's credits now hold them, in the footer's
+    order and words, so the two lists cannot drift apart; closed, the credits say "© OpenStreetMap"."""
+    with TestClient(web_app) as client:
+        html = client.get("/").text
+    footer = html.split('<footer class="site-footer">', 1)[1]
+    footer_links = _links(footer.split("</ul>", 1)[0])
+    credits = html.split('<details class="map-credits" id="map-credits">', 1)[1].split("</details>", 1)[0]
+    summary = credits.split("</summary>", 1)[0]
+    assert '<span class="map-credits__osm">&copy; OpenStreetMap</span>' in summary
+    nav = credits.split('<nav class="map-credits__nav"', 1)[1].split("</nav>", 1)[0]
+    assert _links(nav) == footer_links
+    assert [href for href, _, _ in footer_links] == [
+        "/about",
+        "/about/sources",
+        "/methodology",
+        "/glossary",
+        "/attribution",
+        "/legal/reuse",
+        "/docs/api",
+        "/privacy",
+    ]
+    endorse = re.search(r'<p class="site-footer__endorse">(.*?)</p>', footer, re.S)
+    assert endorse is not None
+    assert f'<p class="map-credits__endorse">{endorse.group(1)}</p>' in credits
+    # Every credit in full: the basemap and its licence, the outline, the registers, Attribution.
+    line = credits.split('<p class="map-attribution" id="map-attribution">', 1)[1].split("</p>", 1)[0]
+    osm = "https://www.openstreetmap.org/copyright"
+    for part in ("OpenStreetMap", osm, "Natural Earth", "US Census Bureau"):
+        assert part in line, part
+    assert 'href="/attribution"' in line and 'href="/about/sources"' in line
+    # One set of credits: MapLibre's own control is no longer added over the map.
+    map_js = (WEB / "static" / "js" / "map.js").read_text(encoding="utf-8")
+    assert "AttributionControl" not in map_js
 
 
 def test_every_page_declares_the_favicon_and_its_three_files_are_served(transport: FakeTransport) -> None:

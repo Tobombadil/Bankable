@@ -82,10 +82,18 @@ def test_markers_draw_no_white_text_or_stroke() -> None:
 
 
 def test_points_and_clusters_carry_the_family_glyph() -> None:
-    """D-2: shape as well as hue. Points are family markers, clusters show the dominant family's
-    glyph above the count, and the tech badge waits for z9."""
+    """D-2: shape as well as hue. Points are family markers; a place's projects (2026-10-24, no numbered
+    clusters) are one mark per status family in that family's shape (`drawPlaceMark`: in process a
+    disc, contracted a square, announced a ring, built and withdrawn the glyph chip); the tech badge
+    waits for z9."""
     assert '"icon-image": ["concat", "family-marker-", ["get", "family"]]' in MAP_JS
-    assert '"icon-image": ["concat", "family-glyph-", ["get", "family"]]' in MAP_JS
+    assert (
+        '"icon-image": ["concat", "mark-", ["get", "family"], "-", ["to-string", markStepExpr()]]' in MAP_JS
+    )
+    marks = MAP_JS.split("function drawPlaceMark(ctx, family, r, c) {", 1)[1].split("\n  }\n", 1)[0]
+    for family in ("progress", "committed", "neutral"):
+        assert f'family === "{family}"' in marks, family
+    assert "drawFamilyGlyph(ctx, family" in marks  # built and withdrawn keep their glyph
     assert 'id: "point-labels", type: "symbol", source: "proposals", minzoom: 9' in MAP_JS
     for family in FAMILIES:
         assert f'family === "{family}"' in MAP_JS or family == "danger"
@@ -161,7 +169,11 @@ def test_the_basemap_follows_the_theme() -> None:
     assert 'PROTOMAPS_SPRITE_BASE + (colors.flavor || "light")' in BASEMAP_JS
     assert "Object.keys(flavor.landcover).forEach" in BASEMAP_JS
     assert 'namedFlavor("light")' not in BASEMAP_JS
-    assert CSS.count("--map-flavor: dark;") == 2 and CSS.count("--map-flavor: light;") == 1
+    # The two dark blocks, and the landing's navy dark (docs/31-brand-identity.md §2, owner's exception
+    # of 2026-10-24) in the same two forms, scoped to the landing alone.
+    assert CSS.count("--map-flavor: dark;") == 4 and CSS.count("--map-flavor: light;") == 1
+    assert CSS.count(':root:not([data-theme="light"]):has(#map-landing) {') == 1
+    assert CSS.count(':root[data-theme="dark"]:has(#map-landing) {') == 1
 
 
 # ---- audit 2026-10-07 UX-5: the region fills are explained, and a state is never a solid fill ----
@@ -177,7 +189,8 @@ def test_region_fills_are_stepped_by_their_own_count_and_states_are_outlines() -
     assert "n >= 50 ? 0.4" in body
     assert "var REGION_BROAD_OPACITY = 0.04;" in MAP_JS
     assert 'id: "region-outline-broad"' in MAP_JS and '"line-dasharray": [3, 2]' in MAP_JS
-    assert 'region_grade: f.properties.region_level === "county" ? "area" : "broad"' in MAP_JS
+    assert 'var county = f.properties.region_level === "county";' in MAP_JS
+    assert 'region_grade: county ? "area" : "broad"' in MAP_JS
 
 
 def test_the_legend_names_the_region_areas_and_map_js_shows_it_only_when_drawn() -> None:
@@ -296,8 +309,14 @@ def test_a_coverage_note_is_never_behind_why() -> None:
     html = _map_notice(iso_gap_notes=[raw])
     before, detail = html.split('<div class="map-notice__detail"', 1)
     assert note in before and note not in detail
-    assert before.index("map-notice__brief") < before.index(note)
+    # On the landing (docs/30 §11.6) the note is the "under" part, under the floating bar at every
+    # width; the short form and "Why?" are the sheet's.
+    under = html.split('<div data-notice-part="under">', 1)[1].split('<div data-notice-part="sheet">', 1)[0]
+    assert note in under and "map-notice__brief" not in under
     assert "Showing 3 active proposals" in detail
+    landing = CSS.split("/* ---------- 8.5 The map landing", 1)[1].split("/* ---------- end 8.5", 1)[0]
+    hidden_landing = re.findall(r"([^{}]*)\{[^}]*display: none", landing)
+    assert not [s for s in hidden_landing if "map-notice-under" in s and ":empty" not in s], hidden_landing
     phone = CSS.split("/* ---------- 8.3 The map page below 720px")[1].split("/* ---------- ")[0]
     rule = re.search(r"([^{}]*\.map-status \.view-notice--gap)\s*\{([^}]*)\}", phone)
     assert rule and "flex-basis: 100%" in rule.group(2)
@@ -421,3 +440,114 @@ def test_the_panel_title_is_an_h2_so_the_headings_keep_their_order() -> None:
     # It reads as the header's button, not as a heading's face.
     title = CSS.split("\n.map-panel__title {\n", 1)[1].split("\n}\n", 1)[0]
     assert "margin: 0;" in title and "font: inherit;" in title
+
+
+# ---- The full-screen map landing, direction A "Night survey" (owner, 2026-10-24; styles.css 8.5) ----
+
+#: The landing's own token blocks: its dark theme is the share card's navy (docs/31-brand-identity.md §2).
+LANDING_DARK = {
+    "dark (media)": ':root:not([data-theme="light"]):has(#map-landing) {',
+    "dark (toggle)": ':root[data-theme="dark"]:has(#map-landing) {',
+}
+LANDING_THEMES = {
+    "light": THEMES["light"],
+    **{theme: {**THEMES[theme], **_tokens(_block(start))} for theme, start in LANDING_DARK.items()},
+}
+
+
+def _landing_declared(theme: str) -> str:
+    """Every block a landing theme's `var()` references may resolve in, its own first."""
+    own = _block(LANDING_DARK[theme]) if theme in LANDING_DARK else ""
+    generic = {"light": ":root {", "dark (media)": ':root:not([data-theme="light"]) {'}
+    return own + _block(generic.get(theme, ':root[data-theme="dark"] {')) + _block(":root {")
+
+
+def _landing_panel_share() -> float:
+    rule = CSS.split("\n.map-landing .map-panel {\n", 1)[1].split("\n}\n", 1)[0]
+    found = re.search(r"color-mix\(in srgb, var\(--surface\) (\d+)%, transparent\)", rule)
+    assert found is not None
+    return int(found.group(1)) / 100
+
+
+@pytest.mark.parametrize("theme", sorted(LANDING_DARK))
+def test_the_landing_dark_is_the_share_cards_navy(theme: str) -> None:
+    from web import og_card
+
+    tokens = LANDING_THEMES[theme]
+    assert tokens["--bg"] == tokens["--map-water"] == og_card.NAVY
+    assert tokens["--map-land"] == og_card.LAND and tokens["--map-border"] == og_card.STATE_LINE
+    # Other app screens keep the neutral dark: the generic blocks are unchanged.
+    assert THEMES[theme]["--color-paper"] == "#0e0f11" and THEMES[theme]["--map-land"] == "#1a1c20"
+
+
+@pytest.mark.parametrize("theme", sorted(LANDING_THEMES))
+def test_the_landing_text_holds_7_to_1_on_the_map_and_the_panel(theme: str) -> None:
+    """The landing's budget (docs/31-brand-identity.md §6): text at 7:1. The strip's words stand on the
+    map's own ground at the national view (land or water), its muted words in the neutral family's ink;
+    the panel's words on --surface at 92% over the worst a map could put behind it (black or white)."""
+    tokens = LANDING_THEMES[theme]
+    declared = _landing_declared(theme)
+    text = _resolve(tokens, declared, "--text")
+    muted = tokens["--family-neutral-text"]
+    strip = CSS.split("\n.map-strip {\n", 1)[1].split("\n}\n", 1)[0]
+    assert "--text-muted: var(--family-neutral-text);" in strip
+    for ground_name in ("--map-land", "--map-water"):
+        for name, colour in (("text", text), ("muted", muted)):
+            ratio = _contrast(colour, tokens[ground_name])
+            assert ratio >= 7.0, (theme, ground_name, name, round(ratio, 2))
+    surface = _resolve(tokens, declared, "--surface")
+    share = _landing_panel_share()
+    for backdrop in ("#000000", "#ffffff"):
+        ground = _mix(surface, backdrop, share)
+        for name, colour in (("text", text), ("muted", muted)):
+            ratio = _contrast(colour, ground)
+            assert ratio >= 7.0, (theme, backdrop, name, round(ratio, 2))
+
+
+@pytest.mark.parametrize("theme", sorted(LANDING_THEMES))
+def test_every_project_mark_holds_3_to_1_on_the_map(theme: str) -> None:
+    """SC 1.4.11 for the marks (map.js `drawPlaceMark`): the dot in --dot, the contracted square and the
+    announced ring in their families' ink, on the land and on the water."""
+    tokens = LANDING_THEMES[theme]
+    declared = _landing_declared(theme)
+    marks = {
+        "dot": _resolve(tokens, declared, "--color-accent"),
+        "committed": tokens["--family-committed-text"],
+        "neutral": tokens["--family-neutral-text"],
+    }
+    assert 'var dotColor = cssVar("--dot") || colors.progress;' in MAP_JS
+    for ground_name in ("--map-land", "--map-water"):
+        for name, colour in marks.items():
+            ratio = _contrast(colour, tokens[ground_name])
+            assert ratio >= 3.0, (theme, ground_name, name, round(ratio, 2))
+
+
+@pytest.mark.parametrize("theme", sorted(LANDING_THEMES))
+def test_the_panels_bars_hold_3_to_1_and_draw_no_faint_track(theme: str) -> None:
+    """Direction A's finding (2026-10-24): the ranked bars were 1.54:1. Every meaningful non-text mark in
+    the panel now holds 3:1 over any basemap (the technology bars in the muted ink, the top one in the
+    text ink; the status bar's parts in their families' ink), and the track that said nothing is gone."""
+    landing = CSS.split("/* ---------- 8.5 The map landing", 1)[1].split("/* ---------- end 8.5", 1)[0]
+    assert ".map-landing .map-overview__meter { height: 0.25rem; background: transparent;" in landing
+    assert (
+        ".map-landing .map-overview__fill { border-radius: var(--radius-1); background: var(--text-muted); }"
+        in landing
+    )
+    assert (
+        ".map-landing .map-overview__row.is-top .map-overview__fill { background: var(--text); }" in landing
+    )
+    tokens = LANDING_THEMES[theme]
+    declared = _landing_declared(theme)
+    surface = _resolve(tokens, declared, "--surface")
+    share = _landing_panel_share()
+    marks = {
+        "bar": tokens["--family-neutral-text"],  # --text-muted inside the panel
+        "top bar": _resolve(tokens, declared, "--text"),
+        **{f"status {family}": tokens[f"--family-{family}-text"] for family in FAMILIES},
+        "status progress": tokens["--color-accent-deep"],  # the panel's in-process ink
+    }
+    for backdrop in ("#000000", "#ffffff"):
+        ground = _mix(surface, backdrop, share)
+        for name, colour in marks.items():
+            ratio = _contrast(colour, ground)
+            assert ratio >= 3.0, (theme, backdrop, name, round(ratio, 2))

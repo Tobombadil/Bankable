@@ -108,7 +108,8 @@ Decisions taken in normalisation, each of which changed a measured number:
 
 Vocabulary from `docs/02` §1 — `announced → filed → studied → permitted → contracted → built`, terminal
 `withdrawn` / `cancelled`, plus `unknown` — with one documented extension, **`under_construction`** between
-`contracted` and `built`, because EIA-860M reports it explicitly and it is the single most useful pre-COD signal.
+`contracted` and `built`, because EIA-860M reports it explicitly and it is the single most useful pre-COD signal,
+and a second, **`postponed`** (2026-10-24, §3.3): off the ladder, neither active nor withdrawn.
 Refine rules run first, in file order; then the base map; else `unknown` with `status_rule = <src>.unmapped`.
 
 | Source | Raw value(s) | Canonical | Rule / caveat |
@@ -140,6 +141,7 @@ Refine rules run first, in file order; then the base map; else `unknown` with `s
 | | (T) approvals received (241) | permitted | |
 | | (U) ≤50% built (498), (V) >50% (367), (TS) complete, pre-COD (152) | under_construction | (TS) is **not** built: no COD yet |
 | | *(completion)* | — | a unit leaves the Planned sheet on COD; only a `removed` event shows it |
+| | "Canceled or Postponed" sheet (1,745 units, September 2026) | postponed | since 2026-10-24 (§3.3); the sheet's name is the rows' `status_raw` |
 
 Result, 14,388 rows (re-run 2026-09-30 with the §3.1 ERCOT rules): withdrawn 7,889 · studied 1,811 · built 1,211 ·
 contracted 1,045 · under_construction 1,024 · announced 688 · filed 395 · permitted 242 · cancelled 47 · unknown 36.
@@ -236,6 +238,81 @@ Measured on a dev store built from the latest frames re-derived under this code 
 1,387 built (CAISO 238 of 251, ERCOT 113 of 113, NYISO 132 of 151, the 8 operating close-outs; NESO's 375 and the
 489 data-centre records state none).
 
+### 3.3 EIA-860M's canceled or postponed units: `postponed` (2026-10-24)
+
+**Decision.** The owner's answer to `docs/28` §11 item 2 (`docs/00-PLAN.md`, row "Owner decisions on the weekend
+list", item 3): the units on EIA-860M's "Canceled or Postponed" sheet get their own lifecycle state, counted
+neither as active nor as withdrawn or cancelled. EIA's title is "Inventory of Canceled or Indefinitely Postponed
+Projects" and no column says which of the two a unit is, so the state keeps them together, as the source does.
+`docs/21` §7.1 lists where it sits in every count that groups states.
+
+**What changed.** The state is in every vocabulary (`LIFECYCLE_STATES`, migration 0046's CHECK, `canonical_states`,
+`data/vocabulary/lifecycle_states.yaml`, `LIFECYCLE_LABELS` "Postponed", the API's `LIFECYCLE_STATE_VALUES` and the
+`LifecycleState` and `to_state` enums, the intake vocabulary). The eia860m status map names the sheet:
+`"Canceled or Postponed": postponed` (rule `eia860m.map`). The list and the map's status control have a
+"Postponed" box; the company pipeline lists a "Postponed" row; the glossary defines it.
+
+**Measured on the real September 2026 workbook** (`september_generator2026.xlsx`, 14,013,970 bytes, sha256
+`bcef74e1...6da17`, fetched 2026-10-23T21:41:36Z, `Last-Modified` 23 Oct 2026 15:32:18 GMT), through the connector
+and the runner (the lane's scratch scripts `measure.py`, `release.py` and `overlap.py`):
+
+| | Before (switch off) | After (`postponed`) |
+|---|---|---|
+| Rows the connector emits | 2,358 | 4,103 |
+| `postponed` | 0 (counted in `meta.canceled_or_postponed` only) | 1,745 units at 1,072 plants, 185,356.8 MW nameplate |
+| announced / filed / permitted / under construction | 695 / 406 / 228 / 1,029 | unchanged |
+| MW of the four Planned states | 290,242.0 | unchanged |
+
+The first run of the new code over a store holding the old code's output: the parser version changed, so the
+runner restated the previous output under the new parser and kept 1,745 `new` events out of the feed
+(`parser_restated`); the row-count gate held the run as a scope change (`row_count_drift`, 2,358 -> 4,103, +74.0 %),
+with warnings for the new `status_raw` value, ten technologies seen only on that sheet and the `_sheet` column.
+Released by an operator, it promoted 4,103 rows and emitted 0 events. The loader writes `created` events only from
+the diff, so the 1,745 records load without news.
+
+**What resolution will see.** 31 postponed units (26 plants, 3,411.9 MW) share a plant with a Planned unit, 11 of
+them the same technology. `pipeline/resolve.py::eia_plant_rollup` groups by plant and technology without regard to
+state, so those 11 enter a planned plant's rollup. Every other postponed unit is its own record unless a queue
+request matches it. Survivorship keeps their MW out of a live record (fix round, 2026-10-24): a postponed generator
+is never an uncovered family beside a live request (an ERCOT storage request beside EIA's postponed solar half read
+151.4 MW, now 50.4), and the plant inventory sums postponed units only when every unit stating MW is postponed
+(plant 68019's 50 MW permitted and 250 MW postponed units read 300 MW, now 50). Handoff to the owner of
+`pipeline/resolve.py`, which this lane does not edit: (1) group a plant's postponed generators apart in
+`eia_plant_rollup`; (2) its `order` list has no `postponed`, so a (plant, technology) group made only of postponed
+generators gets lifecycle `unknown`; (3) `plant_extents` adds postponed MW to `plant_mw` for the 26 shared plants,
+which feeds capacity coherence; (4) the headline print "linked to >=1 EIA-860M planned unit" now counts links to
+postponed units. Survivorship's record name (`_primary_plant`, the plant with the most MW) reads the same plants
+(`_plants`), so a record holding a live 50 MW plant and a postponed 250 MW one is named after the live plant, as its
+MW is.
+
+**The migration on a large table** (PostgreSQL 16.15 with PostGIS 3.4, 2,000,000 proposals, 1,188 MB; a reader and a
+writer looping on `public_id` throughout; `pg_big.py`): the plain `DROP`/`ADD CONSTRAINT` (0020's form) held ACCESS
+EXCLUSIVE for 445 ms and every concurrent query waited behind it (p95 441 ms). Migration 0046's `ADD ... NOT VALID`
+took 1.5 ms; its `VALIDATE CONSTRAINT` took 443 ms under SHARE UPDATE EXCLUSIVE while 122 concurrent queries ran at
+p50 0.96 ms, p95 2.15 ms, max 3.76 ms (baseline p50 0.96 ms, p95 1.87 ms). The downgrade's count of postponed rows
+took 117 ms under ACCESS SHARE. docs/04 E-11 both ways on PostgreSQL (`pg_e11.py`): upgrade head, downgrade -1,
+upgrade head on an empty store and a seeded one (a postponed row refuses the downgrade and the schema stays at
+0046), and an interrupted run (widened CHECK left NOT VALID at version 0045) validated by the next upgrade.
+
+**Downgrade race, closed in the fix round (2026-10-24).** The first version counted postponed rows and then swapped
+the CHECK. A row written in between left the narrowed CHECK committed NOT VALID, VALIDATE failed, and the store sat
+at 0046 with a CHECK that refused its own `postponed` rows, which `upgrade head` (a no-op at head) could not repair.
+The downgrade now adds the narrowed CHECK NOT VALID first, which takes ACCESS EXCLUSIVE until the transaction ends,
+counts again under that lock (bounded by `SET LOCAL statement_timeout = '5s'`), and refuses and rolls back on any row;
+only with none does it commit and VALIDATE, which then cannot fail. The lock-free count before it still refuses the
+usual case without taking the lock. The cost is one scan under ACCESS EXCLUSIVE on a downgrade that goes through
+(about 117 ms at 2,000,000 rows by the count above). `services/db/test_migration_0046.py` pins the order of
+statements and the refusal; the PostgreSQL E-11 run was not repeated in the fix round (no database credentials in
+that session), so it is the coordinator's to re-run with the lane's `pg_e11.py`.
+
+**The list filter on it.** `lifecycle_state=postponed` is a rare value, so the list's sort index is walked further
+before 51 rows match. With 1,745 postponed among 2,000,000 rows, `EXPLAIN (ANALYZE, BUFFERS)` of the list query
+(`publish_state = 'public' AND lifecycle_state = 'postponed' ORDER BY last_changed DESC, id DESC LIMIT 51`): Index
+Scan on `ix_proposal_public_last_changed`, 99,991 rows removed by the filter, 3,048 shared buffers hit, 13.5 ms;
+seven runs p50 15.7 ms, p95 35.1 ms. `cancelled` at 100,000 rows: 0.15 ms. The store holds tens of thousands of
+proposals, not millions, so no index is added; if a rare state's list becomes slow at scale, a partial index on
+`(lifecycle_state, last_changed DESC, id DESC) WHERE publish_state = 'public'` is the path.
+
 ## 4. Entity resolution (`pipeline/resolve.py`)
 
 Key order follows `docs/02` §5. Every pair written to `matches.parquet` carries `pass`, `score`, per-component
@@ -327,6 +404,8 @@ After rules P/S/V, full sweep (`resolve.py --sweep`):
 ```
 
 **Chosen threshold 75: precision 0.927, recall 0.950 (sample); 0.915 / 0.946 (weighted); n = 85.**
+(Re-run 2026-10-24 with rule L, the location veto: unchanged, with Wilson intervals, in §28.3. The 85 pairs are all
+generation; data-centre loads have their own labelled set, §28.4.)
 Caveat that must travel with these numbers: rules P/S/V were designed by reading the errors on this same set,
 so the post-rule figures are in-sample and optimistic. The pre-rule 0.78 / 0.90 is the honest lower bound; the
 truth on a fresh sample is expected between the two. Name-scorer ablation at 72, pre-rules: token_set
@@ -378,14 +457,16 @@ Remaining errors at 75 (all five):
 ## 8. Change detection (`pipeline/diff.py`)
 
 Deterministic, model-free (`docs/20` §3.3), keyed on `record_id`, one event row per changed field:
-`new`, `removed`, `withdrawn` (lifecycle moved to withdrawn/cancelled), `status_change` (any other move),
+`new`, `removed`, `withdrawn` (lifecycle moved to withdrawn/cancelled), `status_change` (any other move, a move
+to `postponed` included),
 `capacity_change` (> 0.5 MW **and** > 1 %, or null↔value), `cod_change`. A record can emit several events.
 Removal is an event, never a delete: for ERCOT (no withdrawn rows in the file) and EIA-860M Planned (units leave
 the sheet on COD) it is the *only* way those transitions are observable.
 
 **A removal is not published as a withdrawal (2026-10-10, `docs/51` §2.7 item 1).** One disappearance can mean
 several things. ERCOT's report also drops projects that go inactive (`status = INA`) or are split into new INRs.
-An EIA-860M unit also leaves the Planned sheet when it moves to "Canceled or Postponed". A grants.gov notice leaves
+An EIA-860M unit used to leave the Planned sheet when it moved to "Canceled or Postponed"; since 2026-10-24 that
+sheet is loaded and the move is a `status_change` to `postponed` (§3.3). A grants.gov notice leaves
 the search when it closes. So the loader writes `removed` as the non-public `removed_from_source` event. It carries
 the meaning the connector declares (`Connector.removal_meaning`; `docs/21` §7.3), and `gone_at` is set as before.
 Only a declared `withdrawn` publishes a `withdrawn` event, and no source declares it. ERCOT and EIA-860M declare
@@ -2785,9 +2866,9 @@ anything else **other**. A request is *live* unless its state is withdrawn/cance
 
 | Field | Rule | Why |
 |---|---|---|
-| `capacity_mw` (and `storage_mwh`) | Sum of the live requests, one source's rows with the same technology, MW and phase number counted once; plus any inventory generator of a technology family no live request covers. Else the inventory summed (the plant rollup). Else every request summed. Else the largest stated value. | The request is what is proposed at the grid: its MW is the point-of-interconnection limit. EIA nameplate counts a hybrid's halves separately (§22.1: "Bellefield 2: 500 MW solar + 500 MW storage behind one 500 MW request"; `coherence_ratio`: "its MW is the point-of-interconnection total"). So the inventory total is shown beside it, not instead of it (§23.4). The phase-aware dedupe is §22.1's NYISO reading ("KCE NY 30" as C24-008 and 1448) without collapsing equal phases (Roseland Solar and Roseland Solar II, 254 MW each). The uncovered-family term exists because ERCOT files a hybrid as two requests and may hold only one (Albatross: a 50.4 MW storage request beside EIA's 101 MW solar). |
+| `capacity_mw` (and `storage_mwh`) | Sum of the live requests, one source's rows with the same technology, MW and phase number counted once; plus any inventory generator of a technology family no live request covers. Else the inventory summed (the plant rollup). Else every request summed. Else the largest stated value. A postponed generator (§3.3, 2026-10-24) is never an uncovered family, and the inventory sum leaves it out unless every inventory member stating the quantity is postponed. | The request is what is proposed at the grid: its MW is the point-of-interconnection limit. EIA nameplate counts a hybrid's halves separately (§22.1: "Bellefield 2: 500 MW solar + 500 MW storage behind one 500 MW request"; `coherence_ratio`: "its MW is the point-of-interconnection total"). So the inventory total is shown beside it, not instead of it (§23.4). The phase-aware dedupe is §22.1's NYISO reading ("KCE NY 30" as C24-008 and 1448) without collapsing equal phases (Roseland Solar and Roseland Solar II, 254 MW each). The uncovered-family term exists because ERCOT files a hybrid as two requests and may hold only one (Albatross: a 50.4 MW storage request beside EIA's 101 MW solar). |
 | `technology`, `technology_raw`, `kind` | From the members that supplied capacity: one value when they agree; solar + storage is `solar_storage`, wind + storage `wind_storage`; otherwise the largest member's. | The class describes the MW printed beside it. |
-| `lifecycle_state` with `status_raw` | One member supplies both, in this precedence (amended 2026-10-07, §23.9): (1) **a withdrawn queue position decides** (`withdrawn_request_wins`): a request withdrawn or cancelled on its register ends the record unless a live request carries the project on, that is, a request filed later (a re-filing) or one the withdrawn request was a smaller add-on to; it outranks the plant inventory and an operating plant; (2) **an EIA operating plant outranks a stale queue status** (`operating_plant_outranks_queue`, §23.8); (3) otherwise the most advanced state among members still on their register (announced < filed < studied < permitted < contracted < under_construction < built); the record is withdrawn/cancelled when every member is. `unknown` never wins. Ties: most recent retrieval, larger member, source id, record id. | (1) The vocabulary's own rule, "withdrawal wins over later-looking evidence" (`data/vocabulary/lifecycle_states.yaml`), applied across members: an EIA-860M Planned row naming a withdrawn queue position is the inventory lagging, not the project progressing (High Bridge Wind). (3) Registers lag rather than regress: an EIA-860M "(T) approvals received" row beside a CAISO request with an executed IA is the same project behind on paperwork. The conflict is not hidden: the rule is named and the page lists every member's own status. |
+| `lifecycle_state` with `status_raw` | One member supplies both, in this precedence (amended 2026-10-07, §23.9): (1) **a withdrawn queue position decides** (`withdrawn_request_wins`): a request withdrawn or cancelled on its register ends the record unless a live request carries the project on, that is, a request filed later (a re-filing) or one the withdrawn request was a smaller add-on to; it outranks the plant inventory and an operating plant; (2) **an EIA operating plant outranks a stale queue status** (`operating_plant_outranks_queue`, §23.8); (3) otherwise the most advanced state among members still on their register (announced < filed < studied < permitted < contracted < under_construction < built); the record is withdrawn/cancelled when every member is. `unknown` never wins. `postponed` (2026-10-24, §3.3) is off the ladder: any member on it decides, and a record whose members are all postponed is postponed. Ties: most recent retrieval, larger member, source id, record id. | (1) The vocabulary's own rule, "withdrawal wins over later-looking evidence" (`data/vocabulary/lifecycle_states.yaml`), applied across members: an EIA-860M Planned row naming a withdrawn queue position is the inventory lagging, not the project progressing (High Bridge Wind). (3) Registers lag rather than regress: an EIA-860M "(T) approvals received" row beside a CAISO request with an executed IA is the same project behind on paperwork. The conflict is not hidden: the rule is named and the page lists every member's own status. |
 | milestones (`queue_date`, `study_phase`, `ia_date`, `withdrawn_date`, `actual_cod`; §3.2) | Each from the member that supplies the lifecycle when it states one, else the next member in lifecycle precedence that does. `withdrawn_date` only on a withdrawn or cancelled record, from a terminal member; `actual_cod` only on a built record, from a built member. Stored as `field_provenance[<milestone>]` with `value`. | The status line, its queue position and its dates read together. A live record never shows another member's withdrawal, and a planned record never shows an operation date. |
 | `proposed_online_date` | The lifecycle winner's date, else the next member in the same order that states one. | The status line and the date read with it come from one register (the slip note says "X still reports ..."). |
 | `name_canonical` | The inventory plant with the most MW (the stored name kept when it is a tied candidate); else the largest live request's; else the stored name when a member states it; else the most recent member's. | Queue names are often codes or upper case ("DARDEN", "NY128 - Foothills Solar"). Keeping a tied stored name means a restatement does not rename a record for nothing; slugs never change. |
@@ -3675,6 +3756,19 @@ python -m services.match.run --all --database-url <url>     # re-runs the store 
   pairs fail the first condition for v2 on three notices (box at the head of §25). They also fail AC3's
   size on their own.
 
+### 25.10 match-rules@v3: `postponed` excluded (2026-10-24)
+
+v3 adds `postponed` (§3.3) to `timing.proposal_excluded_states`, beside withdrawn, cancelled and built. Before it,
+the timing rule passed a postponed proposal exactly as a `filed` one: a 200 MW Texas solar unit against an open
+200 MW Texas solar RFP due in 38 days read "due in 38 days", passed. All 1,745 postponed units of the September 2026
+EIA-860M workbook (636 solar, 576 gas, 154 storage, 146 wind and 233 others) would have entered matching, and a
+stored match is seen by operators and scored 25 points in the CRM lead hand-off (`services/crm/signals.py`) even
+while `publish: false`. Nothing else changes. No labelled pair carries a postponed proposal, so every figure in
+§25.5 holds for v3: `python -m services.match.eval --sweep` prints the same lines but the version. A new version
+forces a full re-run (`services/match/run.py`), which removes any match a postponed proposal holds with the reason
+`rules failed: timing`. Tests: `services/match/test_engine.py::test_timing_rule` (postponed, cancelled, built),
+`services/match/test_run.py::test_a_proposal_that_moves_to_postponed_loses_its_match`.
+
 ## 26. The front page's figures as lists: `country`, capacity and the change pulse (lane front-api, 2026-10-23)
 
 Owner, 2026-10-23 (decision rows "front page of the energy revolution" and "the United States is the primary
@@ -3735,7 +3829,7 @@ alone, so the same figure moved with how it was asked for: two Texas `filed` bat
 second dropped by its register, read 2 records and 203 MW from `country=US` (its link, on the site, listed one)
 and 1 and 101 MW from `country=US&lifecycle_state=filed`. Now, whenever the caller names no `listed`, every figure
 counts the listed records of its active states (list with `listed=true`) and every record of its other states
-(built, withdrawn, cancelled, unknown; list with no `listed`, as the site's view of them hides nothing), and
+(built, withdrawn, cancelled, postponed, unknown; list with no `listed`, as the site's view of them hides nothing), and
 `not_listed` tallies the dropped ones under `listed=false`, as `org_pipeline` keeps them apart. A figure for one
 state, or for a selection of only active or only other states, is one list; one that spans both (the total, a
 technology or a kind under every state or a mix) is the sum of two, `list_query` null, because no single list
@@ -3759,7 +3853,7 @@ endpoint's figures for the same filters; another clusters 501 rows and checks th
 
 What genuinely changed in the last `days` (7 by default, 1 to 90): `new_proposal` (a `created` event: a source
 newly listed the record), `status_change` per lifecycle state moved to (`status_change` and `withdrawn` events by
-`after.lifecycle_state`: permitted, contracted, under construction, built, withdrawn, cancelled and the rest; not
+`after.lifecycle_state`: permitted, contracted, under construction, built, withdrawn, cancelled, postponed and the rest; not
 `unknown`, a register that stopped stating a status, which `to_state=unknown` still lists; and a proposal's
 `withdrawn` event that names no state, the loader's shape for a row that left a register declaring
 `removal_meaning = "withdrawn"`, is a move to `withdrawn`, in the pulse and in `to_state` alike),
@@ -3974,3 +4068,189 @@ government coded Q, a utility-owned project company coded I).
   (they are logged); the 101 operator organisations could take a data-centre operator type once the vocabulary
   has one (F1); whether built data centres should count under Companies' Large load (F1, `org_stats`); municipal,
   state and federal utilities read as Public agency per docs/28 §8.2 (owner question).
+
+## 28. Point evidence and the location veto for data-centre loads (lane resolver-veto, 2026-10-24)
+
+**Status:** implemented and measured. Code: `pipeline/resolve.py` (rule L). Tests: `tests/test_resolve_location.py`
+(9; 8 fail on the previous code, the ninth pins that clusters do not depend on row order). Labels:
+`data/eval/load_pair_labels.csv` (185 pairs). It carries out the coordinator's call of 2026-10-24 (docs/00-PLAN.md,
+"Coordinator calls on the data-centre lanes' questions", item 1). Every number below comes from a run.
+
+### 28.1 Rules
+
+Rule L applies only between two records of kind `load` (data centres) whose sources state an exact point: a
+connector writes raw `Latitude`/`Longitude` only for a point that passed its own checks (FAA accuracy classes 1-5,
+the NPDES and ICIS-Air geocode checks, a point inside a Loudoun site's land), and those are the keys the loader
+promotes to an `exact` location. Generation is out of scope: a wind or solar plant spans kilometres, and its
+queue requests state no point.
+
+| Rule | Where | What it does | Constant | Why this value |
+|---|---|---|---|---|
+| **L, veto** | `score_pair` → `veto_location` | refuses a fuzzy pair whose two exact points lie more than 2 km apart | `LOCATION_VETO_KM = 2.0` | the coordinator's figure; the FAA lane's 14 wrong merges were 2.4 to 32 km apart, and no FAA site is wider than 1.2 km |
+| **L, cluster** | `location_chain_veto` | refuses a fuzzy pair that would put two exact points more than 2 km apart into one cluster (a record with no point, or a chain of near pairs, as the bridge) | as above | rule T's cluster check (`kind_chain_veto`), same order: deterministic pairs first, then by score |
+| **L, nearness** | `score_pair` → `point` component | 100 within 500 m, falling linearly to 0 at 2 km; weighted as the county is (0.20) | `POINT_NEAR_M = 500` | the 90th percentile of the distance between two sources' points for one facility: 95 ICIS-Air and Virginia DEQ records sharing an ICIS id lie a median 195 m apart, p90 470 m |
+| **B4** | `block_point_near` | pairs two load records whose points lie within 500 m, whatever their names | `POINT_NEAR_M` | B3 pairs only names that start with one word, so "MNZ03 DATA CENTER" never met "Microsoft - Gainesville Data Center - MNZ03" 350 m away |
+| **L, registry** | `id_conflict` | an FRS-only id conflict between two points within 500 m no longer refuses the pair; an ICIS-Air id conflict always does | `NEAR_OVERRIDES_NAMESPACES = {frs}` | FRS gives a construction permit an id of its own: Compark's stormwater notice and air permit cite different FRS ids 47 m apart |
+| **Tie** | `run` | one row per pair: the highest score, and on a tie the deterministic pass (a stable sort) | — | in the replay of today's sources (scenario C below), 29 of the 139 ICIS-Air/DEQ registry pairs were kept as fuzzy rows, the rows a veto may refuse |
+
+Nearness never makes a match alone: rule N still refuses a pair whose name scores below 70. Two different
+facilities' points are as close as one facility's two points: 56 of 205 Virginia DEQ air sites have another DEQ
+site within 300 m (13 within 100 m). A deterministic pair is never vetoed (as in §22): Visa's ICIS-Air address match
+and DEQ's registration point, which cite one ICIS id, lie 3.46 km apart and stay one facility.
+
+### 28.2 Inputs
+
+The shared copy named for this lane (`scratchpad/root-v2`) holds only EIA-860M and ERCOT history snapshots, so the
+data-centre frames came from the earlier lanes' stored outputs, read in place and re-parsed with the current
+connector code: ICIS-Air (517 records, 377 with an exact point) and Virginia DEQ (205, all exact) as the store held
+them on 2026-10-09; NPDES construction from its 2026-10-24 snapshot (sha256 `018e07e0…`): 229 published, 276 with
+the hold list emptied, 241 after this lane's releases; FAA Part 77 from its 2026-10-24 snapshot (268, all exact);
+and the Loudoun layer read live on 2026-10-24 at 08:10Z through the connector's own methods (5 requests, licence
+hash `f85e0490…` unchanged, 85 applications, 81 sites). Virginia DEQ's MapServer/294 still answered "Service not
+found", so a full Loudoun run fails (run 44c17a02); its held-site page was rebuilt from DEQ's 2026-10-09 frame,
+which gives the same 5 registry links the Loudoun lane found. Scripts and outputs: the lane's scratch folder
+`resolver-veto/` (`scripts/`, `out/`).
+
+### 28.3 The §6 labelled evaluation, before and after
+
+`data/eval/labels.csv` over `data/eval/normalized.parquet`, threshold 75, Wilson 95 % intervals:
+
+| | Before (HEAD c3ec421) | After |
+|---|---|---|
+| Resolver pairs, tp/fp/fn/tn | 37/1/3/44 | 37/1/3/44 |
+| … precision | 0.974 [0.865, 0.995] | 0.974 [0.865, 0.995] |
+| … recall | 0.925 [0.801, 0.974] | 0.925 [0.801, 0.974] |
+| … weighted P / R | 0.958 / 0.911 | 0.958 / 0.911 |
+| Store path (`services.resolve.report`), tp/fp/fn/tn | 33/0/4/40 | 33/0/4/40 |
+| … precision | 1.000 [0.896, 1.000] | 1.000 [0.896, 1.000] |
+| … recall | 0.892 [0.753, 0.957] | 0.892 [0.753, 0.957] |
+| Accepted pairs / clusters | 764 / 333 | 764 / 333 (the same pairs, each with the same pass) |
+| Store: merged clusters (records absorbed) / proposals after | 268 (400) / 9,163 | 268 (400) / 9,163 |
+
+The 85 labels are all generation and the frame carries no `raw` points, so rule L cannot move them; the table shows
+that it does not.
+
+### 28.4 The labelled load pairs
+
+`data/eval/load_pair_labels.csv`: 185 cross-source pairs of the five data-centre frames, none citing a shared registry
+id (those are deterministic in every variant). Strata (`origin`): every fuzzy pair any variant below accepted (64);
+every NPDES hold-list entry against its held record (47); every Loudoun site whose land holds an FAA site's point (8);
+a seeded draw (`random.Random(20261024)`) of 40 of the other 520 pairs within 500 m; and every pair whose cluster
+membership the change moved that the strata above lack (lost 26, gained 4). Labelling rule, as §6's: *1 when a user
+tracking the site would want one record* (one campus or one piece of land; two buildings of one campus are one
+site, two campuses of one operator are not); 0 two sites; −1 when the two records cannot tell. Judged by this lane
+from the records alone (names, addresses, campus and building codes, structure names, distance, county; no web
+lookup), with the reason in `basis`: 96 one site, 59 two, 30 uncertain and excluded. A pair is predicted one site
+when the run puts both records in one cluster (merges are by cluster), and only pairs whose two records the scenario
+holds count. Intervals are Wilson 95 %.
+
+| Scenario (records) | Before: tp/fp/fn, precision, recall | After: tp/fp/fn, precision, recall |
+|---|---|---|
+| A. The FAA lane's replay: FAA, ICIS-Air, DEQ, NPDES as published (1,219) | 29/26/14, **0.527** [0.398, 0.653], 0.674 [0.525, 0.795] | 32/3/11, **0.914** [0.776, 0.970], 0.744 [0.598, 0.851] |
+| B. After the releases: A with Loudoun, NPDES with 35 holds (1,312) | 31/27/32, **0.534** [0.408, 0.657], 0.492 [0.373, 0.612] | 48/3/15, **0.941** [0.841, 0.980], 0.762 [0.644, 0.850] |
+| C. Today's sources, no FAA: ICIS-Air, DEQ, NPDES as published, Loudoun (1,032) | 3/0/3, 1.000 [0.439, 1.000], 0.500 | 4/0/2, 1.000 [0.510, 1.000], 0.667 |
+| B without FAA (1,044) | 3/0/17, 1.000 [0.439, 1.000], 0.150 | 18/0/2, 1.000 [0.824, 1.000], 0.900 [0.699, 0.972] |
+
+Recall is against the labelled positives, which over-represent pairs a rule can find; counting each `near` pair as
+13 (520 / 40), scenario B's recall is 0.230 before and 0.356 after. Most true pairs the resolver still misses are a
+construction permit named for its campus code or project beside an air permit filed under the operator's or a
+vehicle's name: same place, nothing in common in the names.
+
+Ablation, on the five frames with the hold list emptied (1,347 records):
+
+| Variant | tp/fp/fn | Precision | Recall |
+|---|---|---|---|
+| Before | 32/41/64 | 0.438 [0.330, 0.552] | 0.333 [0.247, 0.432] |
+| Veto and cluster check only | 29/4/67 | 0.879 [0.727, 0.952] | 0.302 [0.219, 0.400] |
+| + nearness score and the FRS override, on the B1-B3 candidates | 34/4/62 | 0.895 [0.759, 0.958] | 0.354 [0.266, 0.454] |
+| + B4, without the FRS override | 41/4/55 | 0.911 [0.793, 0.965] | 0.427 [0.333, 0.527] |
+| All of rule L | 50/4/46 | 0.926 [0.824, 0.971] | 0.521 [0.422, 0.618] |
+
+B4's radius was chosen on these labels between the two a priori values: at 500 m it adds the pairs above; at the
+veto radius (2 km) it added 2 more right pairs and 2 wrong ones (Ascent beside "T5 Data Center Northlake", 808 m; "IAD 169" beside the owner of
+21571 Beaumeade Circle, 588 m), with 1 uncertain and 1 unlabelled pair. The FRS override was added after reading the hold-list misses. Both are
+in-sample choices.
+
+The false positives left in scenario B (3): two ICIS-Air facilities with no exact point that share an operator name
+and county with an FAA site of another campus (Flexential DEN03 at an Aurora address against a Centennial
+structure; Aligned's Elk Grove Village campus against its Northlake one), and Vantage TX 11 (no exact point) joined
+to the TX2 campus through building TX22. With the holds emptied, a fourth: the NPDES VA16 permit against Vantage VA2,
+1.15 km apart, both named "Vantage Data Centers" and codes the name score does not separate.
+
+**What is lost.** Against the code before rule L, 3 right record pairs are no longer in one cluster (scenario B):
+Compass PHX I with the Moonraker permits (a PHX 1 phase 3 building 4 permit inside that site; the names score 67,
+under rule N), and Vantage TX 11 with TX-A and with FAA's TX 12 (one campus by Vantage's building numbering; TX 11
+has no exact point and the cluster check keeps it on the side its higher score chose). Each was joined before only
+inside a cluster that also held campuses 11 to 16 km away. 24 wrong pairs and 3 uncertain ones are lost with them,
+and 20 right pairs are gained.
+
+### 28.5 Replays: FAA, the NPDES hold list, Loudoun and FAA
+
+**The FAA lane's 14 far merges** (scenario A). FAA-to-held accepted pairs, by the distance between their points:
+
+| | All | ≤ 0.5 km | 0.5-2 km | > 2 km | a record with no exact point |
+|---|---|---|---|---|---|
+| Before | 41 | 14 | 8 | **14** | 5 |
+| After | 31 | 20 | 7 | **0** | 4 |
+
+Clusters wider than 2 km between exact points: 8 before, 1 after (Visa, the deterministic pair of §28.1). The held
+records alone (ICIS-Air and DEQ, 722) give the same 139 clusters before and after; today's sources (scenario C)
+gain one merge, Vantage TX2 with the TX-B permit 316 m away (one site).
+
+**FAA cadence.** Restored to `weekly` (`data/sources.yaml`). Of the 268 FAA records, 26 merge into another
+source's record and 242 stand on their own: 139 lie more than 1 km from every held exact point (the FAA lane's
+139 FAA-only sites), and 103 have a held point within 1 km of a case (92 within 0.5 km). Those 103 are possible
+duplicates the resolver cannot confirm from the names, as before; the first load is not news (§8.3).
+
+**NPDES hold list** (`pipeline/connectors/us_epa_echo_icis_npdes_construction/held.yaml`). Each entry was checked
+with the hold list emptied, with and without FAA: it is released when its site shares one cluster with the record
+it was held for and every other member of that cluster is labelled one site with it or shares the held record's
+registry id. 12 of 47 are released: H5 Ashburn (11 m), Compark (47 m), ASH2 Lockridge (51 m), Prime ORD-1
+(68 m), One Neck Denver (111 m), Vantage V6 (218 m), ATL East (263 m), MNZ03 (350 m), Sharka (403 m), Vantage GA 21
+(428 m), Allstate Rochelle (447 m), Aligned Phoenix (450 m). Published sites go from 229 to 241. 35 stay held: 32
+duplicates whose names score under 70 against their held record (rule N), LYH10 and LYH03 (709 m and 1,122 m:
+beyond B4 and named differently), and the VA16 bridge, whose cluster still takes in Vantage VA2.
+
+**Loudoun and FAA.** On the live layer, 8 Loudoun sites hold an FAA site's point inside their land (the Loudoun
+lane counted 6 on an earlier FAA build; both it named are here: IAD156 in ZMAP-2021-0018, Equinix DC17 in
+EPLAN-2024-0193). Judged from the records: 4 are one site (IAD121 on EPLAN-2024-0205, 16 of its 19 cases inside;
+Equinix DC17 on Beaumeade Parcel C2; ARA4A on EPLAN-2024-0212; Yondr NOV2 on Evergreen Meadows, EPLAN-2023-0130)
+and 4 cannot be told, because the FAA site mixes structures of several buildings or most of its cases lie on other
+land (IAD156; Global Plaza with Aligned and Dulles Downs cranes; the IAD 230 cranes with Concorde and Dulles Downs;
+Transdulles with Glenn Drive and Silverbrook). The resolver merges none of the 8, before or after: Loudoun names a
+site by its application number, FAA by its structure, and nearness never makes a match alone. Settled: they stay two
+records each. The 4 would merge through a same-land cross-reference the Loudoun connector writes for an FAA site
+whose point lies in its land, as it does for DEQ's air sites; that is a Loudoun connector change, not a resolver one.
+
+### 28.6 Run time
+
+Median of interleaved runs of `run()` (threshold 75), before and after, same machine:
+
+| Frame | Rows | Before | After | After / before |
+|---|---|---|---|---|
+| The evaluation pull and the five data-centre frames (the largest frame this lane holds) | 15,700 | 6.34 s | 6.35 s | 1.002 |
+| The evaluation pull alone (§6) | 14,388 | 6.13 s | 6.49 s | 1.058 |
+| The five data-centre frames (scenario B) | 1,312 | 0.43 s | 0.47 s | 1.105 (+0.04 s) |
+
+Medians of 7 interleaved runs each. Run-to-run spread is about ±5 %: two earlier rounds of the same comparison (5
+runs each, before two small speed-ups in `record_point` and `id_conflict`) gave 1.028 and 1.059 on the first frame
+and 1.023 and 1.020 on the second. The new work is a JSON read of each load row's `raw` (13 ms for the 1,347 load
+rows), the B4 sweep (12 ms, 692 pairs) and scoring those pairs. The output does not depend on row order (a test
+pins it).
+
+### 28.7 Assumptions and open items
+
+- **A-22-40:** a shared facility-registry id outranks two geocodes: a deterministic pair is never vetoed, even
+  more than 2 km apart (1 such pair on these frames, Visa).
+- **A-22-41:** the 2 km veto is literal; a campus wider than 2 km between two sources' points becomes two records
+  (QTS Cedar Rapids, about 3 km, already splits inside the FAA source).
+- **A-22-42:** 500 m and the 0.20 weight were fixed before the labels (the same-facility p90; the county's weight);
+  B4's radius and the FRS override were chosen on them, so the figures in §28.4 are in-sample. One person labelled
+  the pairs from the records alone; 30 of 185 were left uncertain.
+- Open: a record with no exact point is placed only by its name (the three false positives); building and campus
+  codes (VA16 against VA2, TX 11 against TX 12) need a code rule like rule P, which this lane did not add; 32 held
+  NPDES duplicates and 103 FAA records near a held point wait on name evidence (an operator-to-vehicle link, or the
+  connectors citing each other's ids); the Loudoun land link above.
+
+Commands (scratch, lane folder `resolver-veto/scripts/`): `build_frames.py`, `build_loudoun.py`, `rerun_all.sh`,
+`load_metrics.py`, `release_check.py`, `eval_labels.py` (§28.3), `timing.py`.

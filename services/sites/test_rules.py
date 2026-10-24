@@ -52,6 +52,37 @@ def test_when_every_member_is_inactive_the_largest_leads() -> None:
     assert ordered[0].public_id == "prop_B"
 
 
+def test_postponed_leads_only_when_no_member_is_live_and_before_a_withdrawn_one() -> None:
+    """`postponed` (EIA-860M's canceled or indefinitely postponed units; docs/21 §7.1) is its own
+    tier: after every live member (active, built, unknown), however large, and before withdrawn or
+    cancelled ones."""
+    live_first = rules.rank(
+        [b("prop_POST", 2000, "postponed"), b("prop_U", 10, "unknown"), b("prop_OLD", 3000, "withdrawn")]
+    )
+    assert [x.public_id for x in live_first] == ["prop_U", "prop_POST", "prop_OLD"]
+    assert rules.rank([b("prop_POST", 5, "postponed"), b("prop_OP", 1, "built")])[0].public_id == "prop_OP"
+    no_live = rules.rank([b("prop_X", 900, "cancelled"), b("prop_POST", 50, "postponed")])
+    assert no_live[0].public_id == "prop_POST"
+    assert [m.lead_tier for m in (b("a", 1, "filed"), b("b", 1, "postponed"), b("c", 1, "withdrawn"))] == [
+        rules.LEAD_TIER_LIVE,
+        rules.LEAD_TIER_POSTPONED,
+        rules.LEAD_TIER_INACTIVE,
+    ]
+
+
+def test_a_postponed_unit_never_heads_a_plant_with_a_live_unit() -> None:
+    """EIA plant 68019 in the September 2026 workbook: a 250 MW postponed unit and a 50 MW permitted
+    one. The live unit leads and heads the plant group; the postponed one is its unit (7 of the 26
+    plants holding both a Planned and a postponed unit were led by the postponed unit before)."""
+    permitted = b("prop_LIVE", 50, "permitted", plant_ids=("68019",), families=("solar",))
+    postponed = b("prop_POST", 250, "postponed", plant_ids=("68019",), families=("solar",))
+    placed = rules.label_site([postponed, permitted])
+    assert [(p.basis.public_id, p.label.relation, p.parent) for p in placed] == [
+        ("prop_LIVE", "lead", None),
+        ("prop_POST", "unit_of", "prop_LIVE"),
+    ]
+
+
 def test_a_member_without_capacity_ranks_after_every_stated_one() -> None:
     assert rules.rank([b("prop_A", None), b("prop_B", 0.5)])[0].public_id == "prop_B"
 
@@ -109,6 +140,22 @@ def test_expansion_stated_by_the_source_named_or_inferred_from_an_operating_memb
     )
     big_new = b("prop_BIG", 500, "studied", families=("wind",), stems=("dersalloch",))
     assert rules.label(operating, big_new).relation == "expanded_by"
+
+
+def test_a_postponed_member_is_no_live_addition_and_no_withdrawn_filing() -> None:
+    """The expansion and later-filing labels are for a live filing: a postponed group head the
+    earlier rules do not place is `same_site`, never `expansion_of` / `expanded_by`, and, as it is
+    not withdrawn, never `refiling_of` / `superseded_by`."""
+    operating = b("prop_OP", 69, "built", families=("wind",), stems=("dersalloch",))
+    named = b("prop_N", 20, "postponed", families=("wind",), stems=("dersalloch",), expansion_marker=True)
+    later = b("prop_L", 50, "postponed", families=("wind",), stems=("dersalloch",), filing_date="2025-01-01")
+    unclear = rules.Label("same_site", "grouped_relation_unclear", "low")
+    assert rules.label(named, operating) == unclear
+    assert rules.label(later, operating) == unclear
+    # Against a postponed lead (no member live), an operating member does not "expand" it either.
+    assert rules.label(operating, later) == unclear
+    lead = b("prop_NEW", 300, "filed", filing_date="2024-07-31", families=("wind",), stems=("dersalloch",))
+    assert rules.label(later, lead) == unclear
 
 
 def test_refiling_superseded_and_unclear() -> None:

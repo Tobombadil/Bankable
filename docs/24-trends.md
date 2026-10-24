@@ -325,8 +325,14 @@ A month held from several routes keeps the most authoritative copy (`base.ROUTE_
 **EIA-860M.** Each sheet is a block: `operating` (by technology, state, status: OP, SB, OS, OA),
 `planned` (by technology, state, status: P, L, T, U, V, TS, OT, and expected year), `retired` (by
 technology, state, retirement year), `canceled_postponed` (by technology, state), and
-`planned_retirements` (Operating-sheet generators with a planned retirement year, by that year). A
-tally is generators counted and net summer MW summed; nameplate MW beside it where the workbook states it.
+`planned_retirements` (Operating-sheet generators with a planned retirement year, by that year). The
+`operating` and `planned` blocks are also tallied by state and status together and by technology and
+status together (`by_state_status`, `by_technology_status`; parser 1.1.0, 2026-10-24): each key is the
+pair joined by `|` (`US-TX|U`, `solar|TS`; a row with no status is `<key>|_unstated`, as the status
+tally counts it), so a state's or a technology's planned capacity splits by stage as the national
+figure does (§11.1). Each generator is in exactly one pair, so a paired tally summed onto either of
+its keys is the single tally (the tests pin it on both fixtures, the measurement on all 135 months,
+§9.6). A tally is generators counted and net summer MW summed; nameplate MW beside it where the workbook states it.
 Technology is the register's classifier (`pipeline.normalize.classify_tech`) except four EIA labels it
 misreads, read by the label (`EIA_TECHNOLOGY`: "Solar Thermal without Energy Storage" matches its storage
 rule, "Coal Integrated Gasification Combined Cycle" its combined-cycle rule, and flywheels are storage);
@@ -437,7 +443,11 @@ system), check (§9.4), write the month's document. Then the run record, last.
   copy left stays under its old parser (recovery: the inbox, above). Two months read by different
   parsers are never compared: `mom` and `yoy` need one parser on both points, and the line lists
   the break with both versions, so a month left behind, or a restatement in progress, keeps its
-  value and makes no false change.
+  value and makes no false change. EIA's parser 1.1.0 (2026-10-24, the paired tallies of §9.2) is
+  such a change: the next run after it lands restates every stored month, July 2015 on, from the
+  snapshot its document's `raw.snapshot` names, without a request for the file (§9.6). A month still
+  under 1.0.0 has no point on the paired lines and no filtered planned-against-operating figure
+  (§11.1) until it is restated.
 - **Snapshot names.** Each month's snapshot is `<ts>.<n>-<YYYY-MM>.xlsx`. DA-10 compaction
   (`services/retention/snapshots.py`) keeps the newest snapshot of each extension (the name after its
   first dot), so each of these, an extension of its own, is never compacted; a test pins the naming,
@@ -502,10 +512,21 @@ its length (EIA 37 minutes, measured below), and that source's fetch and load wa
 | ERCOT `auto`, fix round (2026-10-24; a hardlinked copy of the same data root): the fuel-first technology, the new checks | 1 (the listing) | 0 | 94 replaced from snapshots, 82 `pass`, 12 `warn` (unlisted codes only), none held; every document has the listing's name and publication date again | 29 to 31 s |
 | EIA `auto`, fix round, first | 5 (the index, its placeholder months, September's file) | 14,013,970 | 135 replaced from snapshots; the origin's September answered 200, not 304: the 23:52 run's 304 had recorded the ETag alone, and asked with If-None-Match alone EIA's server sends the whole file (fixed: a 304 keeps the validators it does not repeat) | 19 min 59 s |
 | ERCOT and EIA `auto` again, under the final code of the round (its last changes restate every month once more) | ERCOT 1; EIA 5, September a 304 | 0 | ERCOT 94 replaced, 82 `pass`, 12 `warn`; EIA 135 replaced, 116 `pass`, 19 `warn` (the Retired list's four restated and four shrunken months, the planned retirements' three drifts, eight status codes, four months of 100 MW or more with no technology), none held | ERCOT 29 s, EIA 16 min 58 s |
+| EIA `monthly`, parser 1.1.0 (2026-10-24, lane eia-tally: the paired tallies of §9.2), against copies of the shared data root's documents and run records, its snapshots read in place; the origin item refused offline on purpose, so the run is `partial` | 0 (one refused) | 0 | 135 replaced from the snapshots their `raw.snapshot` names (2015-07 to 2026-09), each `dq` status as before (116 `pass`, 19 `warn`), none held | 18 min 30 s |
 
-A document is 4.3 to 7.6 KB (ERCOT) and 35 to 65 KB (EIA); the two archives' documents take
-8.4 MB on disk (EIA 7.9 MB, ERCOT 0.6 MB), the snapshots 1.2 GB (EIA's yearly zips are not kept, only their members, one
-snapshot per month). Headline figures, as each source lists them: ERCOT's queue held 367 projects and
+Read against the documents parser `1.0.0+8ad6632f` wrote, the 1.1.0 documents hold every earlier
+key unchanged except one: the starting commit's classifier (`pipeline/normalize.py`, changed by an
+earlier lane, not by 1.1.0) reads EIA's "Other Gases" as `gas_other`, not `other`, so `by_technology`
+moves in every month (September 2026's operating `gas_other` 343.6 to 2,115.9 MW, `other` 3,241.5 to
+1,469.2 MW; planned in 42 months, planned retirements in 30). Every month's paired tallies, summed
+onto either key, are its state, technology and status tallies, generators and MW exactly.
+
+A document is 4.3 to 7.6 KB (ERCOT) and, with the paired tallies, 73 to 141 KB (EIA; 35 to 65 KB
+before them); the two archives' documents take 18.0 MB on disk (EIA 17.4 MB, 7.9 MB before; ERCOT
+0.6 MB), the snapshots 1.2 GB (EIA's yearly zips are not kept, only their members, one
+snapshot per month). The trends reader's cache of the 135 EIA months is 23.2 MB per API process
+(9.3 MB before; 52.6 MB at its peak while the documents are read, 23.4 MB before) and a cold read
+1.4 s (0.6 s), measured with `tracemalloc` on the scratch root. Headline figures, as each source lists them: ERCOT's queue held 367 projects and
 70,634 MW in December 2018 and 1,758 projects and 438,496 MW in September 2026 (three bases, §9.2);
 EIA-860M's planned generators were 1,150 and 95,655 MW net summer in July 2015 and 2,358 and 282,834 MW
 in September 2026, and operating capacity 1,063,722 MW and 1,324,125 MW (50 states and DC).
@@ -637,7 +658,8 @@ that never reach EIA's survey.
 **Every figure is a series point.** Each figure names the `GET /v1/trends` series it is a point of (`series`:
 one query for MW and one for the generator count, both bounded to the month) and the `lines` whose values at
 the month add up to it: `total` for a national total, the state or technology key for a filtered one, the
-status codes for a stage. A line the series does not have reads as zero only where that zero is true: a
+status codes for a stage, and under a filter the pairs of the keys asked for and the stage's codes
+(`US-TX|U`, `US-TX|V` for Texas under construction, read from `by=state_status`). A line the series does not have reads as zero only where that zero is true: a
 state is one of the 50 and DC, every one of which the month's state tally covers, and a technology must be a
 key of the month's technology tally on the operating or the planned side. The register's vocabulary
 (`services/labels.py` `TECHNOLOGY_LABELS`) also holds the opportunity and asset tokens (`solar_pv`, `bess`,
@@ -652,7 +674,8 @@ tally is a 400 that names the month's tokens. A token held on one side only (coa
 2026) is a true zero on the other. With no month served, the register's vocabulary is the only check and no
 figure is served. The tests ask every figure's series through the app and compare, and the measurement did
 the same on the September 2026 document: 169 figures across the national view, three states and one
-technology filter matched their series.
+technology filter matched their series, and on the restated document (parser 1.1.0) 1,063 figures across
+the nation, every state and every technology, the stage splits included (§11.5).
 
 **Planned is split by stage.** The mapping is served under `stage_mapping`:
 
@@ -675,22 +698,18 @@ lane hand-back, 2026-10-24). A code outside the vocabulary (EIA's Planned sheet 
 total.
 
 **Filters.** `state` (US-XX in either case, comma-separated, the 50 states and DC; anything else is a 400)
-reads the state lines; `technology` (the served month's tokens, above) reads the technology lines. The monthly
-document tallies status for the 50 states and DC together, and state and technology each on its own, so under
-either filter `planned.by_stage` and `operating.by_status` are null and `planned.by_stage_note` says why, and
-the other breakdown is null too; `state` and `technology` together are refused.
-
-**Open: filtered views have no stage split, against the PLAN row's "planned is always split by stage".** The
-review of 2026-10-24 found this a breach of rule (2) of the row, written down here but not in the decisions
-log. Two ways out: (a) add planned-by-state-and-status and
-planned-by-technology-and-status tallies to the EIA-860M monthly document (`pipeline/connectors/history/eia860m`,
-every month restated from its stored snapshot, which each document's `raw.snapshot` names, §9.3) with matching
-`GET /v1/trends` series, so a state's stage split reproduces like every other figure; or (b) the owner accepts
-unsplit filtered views and the decision is recorded in `docs/00-PLAN.md`. Coordinator, 2026-10-24: (a), because
-the PLAN row already sets the rule and (a) needs no new source or licence; it runs as its own lane once the
-filter-fix lane has released `pipeline/connectors/history/eia860m`. Until it lands, a filtered
-view's planned total is served unsplit with the note, and no line for readers should quote a state's or a
-technology's planned MW as if it were split (§11.5's state table is unsplit and says so).
+reads the state lines; `technology` (the served month's tokens, above) reads the technology lines. Planned is
+split by stage under either filter as without one, and operating by status: the month's paired tallies
+(`by_state_status`, `by_technology_status`, §9.2) are served as the `state_status` and `technology_status`
+breakdowns of the same four series, so `planned.by_stage` under `state=US-TX` is the Texas pairs of each
+stage's codes, every stage listed (zeros too), shares of Texas's planned MW, and the stages add up to Texas's
+total like every other split (coordinator's call (a), 2026-10-24, which closed the open breach of the PLAN
+row's "planned is always split by stage" found by the review of the same day). Under a state filter the
+technology breakdown is null, under a technology filter the state breakdown; `state` and `technology` together
+are refused (the document tallies no state by technology). A served month without the paired tally a filter
+reads (one still under parser 1.0.0, §9.3) serves no figure under that filter: `power_plants` is null and
+`power_plants_note` names the month, so a state's planned MW is never served unsplit; the national view, which
+reads the `status` lines, is served as before.
 
 ### 11.2 The historical completion rate: one fixed, cited line
 
@@ -784,13 +803,30 @@ connector into a scratch data root; the same totals as §9.6):
 | Early or other (P, OT) | 695 | 97,533.5 (34.5%) |
 
 The stages add up to the total (2,358 generators, 282,834.4 MW), and TS plus U and V are the first version's
-96,236.0 MW "under construction" (1,029 generators). The states below have no stage split (§11.1, open):
+96,236.0 MW "under construction" (1,029 generators). Since parser 1.1.0 (lane eia-tally, 2026-10-24, on the
+135 restated documents, §9.6) a state's and a technology's planned capacity splits by stage too. MW, with
+generators and the stage's share of the state's or technology's own planned MW:
 
-| State | Operating MW (generators) | Planned MW (generators), not split by stage | Planned as % of operating |
-|---|---|---|---|
-| US-TX | 196,421.3 (2,501) | 91,077.4 (539) | 46.4 |
-| US-CA | 104,627.9 (3,243) | 19,937.0 (217) | 19.1 |
-| US-VA | 29,940.6 (756) | 7,300.4 (62) | 24.4 |
+| | Operating MW (generators) | Planned MW (generators) | Complete, not operating (TS) | Under construction (U, V) | Approvals received (T) | Approvals pending (L) | Early or other (P, OT) |
+|---|---|---|---|---|---|---|---|
+| US-TX | 196,421.3 (2,501) | 91,077.4 (539), 46.4% of operating | 9,785.6 (52), 10.7% | 19,958.5 (108), 21.9% | 6,099.0 (33), 6.7% | 15,629.0 (83), 17.2% | 39,605.3 (263), 43.5% |
+| US-CA | 104,627.9 (3,243) | 19,937.0 (217), 19.1% | 1,833.8 (26), 9.2% | 6,350.7 (98), 31.9% | 3,913.8 (25), 19.6% | 2,215.8 (16), 11.1% | 5,622.9 (52), 28.2% |
+| US-VA | 29,940.6 (756) | 7,300.4 (62), 24.4% | 50.2 (1), 0.7% | 3,498.6 (23), 47.9% | 308.1 (6), 4.2% | 1,581.0 (14), 21.7% | 1,862.5 (18), 25.5% |
+| solar | 169,644.1 (8,355) | 121,024.3 (1,100) | 10,711.5 (97), 8.9% | 35,755.0 (514), 29.5% | 14,197.6 (140), 11.7% | 31,528.0 (182), 26.1% | 28,832.2 (167), 23.8% |
+| storage | 55,779.8 (1,153) | 63,916.4 (483) | 2,785.2 (29), 4.4% | 20,295.0 (210), 31.8% | 5,295.5 (41), 8.3% | 15,831.1 (85), 24.8% | 19,709.6 (118), 30.8% |
+| gas_cc | 295,138.4 (1,945) | 44,258.1 (236) | 1,696.5 (4), 3.8% | 5,066.4 (17), 11.4% | 2,629.9 (6), 5.9% | 6,125.6 (16), 13.8% | 28,739.7 (193), 64.9% |
+| wind | 165,284.1 (1,577) | 17,865.5 (73) | 1,363.6 (6), 7.6% | 7,987.9 (23), 44.7% | 1,638.7 (7), 9.2% | 3,409.1 (17), 19.1% | 3,466.2 (20), 19.4% |
+
+Under construction is 28.0% of planned nationally but 21.9% in Texas, where 43.5% is early or other (P,
+regulatory approvals not initiated, or OT); 64.9% of planned gas combined cycle is at that stage. Each row's stages add up to its planned
+figure. On the restated documents, for the nation, each of the 51 jurisdictions, each of the month's 20
+technology tokens, `state=US-TX,US-CA,US-VA` and `technology=solar,storage` (74 requests), every figure served
+(1,063: both sides, every stage and status row, every breakdown row) is the sum of its named lines at 2026-09
+in the series it names, asked through the app (24 distinct series queries), with no mismatch, and every split
+adds up to its figure. The 51 states' stages sum to the national stages exactly, and so do the 20
+technologies' (157 generators and 17,155.2 MW complete, 872 and 79,080.8 under construction, 228 and 26,192.3
+approvals received, 406 and 62,872.6 pending, 695 and 97,533.5 early). No state has no planned generator in
+September 2026; a state with none would list every stage at zero.
 
 By technology, planned storage (63,916.4 MW) exceeds operating storage (55,779.8 MW); planned solar is
 121,024.3 MW against 169,644.1 MW operating; planned gas combined cycle 44,258.1 MW against 295,138.4 MW. The
@@ -808,7 +844,32 @@ each after one cold. The review fix round, 2026-10-24, the code before and after
 the machine shared with other lanes: national 29.7 / 49.9 ms p50/p95 before, 29.3 / 44.8 ms after (29 KB;
 the process's first request about 400 ms, the document read and the app's first request); US-TX 29.1 / 40.9
 ms (9 KB); US-CA 28.3 / 40.2 ms; US-VA 26.1 / 31.0 ms; `technology=solar` 7.5 / 14.9 ms (7 KB, no data-centre
-query). The first round measured 24.4 / 33.8 ms national on a quieter machine. The e2e store holds no `load`
+query). The first round measured 24.4 / 33.8 ms national on a quieter machine.
+
+Lane eia-tally (2026-10-24, the same method, the machine shared with other lanes): the starting code on the
+1.0.0 documents (the shared data root, read only) before, this lane's code on the restated 1.1.0 documents
+after, p50 / p95 over 50 warm requests:
+
+| Request | Before | After |
+|---|---|---|
+| national | 34.2 / 44.0 ms (28.7 KB) | 35.9 / 51.6 ms (28.6 KB) |
+| `state=US-TX` | 33.4 / 41.8 ms (9.4 KB, unsplit) | 34.6 / 44.3 ms (11.1 KB, split) |
+| `state=US-CA` | 35.7 / 44.3 ms | 35.4 / 40.2 ms |
+| `state=US-VA` | 33.1 / 48.6 ms | 33.7 / 57.4 ms |
+| `technology=solar` | 12.1 / 20.8 ms (6.5 KB) | 14.8 / 26.5 ms (8.1 KB) |
+| `technology=gas_cc` | 12.7 / 23.6 ms | 13.3 / 15.2 ms |
+| Texas's `planned.series`, `GET /v1/trends` `by=state`, one month | 68.2 / 218.8 ms (25 KB) | 19.5 / 25.7 ms |
+| Texas's `planned.by_stage.series`, `by=state_status`, one month | (no such series) | 49.9 / 180.6 ms (143 KB, 331 lines) |
+| Texas's `operating.by_status.series`, `by=state_status`, one month | (no such series) | 38.3 / 46.2 ms (80 KB) |
+
+The endpoint itself is unchanged within the noise: it reads the cached month, not the series. A request
+after the cache is dropped (all 135 documents read again) took 0.11 to 0.41 s before and 0.21 to 0.27 s after,
+the documents being 2.2 times larger. A bounded `GET /v1/trends` now reads only its window and the year before
+it (its changes need that year; its breaks are still the whole archive's): before that change, the one-month
+`state_status` series took 536 / 692 ms, all 135 months of its 331 lines being built to serve one. 296 bounded
+queries over every EIA series, breakdown and eight windows matched the read of every month exactly (2.5 s
+against 23.2 s). Unbounded, `us_planned_capacity_mw` `by=state_status` is 16.6 MB and 0.66 s in process
+(`by=state` 2.6 MB and 0.07 s). The e2e store holds no `load`
 record (it is built from the 2026-09-12 evaluation fixture, before the data-centre sources), so its data-centre
 block reads zero records, null demand MW and zero sites, and neither the data-centre figure, the reproduction
 of its list on real rows nor its timing with real rows has been measured (the dev store has none either). The
@@ -825,8 +886,8 @@ today (DOE, 2024)", national only.
 
 ### 11.6 Not yet
 
-- A state's or a technology's planned MW by stage: open against the PLAN row until the two-level tally lane
-  lands (option (a), the coordinator's call of 2026-10-24, §11.1).
+- A state's planned MW by technology (and so by technology and stage within a state): the document tallies no
+  state by technology, and the two filters together are refused (§11.1).
 - The production store's data-centre figure; the e2e and dev stores have no load records, and the two
   data-centre registers state no MW (§11.3).
 - A data-centre-only selection: `kind=load` is data centres and other large loads, as the site counts them.

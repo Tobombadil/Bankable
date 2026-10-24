@@ -17,7 +17,13 @@
 # v1 -> v2 (2026-10-21, docs/22 §25): the eligibility gate (`rules.eligibility`), `ccs` mapped and
 # `microgrid` / `metering` / `load` excluded (`rules.technology`), and `national_kinds`
 # (`rules.jurisdiction`). Weights, threshold, size window and timing are unchanged.
-rule_set_version: match-rules@v2
+#
+# v2 -> v3 (2026-10-24, docs/22 §25.10): `postponed` joins `timing.proposal_excluded_states`. The new
+# lifecycle state (EIA-860M's "canceled or indefinitely postponed" units, docs/22 §3.3) is not a live
+# project, so it is not offered against an open notice, like withdrawn, cancelled and built. Nothing
+# else moves, and no labelled pair carries a postponed proposal, so every measured figure of v2 below
+# holds for v3 unchanged (`python -m services.match.eval --sweep` prints the same lines).
+rule_set_version: match-rules@v3
 
 # Public display gate (coordinator decision, 2026-09-26). docs/10 US-401 AC3 sets the bar at
 # precision >= 0.7 at the default threshold; this rule set measured 0.250 (5/20, 95 % CI
@@ -165,7 +171,9 @@ rules:
     open_statuses: [announced, open, reinstated]
     unknown_status_credit: 0.5   # `status = unknown`: not known to be closed
     no_deadline_credit: 0.5      # open with no stated `due_at`
-    proposal_excluded_states: [withdrawn, cancelled, built]
+    # Not a live project: no notice is offered to it. `postponed` since v3 (docs/21 §7.1: it is in
+    # none of the active groups).
+    proposal_excluded_states: [withdrawn, cancelled, built, postponed]
   eligibility:
     # v2 gate (docs/22 §25.2), unweighted. A notice can match a project only when
     # (a) it is about energy at all: `services/match/relevance.py` (shared with the API for the

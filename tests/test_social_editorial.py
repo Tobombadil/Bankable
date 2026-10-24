@@ -239,6 +239,15 @@ class TestEligibility:
         assert channels_for_event(proposal_new(voltage_kv=115.0, **no_capacity)) != ()
         assert channels_for_event(proposal_new(capex_usd=150_000_000.0, **no_capacity)) != ()
 
+    def test_proposal_new_listed_as_postponed_never_posts(self) -> None:
+        """docs/21 §7.1: a unit EIA first lists on its "Canceled or Postponed" sheet (a re-filed
+        generator id) is no new proposal, whatever its size; a move to `postponed` is off the ladder."""
+        listed = proposal_new(capacity_mw=900.0, technology="gas", status_to="postponed")
+        assert channels_for_event(listed) == ()
+        assert channels_for_event(proposal_new(capacity_mw=900.0, technology="gas", status_to="filed")) != ()
+        moved = proposal_status_changed(status_from="permitted", status_to="postponed", capacity_mw=900.0)
+        assert channels_for_event(moved) == ()
+
     def test_proposal_new_with_no_size_field_at_all_never_posts(self) -> None:
         event = proposal_new(capacity_mw=None, load_mw=None, voltage_kv=None, capex_usd=None, technology=None)
         assert channels_for_event(event) == ()

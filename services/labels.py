@@ -104,6 +104,7 @@ LIFECYCLE_LABELS: dict[str, str] = {
     "built": "Built",
     "withdrawn": "Withdrawn",
     "cancelled": "Cancelled",
+    "postponed": "Postponed",
     "open": "Open",
     "frozen": "Frozen",
     "reinstated": "Reinstated",

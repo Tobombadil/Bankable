@@ -77,13 +77,15 @@ def test_every_labelled_notice_has_a_context_row() -> None:
 
 
 def _v1_doc() -> dict[str, Any]:
-    """The committed file with every v2 change taken out: what match-rules@v1 was."""
+    """The committed file with every v2 and v3 change taken out: what match-rules@v1 was."""
     doc: dict[str, Any] = copy.deepcopy(yaml.safe_load(DEFAULT_RULES_PATH.read_text(encoding="utf-8")))
     doc["rule_set_version"] = "match-rules@v1"
     doc["rules"].pop("eligibility")
     doc["rules"]["technology"].pop("excluded_tokens")
     doc["rules"]["technology"]["families"].pop("ccs")
     doc["rules"]["jurisdiction"].pop("national_kinds")
+    # v3's one change: v1 and v2 knew no `postponed` state.
+    doc["rules"]["timing"]["proposal_excluded_states"].remove("postponed")
     return doc
 
 
@@ -222,7 +224,7 @@ def test_wilson_interval() -> None:
 
 def test_report_and_cli(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     lines = report_lines(read_labels(), load_rules(), sweep=True)
-    assert lines[0].startswith("rule set match-rules@v2")
+    assert lines[0].startswith("rule set match-rules@v3")
     assert any(line.startswith("all    185") for line in lines)
     assert any(line.startswith("  2026-10-20 test  n=62") and "1.000 (0.610-1.000)" in line for line in lines)
     assert any("threshold sweep" in line for line in lines)

@@ -52,6 +52,7 @@ STATUS_GROUP_FAMILY = {
     "built": "success",
     "withdrawn": "danger",
     "unknown": "neutral",
+    "postponed": "danger",
 }
 #: The status groups whose records are active pipeline: counted only while a register lists them.
 ACTIVE_GROUPS = frozenset(

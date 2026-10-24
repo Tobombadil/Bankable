@@ -180,7 +180,9 @@
     map isn't dominated by dead projects") on the list page too (designer audit 2026-09-30 D-11);
     each surface now says what it hides in its own terms, with the same counts.
     `built_href` (UX-1, 2026-10-07): the built count is a link to the same view with built
-    proposals added, and the sentence names the Status control that shows the rest. -#}
+    proposals added, and the sentence names the Status control that shows the rest.
+    `breakdown.unknown` counts `unknown` and `postponed` together (web/app.py `lifecycle_counts`, one
+    call), so the words name both: a postponed project is never called unknown-state. -#}
 {% macro built_count(breakdown, built_href) -%}
 {%- if built_href and breakdown.built -%}<a href="{{ built_href }}" class="view-notice__show">{{ breakdown.built|thousands }} built</a>{%- else -%}{{ (breakdown.built or 0)|thousands }} built{%- endif -%}
 {%- endmacro %}
@@ -190,22 +192,22 @@
   {%- if include_withdrawn -%}
   Showing {{ (breakdown.active + breakdown.withdrawn)|thousands }} proposals, including {{ breakdown.withdrawn|thousands }} withdrawn or cancelled
   {%- if breakdown.other %}
-  {%- if has_split %} ({{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} unknown-state{% endif %} proposals are outside this view)
-  {%- else %} ({{ breakdown.other|thousands }} built or unknown-state proposals are outside this view){% endif %}
+  {%- if has_split %} ({{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} postponed or unknown-state{% endif %} proposals are outside this view)
+  {%- else %} ({{ breakdown.other|thousands }} built, postponed or unknown-state proposals are outside this view){% endif %}
   {%- endif -%}.
   {%- elif surface == "list" -%}
   Showing {{ breakdown.active|thousands }} active proposals (announced through under construction).
   Withdrawn and cancelled proposals ({{ breakdown.withdrawn|thousands }}) are hidden by default
   {%- if breakdown.other %}
-  {%- if has_split %}, as are {{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} unknown-state{% endif %} ones
-  {%- else %}, as are {{ breakdown.other|thousands }} built or unknown-state ones{% endif %}
+  {%- if has_split %}, as are {{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} postponed or unknown-state{% endif %} ones
+  {%- else %}, as are {{ breakdown.other|thousands }} built, postponed or unknown-state ones{% endif %}
   {%- endif -%}.
   {%- else -%}
   Showing {{ breakdown.active|thousands }} active proposals (announced through under construction).
   {{ breakdown.withdrawn|thousands }} withdrawn or cancelled {{ 'is' if breakdown.withdrawn == 1 else 'are' }} hidden by default
   {%- if breakdown.other %}
-  {%- if has_split %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} unknown-state{% endif %}
-  {%- else %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ breakdown.other|thousands }} built or unknown-state{% endif %}
+  {%- if has_split %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ built_count(breakdown, built_href) }}{% if breakdown.unknown %} and {{ breakdown.unknown|thousands }} postponed or unknown-state{% endif %}
+  {%- else %}, as {{ 'is' if breakdown.other == 1 else 'are' }} {{ breakdown.other|thousands }} built, postponed or unknown-state{% endif %}
   {%- endif -%}.
   {%- endif %}
   {#- The map keeps its status row short (the map must start above the fold at 400px); its
@@ -246,7 +248,7 @@
         Include proposals no register lists any more
       </label>
     </div>
-    <p class="filter-field__note filter-unlisted__note">Always included while Built, Withdrawn or Status unknown is ticked.</p>
+    <p class="filter-field__note filter-unlisted__note">Always included while Built, Withdrawn, Status unknown or Postponed is ticked.</p>
   </div>
   {%- endif %}
   </div>

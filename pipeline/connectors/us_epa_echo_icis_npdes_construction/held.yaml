@@ -2,12 +2,20 @@
 # docs/08 §4.1 "Built"). Reviewed by hand against the store's EPA ICIS-Air and Virginia DEQ frames of 2026-10-09
 # on the ECHO file of 2026-10-18.
 #   duplicate: the site is a campus another source already holds (within 300 m, or farther with the held record's
-#     own building code or name). pipeline/resolve.py compares names, counties and registry ids, not points, so
-#     the two would be published as two records, often in contradicting states.
+#     own building code or name), and pipeline/resolve.py does not merge the two, so they would be published as
+#     two records, often in contradicting states. Point nearness alone never merges (docs/22 §28), and what still
+#     separates the 34 duplicates below is their names: 32 score under 70 against the held record (rule N;
+#     "APPLE DATA CENTER" beside the developer's "PLATYPUS DEVELOPMENT" at one point), and LYH10 and LYH03 lie
+#     709 m and 1,122 m from theirs, beyond the 500 m within which differently named records are compared.
 #   bridge: the resolver joins the site to held records of distinct campuses (a wrong merge).
-# Release an entry when the resolver compares points (docs/08 §4.1). A site is held when any of its permits is
-# listed; `held_record` is the record it duplicates (or, for a bridge, the one of its own campus), `m` the distance
-# between their points, `uncertain` a judgement the reviewer could not settle from names and points.
+# Release an entry when the resolver merges it with its held record and nothing else (the check of docs/22 §28.5).
+# A site is held when any of its permits is listed;
+# `held_record` is the record it duplicates (or, for a bridge, the one of its own campus), `m` the distance between
+# their points, `uncertain` a judgement the reviewer could not settle from names and points.
+# `released` lists the entries released on 2026-10-24 by rule L (lane resolver-veto): each was checked with the
+# hold list emptied, against ICIS-Air and Virginia DEQ (2026-10-09), Loudoun (live layer, 2026-10-24) and the FAA
+# frame (2026-10-24), with and without FAA: the site shares one cluster with its held record, and every other
+# member is labelled the same site (data/eval/load_pair_labels.csv) or shares the held record's registry id.
 reviewed: 2026-10-24
 held:
   - npdes_id: AZC116834
@@ -15,11 +23,6 @@ held:
     reason: duplicate
     held_record: us.epa.echo.icis_air:AZMCA000000F003392
     m: 0
-  - npdes_id: VAR10S340
-    name: "H5 DATA CENTER"
-    reason: duplicate
-    held_record: us.va.deq.data_center_air_sites:74276
-    m: 11
   - npdes_id: VAR10P913
     name: "AREP BEAUMEADE DATA CENTER"
     reason: duplicate
@@ -45,16 +48,6 @@ held:
     reason: duplicate
     held_record: us.epa.echo.icis_air:IL000043090AKS
     m: 38
-  - npdes_id: COR03K655
-    name: "COMPARK DATA CENTER"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:CO0000000803500754
-    m: 47
-  - npdes_id: VAR10Q014
-    name: "ASHBURN TO LOCKRIDGE DATA CENTER ASH 2 LOCKRIDGE"
-    reason: duplicate
-    held_record: us.va.deq.data_center_air_sites:74232
-    m: 51
   - npdes_id: VAR10M817
     name: "MIDDLETOWN DATA CENTER"
     reason: duplicate
@@ -70,11 +63,6 @@ held:
     reason: duplicate
     held_record: us.va.deq.data_center_air_sites:74269
     m: 66
-  - npdes_id: ILR10ZC4M
-    name: "PRIME DATA CENTERS ORD-1 ELK GROVE VILLAGE"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:IL000031440AWZ
-    m: 68
   - npdes_id: VAR10Q910
     name: "DULLES BERRY LC4 DATA CENTER"
     reason: duplicate
@@ -96,11 +84,6 @@ held:
     reason: duplicate
     held_record: us.va.deq.data_center_air_sites:52903
     m: 106
-  - npdes_id: COR03M055
-    name: "ONE NECK DENVER DATA CENTER"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:CO0000000803500770
-    m: 111
   - npdes_id: VAR10S447
     name: "AVC43 DATA CENTER"
     reason: duplicate
@@ -136,11 +119,6 @@ held:
     reason: duplicate
     held_record: us.epa.echo.icis_air:IL000043407ABA
     m: 212
-  - npdes_id: CAZ478830
-    name: "VANTAGE V6 DATA CENTER"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:CABAAA0798
-    m: 218
   - npdes_id: ILR10ZEAV
     name: "CH4 DATA CENTER"
     reason: duplicate
@@ -177,11 +155,6 @@ held:
     reason: duplicate
     held_record: us.va.deq.data_center_air_sites:52973
     m: 262
-  - npdes_id: GAR18B011
-    name: "ATL EAST DATA CENTER"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:GA0000001324700076
-    m: 263
   - npdes_id: COR427306
     name: "GUN CLUB ROAD DATA CENTER - PHASE 2"
     reason: duplicate
@@ -198,36 +171,11 @@ held:
     reason: duplicate
     held_record: us.epa.echo.icis_air:CO0000000800501711
     m: 310
-  - npdes_id: VAR10T763
-    name: "MNZ03 DATA CENTER"
-    reason: duplicate
-    held_record: us.va.deq.data_center_air_sites:74236
-    m: 350
   - npdes_id: VAR10T165
     name: "AVC17 DATA CENTER"
     reason: duplicate
     held_record: us.va.deq.data_center_air_sites:53086
     m: 384
-  - npdes_id: TXR15141R
-    name: "SHARKA DATA CENTER"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:TX0000004813901671
-    m: 403
-  - npdes_id: GAR18B724
-    name: "VANTAGE DATA CENTERS GA 21"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:GA0000001312100982
-    m: 428
-  - npdes_id: ILR10J445
-    name: "ALLSTATE DATA CENTER-ROCHELLE"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:IL000141050ABT
-    m: 447
-  - npdes_id: AZCN95237
-    name: "ALIGNED ENERGY DATA CENTER"
-    reason: duplicate
-    held_record: us.epa.echo.icis_air:AZMCA004013X135352
-    m: 450
   - npdes_id: VAR10R556
     name: "LYH10 DATA CENTER"
     reason: duplicate
@@ -251,3 +199,64 @@ held:
     note: >-
       Fuzzy-matches four Virginia DEQ Vantage records (VA16, VA11-15, VA2, VA3; DEQ rows cite no frs id, so
       the frs veto cannot refuse them) and through them their ICIS-Air records: one cluster 11.7 km across.
+released:
+  - npdes_id: VAR10S340
+    name: "H5 DATA CENTER"
+    held_record: us.va.deq.data_center_air_sites:74276
+    m: 11
+    released: 2026-10-24
+  - npdes_id: COR03K655
+    name: "COMPARK DATA CENTER"
+    held_record: us.epa.echo.icis_air:CO0000000803500754
+    m: 47
+    released: 2026-10-24
+  - npdes_id: VAR10Q014
+    name: "ASHBURN TO LOCKRIDGE DATA CENTER ASH 2 LOCKRIDGE"
+    held_record: us.va.deq.data_center_air_sites:74232
+    m: 51
+    released: 2026-10-24
+  - npdes_id: ILR10ZC4M
+    name: "PRIME DATA CENTERS ORD-1 ELK GROVE VILLAGE"
+    held_record: us.epa.echo.icis_air:IL000031440AWZ
+    m: 68
+    released: 2026-10-24
+  - npdes_id: COR03M055
+    name: "ONE NECK DENVER DATA CENTER"
+    held_record: us.epa.echo.icis_air:CO0000000803500770
+    m: 111
+    released: 2026-10-24
+  - npdes_id: CAZ478830
+    name: "VANTAGE V6 DATA CENTER"
+    held_record: us.epa.echo.icis_air:CABAAA0798
+    m: 218
+    released: 2026-10-24
+  - npdes_id: GAR18B011
+    name: "ATL EAST DATA CENTER"
+    held_record: us.epa.echo.icis_air:GA0000001324700076
+    m: 263
+    released: 2026-10-24
+  - npdes_id: VAR10T763
+    name: "MNZ03 DATA CENTER"
+    held_record: us.va.deq.data_center_air_sites:74236
+    m: 350
+    released: 2026-10-24
+  - npdes_id: TXR15141R
+    name: "SHARKA DATA CENTER"
+    held_record: us.epa.echo.icis_air:TX0000004813901671
+    m: 403
+    released: 2026-10-24
+  - npdes_id: GAR18B724
+    name: "VANTAGE DATA CENTERS GA 21"
+    held_record: us.epa.echo.icis_air:GA0000001312100982
+    m: 428
+    released: 2026-10-24
+  - npdes_id: ILR10J445
+    name: "ALLSTATE DATA CENTER-ROCHELLE"
+    held_record: us.epa.echo.icis_air:IL000141050ABT
+    m: 447
+    released: 2026-10-24
+  - npdes_id: AZCN95237
+    name: "ALIGNED ENERGY DATA CENTER"
+    held_record: us.epa.echo.icis_air:AZMCA004013X135352
+    m: 450
+    released: 2026-10-24

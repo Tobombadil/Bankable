@@ -75,7 +75,9 @@ SOURCE_ID = "us.epa.echo.icis_npdes_construction"
 FIXTURE = pathlib.Path(__file__).with_name("fixtures") / "npdes_construction_data_centers.json"
 RETRIEVED = dt.datetime(2026, 10, 24, 1, 31, 2, tzinfo=dt.UTC)
 PLACEHOLDER = "[permittee removed from fixture]"
-HELD_IN_FIXTURE = ["CAZ478830", "ILR10ZC4M", "VAR10Q014", "VAR10Q048", "VAR10Q910", "VAR10S340"]
+#: Still held after rule L released 12 entries (2026-10-24, docs/22 §28): CAZ478830, ILR10ZC4M, VAR10Q014 and
+#: VAR10S340 of the fixture's six now merge with their held records and are emitted.
+HELD_IN_FIXTURE = ["VAR10Q048", "VAR10Q910"]
 
 
 def _snapshot(content: bytes | None = None, retrieved_at: dt.datetime = RETRIEVED) -> RawSnapshot:
@@ -120,7 +122,7 @@ def _doc() -> dict[str, Any]:
 # ------------------------------------------------------------------ selection
 def test_selection_keeps_data_centre_construction_coverage_and_rejects_each_exclusion() -> None:
     _, raw, rows, df = _run()
-    assert len(rows) == 27
+    assert len(rows) == 31
     assert raw.meta["permits_selected"] == 59
     assert raw.meta["excluded"] == {"crypto_mining": 3, "name_not_selected": 2, "not_construction": 5}
     assert raw.meta["construction_basis"] == {"component": 43, "master_component": 11, "master_title": 5}
@@ -302,29 +304,36 @@ def _clusters(frame: pd.DataFrame) -> list[list[str]]:
 def test_frs_ids_keep_one_operators_other_campuses_apart() -> None:
     """The reviewer's Texas case (2026-10-24): Vantage TX-B and TX-A (11.2 km apart) fuzzy-matched
     both of ICIS-Air's San Antonio Vantage records, so loading them made two held campuses one
-    record. With every permit's FRS id cited, the resolver refuses each pair whose FRS ids differ."""
+    record. With every permit's FRS id cited, the resolver refuses each pair whose FRS ids differ,
+    unless the two exact points lie within 500 m (rule L, docs/22 §28): TX-B and ICIS-Air's TX2,
+    316 m apart, are one campus. The ICIS-Air records carry their real placement: TX2 its exact
+    point, TX 11 none (its FRS point is not site-specific)."""
     _, _, _, df = _run()
     ours = df[df["source_record_id"].isin(["TXR1520QD", "TXR1544QG"])]
     held = []
-    for rid, name, frs in (
-        ("TX0000004802900726", "VANTAGE TX 11", "110070000726"),
-        ("TX0000004802900727", "VANTAGE DATA CENTER TX2", "110070000727"),
+    for rid, name, frs, point in (
+        ("TX0000004802900726", "VANTAGE TX 11", "110070000726", None),
+        ("TX0000004802900727", "VANTAGE DATA CENTER TX2", "110070000727", (29.481991, -98.700221)),
     ):
         r = ours.iloc[0].copy()
         r["source_id"], r["source_record_id"] = "us.epa.echo.icis_air", rid
         r["record_id"] = f"us.epa.echo.icis_air:{rid}"
         r["name_canonical"], r["name_norm"] = name, norm_name(name)
         r["cross_refs"], r["lifecycle_state"] = f"icis_air:{rid}|frs:{frs}", "built"
+        r["raw"] = json.dumps({"Latitude": point[0], "Longitude": point[1]} if point else {})
         held.append(r)
     frame = pd.concat([ours, pd.DataFrame(held)], ignore_index=True)
-    assert _clusters(frame) == []
-    # the same rows citing no FRS id (the previous cross_refs) chain all four into one cluster
+    tx2, tx_b = "us.epa.echo.icis_air:TX0000004802900727", f"{SOURCE_ID}:TXR1520QD"
+    assert _clusters(frame) == [[tx2, tx_b]]
+    # the same rows citing no FRS id (the previous cross_refs) chained all four into one cluster;
+    # the location veto now keeps TX-A, 11 km from TX-B and TX2, out of theirs
     bare = frame.copy()
     bare["cross_refs"] = [
         refs if sid != SOURCE_ID else "|".join(x for x in refs.split("|") if x.startswith("npdes:"))
         for refs, sid in zip(bare["cross_refs"], bare["source_id"], strict=True)
     ]
-    assert len(_clusters(bare)) == 1 and len(_clusters(bare)[0]) == 4
+    tx_a = f"{SOURCE_ID}:TXR1544QG"
+    assert all(not ({tx_a, tx_b} <= set(c) or {tx_a, tx2} <= set(c)) for c in _clusters(bare))
 
 
 def test_the_site_key_is_the_first_coverage_of_the_data_centre_itself() -> None:
@@ -359,7 +368,7 @@ def test_held_sites_are_listed_and_never_emitted() -> None:
 def test_the_hold_list_is_well_formed_and_reviewed() -> None:
     held_permits.cache_clear()
     listed = held_permits()
-    assert len(listed) == 47 and set(listed.values()) == {"duplicate", "bridge"}
+    assert len(listed) == 35 and set(listed.values()) == {"duplicate", "bridge"}
     assert listed["VAR10T675"] == "bridge"  # Vantage VA16: chained four Vantage campuses 11.7 km across
     import yaml
 
@@ -392,7 +401,7 @@ def test_the_permittee_never_reaches_a_record() -> None:
     assert "PERMIT_NAME" not in FIXTURE.read_text(encoding="utf-8")
     payload = json.dumps(_doc_with_permittee()).encode()
     c, raw, rows, df = _run(payload)
-    assert len(rows) == 27
+    assert len(rows) == 31
     for r in rows:
         text = json.dumps(r)
         assert "PERMIT_NAME" not in text and PLACEHOLDER not in text and "555-0100" not in text
@@ -431,9 +440,9 @@ def test_status_map_and_the_site_state() -> None:
     assert iron["status_permit"] == "AZC111426" and iron["PERMIT_STATUS_CODE"] == "EFF"
     assert iron["lifecycle_state"] == "under_construction"
     assert df["lifecycle_state"].value_counts().to_dict() == {
-        "under_construction": 15,
+        "under_construction": 18,
         "built": 7,
-        "unknown": 5,
+        "unknown": 6,
     }
     assert not df["status_rule"].str.endswith(".unmapped").any()
     assert set(df.set_index("source_record_id").loc[:, "status_rule"].str.rsplit(".", n=1).str[-1]) == {
@@ -999,7 +1008,7 @@ def test_a_first_run_reads_three_members_by_range_and_stores_only_the_candidates
     assert meta["members"][FACILITIES_MEMBER]["rows_total"] == 70
     assert meta["members"][PERMITS_MEMBER]["rows_total"] == 69 + 1 + len(_master_rows(fixture)) + 1
     assert meta["candidates"] == 69
-    assert first.run["rows_fetched"] == 27
+    assert first.run["rows_fetched"] == 31
     assert first.run["snapshot"]["requests_made"] == 5  # robots.txt + four ranged GETs
 
 

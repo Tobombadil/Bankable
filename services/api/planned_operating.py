@@ -15,14 +15,16 @@ month tallies: a state is one of the 50 and DC, which the month's state tally co
 a technology must be a key of the month's technology tally on one side or the other (any other
 token is refused, since EIA-860M's classifier never produces it and a zero would be false).
 
-**Planned is split by stage**, mapped from EIA's planned status codes (`STAGES`, served under
+**Planned is always split by stage**, mapped from EIA's planned status codes (`STAGES`, served under
 `stage_mapping`): construction complete, not yet in commercial operation (TS), under construction
 (U, V), regulatory approvals received (T), approvals pending (L), and early or other (P, OT). A code
-outside the vocabulary is its own `unmapped` row, so the stages always add up to the total. The
-monthly document tallies the status for the 50 states and DC together, and the state and the
-technology each on their own, so under a `state` or `technology` filter the planned total has no
-stage split (`by_stage` null, `by_stage_note` says why) and the operating status split is null too:
-a deviation from the PLAN row's "always split by stage" until the two-level tally lands (docs/24 §11.1).
+outside the vocabulary is its own `unmapped` row, so the stages always add up to the total, and the
+operating side splits by status the same way. Without a filter the split reads the `status` lines;
+under a `state` or `technology` filter it reads the month's paired tallies (`state_status`,
+`technology_status`: one line per state, or technology, and status, `US-TX|U`), so a state's stage
+split is a sum of series lines like every other figure (docs/24 §11.1). A served month without the
+paired tally a filter reads (one an earlier parser wrote) serves no figure under that filter, never
+an unsplit one (`POWER_PLANTS_NOT_RESTATED` names the month and its parser).
 
 **The completion rate is one fixed, cited line** (`COMPLETION_RATE`), never a computation: Berkeley
 Lab, Queued Up 2026: of the capacity that requested interconnection in 2000-2020, 13% had reached
@@ -53,8 +55,9 @@ technology at once.
 
 **Who sees what.** The power plants are served only while `us.eia.860m.history` is visible at the
 caller's tier (`visibility.source_visible`, the rule `GET /v1/trends` applies); otherwise
-`power_plants` is null and `power_plants_note` says which of the three reasons holds (not served at
-the tier, no month read, or the month lacks a tally the figures read). The licence summary has one
+`power_plants` is null and `power_plants_note` says which reason holds (not served at the tier, no
+month read, the month lacks a tally the figures read, or under a filter the month is not yet
+restated with the paired tallies). The licence summary has one
 row for the EIA month read and one per source of the data-centre records read.
 """
 
@@ -68,7 +71,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from pipeline.connectors.history.eia860m.connector import US_STATES_DC
+from pipeline.connectors.history.eia860m.connector import PAIRED, US_STATES_DC, split_pair
 from services.api.auth import AuthContext, get_auth_context
 from services.api.deps import get_db
 from services.api.errors import validation_error
@@ -140,11 +143,9 @@ STAGES: tuple[Stage, ...] = (
 UNMAPPED = Stage("unmapped", "A status outside EIA's planned codes, or none stated", ())
 _STAGE_OF = {code: stage for stage in STAGES for code in stage.codes}
 
-BY_STAGE_NOTE = (
-    "EIA-860M's monthly document tallies planned capacity by status for the 50 states and DC together, and "
-    "by state and by technology each on its own, so a state's or a technology's planned MW has no stage "
-    "split here; the request without a filter carries the national split."
-)
+#: The tally whose lines split a filtered figure by status: the filter's dimension with the status
+#: (`state` -> `state_status`, `technology` -> `technology_status`; the connector's `PAIRED`).
+PAIRED_BY: dict[str, str] = {first: paired for paired, first in PAIRED.items()}
 #: Why `power_plants` is null: one note per reason (`_eia_side`).
 POWER_PLANTS_NOT_SERVED = (
     "EIA-860M's monthly archive is not served at this tier (GET /v1/trends lists the series it serves)."
@@ -154,6 +155,22 @@ POWER_PLANTS_INCOMPLETE = (
     "EIA-860M's newest served month ({period}) lacks a sheet or a tally these figures read (operating and "
     "planned, each by technology, state and status), so no figure is served from it."
 )
+POWER_PLANTS_NOT_RESTATED = (
+    "EIA-860M's newest served month ({period}) was read by parser {parser}, before the monthly documents "
+    "tallied each state and each technology with the status, so a {filter} figure would have no stage split; "
+    "none is served until the month is restated from its stored snapshot (the archive's next run, "
+    "docs/24-trends.md section 9.3). The request without a filter is served."
+)
+
+
+class _NotServed(Exception):
+    """The newest served month cannot answer this request; `note` says why (`_eia_side`)."""
+
+    def __init__(self, note: str) -> None:
+        super().__init__(note)
+        self.note = note
+
+
 DATA_CENTRES_WITH_TECHNOLOGY = (
     "A technology filter selects power plants; data centres and other large loads are demand, not a "
     "power-plant technology, so they are left out."
@@ -351,16 +368,39 @@ def _figure(block: Mapping[str, Any], dim: str | None, keys: Sequence[str]) -> d
     return {"generators": generators, "mw": _mw(mw), "lines": list(keys)}
 
 
-def _stages(block: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """The planned total by stage, most advanced first; `unmapped` only when a code needs it."""
-    codes = sorted(block["dims"]["status"])
-    total = block["total"][1] or 0.0
+def _status_lines(
+    block: Mapping[str, Any], dim: str | None, keys: Sequence[str]
+) -> tuple[str, dict[str, list[str]]]:
+    """The tally a status split reads and, for each status code in the figure's scope, the lines of
+    it that add up to that code: without a filter the `status` tally, one line per code; under a
+    filter the paired tally (`PAIRED_BY`), the `<key>|<code>` line of each key asked for that the
+    month holds (a pair the complete tally lacks has none of either)."""
+    if dim is None:
+        return "status", {code: [code] for code in block["dims"]["status"]}
+    paired = PAIRED_BY[dim]
+    wanted = set(keys)
+    lines: dict[str, list[str]] = {}
+    for line in sorted(block["dims"][paired]):
+        key, code = split_pair(line)
+        if key in wanted:
+            lines.setdefault(code, []).append(line)
+    return paired, lines
+
+
+def _stages(
+    block: Mapping[str, Any], dim: str | None = None, keys: Sequence[str] = ()
+) -> list[dict[str, Any]]:
+    """The planned figure (the total, or the keys of `dim` asked for) by stage, most advanced first;
+    `unmapped` only when a code needs it. The stages add up to the figure: each status line of its
+    scope is in exactly one stage."""
+    tally, by_code = _status_lines(block, dim, keys)
+    total = _figure(block, dim, keys)["mw"]
     out = []
     for stage in (*STAGES, UNMAPPED):
-        present = [c for c in codes if _STAGE_OF.get(c, UNMAPPED) is stage]
+        present = sorted(c for c in by_code if _STAGE_OF.get(c, UNMAPPED) is stage)
         if stage is UNMAPPED and not present:
             continue
-        figure = _figure(block, "status", present)
+        figure = _figure(block, tally, [line for code in present for line in by_code[code]])
         out.append(
             {
                 "stage": stage.stage,
@@ -384,12 +424,15 @@ def stage_mapping() -> list[dict[str, Any]]:
     ]
 
 
-def _status_rows(block: Mapping[str, Any]) -> list[dict[str, Any]]:
-    tallied = block["dims"]["status"]
+def _status_rows(
+    block: Mapping[str, Any], dim: str | None = None, keys: Sequence[str] = ()
+) -> list[dict[str, Any]]:
+    """The figure (the total, or the keys of `dim` asked for) by status code, in EIA's order."""
+    tally, by_code = _status_lines(block, dim, keys)
     order = {code: i for i, code in enumerate(STATUS_LABELS)}
     return [
-        {"status": code, "label": STATUS_LABELS.get(code), **_figure(block, "status", [code])}
-        for code in sorted(tallied, key=lambda c: (order.get(c, len(order)), c))
+        {"status": code, "label": STATUS_LABELS.get(code), **_figure(block, tally, by_code[code])}
+        for code in sorted(by_code, key=lambda c: (order.get(c, len(order)), c))
     ]
 
 
@@ -430,45 +473,48 @@ def _breakdown(
 
 def power_plants(
     month: trends.LatestMonth, source: Source, states: list[str] | None, technologies: list[str] | None
-) -> dict[str, Any] | None:
-    """The EIA-860M side for the newest served month (module docstring), or None when the month
-    lacks a block or a tally the figures read. A technology the month does not tally is a 400
-    (`_check_technologies`)."""
+) -> dict[str, Any]:
+    """The EIA-860M side for the newest served month (module docstring). `_NotServed` when the month
+    lacks a block or a tally the figures read, and under a filter when it lacks the paired tally the
+    split reads (a month an earlier parser wrote), so a filtered figure is never served unsplit. A
+    technology the month does not tally is a 400 (`_check_technologies`)."""
     point = month.point
     period = point.period
     operating, planned = point.blocks.get("operating"), point.blocks.get("planned")
-    needed = ("technology", "state", "status")
-    if (
-        operating is None
-        or planned is None
-        or any(d not in b["dims"] for b in (operating, planned) for d in needed)
-    ):
-        return None
+    if operating is None or planned is None:
+        raise _NotServed(POWER_PLANTS_INCOMPLETE.format(period=period))
+    blocks = (operating, planned)
+
+    def lacks(*dims: str) -> bool:
+        return any(d not in b["dims"] for b in blocks for d in dims)
+
+    if lacks("technology", "state", "status"):
+        raise _NotServed(POWER_PLANTS_INCOMPLETE.format(period=period))
     if technologies:
         _check_technologies(technologies, operating, planned, period)
     dim, keys = (
         ("state", states) if states else ("technology", technologies) if technologies else (None, None)
     )
-    filtered = dim is not None
+    scope = keys or []
+    split_by = PAIRED_BY[dim] if dim else "status"
+    if dim is not None and lacks(split_by):
+        note = POWER_PLANTS_NOT_RESTATED.format(period=period, parser=point.parser_version, filter=dim)
+        raise _NotServed(note)
 
     def side(name: str, block: Mapping[str, Any]) -> dict[str, Any]:
         return {
-            **_figure(block, dim, keys or []),
+            **_figure(block, dim, scope),
             "basis": block["basis"],
             "series": _series(name, dim, period),
             "dq_warnings": list(block.get("warnings") or ()),
         }
 
     op, pl = side("operating", operating), side("planned", planned)
-    op["by_status"] = (
-        None
-        if filtered
-        else {"series": _series("operating", "status", period), "rows": _status_rows(operating)}
-    )
-    pl["by_stage"] = (
-        None if filtered else {"series": _series("planned", "status", period), "rows": _stages(planned)}
-    )
-    pl["by_stage_note"] = BY_STAGE_NOTE if filtered else None
+    op["by_status"] = {
+        "series": _series("operating", split_by, period),
+        "rows": _status_rows(operating, dim, scope),
+    }
+    pl["by_stage"] = {"series": _series("planned", split_by, period), "rows": _stages(planned, dim, scope)}
     licence = source.licence
     return {
         "as_of": period,
@@ -555,9 +601,10 @@ def _eia_side(
     month = trends.latest_month(root, EIA)
     if month is None:
         return None, POWER_PLANTS_NO_MONTH, []
-    plants = power_plants(month, source, states, technologies)
-    if plants is None:
-        return None, POWER_PLANTS_INCOMPLETE.format(period=month.point.period), []
+    try:
+        plants = power_plants(month, source, states, technologies)
+    except _NotServed as exc:
+        return None, exc.note, []
     rows = [
         licence_summary_row(source, source.licence, retrieved)
         for _period, retrieved in trends.monthly_retrievals(root, EIA, [plants["as_of"]])

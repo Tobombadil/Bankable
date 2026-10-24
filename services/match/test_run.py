@@ -96,7 +96,7 @@ def test_full_run_writes_one_match_and_two_events(db: Session, world: dict[str, 
     p1, rfp = world["p1"], world["rfp"]
     assert (match.proposal_id, match.opportunity_id) == (p1.id, rfp.id)  # type: ignore[attr-defined]
     assert match.created_by == "rule"
-    assert match.rule_set_version == load_rules().version == "match-rules@v2"
+    assert match.rule_set_version == load_rules().version == "match-rules@v3"
     assert match.rationale_text == "storage, TX, 50–550 MW, due in 45 days"
     assert float(match.score) == 1.0
     assert match.rationale["rules_failed"] == []
@@ -156,6 +156,26 @@ def test_incremental_removes_then_readds_with_a_new_row(db: Session, world: dict
     db.commit()
     assert report.added == 1
     assert len(db.scalars(select(Match)).all()) == 2  # the removed row is kept; a new one is active
+
+
+def test_a_proposal_that_moves_to_postponed_loses_its_match(db: Session, world: dict[str, object]) -> None:
+    """match-rules@v3: a postponed proposal (EIA-860M "canceled or indefinitely postponed") is not
+    offered against an open notice, like a withdrawn one; it is matched again once a source lists it
+    as live."""
+    run_matches(db, full=True)
+    db.commit()
+    p1 = world["p1"]
+    p1.lifecycle_state = "postponed"  # type: ignore[attr-defined]
+    db.commit()
+
+    report = run_matches(db)
+    db.commit()
+    assert (report.mode, report.removed, report.added, report.active_total) == ("incremental", 1, 0, 0)
+    assert _events(db, "match_removed")[0].after["reason"] == "rules failed: timing"
+
+    p1.lifecycle_state = "filed"  # type: ignore[attr-defined]
+    db.commit()
+    assert run_matches(db).added == 1
 
 
 def test_nothing_changed_is_a_no_op(db: Session, world: dict[str, object]) -> None:

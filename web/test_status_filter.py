@@ -150,10 +150,38 @@ def _parse(html: str, form_id: str) -> _StatusBoxes:
 
 # ---------------------------------------------------------------------- the view-model rules
 def test_the_groups_cover_every_state_once_and_the_first_three_are_the_default() -> None:
+    from services.db.models import LIFECYCLE_STATES
+
     states = [s for _key, _label, group in PROPOSAL_STATUS_GROUPS for s in group]
     assert len(states) == len(set(states))
-    assert set(states) == set(ACTIVE_PROPOSAL_STATES) | set(WITHDRAWN_PROPOSAL_STATES) | {"built", "unknown"}
+    assert set(states) == set(ACTIVE_PROPOSAL_STATES) | set(WITHDRAWN_PROPOSAL_STATES) | {
+        "built",
+        "unknown",
+        "postponed",
+    }
+    assert set(states) == set(LIFECYCLE_STATES)  # a state with no box could never be chosen
     assert {s for _k, _l, g in PROPOSAL_STATUS_GROUPS[:3] for s in g} == set(ACTIVE_PROPOSAL_STATES)
+
+
+def test_postponed_has_a_box_of_its_own_after_the_six_the_map_key_names() -> None:
+    """Owner decision 2026-10-24: EIA-860M's canceled or indefinitely postponed units are neither active
+    nor withdrawn, so they are in neither the default view nor `include_withdrawn`; one box shows them."""
+    assert PROPOSAL_STATUS_GROUPS[-1] == ("postponed", "Postponed", ("postponed",))
+    assert [k for k, _l, _g in PROPOSAL_STATUS_GROUPS[:6]] == [
+        "announced",
+        "in_process",
+        "contracted",
+        "built",
+        "withdrawn",
+        "unknown",
+    ]
+    assert "postponed" not in resolve_proposal_lifecycle_param(QueryParams("include_withdrawn=1"))[0].split(
+        ","
+    )
+    chosen = proposal_status_choices(QueryParams("lifecycle_state=postponed"))
+    box = next(b for b in chosen["boxes"] if b["key"] == "postponed")
+    assert box["checked"] and not box["default"] and box["value"] == "postponed"
+    assert chosen["summary"] == "postponed"
 
 
 def test_repeated_lifecycle_state_values_are_their_union() -> None:
@@ -177,10 +205,10 @@ def test_the_default_set_sent_by_the_boxes_is_still_the_default_view() -> None:
 
 def test_status_choices_default_partial_and_summary() -> None:
     default = proposal_status_choices(QueryParams(""))
-    assert [b["checked"] for b in default["boxes"]] == [True, True, True, False, False, False]
+    assert [b["checked"] for b in default["boxes"]] == [True, True, True, False, False, False, False]
     assert default["summary"] == "active"
     built = proposal_status_choices(QueryParams(f"lifecycle_state={ACTIVE},built"))
-    assert [b["checked"] for b in built["boxes"]] == [True, True, True, True, False, False]
+    assert [b["checked"] for b in built["boxes"]] == [True, True, True, True, False, False, False]
     assert built["summary"] == "active, built"
     # A hand-written single state inside a group keeps exactly that state on resubmission.
     partial = proposal_status_choices(QueryParams("lifecycle_state=filed"))
@@ -223,9 +251,9 @@ def test_both_bars_offer_the_same_status_boxes_defaulting_to_active(
     page = _parse(response.text, form_id)
     assert [b["data-status-group"] for b in page.boxes] == [k for k, _l, _g in PROPOSAL_STATUS_GROUPS]
     assert [b["value"] for b in page.boxes] == [",".join(g) for _k, _l, g in PROPOSAL_STATUS_GROUPS]
-    assert ["checked" in b for b in page.boxes] == [True, True, True, False, False, False]
+    assert ["checked" in b for b in page.boxes] == [True, True, True, False, False, False, False]
     # The 400 px "Filters (N active)" count treats the default boxes as unset (site.js).
-    assert ["data-default" in b for b in page.boxes] == [True, True, True, False, False, False]
+    assert ["data-default" in b for b in page.boxes] == [True, True, True, False, False, False, False]
     assert page.summary == "active"
     # The notice says how many are built and links to them, with this page's filters kept.
     assert "1,844 built" in response.text
@@ -245,7 +273,7 @@ def test_a_list_form_with_built_checked_asks_the_api_for_active_and_built(transp
     list_call = transport.params_for("/v1/proposals")[0]
     assert set(list_call["lifecycle_state"].split(",")) == set(ACTIVE_PROPOSAL_STATES) | {"built"}
     page = _parse(response.text, "filters")
-    assert ["checked" in b for b in page.boxes] == [True, True, True, True, False, False]
+    assert ["checked" in b for b in page.boxes] == [True, True, True, True, False, False, False]
     # The view-as-map link carries the same choice as one csv.
     csv = "announced%2Cfiled%2Cstudied%2Cpermitted%2Cunder_construction%2Ccontracted%2Cbuilt"
     assert f"lifecycle_state={csv}" in response.text.replace("&amp;", "&")

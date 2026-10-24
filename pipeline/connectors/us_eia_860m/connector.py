@@ -19,7 +19,8 @@ Parse: sheet "Planned", header on the third row; trailing note rows (no Plant ID
 workbook's "Canceled or Postponed" sheet (same layout less the Status and planned-date columns;
 1,745 units in September 2026) is read too, and its rows are loaded only while the eia860m block of
 `pipeline/status_map.yaml` maps the sheet's name, `Canceled or Postponed`, to a lifecycle state:
-that key is the one switch (docs/28 §11 item 2), and the map's comment says why it is off today.
+that key is the one switch (docs/28 §11 item 2), on since 2026-10-24, when the owner gave those
+units their own state, `postponed` (docs/22 §3.3); the map's comment says what turning it off undoes.
 Each such row carries `_sheet: "Canceled or Postponed"` in its raw payload (the convention
 `us.eia.860m.retirements` uses), so its state is recomputed from `raw` alone; a Planned row's raw
 payload is the sheet's row, unchanged. A workbook without the sheet is read as before. Every

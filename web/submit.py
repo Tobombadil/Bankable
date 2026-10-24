@@ -66,6 +66,7 @@ LIFECYCLE_CHOICES: tuple[str, ...] = (
     "built",
     "withdrawn",
     "cancelled",
+    "postponed",
     "unknown",
 )
 #: The market operators whose queue ids the resolver keys on (`ProposalIdentifiers.queue_ids[].iso`,

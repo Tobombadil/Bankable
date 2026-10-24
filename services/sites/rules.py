@@ -7,10 +7,14 @@ values and grouping `Edge`s, `build.py` persists what these functions decide, an
 **Membership** is the connected components of the grouping edges (union-find, so transitive within
 a site). Each member keeps the strongest rule among its own edges (`GROUPING_RULES` order).
 
-**Lead** ("put them under the latest and largest filing"): among members that are not withdrawn or
-cancelled, the largest `capacity_mw`; ties broken by the latest filing date, then `public_id`. When
-every member is inactive, the largest overall. "Latest" alone would let a small add-on filed last
-month headline an 11 GW campus; excluding withdrawn members is how "latest" wins for re-filings.
+**Lead** ("put them under the latest and largest filing"): among members that are live (not
+postponed, withdrawn or cancelled), the largest `capacity_mw`; ties broken by the latest filing date,
+then `public_id`. When no member is live, the largest postponed one; when every member is withdrawn
+or cancelled, the largest overall (`lead_order_key`'s tiers). "Latest" alone would let a small add-on
+filed last month headline an 11 GW campus; excluding withdrawn members is how "latest" wins for
+re-filings. A postponed unit (EIA-860M's "canceled or indefinitely postponed", docs/21 §7.1) is not
+being built on any schedule its source holds, so it never heads a site or a plant group ahead of a
+live member, however large.
 
 **Two levels** (`label_site`; owner, 2026-10-10): site > plant group > unit. Generators of one EIA
 plant form a group headed by its first member in lead order; a record with no EIA plant is a group
@@ -41,7 +45,9 @@ from typing import Any, Generic, TypeVar
 #: Version of the rules below, stored on every site so a rule change is visible in the data.
 #: `.2` (lane S2): phase markers with a letter suffix ("IIIA", "2A", "Phase 3b"), and every
 #: membership stores its direct links (`LINKS_KEY`) so a viewer's connectivity can be recomputed.
-RULE_VERSION = "2026-10-10.2"
+#: `2026-10-24.1`: `postponed` has a lead tier of its own, after the live members and before the
+#: withdrawn ones, and is not live for the expansion and later-filing labels (docs/21 §3.25, §7.1).
+RULE_VERSION = "2026-10-24.1"
 #: `site_member.grouping_evidence[LINKS_KEY]`: `{partner public_id: strongest rule}` for each
 #: member this one shares a rule b-c edge with directly. Rule a edges are not stored: a shared EIA
 #: plant id is in both members' `basis`, so a pair that shares one is never stored either.
@@ -76,7 +82,15 @@ NEIGHBOUR_RELATION = "shares_interconnection_point"
 REVIEW_FLAGS: tuple[str, ...] = ("oversize",)
 
 INACTIVE_STATES = frozenset({"withdrawn", "cancelled"})
+#: Neither live nor inactive (owner, 2026-10-24; docs/21 §7.1): EIA-860M's canceled or indefinitely
+#: postponed units. It leads only when no member is live (`lead_order_key`), and never takes a label
+#: meant for a live filing (`label`, rule 4). It is not withdrawn either, so it is not `refiling_of`
+#: or `superseded_by` (rule 5): a postponed group head the earlier rules do not place is `same_site`.
+POSTPONED_STATES = frozenset({"postponed"})
 BUILT_STATE = "built"
+#: `lead_order_key`'s first element: live (active, built, unknown) first, then postponed, then
+#: withdrawn or cancelled.
+LEAD_TIER_LIVE, LEAD_TIER_POSTPONED, LEAD_TIER_INACTIVE = 0, 1, 2
 #: A site grouping more distinct things than this (`effective_size`: one EIA plant counts once) is
 #: flagged for review, logged and withheld from readers rather than built silently. Project Matador
 #: (161 records: 157 + 4 generators of two EIA plants at one exact point) counts as 2.
@@ -145,6 +159,22 @@ class Basis:
     def inactive(self) -> bool:
         return self.lifecycle_state in INACTIVE_STATES
 
+    @property
+    def postponed(self) -> bool:
+        return self.lifecycle_state in POSTPONED_STATES
+
+    @property
+    def live(self) -> bool:
+        """Neither withdrawn or cancelled nor postponed: what the lead's first tier and the labels
+        for a live filing (`label`, rule 4) read."""
+        return not self.inactive and not self.postponed
+
+    @property
+    def lead_tier(self) -> int:
+        if self.inactive:
+            return LEAD_TIER_INACTIVE
+        return LEAD_TIER_POSTPONED if self.postponed else LEAD_TIER_LIVE
+
 
 def _ordinal(iso: str | None) -> int | None:
     if not iso:
@@ -157,12 +187,13 @@ def _ordinal(iso: str | None) -> int | None:
 
 # ---------------------------------------------------------------------------------------- lead
 def lead_order_key(b: Basis) -> tuple[Any, ...]:
-    """Ascending sort key whose first element is the lead: active before withdrawn/cancelled,
-    then the largest stated capacity (none stated sorts last), then the latest filing date (none
-    sorts last), then `public_id` so the order is total."""
+    """Ascending sort key whose first element is the lead: live (active, built, unknown) before
+    postponed before withdrawn/cancelled (`Basis.lead_tier`), then the largest stated capacity (none
+    stated sorts last), then the latest filing date (none sorts last), then `public_id` so the order
+    is total."""
     filed = _ordinal(b.filing_date)
     return (
-        b.inactive,
+        b.lead_tier,
         b.capacity_mw is None,
         -(b.capacity_mw or 0.0),
         filed is None,
@@ -201,7 +232,8 @@ def label(member: Basis, lead: Basis) -> Label:
        medium when only one does).
     4. `expansion_of` / `expanded_by`: the source states an MW increase on a connected project
        (high), the name marks an expansion (medium), or one of the two is operating and the other a
-       live later filing (medium).
+       live later filing (medium). The last two need the addition to be live (`Basis.live`): a
+       withdrawn, cancelled or postponed filing is no expansion of anything.
     5. `superseded_by` / `refiling_of`: the member is withdrawn or cancelled and the lead is a
        filing of the same family -- earlier member: superseded by the lead; later member: a
        re-filing that was itself withdrawn (low).
@@ -231,13 +263,13 @@ def label(member: Basis, lead: Basis) -> Label:
         return Label("expansion_of", "source_states_mw_increase", "high")
     if lead.mw_increase and not member.mw_increase and m_built:
         return Label("expanded_by", "source_states_mw_increase", "high")
-    if member.expansion_marker and not lead.expansion_marker and not member.inactive:
+    if member.expansion_marker and not lead.expansion_marker and member.live:
         return Label("expansion_of", "name_marks_expansion", inferred("medium"))
-    if lead.expansion_marker and not member.expansion_marker and m_built:
+    if lead.expansion_marker and not member.expansion_marker and m_built and lead.live:
         return Label("expanded_by", "name_marks_expansion", inferred("medium"))
-    if l_built and not m_built and not member.inactive:
+    if l_built and not m_built and member.live:
         return Label("expansion_of", "later_filing_at_operating_member", inferred("medium"))
-    if m_built and not l_built and not lead.inactive:
+    if m_built and not l_built and lead.live:
         return Label("expanded_by", "later_filing_at_operating_member", inferred("medium"))
     if member.inactive:
         mo, lo = _ordinal(member.filing_date), _ordinal(lead.filing_date)

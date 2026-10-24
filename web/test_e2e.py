@@ -432,7 +432,11 @@ def _check_desktop_and_narrow(browser: object) -> None:
     # (checked on /proposals below). The panel holding what is in view and the key floats over the
     # map (owner, 2026-10-22), its header inside the first viewport.
     assert page.locator(".delayed-notice").count() == 0
-    assert page.locator(".map-intro__lede").inner_text().startswith("Projects from public grid-queue")
+    # Direction A (owner, 2026-10-24): the front strip's one plain line is the page's h1.
+    assert (
+        page.locator("h1.map-strip__title").inner_text()
+        == "Planned US energy projects, each linked to its source."
+    )
     panel_top = page.evaluate("document.getElementById('map-panel').getBoundingClientRect().top")
     assert panel_top < DESKTOP_VIEWPORT["height"] - 100, (
         f"the map's panel starts at {panel_top}px at 1440x900"
@@ -452,6 +456,7 @@ def _check_desktop_and_narrow(browser: object) -> None:
     # ---- desktop: the existing-asset and retired layers, on by default (owner, 2026-10-20) ----
     plants_checkbox = page.locator("#mf-layer-plants")
     assert plants_checkbox.count() == 1, "existing-plants layer checkbox missing"
+    _open_filters(page)
     assert plants_checkbox.is_checked(), "the existing-assets layer is on when the link names no layers="
     assert page.locator("#mf-layer-retired").is_checked(), "the retired layer is on by default"
     page.wait_for_function("() => window.__map.getLayoutProperty('plant-points', 'visibility') === 'visible'")
@@ -531,6 +536,17 @@ def _check_desktop_and_narrow(browser: object) -> None:
 
 
 _COUNT_READY = "() => /match these filters/.test(document.getElementById('map-result-count').textContent)"
+
+
+def _open_filters(page: Any) -> None:
+    """On the full-screen landing (docs/30 §11.6) the filters are a sheet under the floating bar at
+    every width, opened by "Filters": open it, once, before a control in it is used."""
+    toggle = page.locator('[data-filter-toggle][aria-controls="map-filters"]')
+    if toggle.get_attribute("aria-expanded") != "true":
+        toggle.click()
+    page.locator("#map-filters").wait_for(state="visible")
+
+
 # Below 720px the panel opens under the map, in the page, and "Key" scrolls it into view (docs/17
 # M-1; owner, 2026-10-22: the key is the panel's Key tab). With the layers on the Key tab is taller
 # than a phone's screen, so what must be in view is the projects' key, with the panel's top on screen.
@@ -598,6 +614,7 @@ def test_map_keeps_and_forwards_a_linked_kind_filter(server: object) -> None:
             def _generation_geo(r: Any) -> bool:
                 return "/api/proposals/geo?" in r.url and "kind=generation" in r.url
 
+            _open_filters(page)
             with (
                 page.expect_response(_generation_geo) as geo2,
                 page.expect_response(lambda r: "/api/proposals/notice?" in r.url) as notice_info,
@@ -654,15 +671,24 @@ def test_map_status_control_draws_built_proposals_and_the_list_keeps_the_choice(
             page.wait_for_selector("#map canvas", timeout=10000)
             page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
             page.wait_for_function(_COUNT_READY, timeout=15000)
+            _open_filters(page)
             assert page.inner_text("#mf-status [data-status-summary]") == "active"
             page.click("#mf-status summary")
             with page.expect_response(lambda r: "/api/proposals/geo?" in r.url, timeout=30000) as geo_info:
                 page.check("#mf-status-built")
             states = parse_qs(urlsplit(geo_info.value.url).query)["lifecycle_state"][0].split(",")
             assert "built" in states and "announced" in states and "withdrawn" not in states
-            page.wait_for_function(_COUNT_READY, timeout=15000)
+            # The count line already reads "N match" for the view before the tick, so wait for the
+            # answer itself (one commit per settled read, docs/30 S-6), then check it is that answer's.
+            records = geo_info.value.json()["data"]["totals"]["records"]
+            page.wait_for_function(
+                "(n) => (document.getElementById('map-result-count').textContent.split(' ')[0] || '')"
+                ".replace(/,/g, '') === String(n)",
+                arg=records,
+                timeout=15000,
+            )
             shown = int(page.inner_text("#map-result-count").split()[0].replace(",", ""))
-            assert shown == geo_info.value.json()["data"]["totals"]["records"]
+            assert shown == records
             assert "built" in parse_qs(urlsplit(page.url).query)["lifecycle_state"][0].split(",")
             assert page.inner_text("#mf-status [data-status-summary]") == "active, built"
             page.click("#map-list-link")
@@ -694,6 +720,7 @@ def test_unlisted_toggle_on_the_map_and_the_list_keeps_it_both_ways(server: obje
             page.wait_for_selector("#map canvas", timeout=10000)
             page.wait_for_function("() => window.__map && window.__map.isStyleLoaded()", timeout=15000)
             page.wait_for_function(_COUNT_READY, timeout=15000)
+            _open_filters(page)
             assert page.inner_text("#mf-status [data-status-summary]") == "active"
             assert not page.is_checked("#mf-unlisted")
             page.click("#mf-status summary")
@@ -1272,7 +1299,11 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             wide.wait_for_selector("#map canvas", timeout=10000)
             top = wide.evaluate("document.getElementById('map').getBoundingClientRect().top")
             assert top < 450, f"map starts at {top}px at 1440x900"
-            assert wide.locator(".nav-toggle").is_hidden() and wide.locator("#map-filters").is_visible()
+            # The full-screen landing (docs/30 §11.6): the canvas starts under the two bars (88px), and
+            # the filters are the sheet "Filters" opens, at every width.
+            assert top <= 89, f"the landing's map starts at {top}px at 1440x900"
+            assert wide.locator(".nav-toggle").is_hidden() and wide.locator("#map-filters").is_hidden()
+            assert wide.locator("[data-filter-toggle]").is_visible()
             # Open from 1080px, 340px wide, inset 12px from the map's top right, never taller than it.
             # Read after the data lands (the count line above the map can wrap when it does) and in one
             # frame: two reads either side of a layout change failed on a loaded machine (14px apart).
@@ -1293,6 +1324,7 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
                 wide.locator("#lifecycle-legend").is_visible()
                 and wide.locator("#retired-legend").is_visible()
             )
+            _open_filters(wide)
             wide.uncheck("#mf-layer-retired")
             assert wide.locator("#retired-legend").is_hidden()
             assert wide.locator("#map-key-toggle").is_hidden()  # the rail's "Key" is a phone's
@@ -1345,20 +1377,27 @@ def test_map_is_above_the_fold_and_400px_collapses_nav_filters_and_the_list(serv
             top = page.evaluate("document.getElementById('map').getBoundingClientRect().top")
             assert top < 700, f"map starts at {top}px at 400x800"
             assert page.evaluate("document.documentElement.scrollWidth") <= 401
-            # Below 720px the panel is a closed bar under the map (UX review 2026-10-20, docs/16 M-2;
-            # docs/17 M-1); "Key" opens its Key tab under the map, in the page, brings it into view,
-            # and closes it again.
-            key_toggle = page.locator("#map-key-toggle")
-            assert key_toggle.is_visible() and key_toggle.get_attribute("aria-expanded") == "false"
+            # Below 720px the panel is a sheet over the map's foot that peeks at its count (docs/30
+            # §11.8; it was a closed bar under the map, UX review 2026-10-20, docs/17 M-1); the peek's
+            # "Key" opens its Key tab over the map, in the sheet, and the sheet's head closes it again.
+            assert page.locator("#map-key-toggle").is_hidden()  # the column has no "Key" on the landing
+            key_toggle = page.locator("#map-panel-keybtn")
+            assert key_toggle.is_visible()
             assert page.locator("#map-key").is_hidden()
             key_toggle.click()
             assert page.locator("#map-key").is_visible()
-            page.wait_for_function(_KEY_IN_VIEW)
-            map_bottom, key = page.evaluate(_MAP_BOTTOM_AND_KEY_TOP)
-            assert map_bottom <= key < 800, f"map key at {key}px, map ends at {map_bottom}px at 400x800"
-            key_toggle.click()
+            map_top, map_bottom, key = page.evaluate(
+                "[document.getElementById('map').getBoundingClientRect().top,"
+                " document.getElementById('map').getBoundingClientRect().bottom,"
+                " document.getElementById('lifecycle-legend').getBoundingClientRect().top]"
+            )
+            assert map_top < key < map_bottom <= 800, (
+                f"map key at {key}px over the map {map_top}-{map_bottom}px"
+            )
+            assert page.evaluate("window.scrollY") == 0  # the landing never scrolls
+            page.click("#map-panel-toggle")
             assert page.locator("#map-key").is_hidden()
-            assert key_toggle.get_attribute("aria-expanded") == "false"
+            assert page.get_attribute("#map-panel-toggle", "aria-expanded") == "false"
 
             # Menu: a disclosure; the links are out of the way until it opens (docs/30 §11.8).
             menu = page.locator(".nav-toggle")
@@ -1541,9 +1580,27 @@ def test_a_failed_basemap_archive_leaves_the_outline_in_view_and_says_so(server:
                 assert note.inner_text() == _BASEMAP_UNAVAILABLE
                 map_box = page.locator("#map").bounding_box()
                 note_box = note.bounding_box()
-                assert map_box and note_box and note_box["y"] >= map_box["y"] + map_box["height"] - 1
+                # On the full-screen landing (docs/30 §11.6) there is no "under the map": the note lies on
+                # the canvas, inside its box, clear of the floating bar.
+                assert map_box and note_box
+                assert map_box["y"] <= note_box["y"]
+                assert note_box["y"] + note_box["height"] <= map_box["y"] + map_box["height"] + 1
+                bar = page.locator(".map-float").bounding_box()
+                assert bar and note_box["y"] >= bar["y"] + bar["height"], (note_box, bar)
+                # Clear of the credits' chip at the bottom right (review of lane v2-landing: the credits
+                # are the page's own disclosure, closed on arrival at every width).
+                credits = page.locator("#map-credits summary").bounding_box()
+                if credits:
+                    apart = (
+                        note_box["y"] + note_box["height"] <= credits["y"]
+                        or note_box["x"] + note_box["width"] <= credits["x"]
+                        or note_box["x"] >= credits["x"] + credits["width"]
+                    )
+                    assert apart, (note_box, credits)
                 lines = note.evaluate(_LINE_COUNT)
-                assert lines == 1, f"the note takes {lines} lines at {viewport['width']}px"
+                # One line at 1440; beside a phone's 44px column, two at most.
+                most = 1 if viewport["width"] >= 720 else 2
+                assert lines <= most, f"the note takes {lines} lines at {viewport['width']}px"
                 page.wait_for_timeout(300)
                 assert len(beacons) == 1, beacons
                 page.close()
@@ -1687,10 +1744,14 @@ def test_map_key_starts_closed_below_720px_and_opens_from_the_keyboard(server: o
             # map.js keeps the panel's foot in view as it grows after a press; this keeps the test
             # off that race as well.
             page.wait_for_function(_COUNT_READY, timeout=30000)
-            toggle = page.locator("#map-key-toggle")
+            # On the full-screen landing (docs/30 §11.8) the key is the sheet's: its peek's "Key" opens
+            # the Key tab over the map's foot, and the sheet's head closes it. The column has no "Key".
+            assert page.locator("#map-key-toggle").is_hidden()
+            toggle = page.locator("#map-panel-keybtn")
+            head = page.locator("#map-panel-toggle")
             toggle.wait_for()
             key = page.locator("#map-key")
-            assert toggle.get_attribute("aria-expanded") == "false" and key.is_hidden()
+            assert head.get_attribute("aria-expanded") == "false" and key.is_hidden()
             assert page.evaluate(collapsed)
 
             # Not chosen yet: the default follows the width both ways.
@@ -1698,41 +1759,38 @@ def test_map_key_starts_closed_below_720px_and_opens_from_the_keyboard(server: o
             page.wait_for_function(f"() => !({collapsed})()")
             page.set_viewport_size(narrow)
             page.wait_for_function(collapsed)
-            assert toggle.get_attribute("aria-expanded") == "false"
+            assert head.get_attribute("aria-expanded") == "false"
 
-            # In the right-edge column (docs/17 M-1), Tab from zoom out passes "Jump to" (its list
-            # closed) and reaches "Key"; Enter opens the Key tab under the map, brought into view.
-            page.focus("#zoom-out")
+            # From the sheet's head, Tab reaches "Key"; Enter opens the Key tab in the sheet, over the map.
+            page.focus("#map-panel-toggle")
             page.keyboard.press("Tab")
-            assert page.evaluate("document.activeElement.id") == "map-jump-toggle"
-            page.keyboard.press("Tab")
-            assert page.evaluate("document.activeElement.id") == "map-key-toggle"
+            assert page.evaluate("document.activeElement.id") == "map-panel-keybtn"
             page.keyboard.press("Enter")
-            assert toggle.get_attribute("aria-expanded") == "true" and key.is_visible()
+            assert head.get_attribute("aria-expanded") == "true" and key.is_visible()
             assert page.get_attribute("#map-tab-key", "aria-selected") == "true"
-            page.wait_for_function(_KEY_IN_VIEW)
-            map_bottom, key_top = page.evaluate(_MAP_BOTTOM_AND_KEY_TOP)
-            assert map_bottom <= key_top < narrow["height"], (key_top, map_bottom)
-            # A panel that grows after the press (the region row arrives with its outlines) is brought
-            # back into view, until the reader does something; then the page stays where they left it.
-            page.evaluate(_GROW_KEY, 240)
-            page.wait_for_function(_KEY_IN_VIEW, timeout=5000)
-            page.keyboard.press("Shift")
-            page.wait_for_timeout(400)  # the smooth scroll settles
-            scrolled = page.evaluate("window.scrollY")
+            map_top, map_bottom, key_top = page.evaluate(
+                "[document.getElementById('map').getBoundingClientRect().top,"
+                " document.getElementById('map').getBoundingClientRect().bottom,"
+                " document.getElementById('lifecycle-legend').getBoundingClientRect().top]"
+            )
+            assert map_top < key_top < map_bottom <= narrow["height"], (map_top, key_top, map_bottom)
+            # A key that grows after the press (the region row arrives with its outlines) scrolls inside
+            # the sheet: the sheet's box and the page stay where they are (S-1).
+            box = page.locator("#map-panel").bounding_box()
             page.evaluate(_GROW_KEY, 480)
-            page.wait_for_timeout(600)
-            assert page.evaluate("window.scrollY") == scrolled
+            page.wait_for_timeout(300)
+            assert page.locator("#map-panel").bounding_box() == box
+            assert page.evaluate("window.scrollY") == 0
             page.evaluate(_GROW_KEY, 0)
 
             # Chosen: a change of width leaves it open.
             page.set_viewport_size(DESKTOP_VIEWPORT)
             page.set_viewport_size(narrow)
             page.wait_for_timeout(200)
-            assert toggle.get_attribute("aria-expanded") == "true" and key.is_visible()
-            page.focus("#map-key-toggle")
+            assert head.get_attribute("aria-expanded") == "true" and key.is_visible()
+            page.focus("#map-panel-toggle")
             page.keyboard.press("Space")
-            assert toggle.get_attribute("aria-expanded") == "false" and key.is_hidden()
+            assert head.get_attribute("aria-expanded") == "false" and key.is_hidden()
         finally:
             browser.close()
 
@@ -1970,6 +2028,7 @@ def test_a_tap_on_a_region_opens_its_summary_and_the_list_link_and_the_keyboard_
             _stub_map(page, proposals, points=[_PLANT], regions=_TARRANT_POLYGON)
             page.goto(BASE_URL + "/?center=-97.33,32.75&zoom=11")
             page.wait_for_function(_rendered("plant-points", "region-fill"), timeout=30000)
+            page.evaluate(_DROP_PREVIEW_LABEL)  # this suite's label, under the bar; production has none
             _map_on_top(page)
             x, y = _screen_point(page, [-97.33, 32.70])  # inside the county, 170px from the plant
             page.touchscreen.tap(x, y)
@@ -2004,7 +2063,13 @@ def test_a_tap_on_a_region_opens_its_summary_and_the_list_link_and_the_keyboard_
             assert focused == "Details for Tarrant County, TX", focused
             # The dialog is named for what it holds: a region's summary, then a record again.
             assert page.get_attribute("#map-drawer", "aria-label") == "Region summary"
-            _map_on_top(page)  # focus went back to the row's Details button, below the map
+            _map_on_top(page)  # focus went back to the row's Details button, in the sheet
+            # The sheet lies over the map's foot on the landing (docs/30 §11.8): back to its peek, so
+            # the plant at the map's middle is in sight to tap.
+            page.click("#map-panel-toggle")
+            page.wait_for_function(
+                "() => document.getElementById('map-panel').classList.contains('is-collapsed')"
+            )
             x, y = _screen_point(page, [-97.33, 32.75])
             page.touchscreen.tap(x, y)
             page.wait_for_function(_DRAWER_IS_OPEN)
@@ -2191,26 +2256,15 @@ def test_a_one_finger_swipe_on_a_map_scrolls_the_page_on_touch_and_a_mouse_drag_
             _map_on_top(page)
             box = page.locator("#map").bounding_box()
             before = page.evaluate(_SCROLL_AND_CENTRE, "__map")
+            # docs/30 §11.8: the full-screen landing has no page below its map to scroll, so one finger
+            # pans it there; the cooperative two-finger gesture stays on the record pages' mini-maps.
             _touch_swipe_up(
                 page, context.new_cdp_session(page), box["x"] + box["width"] / 2, box["y"] + 400, 250
             )
             after = page.evaluate(_SCROLL_AND_CENTRE, "__map")
-            assert after[0] - before[0] > 150, (before, after)  # the page scrolled
-            assert after[1:] == before[1:], (before, after)  # the map did not move
-            assert page.evaluate("window.__map.cooperativeGestures.isEnabled()") is True
-            # MapLibre's hint, in the site's tokens: the words on a surface label, no black wash.
-            hint = page.evaluate(
-                "() => { const s = document.querySelector('#map .maplibregl-cooperative-gesture-screen');"
-                " const m = s.querySelector('.maplibregl-mobile-message');"
-                " const probe = document.createElement('div'); probe.style.background = 'var(--surface)';"
-                " document.body.appendChild(probe); const surface = getComputedStyle(probe).backgroundColor;"
-                " probe.remove();"
-                " return [getComputedStyle(s).backgroundColor, getComputedStyle(m).backgroundColor, surface,"
-                " getComputedStyle(m).display, m.textContent, s.getAttribute('aria-hidden')]; }"
-            )
-            wash, label, surface, display, words, hidden = hint
-            assert wash == "rgba(0, 0, 0, 0)" and label == surface and display == "block", hint
-            assert words == "Use two fingers to move the map" and hidden == "true", hint
+            assert after[0] == before[0] == 0, (before, after)  # the landing does not scroll
+            assert after[1:] != before[1:], (before, after)  # the map moved under the finger
+            assert page.evaluate("window.__map.cooperativeGestures.isEnabled()") is False
 
             mini_page = context.new_page()
             _install_offline_routes(mini_page)
@@ -2229,6 +2283,20 @@ def test_a_one_finger_swipe_on_a_map_scrolls_the_page_on_touch_and_a_mouse_drag_
             assert after[0] - before[0] > 100, (before, after)
             assert after[1:] == before[1:], (before, after)
             assert mini_page.evaluate("window.__assetMap.cooperativeGestures.isEnabled()") is True
+            # MapLibre's hint, in the site's tokens: the words on a surface label, no black wash.
+            hint = mini_page.evaluate(
+                "() => { const s = document.querySelector("
+                "'#asset-map .maplibregl-cooperative-gesture-screen');"
+                " const m = s.querySelector('.maplibregl-mobile-message');"
+                " const probe = document.createElement('div'); probe.style.background = 'var(--surface)';"
+                " document.body.appendChild(probe); const surface = getComputedStyle(probe).backgroundColor;"
+                " probe.remove();"
+                " return [getComputedStyle(s).backgroundColor, getComputedStyle(m).backgroundColor, surface,"
+                " getComputedStyle(m).display, m.textContent, s.getAttribute('aria-hidden')]; }"
+            )
+            wash, label, surface, display, words, hidden = hint
+            assert wash == "rgba(0, 0, 0, 0)" and label == surface and display == "block", hint
+            assert words == "Use two fingers to move the map" and hidden == "true", hint
             context.close()
 
             # A mouse on a desktop drags the map, as before; nothing is cooperative there.
@@ -2278,15 +2346,23 @@ def test_the_panel_header_says_what_is_in_view_by_status_and_capacity(server: ob
             page.wait_for_function(
                 "() => /in view/.test(document.getElementById('map-panel-count').textContent)", timeout=30000
             )
-            # 40 in the cluster, two points, the county's four; 5,000 + 2 x 12 + 791.6 MW.
-            assert count.inner_text() == "46 projects in view · 5.8 GW"
+            # 40 in the cluster, two points, the county's four; 5,000 + 2 x 12 + 791.6 MW. On a phone's
+            # peek the noun is said to a screen reader only, for the room ("46 in view · 5.8 GW").
+            assert " ".join((count.text_content() or "").split()) == "46 projects in view · 5.8 GW"
+            assert "visually-hidden" in (
+                page.locator("#map-panel-count .map-panel__noun").get_attribute("class") or ""
+            )
             assert count.get_attribute("aria-live") is None  # the live region announces moves
             assert page.locator("#map-panel-toggle").is_visible()  # the phone's bar, under the map
             page.click("#map-panel-toggle")
             # In the Status filter's own words, as the key and the overview name them (review
-            # 2026-10-22: "announced or unknown" and "built" were the header's own).
+            # 2026-10-22: "announced or unknown" and "built" were the header's own). Each row is its
+            # mark, its name and its count, said once to a screen reader as it is drawn.
             assert " ".join(page.inner_text("#map-panel-families").split()) == (
-                "10 Announced 35 In process 1 Contracted"
+                "Announced 10 In process 35 Contracted 1"
+            )
+            assert " ".join((page.locator("#map-panel-families").text_content() or "").split()) == (
+                "Announced 10 In process 35 Contracted 1"
             )
             assert page.locator("#map-panel-families svg use").evaluate_all(
                 "(uses) => uses.map((u) => u.getAttribute('href'))"
@@ -2449,6 +2525,29 @@ PHONE_MAP_TOP_BUDGET = 440
 #: Share of the visible map any control or panel covers: docs/17 asks for under 6%, open or closed.
 #: The column is 44x200px on a 358x490 canvas, 4.6% of it; 55.6% on the live site before.
 PHONE_MAP_COVER_BUDGET = 6.0
+#: The full-screen landing (owner, 2026-10-24, direction A; docs/30 §11.8) puts the floating bar, the
+#: front strip and the sheet's peek over the map by design, so the old page's 6% (controls only, with
+#: the search above the canvas and the panel under it) is the column's share alone there. Measured at
+#: 390x844 on the dev store: 33.5% in all, of which the strip 17.4% (it stands on the ocean and Mexico
+#: at the national view, which the fit keeps clear of every project), the sheet's peek 8% and the bar
+#: 6.5%; 58.2% with the Key open, the sheet at half the map. The budgets keep those with a few points
+#: of slack; what matters more is held below: no part of the lower 48 lies under any of them.
+LANDING_PHONE_COVER_BUDGET = 36.0
+LANDING_PHONE_KEY_OPEN_BUDGET = 62.0
+#: Places on the lower 48's edges the national view must leave in sight on a phone.
+_CONUS_EDGE_PLACES = [
+    [-117.1, 32.6],
+    [-97.4, 25.9],
+    [-81.8, 24.55],
+    [-122.3, 47.6],
+    [-67.0, 44.9],
+    [-124.4, 40.4],
+]
+_OVERLAY_BOXES = (
+    "() => ['.map-float', '#map-strip', '#map-panel', '.map-overlay__rail', '#map-credits']"
+    ".map((s) => document.querySelector(s)).filter((e) => e && e.getBoundingClientRect().height > 0)"
+    ".map((e) => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; })"
+)
 
 # The share (percent) of the on-screen part of the map that something other than the map covers,
 # sampled every 4px (docs/17 §1's method, at 2px there). "On screen" starts under the sticky top bar
@@ -2475,6 +2574,13 @@ _BOXES = (
     " return [b.left, b.top, b.width, b.height]; })"
 )
 _DROP_PREVIEW_LABEL = "() => { const b = document.querySelector('.preview-banner'); if (b) b.remove(); }"
+#: The landing's cover budgets are for what production draws: this suite's server is a dev preview (its
+#: label sits under the floating bar) and aborts the basemap archive (its note sits on the canvas), and
+#: neither is drawn in production. Each is checked where it is said (the basemap tests above).
+_DROP_SUITE_NOTES = (
+    "() => { for (const s of ['.preview-banner', '.map-basemap-note'])"
+    " { const n = document.querySelector(s); if (n) n.remove(); } }"
+)
 #: A map-bar summary's marker: no native one (list-item or `::-webkit-details-marker`), and the
 #: chevron its `::after` draws (first in its flex row), whose turn says closed or open.
 _MARKER = (
@@ -2509,26 +2615,31 @@ def test_phone_fold_budget_the_map_starts_high_with_one_sentence_and_one_status_
             assert top <= PHONE_MAP_TOP_BUDGET, f"map starts at {top}px at 390x844"
             assert page.evaluate("document.documentElement.scrollWidth") <= 390
 
-            lede = page.locator(".map-intro__lede")
-            about = page.locator("#map-intro-about")
-            assert " ".join(lede.inner_text().split()) == (
-                "Projects from public grid-queue and permit filings in the US and GB,"
-                " matched across registers. About this map"
+            # Direction A (owner, 2026-10-24): the landing's one sentence is the front strip's h1, two lines
+            # at most on a phone, its three figures on one line under it; how to use the marks is the
+            # key's to say, in "Tap" on a touch screen. A figure whose count is zero is left out
+            # (web/headline.py; this store may hold no data centres or open calls), so up to three.
+            title = page.locator("h1.map-strip__title")
+            assert (
+                " ".join(title.inner_text().split())
+                == "Planned US energy projects, each linked to its source."
             )
-            assert about.get_attribute("aria-expanded") == "false"
-            about.click()
-            assert about.get_attribute("aria-expanded") == "true"
-            text = " ".join(lede.inner_text().split())
-            assert "matched across registers: every claim linked to its source" in text, text
-            assert "Tap a cluster to zoom in, or a dot to open its record." in text, text
-            about.click()
-            assert "every claim" not in lede.inner_text()
+            assert title.evaluate(_LINE_COUNT) <= 2
+            figure_tops = page.locator(".map-figures a").evaluate_all(
+                "(links) => links.map((a) => Math.round(a.getBoundingClientRect().top))"
+            )
+            assert 1 <= len(figure_tops) <= 3 and len(set(figure_tops)) == 1, figure_tops
+            key_words = " ".join((page.locator("#lifecycle-legend").text_content() or "").split())
+            assert "Tap it to zoom in." in key_words, key_words
+            assert page.locator("#map-intro-about").count() == 0
 
+            # The count and the notice's short form are the filter sheet's head (docs/30 §11.6): the count
+            # line, then "Active only. Why?" under it.
+            _open_filters(page)
             count, brief = page.locator("#map-result-count"), page.locator(".map-notice__brief")
             count_box, brief_box = count.evaluate(_BOX), brief.evaluate(_BOX)
-            middles = [count_box[1] + count_box[3] / 2, brief_box[1] + brief_box[3] / 2]
-            assert abs(middles[0] - middles[1]) <= 2, (count_box, brief_box)  # one line
-            assert count_box[3] <= 24 and brief_box[3] <= 26, (count_box, brief_box)
+            assert brief_box[1] >= count_box[1] + count_box[3] - 1, (count_box, brief_box)
+            assert brief_box[3] <= 26, (count_box, brief_box)
             assert " ".join(brief.inner_text().split()) == "Active only. Why?"
             detail, why = page.locator(".map-notice__detail"), page.locator(".map-notice__why")
             assert detail.is_hidden() and why.get_attribute("aria-expanded") == "false"
@@ -2536,21 +2647,41 @@ def test_phone_fold_budget_the_map_starts_high_with_one_sentence_and_one_status_
             assert detail.is_visible() and "Showing" in detail.inner_text()
             assert why.get_attribute("aria-expanded") == "true"
             # A filter change refills the notice; it stays open, and its new button says so.
-            page.click("[data-filter-toggle]")
             with page.expect_response(lambda r: "/api/proposals/notice?" in r.url):
                 page.select_option("#mf-technology", "solar")
             page.wait_for_function(
                 "() => document.querySelector('.map-notice__why').getAttribute('aria-expanded') === 'true'"
             )
             assert page.locator(".map-notice__detail").is_visible()
-            page.locator("[data-filter-done]").first.click()
 
-            # "Open these in the list" and the save link share the next line (owner, 2026-10-22: the
-            # view switch left the map).
-            save, listed = page.locator("#mf-save-alert"), page.locator("#map-list-link")
-            save_box, list_box = save.evaluate(_BOX), listed.evaluate(_BOX)
-            middles = [save_box[1] + save_box[3] / 2, list_box[1] + list_box[3] / 2]
-            assert abs(middles[0] - middles[1]) <= 2, (save_box, list_box)
+            # "Save this search as an alert" is at the sheet's foot, over "Clear all" and "Show the map",
+            # which share its last row; "List" is in the floating bar, beside Filters (owner, 2026-10-22:
+            # the view switch left the map).
+            save, done = page.locator("#mf-save-alert"), page.locator("[data-filter-done]").first
+            clear = page.locator("#mf-clear")
+            foot_box = page.locator(".map-sheet__foot").evaluate(_BOX)
+            save_box, done_box, clear_box = save.evaluate(_BOX), done.evaluate(_BOX), clear.evaluate(_BOX)
+            assert save.is_visible() and done.is_visible() and clear.is_visible()
+            for box in (save_box, done_box, clear_box):
+                assert foot_box[1] <= box[1] and box[1] + box[3] <= foot_box[1] + foot_box[3] + 1, (
+                    box,
+                    foot_box,
+                )
+            assert save_box[1] + save_box[3] <= done_box[1] + 1, (save_box, done_box)
+            assert abs((clear_box[1] + clear_box[3] / 2) - (done_box[1] + done_box[3] / 2)) <= 2, (
+                clear_box,
+                done_box,
+            )
+            # The sheet stops above the panel's peek, so nothing covers its foot.
+            peek_top = page.locator("#map-panel").evaluate(_BOX)[1]
+            assert done_box[1] + done_box[3] <= peek_top, (done_box, peek_top)
+            done.click()
+            listed, bar = page.locator("#map-list-link"), page.locator(".map-float")
+            list_box, bar_box = listed.evaluate(_BOX), bar.evaluate(_BOX)
+            assert listed.is_visible() and bar_box[1] <= list_box[1] <= bar_box[1] + bar_box[3], (
+                list_box,
+                bar_box,
+            )
             assert page.locator(".view-switch").count() == 0
 
             # 360px, the floor docs/04 D-32 now names: nothing scrolls sideways.
@@ -2558,20 +2689,23 @@ def test_phone_fold_budget_the_map_starts_high_with_one_sentence_and_one_status_
             narrow.goto(BASE_URL + "/")
             narrow.wait_for_function(_COUNT_READY, timeout=30000)
             assert narrow.evaluate("document.documentElement.scrollWidth") <= 360
-            assert narrow.locator("#map-key-toggle").is_visible()
+            assert narrow.locator("#map-panel-keybtn").is_visible()
 
-            # From 720px: the whole lede with "Click", the notice in full, no short forms.
+            # From 720px: the same strip, the key's how-to with "Click", and the same sheet: on the
+            # landing "Why?" opens the notice at every width.
             wide = browser.new_page(viewport=DESKTOP_VIEWPORT)
             _install_offline_routes(wide)
             _ok_ui_events(wide)
             wide.goto(BASE_URL + "/")
             wide.wait_for_function(_COUNT_READY, timeout=30000)
-            wide_lede = " ".join(wide.locator(".map-intro__lede").inner_text().split())
-            how_to = "moves. Click a cluster to zoom in, or a dot to open its record."
-            assert wide_lede.endswith(how_to), wide_lede
+            assert wide.locator("h1.map-strip__title").evaluate(_LINE_COUNT) <= 2
+            wide_key = " ".join((wide.locator("#lifecycle-legend").text_content() or "").split())
+            assert "Click it to zoom in." in wide_key, wide_key
             assert wide.locator("#map-intro-about").is_hidden()
-            assert wide.locator(".map-notice__brief").is_hidden()
-            assert "Showing" in wide.locator(".map-notice__detail").inner_text()
+            _open_filters(wide)
+            assert " ".join(wide.locator(".map-notice__brief").inner_text().split()) == "Active only. Why?"
+            assert wide.locator(".map-notice__detail").is_hidden()
+            assert "Showing" in (wide.locator(".map-notice__detail").text_content() or "")
         finally:
             browser.close()
 
@@ -2587,14 +2721,18 @@ def test_phone_coverage_note_shows_without_why(server: object) -> None:
             page = _phone_page(browser)
             page.goto(BASE_URL + "/?iso=PJM")
             page.wait_for_function(_COUNT_READY, timeout=30000)
-            gap = page.locator("#map-notice .view-notice--gap")
+            # On the landing (docs/30 §11.6) the note is under the floating bar, on the map, at every width,
+            # with nothing to open first; "Why?" is the filter sheet's and opens only the rest.
+            gap = page.locator("#map-notice-under .view-notice--gap")
             assert gap.count() == 1 and gap.is_visible()
             assert "come from EIA-860M" in gap.inner_text()
+            bar_box, gap_box = page.locator(".map-float").evaluate(_BOX), gap.evaluate(_BOX)
+            assert gap_box[1] >= bar_box[1] + bar_box[3] - 1, (bar_box, gap_box)
+            _open_filters(page)
             brief = page.locator(".map-notice__brief")
             assert " ".join(brief.inner_text().split()) == "Active only. Why?"
             assert page.locator(".map-notice__detail").is_hidden()
-            brief_box, gap_box = brief.evaluate(_BOX), gap.evaluate(_BOX)
-            assert gap_box[1] >= brief_box[1] + brief_box[3] - 1, (brief_box, gap_box)
+            assert page.locator("#map-notice .view-notice--gap").count() == 0  # said once, under the bar
             assert page.evaluate("document.documentElement.scrollWidth") <= 390
         finally:
             browser.close()
@@ -2615,7 +2753,9 @@ def test_phone_map_controls_are_one_right_edge_column_and_the_key_opens_under_th
             page.wait_for_function(_COUNT_READY, timeout=30000)  # the data, which grows the key
             _map_on_top(page)
             map_box = page.locator("#map").evaluate(_BOX)
-            ids = ("zoom-in", "zoom-out", "map-jump-toggle", "map-key-toggle")
+            # The landing's column: zoom in, zoom out and "Jump to" (the Key is the sheet's, docs/30 §11.8).
+            assert page.locator("#map-key-toggle").is_hidden()
+            ids = ("zoom-in", "zoom-out", "map-jump-toggle")
             column = [page.locator(f"#{i}").evaluate(_BOX) for i in ids]
             for left, _top, width, height in column:
                 assert abs(width - 44) < 0.6 and abs(height - 44) < 0.6, column
@@ -2623,8 +2763,21 @@ def test_phone_map_controls_are_one_right_edge_column_and_the_key_opens_under_th
             assert [b[1] for b in column] == sorted(b[1] for b in column)
             assert page.locator("#zoom-reset").is_hidden()
             assert all(not b.is_visible() for b in page.locator(".region-btn").all())
+            # The column alone still keeps the old page's budget; the landing's overlays have their own.
+            column_share = 100 * sum(w * h for _l, _t, w, h in column) / (map_box[2] * map_box[3])
+            assert column_share <= PHONE_MAP_COVER_BUDGET, f"the column covers {column_share:.1f}% of the map"
+            page.evaluate(_DROP_SUITE_NOTES)
             covered = page.evaluate(_MAP_COVERED)
-            assert covered <= PHONE_MAP_COVER_BUDGET, f"{covered:.1f}% of the map covered, key closed"
+            assert covered <= LANDING_PHONE_COVER_BUDGET, f"{covered:.1f}% of the map covered, key closed"
+            # No place on the lower 48's edge lies under the bar, the column, the strip or the sheet.
+            boxes = page.evaluate(_OVERLAY_BOXES)
+            for place in _CONUS_EDGE_PLACES:
+                x, y = _screen_point(page, place)
+                assert (
+                    map_box[0] <= x <= map_box[0] + map_box[2] and map_box[1] <= y <= map_box[1] + map_box[3]
+                ), place
+                under = [b for b in boxes if b[0] <= x <= b[2] and b[1] <= y <= b[3]]
+                assert not under, (place, (x, y), under)
 
             # "Jump to": the region jumps and "Whole map" beside the column; Escape closes and returns.
             jump = page.locator("#map-jump-toggle")
@@ -2645,30 +2798,40 @@ def test_phone_map_controls_are_one_right_edge_column_and_the_key_opens_under_th
             assert jump.get_attribute("aria-expanded") == "false"
             assert page.evaluate("document.activeElement.id") == "map-jump-toggle"
 
-            # "Key": the panel opens under the map on its Key tab, in view; nothing more of the map
-            # is covered, and nothing in it scrolls inside (owner, 2026-10-22: on a phone the panel
-            # does not float).
-            page.locator("#map-key-toggle").click()
-            page.wait_for_function(_KEY_IN_VIEW)
-            map_bottom, key_top = page.evaluate(_MAP_BOTTOM_AND_KEY_TOP)
-            assert key_top >= map_bottom, (key_top, map_bottom)
+            # "Key": the sheet opens to half the map on its Key tab (docs/30 §11.8; on the old page the panel
+            # opened under the map, in the page); the sheet scrolls inside itself, and the page never does.
+            page.locator("#map-panel-keybtn").click()
+            map_top, map_bottom, key_top = page.evaluate(
+                "[document.getElementById('map').getBoundingClientRect().top,"
+                " document.getElementById('map').getBoundingClientRect().bottom,"
+                " document.getElementById('lifecycle-legend').getBoundingClientRect().top]"
+            )
+            assert map_top < key_top < map_bottom, (map_top, key_top, map_bottom)
             assert page.get_attribute("#map-tab-key", "aria-selected") == "true"
             scroll = page.locator("#map-panel-scroll")
-            assert scroll.evaluate("(s) => s.scrollHeight <= s.clientHeight + 1")  # in the page, not a window
-            _map_on_top(page)
+            assert scroll.evaluate("(s) => getComputedStyle(s).overscrollBehaviorY") == "contain"
+            assert page.evaluate("window.scrollY") == 0
             covered = page.evaluate(_MAP_COVERED)
-            assert covered <= PHONE_MAP_COVER_BUDGET, f"{covered:.1f}% of the map covered, key open"
+            assert covered <= LANDING_PHONE_KEY_OPEN_BUDGET, f"{covered:.1f}% of the map covered, key open"
 
-            # From 720px: Reset and the region row on the map, no "Jump to" and no rail "Key"; the
-            # panel floats over the map's top right with the key as its second tab.
+            # From 720px: the same column at the left edge under the bar ("Jump to" included; Reset only
+            # once the map has left the national view), no "Key" in it; the panel floats over the map's
+            # top right with the key as its second tab.
             wide = browser.new_page(viewport=DESKTOP_VIEWPORT)
             _install_offline_routes(wide)
             _ok_ui_events(wide)
             wide.goto(BASE_URL + "/")
             wide.wait_for_function("() => window.__map && window.__map.loaded()", timeout=30000)
-            assert wide.locator("#zoom-reset").is_visible() and wide.locator(".region-btn").first.is_visible()
-            assert wide.locator("#map-jump-toggle").is_hidden() and wide.locator("#map-jump-home").is_hidden()
+            assert wide.locator("#zoom-reset").is_hidden() and wide.locator(".region-btn").first.is_hidden()
+            assert (
+                wide.locator("#map-jump-toggle").is_visible() and wide.locator("#map-jump-home").is_hidden()
+            )
             assert wide.locator("#map-key-toggle").is_hidden()
+            wide_column = wide.locator("#zoom-in").evaluate(_BOX)
+            wide_float = wide.locator(".map-float").evaluate(_BOX)
+            assert (
+                abs(wide_column[0] - wide_float[0]) <= 1 and wide_column[1] >= wide_float[1] + wide_float[3]
+            )
             wide_map = wide.locator("#map").evaluate(_BOX)
             panel = wide.locator("#map-panel").evaluate(_BOX)
             assert wide_map[1] < panel[1] < wide_map[1] + wide_map[3], (panel, wide_map)
@@ -2799,10 +2962,21 @@ def test_phone_map_filter_disclosures_are_full_width_rows_and_show_the_map_is_at
             toggle = page.locator("[data-filter-toggle]")
             toggle.click()
             form = page.locator("#map-filters")
-            form_left, form_top, form_width, _h = form.evaluate(_BOX)
+            form_left, form_top, form_width, form_height = form.evaluate(_BOX)
+            # The sheet's content box: inside its 1px border and its side padding (docs/30 §11.6).
+            pad = form.evaluate(
+                "(f) => { const c = getComputedStyle(f);"
+                " return parseFloat(c.borderLeftWidth) + parseFloat(c.paddingLeft); }"
+            )
+            # On the landing the sheet's foot holds "Show the map" in sight whatever the sheet's scroll
+            # (a sticky foot, docs/30 §11.6), so it never waits at the end of a long form.
             first_done = page.locator("#map-filters [data-filter-done]").first
             done_box = first_done.evaluate(_BOX)
-            assert first_done.is_visible() and done_box[1] - form_top <= 16, (done_box, form_top)
+            assert first_done.is_visible(), done_box
+            assert form_top <= done_box[1] and done_box[1] + done_box[3] <= form_top + form_height + 1, (
+                done_box,
+                form_top,
+            )
             summaries = [
                 s for s in page.locator("#map-filters .filter-more > summary").all() if s.is_visible()
             ]
@@ -2811,7 +2985,8 @@ def test_phone_map_filter_disclosures_are_full_width_rows_and_show_the_map_is_at
             for summary in summaries:
                 left, _top, width, height = summary.evaluate(_BOX)
                 where = (summary.inner_text(), left, width)
-                assert abs(left - form_left) <= 1 and abs(width - form_width) <= 1, where
+                # Full-width rows of the sheet's content box (inside its side padding).
+                assert abs(left - (form_left + pad)) <= 1 and abs(width - (form_width - 2 * pad)) <= 1, where
                 assert height >= 44
                 list_style, chevron, turn = summary.evaluate(_MARKER)
                 assert list_style == "none" and chevron == "solid", (list_style, chevron)
@@ -2834,14 +3009,15 @@ def test_phone_map_filter_disclosures_are_full_width_rows_and_show_the_map_is_at
             tablet.goto(BASE_URL + "/")
             tablet.locator("[data-filter-toggle]").click()
             done = tablet.locator("#map-filters [data-filter-done]")
-            assert [d.is_visible() for d in done.all()] == [False, True]
-            # 1440px: the disclosures are links in the bar's row, not full-width rows.
+            assert [d.is_visible() for d in done.all()] == [True]  # the sheet's foot, at every width
+            # 1440px: in the 560px sheet the disclosures are links in its rows, not full-width rows.
             wide = browser.new_page(viewport=DESKTOP_VIEWPORT)
             _install_offline_routes(wide)
             _ok_ui_events(wide)
             wide.goto(BASE_URL + "/")
+            _open_filters(wide)
             width = wide.locator("#mf-more > summary").evaluate("(s) => s.getBoundingClientRect().width")
-            assert width < 300, width
+            assert 0 < width < 300, width
         finally:
             browser.close()
 
@@ -2902,8 +3078,9 @@ def test_the_map_panel_text_is_readable_over_any_basemap_in_both_themes(server: 
             _ok_ui_events(page)
             page.goto(BASE_URL + "/")
             page.wait_for_function(_COUNT_READY, timeout=30000)
+            # The overview's technology rows have landed (the busiest areas left the landing, 2026-10-24).
             page.wait_for_function(
-                "() => document.querySelectorAll('#map-overview-areas .map-overview__area').length > 0",
+                "() => document.querySelectorAll('#map-overview-tech .map-overview__name').length > 0",
                 timeout=30000,
             )
             seen = page.evaluate(_PANEL_WORDS)
@@ -2921,7 +3098,8 @@ def test_the_map_panel_text_is_readable_over_any_basemap_in_both_themes(server: 
             rgb, text_alpha = _css_rgba(colour)
             assert text_alpha == 1, (text, colour)
             ratio = _contrast(_hex(rgb), composite)
-            assert ratio >= 4.5, (scheme, backdrop, text, colour, composite, round(ratio, 2))
+            # The landing's budget (docs/31-brand-identity.md §6): text at 7:1, over any basemap.
+            assert ratio >= 7.0, (scheme, backdrop, text, colour, composite, round(ratio, 2))
 
 
 def test_in_view_is_an_overview_at_national_zoom_and_a_list_zoomed_in(server: object) -> None:
@@ -2955,28 +3133,35 @@ def test_in_view_is_an_overview_at_national_zoom_and_a_list_zoomed_in(server: ob
                 "Withdrawn or cancelled",
                 "Status unknown",
             }
+            # By status, in the Status filter's words: the panel's head (the overview's own status rows
+            # went with the landing, 2026-10-24, so a number is said once on the screen).
             statuses = [
-                " ".join(t.split())
-                for t in page.locator("#map-overview-status .map-overview__name").all_inner_texts()
+                " ".join((t or "").split())
+                for t in page.locator("#map-panel-families .map-panel__fname").all_text_contents()
             ]
             assert statuses and set(statuses) <= filter_words, statuses
-            assert 1 <= page.locator("#map-overview-tech li").count() <= 4
-            areas = page.locator("#map-overview-areas .map-overview__area")
-            areas.first.wait_for(timeout=30000)
-            assert 1 <= areas.count() <= 5
+            # Four technology rows from first paint (S-2), at least one of them filled.
+            assert page.locator("#map-overview-tech li").count() == 4
+            filled = page.locator("#map-overview-tech li:not(.is-empty)").count()
+            assert 1 <= filled <= 4, filled
             counts = [
-                int(t.split()[0].replace(",", ""))
-                for t in page.locator("#map-overview-areas .map-overview__count").all_inner_texts()
+                int(t.replace(",", ""))
+                for t in page.locator("#map-overview-tech .map-overview__count").all_inner_texts()
             ]
             assert counts == sorted(counts, reverse=True), counts
-            assert page.inner_text("#map-overview-hint") == "Zoom in or search to list projects."
+            assert page.locator("#map-overview-areas").count() == 0
+            assert page.inner_text("#map-overview-hint") == "Zoom in to list them."
             national = page.evaluate(box)
             zoom = page.evaluate("window.__map.getZoom()")
 
-            # The busiest area is a button that flies there.
-            areas.first.click()
-            page.wait_for_function(f"() => window.__map.getZoom() > {zoom} + 0.5 && !window.__map.isMoving()")
-            page.wait_for_function("() => location.search.includes('zoom=')", timeout=10000)
+            # "Jump to" flies to a region (the busiest areas' buttons left the landing). The landing's
+            # national view is already the lower 48, so the flight starts from a view zoomed in elsewhere.
+            page.evaluate("window.__map.jumpTo({center: [-80.2, 25.8], zoom: 8})")
+            page.wait_for_function("() => !window.__map.isMoving()")
+            page.click("#map-jump-toggle")
+            page.locator("#map-regions .region-btn").first.click()
+            page.wait_for_function(f"() => window.__map.getZoom() < {zoom} + 2 && !window.__map.isMoving()")
+            page.wait_for_function("() => location.search.includes('region=')", timeout=10000)
 
             # Zoomed in: the list, in the same box.
             page.evaluate("window.__map.jumpTo({center: [-97.75, 30.3], zoom: 9})")
@@ -3081,28 +3266,35 @@ def test_phone_panel_is_a_bar_under_the_map_and_nothing_covers_the_canvas(server
             map_box = page.locator("#map").evaluate(_BOX)
             bar = page.locator("#map-panel").evaluate(_BOX)
             search = page.locator("#map-search").evaluate(_BOX)
-            assert bar[1] >= map_box[1] + map_box[3], (bar, map_box)  # under the map
-            assert search[1] + search[3] <= map_box[1], (search, map_box)  # above the canvas
-            assert abs(search[2] - map_box[2]) <= 1, (search, map_box)  # full width
-            assert re.fullmatch(r"[\d,]+ projects? in view( · .+)?", page.inner_text("#map-panel-count"))
-            assert page.locator("#map-panel-keybtn").is_visible()  # "Key" on the closed bar
+            # The full-screen landing (docs/30 §11.8): the panel is a sheet peeking at the map's foot and
+            # the search is the floating bar over the canvas's top; the page has nothing under the map.
+            assert abs(bar[1] + bar[3] - (map_box[1] + map_box[3])) <= 1, (bar, map_box)  # at the map's foot
+            assert map_box[1] <= search[1] and search[1] + search[3] <= map_box[1] + 64, (search, map_box)
+            count_words = " ".join((page.locator("#map-panel-count").text_content() or "").split())
+            assert re.fullmatch(r"[\d,]+ projects? in view( · .+)?", count_words), count_words
+            assert page.locator("#map-panel-keybtn").is_visible()  # "Key" on the peek
             assert page.locator("#map-panel-body").is_hidden()
             assert bar[3] <= 64, bar  # one row
-            _map_on_top(page)
+            page.evaluate(_DROP_SUITE_NOTES)
             covered = page.evaluate(_MAP_COVERED)
-            assert covered <= PHONE_MAP_COVER_BUDGET, f"{covered:.1f}% of the map covered, panel closed"
+            assert covered <= LANDING_PHONE_COVER_BUDGET, f"{covered:.1f}% of the map covered, panel closed"
             page.click("#map-panel-toggle")
             assert page.locator("#map-panel-body").is_visible()
             assert page.get_attribute("#map-tab-inview", "aria-selected") == "true"
-            # Opening it scrolls the page (smoothly) to bring it in, so both boxes are read again, at once.
-            map_bottom, panel_top = page.evaluate(
-                "[document.getElementById('map').getBoundingClientRect().bottom,"
+            # Open, the sheet rests at half the map, over it; the page does not scroll.
+            map_top, map_bottom, panel_top = page.evaluate(
+                "[document.getElementById('map').getBoundingClientRect().top,"
+                " document.getElementById('map').getBoundingClientRect().bottom,"
                 " document.getElementById('map-panel').getBoundingClientRect().top]"
             )
-            assert panel_top >= map_bottom - 1, (panel_top, map_bottom)
-            _map_on_top(page)
+            assert abs((map_bottom - panel_top) - (map_bottom - map_top) / 2) <= 2, (
+                map_top,
+                panel_top,
+                map_bottom,
+            )
+            assert page.evaluate("window.scrollY") == 0
             covered = page.evaluate(_MAP_COVERED)
-            assert covered <= PHONE_MAP_COVER_BUDGET, f"{covered:.1f}% of the map covered, panel open"
+            assert covered <= LANDING_PHONE_KEY_OPEN_BUDGET, f"{covered:.1f}% of the map covered, panel open"
             assert page.evaluate("document.documentElement.scrollWidth") <= 390
             # The bar's "Key" opens the Key tab; its count, "N projects in view", opens "In view" again.
             page.click("#map-panel-toggle")
@@ -3138,6 +3330,7 @@ def test_unticking_every_status_hides_projects_and_survives_a_reload(server: obj
             _ok_ui_events(page)
             page.goto(BASE_URL + "/")
             page.wait_for_function(_COUNT_READY, timeout=30000)
+            _open_filters(page)
             default_count = page.inner_text("#map-result-count")
             page.click("#mf-status summary")
             for key in default_states:
@@ -3147,8 +3340,9 @@ def test_unticking_every_status_hides_projects_and_survives_a_reload(server: obj
                 "() => document.getElementById('map-result-count').textContent"
                 " === '0 projects match these filters.'"
             )
+            # Said under the floating bar, at every width, with the way back (docs/30 §11.6).
             page.wait_for_function(
-                "() => /No status chosen/.test(document.getElementById('map-notice').textContent)",
+                "() => /No status chosen/.test(document.getElementById('map-notice-under').textContent)",
                 timeout=10000,
             )
             for key in default_states:
@@ -3164,12 +3358,13 @@ def test_unticking_every_status_hides_projects_and_survives_a_reload(server: obj
                 "() => /No status/.test(document.getElementById('map-panel-count').textContent)"
             )
             assert parse_qs(urlsplit(page.url).query).get("lifecycle_state") == ["none"]
-            assert page.inner_text("#map-result-count") == "0 projects match these filters."
+            assert page.locator("#map-result-count").text_content() == "0 projects match these filters."
             assert page.inner_text("#map-panel-count") == "No status chosen: projects are hidden."
             for key in default_states:
                 assert not page.is_checked(f"#mf-status-{key}"), key
 
-            page.click("#map-notice a[data-clear-all]")
+            page.click("#map-notice-under a[data-clear-all]")
+            _open_filters(page)
             page.wait_for_function("() => !location.search.includes('lifecycle_state')", timeout=10000)
             page.wait_for_function(
                 f"() => document.getElementById('map-result-count').innerText === {json.dumps(default_count)}"
@@ -3184,7 +3379,7 @@ def test_unticking_every_status_hides_projects_and_survives_a_reload(server: obj
 #: What a key row's hover changes: the drawn opacity of the projects', regions' and plants' layers
 #: (map.js `HIGHLIGHT_PAINT`), as one string to compare before and after.
 _HOVER_PAINT = (
-    "() => JSON.stringify([['clusters', 'circle-opacity'], ['points', 'icon-opacity'],"
+    "() => JSON.stringify([['clusters', 'icon-opacity'], ['points', 'icon-opacity'],"
     " ['region-fill', 'fill-opacity'], ['plant-points', 'icon-opacity']].map(([l, p]) =>"
     " window.__map.getLayer(l) ? window.__map.getPaintProperty(l, p) : null))"
 )
@@ -3231,7 +3426,7 @@ def test_a_tap_on_a_key_row_or_a_list_row_leaves_the_map_as_drawn(server: object
             phone.goto(BASE_URL + "/?center=-77.48,38.95&zoom=9")
             phone.wait_for_function(_rendered("points"), timeout=30000)
             drawn = phone.evaluate(_HOVER_PAINT)
-            phone.tap("#map-key-toggle")  # the rail's "Key" opens the Key tab under the map
+            phone.tap("#map-panel-keybtn")  # the sheet's "Key" opens the Key tab over the map's foot
             phone.locator(key_row).wait_for()
             phone.locator(key_row).tap()
             phone.wait_for_timeout(300)
@@ -3246,6 +3441,12 @@ def test_a_tap_on_a_key_row_or_a_list_row_leaves_the_map_as_drawn(server: object
 
 
 #: Where the open panel starts on the canvas (px from the map's left edge), and the canvas's width.
+#: The panel's count as a reader sees it: its text less what is said to a screen reader only.
+_SEEN_COUNT = (
+    "() => { const c = document.getElementById('map-panel-count').cloneNode(true);"
+    " c.querySelectorAll('.visually-hidden').forEach((e) => e.remove());"
+    " return c.textContent.replace(/\\s+/g, ' ').trim(); }"
+)
 _PANEL_EDGE = (
     "() => { const m = document.getElementById('map').getBoundingClientRect();"
     " const k = document.getElementById('map-panel').getBoundingClientRect();"
@@ -3254,11 +3455,12 @@ _PANEL_EDGE = (
 
 
 def _by_zoom(local: str, national: str) -> Any:
-    """`/api/proposals/geo` answering `local` from zoom 8 and `national` below it."""
+    """`/api/proposals/geo` answering `local` from map zoom 6 and `national` below it. The map asks for
+    its own zoom plus six, at most 12 (map.js `markZoom`, one mark per place), so 12 is map zoom 6 or more."""
 
     def answer(route: Route) -> None:
         zoom = float(parse_qs(urlsplit(route.request.url).query).get("zoom", ["3"])[0])
-        route.fulfill(status=200, content_type="application/json", body=local if zoom >= 8 else national)
+        route.fulfill(status=200, content_type="application/json", body=local if zoom >= 12 else national)
 
     return answer
 
@@ -3285,10 +3487,10 @@ def test_in_view_leaves_out_what_lies_under_the_open_panel(server: object) -> No
     local = _geo_envelope(left + under, records=10)
     national = _geo_envelope(
         [
-            _cluster(-100.0, 40.0, {"filed": 40}, 4000.0, 6),
+            _cluster(-100.0, 40.0, {"filed": 45}, 4500.0, 6),
             _cluster(-75.0, 40.0, {"filed": 30}, 3000.0, 6),
         ],
-        records=70,
+        records=75,
     )
     asked: list[str] = []
 
@@ -3316,7 +3518,11 @@ def test_in_view_leaves_out_what_lies_under_the_open_panel(server: object) -> No
             assert edge < width, (edge, width)  # the panel lies over the canvas
             xs = [_screen_point(page, f["geometry"]["coordinates"])[0] - 20 for f in under]
             assert all(edge < x < width for x in xs), (edge, xs)  # the four lie under the panel
-            assert page.inner_text(count) == "6 projects in view · 72 MW"
+            # What a reader sees and what a screen reader says: the noun is said, not drawn (review of
+            # lane v2-landing, the first screen's word budget with the credits counted).
+            assert page.evaluate(_SEEN_COUNT) == "6 in view · 72 MW"
+            spoken = " ".join((page.locator(count).text_content() or "").split())
+            assert spoken == "6 projects in view · 72 MW", spoken
             assert page.evaluate(names) == [f"open-{i}" for i in range(6)]
             assert "under-" not in page.inner_text("#map-live-region")
             # Still drawn under the panel: a pan brings them out at once.
@@ -3331,26 +3537,30 @@ def test_in_view_leaves_out_what_lies_under_the_open_panel(server: object) -> No
             # Collapsed, the panel is its header over the top right corner: all ten are in view.
             page.click("#map-panel-toggle")
             page.wait_for_function(says, arg="10 projects")
-            assert page.inner_text(count) == "10 projects in view · 120 MW"
+            assert page.evaluate(_SEEN_COUNT) == "10 in view · 120 MW"
+            spoken = " ".join((page.locator(count).text_content() or "").split())
+            assert spoken == "10 projects in view · 120 MW", spoken
             page.click("#map-panel-toggle")
             page.wait_for_function(says, arg="6 projects")
             assert page.evaluate(names) == [f"open-{i}" for i in range(6)]
 
-            # The overview and its busiest areas: the cluster under the panel is left out, and the
-            # areas are asked for the map left of the panel.
+            # The overview: the cluster under the panel is left out of its head and its status rows too.
+            # (The busiest areas, the one read the overview made of its own, left the landing on
+            # 2026-10-24: the overview is built from the answers in hand and asks for nothing.) From the
+            # list, the overview needs more than 40 in view below zoom 4.5 (docs/30 S-3): 45 here, or
+            # 75 had the cluster under the panel been counted.
             page.evaluate("window.__map.jumpTo({center: [-95, 39], zoom: 4})")
-            page.wait_for_function(says, arg="40 projects")
+            page.wait_for_function(says, arg="45 projects")
             assert page.get_attribute("#map-panel", "data-mode") == "overview"
-            page.locator("#map-overview-areas .map-overview__area").first.wait_for(timeout=30000)
-            bbox = [float(v) for v in parse_qs(urlsplit(asked[-1]).query)["bbox"][0].split(",")]
-            west, south, east, north = page.evaluate(
-                "(edge) => { const b = window.__map.getBounds(); const e = window.__map.unproject([edge, 0]);"
-                " return [b.getWest(), b.getSouth(), e.lng, b.getNorth()]; }",
-                edge,
+            in_process = page.locator("#map-panel-families [data-status-group='in_process'] [data-count]")
+            page.wait_for_function(
+                "() => document.querySelector("
+                "\"#map-panel-families [data-status-group='in_process'] [data-count]\")"
+                ".textContent === '45'"
             )
-            assert abs(bbox[2] - east) < 0.01 and abs(bbox[0] - west) < 0.01, (bbox, west, east)
-            assert abs(bbox[1] - south) < 0.01 and abs(bbox[3] - north) < 0.01, (bbox, south, north)
-            assert bbox[2] < -75.0 < page.evaluate("window.__map.getBounds().getEast()")
+            assert in_process.text_content() == "45"
+            assert -75.0 < page.evaluate("window.__map.getBounds().getEast()")  # the other is on the canvas
+            assert asked == []
         finally:
             browser.close()
 
@@ -3385,23 +3595,32 @@ def test_a_flown_to_view_lands_clear_of_the_open_panel(server: object) -> None:
             left, _top, right, _bottom = page.evaluate(project, us)
             assert left >= 0 and right <= edge + 1, (left, right, edge)
 
-            # A busiest area's button.
+            # A "Jump to" choice (the busiest areas' buttons left the landing, 2026-10-24).
             page.evaluate("window.__map.jumpTo({center: [-95, 39], zoom: 3.5})")
-            area = page.locator("#map-overview-areas .map-overview__area")
-            area.first.wait_for(timeout=30000)
-            area.first.click()
-            page.wait_for_function("() => window.__map.getZoom() > 5 && !window.__map.isMoving()")
-            left, _top, right, _bottom = page.evaluate(project, virginia)
-            assert left >= 0 and right <= edge + 1, (left, right, edge)
+            page.wait_for_function("() => !window.__map.isMoving()")
+            page.click("#map-jump-toggle")
+            choice = page.locator("#map-regions .region-btn").last
+            bbox = [float(v) for v in (choice.get_attribute("data-bbox") or "").split(",")]
+            choice.click()
+            page.wait_for_function("() => !window.__map.isMoving()")
+            page.wait_for_timeout(700)
+            left, _top, right, _bottom = page.evaluate(project, bbox)
+            assert left >= -1 and right <= edge + 1, (left, right, edge)
 
-            # A cluster's zoom: the cluster lands in the middle of the map left of the panel.
+            # A cluster's zoom: the cluster lands in the middle of the map the panel leaves, between the
+            # landing's control column at the left edge (docs/30 §11.6) and the panel.
             page.evaluate("window.__map.jumpTo({center: [-95, 39], zoom: 4})")
             page.wait_for_function(_rendered("clusters"), timeout=30000)
             x, y = _screen_point(page, [-100.0, 40.0])
             page.mouse.click(x, y)
             page.wait_for_function("() => window.__map.getZoom() > 5.99 && !window.__map.isMoving()")
             landed = page.evaluate("() => window.__map.project([-100, 40]).x")
-            assert abs(landed - edge / 2) <= 3, (landed, edge)
+            rail = page.evaluate(
+                "() => document.querySelector('.map-overlay__rail').getBoundingClientRect().right"
+                " - document.getElementById('map').getBoundingClientRect().left"
+            )
+            assert 0 < rail < edge / 4, (rail, edge)
+            assert abs(landed - (rail + edge) / 2) <= 3, (landed, rail, edge)
         finally:
             browser.close()
 
@@ -3435,6 +3654,8 @@ def test_the_count_line_says_what_matches_and_what_no_map_can_place(server: obje
             _stub_map(page, proposals)
             page.goto(BASE_URL + "/?center=-98,39&zoom=3.6")
             page.wait_for_function(_COUNT_READY, timeout=30000)
+            # The count line heads the filter sheet on the landing (docs/30 §11.6).
+            _open_filters(page)
             text = page.inner_text("#map-result-count")
             assert text == "6,009 projects match these filters.\n" + second, text
             first_line = page.evaluate(
@@ -3444,7 +3665,9 @@ def test_the_count_line_says_what_matches_and_what_no_map_can_place(server: obje
                 " return r.getBoundingClientRect().top; }"
             )
             assert page.locator(".map-status__unplaced").evaluate(_BOX)[1] > first_line + 10  # its own line
-            assert page.inner_text("#map-panel-count") == "4,138 projects in view · 742.7 GW"
+            assert page.evaluate(_SEEN_COUNT) == "4,138 in view · 742.7 GW"
+            spoken = " ".join((page.locator("#map-panel-count").text_content() or "").split())
+            assert spoken == "4,138 projects in view · 742.7 GW", spoken
             assert page.locator("#unplaced-note").is_hidden()  # the count line says it here
             seen = page.evaluate(levels)
             assert seen[:2] == [1, 2] and all(b <= a + 1 for a, b in itertools.pairwise(seen)), seen
@@ -3457,12 +3680,14 @@ def test_the_count_line_says_what_matches_and_what_no_map_can_place(server: obje
             )
             phone.goto(BASE_URL + "/")
             phone.wait_for_function(_COUNT_READY, timeout=30000)
+            _open_filters(phone)
             assert phone.inner_text("#map-result-count") == "6,009 projects match these filters."
             # Both boxes are read in one frame: two separate reads can straddle a smooth scroll and
-            # compare positions from different moments (CI, 2026-10-23).
+            # compare positions from different moments (CI, 2026-10-23). In the sheet's head, the short
+            # form sits under the count.
             count_box, brief_box = phone.evaluate(_BOXES, ["#map-result-count", ".map-notice__brief"])
-            middles = [count_box[1] + count_box[3] / 2, brief_box[1] + brief_box[3] / 2]
-            assert abs(middles[0] - middles[1]) <= 2, (count_box, brief_box)  # one line, as before
+            assert brief_box[1] >= count_box[1] + count_box[3] - 1, (count_box, brief_box)
+            phone.locator("[data-filter-done]").first.click()
             phone.click("#map-panel-toggle")
             note = phone.locator("#unplaced-note")
             assert note.is_visible()
@@ -3479,17 +3704,22 @@ def test_the_count_line_says_what_matches_and_what_no_map_can_place(server: obje
 def test_the_busiest_areas_landing_moves_nothing_in_the_overview(server: object) -> None:
     """Review 2026-10-22: five rows were kept for the busiest areas at 28px each (140px), and an
     area's row is drawn 32px tall (a 24px button and 4px above and below), so the answer landing
-    pushed what follows down by 20px. The rows kept are the rows drawn."""
+    pushed what follows down by 20px. The rows kept are the rows drawn. The busiest areas left the
+    landing on 2026-10-24 (the overview asks for nothing of its own now); the same rule holds for the
+    technology rows that remain: four kept from first paint as skeleton lines (S-2, S-7), and the
+    answer landing fills them without moving the hint or anything else under them."""
     national = _geo_envelope([_cluster(-100.0, 40.0, {"filed": 400}, 4000.0, 6)], records=400)
     held: list[Route] = []
-    five = _areas_body(*((f"Area {i}", 100 - i, [-100.0 - i, 35.0, -95.0 - i, 40.0]) for i in range(5)))
-    height = "() => document.getElementById('map-overview-areas').getBoundingClientRect().height"
+    areas_asked: list[str] = []
+    height = "() => document.getElementById('map-overview-tech').getBoundingClientRect().height"
+    hint_top = "() => document.getElementById('map-overview-hint').getBoundingClientRect().top"
     with sync_playwright() as p:
         browser = p.chromium.launch(**_launch_kwargs())
         try:
             page = browser.new_page(viewport=DESKTOP_VIEWPORT)
             _stub_map(page, national)
-            page.route("**/api/map/areas?**", lambda route: held.append(route))
+            page.route("**/api/proposals/geo?**", lambda route: held.append(route))
+            page.route("**/api/map/areas?**", lambda route: areas_asked.append(route.request.url))
             page.goto(BASE_URL + "/?center=-98,39&zoom=3.6")
             page.wait_for_function(
                 "() => document.getElementById('map-panel').getAttribute('data-mode') === 'overview'"
@@ -3498,20 +3728,367 @@ def test_the_busiest_areas_landing_moves_nothing_in_the_overview(server: object)
                 if held:
                     break
                 page.wait_for_timeout(100)
-            assert held, "the overview asked for no busiest areas"
+            assert held, "the map asked for no projects"
             page.wait_for_timeout(300)
-            waiting = page.evaluate(height)
+            waiting, hint_waiting = page.evaluate(height), page.evaluate(hint_top)
+            assert page.locator("#map-overview-tech li.is-empty").count() == 4  # skeletons while it waits
             for route in held[:-1]:
                 with contextlib.suppress(PlaywrightError):  # aborted by the page for the newest
                     route.abort()
-            held[-1].fulfill(status=200, content_type="application/json", body=five)
-            page.wait_for_function(
-                "() => document.querySelectorAll('#map-overview-areas .map-overview__area').length === 5"
-            )
-            rows = page.locator("#map-overview-areas li").evaluate_all(
+            held[-1].fulfill(status=200, content_type="application/json", body=national)
+            page.wait_for_function("() => document.getElementById('map-panel').hasAttribute('data-loaded')")
+            rows = page.locator("#map-overview-tech li").evaluate_all(
                 "(li) => li.map((r) => r.getBoundingClientRect().height)"
             )
             assert page.evaluate(height) == waiting == sum(rows), (waiting, rows)
+            assert page.evaluate(hint_top) == hint_waiting
+            assert areas_asked == [], "the landing's overview asks for no busiest areas"
+        finally:
+            browser.close()
+
+
+#: The landing's boxes that must hold still (docs/30 §11.7 S-1): the panel, the floating bar, the strip.
+_STEADY_BOXES = (
+    "() => ['map-panel', 'map-strip'].map((id) => {"
+    " const b = document.getElementById(id).getBoundingClientRect();"
+    " return [b.left, b.top, b.width, b.height].map((v) => Math.round(v * 2) / 2); })"
+    ".concat([(() => { const b = document.querySelector('.map-float').getBoundingClientRect();"
+    " return [b.left, b.top, b.width, b.height].map((v) => Math.round(v * 2) / 2); })()])"
+)
+
+
+def test_the_landing_holds_its_boxes_steady_and_its_figures_lead_to_their_lists(server: object) -> None:
+    """Direction A (owner, 2026-10-24; docs/30 §11.6, §11.7). The national map is the page: under the two
+    bars, full-bleed, no page scroll, no footer. S-1: the open panel's box, the floating bar's and the
+    strip's depend on the viewport alone, across pans, zooms, a filter change and the tabs. S-3: zooming
+    across the overview/list threshold and back changes the mode once at most. The strip's three
+    figures each open the list that holds exactly what they count. The dark theme is the share card's
+    navy (docs/31-brand-identity.md §2's exception), on this page only."""
+    moves = (
+        "window.__map.jumpTo({center: [-90, 38], zoom: 4})",
+        "window.__map.jumpTo({center: [-97.75, 30.3], zoom: 9})",
+        "window.__map.jumpTo({center: [-97.75, 30.3], zoom: 6})",
+        "window.__map.jumpTo({center: [-80, 35], zoom: 5})",
+    )
+    mode = "() => document.getElementById('map-panel').getAttribute('data-mode')"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function(_COUNT_READY, timeout=30000)
+            page.wait_for_function("() => window.__mapIdle === true", timeout=30000)
+            # The page is the map: no scroll, no footer, the canvas from under the bars to the foot.
+            assert page.evaluate("document.documentElement.scrollHeight") <= DESKTOP_VIEWPORT["height"] + 1
+            assert page.locator(".site-footer").is_hidden()
+            map_box = page.locator("#map").evaluate(_BOX)
+            assert map_box[1] <= 89 and map_box[1] + map_box[3] >= DESKTOP_VIEWPORT["height"] - 1, map_box
+            first = page.evaluate(_STEADY_BOXES)
+            for move in moves:
+                page.evaluate(move)
+                page.wait_for_function("() => !window.__map.isMoving()")
+                page.wait_for_timeout(600)
+                assert page.evaluate(_STEADY_BOXES)[0] == first[0], move  # the panel
+                assert page.evaluate(_STEADY_BOXES)[2] == first[2], move  # the floating bar
+            page.click("#map-tab-key")
+            assert page.evaluate(_STEADY_BOXES)[0] == first[0]
+            page.click("#map-tab-inview")
+            _open_filters(page)
+            page.select_option("#mf-technology", "solar")
+            page.wait_for_timeout(800)
+            assert page.evaluate(_STEADY_BOXES)[0] == first[0]
+            page.select_option("#mf-technology", "")
+            page.locator("[data-filter-done]").first.click()
+
+            # S-3: one mode change at most across 4.8, 5.0, 5.2, 5.0, 4.8 at one centre.
+            seen = []
+            for zoom in (4.8, 5.0, 5.2, 5.0, 4.8):
+                page.evaluate(f"window.__map.jumpTo({{center: [-97.75, 30.3], zoom: {zoom}}})")
+                page.wait_for_function("() => !window.__map.isMoving()")
+                page.wait_for_timeout(700)
+                seen.append(page.evaluate(mode))
+            changes = sum(1 for a, b in itertools.pairwise(seen) if a != b)
+            assert changes <= 1, seen
+            rules = page.evaluate(
+                "() => { const r = window.__mapPanelRules; let m = 'overview'; const out = [];"
+                " for (const [n, z] of [[280, 4.9], [320, 5.1], [280, 4.9]]) {"
+                " m = r.nextMode(m, n, z, false); out.push(m); }"
+                " return out; }"
+            )
+            assert len(set(rules)) == 1, rules
+            # S-5: a ranked list keeps its rows and order unless a row would move two places or overtake
+            # the row above by more than 10%; a row that leaves gives its slot to the best newcomer.
+            orders = page.evaluate(
+                "() => { const r = window.__mapPanelRules.reorder; return ["
+                " r([], {a: 3, b: 9, c: 5}, 4),"
+                " r(['a', 'b', 'c', 'd'], {a: 10, b: 9.5, c: 9.6, d: 7}, 4),"
+                " r(['a', 'b', 'c', 'd'], {a: 10, b: 9, c: 8, d: 20}, 4),"
+                " r(['a', 'b', 'c', 'd'], {a: 10, b: 0, c: 8, d: 7, e: 9}, 4),"
+                " r(['a', 'b'], {a: 10, b: 11.5}, 2),"
+                " r(['a', 'b'], {a: 10, b: 10.5}, 2)]; }"
+            )
+            assert orders == [
+                ["b", "c", "a"],
+                ["a", "b", "c", "d"],
+                ["d", "a", "b", "c"],
+                ["a", "e", "c", "d"],
+                ["b", "a"],
+                ["a", "b"],
+            ], orders
+            # S-4: a figure's first value is set at once; a new one eases to it, every frame rounded and
+            # separated as the last.
+            frames = page.evaluate(
+                "async () => { const set = window.__mapPanelRules.setFigure;"
+                " const fmt = (v) => Math.round(v).toLocaleString('en-US');"
+                " const el = document.createElement('span'); document.body.appendChild(el);"
+                " set(el, 1000, fmt); const first = el.textContent; const seen = [];"
+                " const watch = new MutationObserver(() => seen.push(el.textContent));"
+                " watch.observe(el, {childList: true, characterData: true, subtree: true});"
+                " set(el, 2000, fmt); await new Promise((done) => setTimeout(done, 450));"
+                " watch.disconnect(); el.remove(); return [first, seen]; }"
+            )
+            assert frames[0] == "1,000" and frames[1] and frames[1][-1] == "2,000", frames
+            assert all(re.fullmatch(r"\d{1,3}(,\d{3})*", f) for f in frames[1]), frames
+            assert any(1000 < int(f.replace(",", "")) < 2000 for f in frames[1]), frames
+            # S-6: nothing in the panel changes while the map flies; the view's answers commit after.
+            page.wait_for_function("() => !window.__map.isMoving()")
+            page.wait_for_timeout(800)
+            during = page.evaluate(
+                "() => new Promise((done) => { const panel = document.getElementById('map-panel');"
+                " let moving = true, count = 0;"
+                " const watch = new MutationObserver((m) => { if (moving) count += m.length; });"
+                " const all = {subtree: true, childList: true, characterData: true, attributes: true};"
+                " watch.observe(panel, all);"
+                " window.__map.once('moveend', () => { moving = false; watch.disconnect(); done(count); });"
+                " window.__map.flyTo({center: [-90, 35], zoom: 5, duration: 1200}); })"
+            )
+            assert during == 0, during
+
+            # The figures: each link's list counts what the figure says. A zero is left out, and this
+            # store may hold no data centres or open calls, so one to three (web/test_headline.py
+            # follows all three links on a store that has each).
+            page.goto(BASE_URL + "/")
+            figures = page.locator(".map-figures a").evaluate_all(
+                "(links) => links.map((a) => [a.getAttribute('href'), a.querySelector('strong').textContent])"
+            )
+            assert 1 <= len(figures) <= 3, figures
+            for href, shown in figures:
+                page.goto(BASE_URL + href)
+                count = page.locator(".result-count").first.inner_text()
+                assert count.startswith(shown + " "), (href, shown, count)
+        finally:
+            browser.close()
+
+        # The navy ground in the dark theme, on the landing alone; the light theme keeps its ledger ground.
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            grounds = {}
+            for scheme in ("dark", "light"):
+                page = browser.new_page(viewport=DESKTOP_VIEWPORT, color_scheme=scheme)
+                _install_offline_routes(page)
+                _ok_ui_events(page)
+                page.goto(BASE_URL + "/")
+                grounds[scheme] = page.evaluate("getComputedStyle(document.body).backgroundColor")
+                page.goto(BASE_URL + "/proposals")
+                grounds[scheme + " list"] = page.evaluate("getComputedStyle(document.body).backgroundColor")
+                page.close()
+            assert grounds["dark"] == "rgb(11, 16, 35)", grounds  # #0b1023, the share card's navy
+            assert grounds["dark list"] == "rgb(14, 15, 17)", grounds  # other screens keep the neutral dark
+            assert grounds["light"] == grounds["light list"] == "rgb(238, 241, 245)", grounds
+            # S-4 under reduced motion: a new value is set at once.
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT, reduced_motion="reduce")
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function("() => window.__mapPanelRules", timeout=30000)
+            at_once = page.evaluate(
+                "() => { const set = window.__mapPanelRules.setFigure;"
+                " const fmt = (v) => Math.round(v).toLocaleString('en-US');"
+                " const el = document.createElement('span'); set(el, 1000, fmt); set(el, 2000, fmt);"
+                " return el.textContent; }"
+            )
+            assert at_once == "2,000", at_once
+        finally:
+            browser.close()
+
+
+#: Whether the centre of an element is the element (or inside it) as a pointer would hit it.
+_ON_TOP = (
+    "(el) => { const r = el.getBoundingClientRect(); if (!(r.width > 0)) return false;"
+    " const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);"
+    " return !!t && (t === el || el.contains(t)); }"
+)
+#: The footer's links, which the landing hides with the footer (it is still in the page).
+_FOOTER_HREFS = (
+    "() => [...document.querySelectorAll('.site-footer__links a')].map((a) => a.getAttribute('href'))"
+)
+#: Each of the credits' site links: its href, and whether it is drawn and on top where a finger lands.
+_CREDIT_LINKS = (
+    "() => [...document.querySelectorAll('#map-credits .map-credits__links a')].map((a) => {"
+    " a.scrollIntoView({block: 'nearest'}); const r = a.getBoundingClientRect();"
+    " const t = document.elementFromPoint(r.left + Math.min(8, r.width / 2), r.top + r.height / 2);"
+    " return [a.getAttribute('href'), r.width > 0 && !!t && (t === a || a.contains(t))]; })"
+)
+
+
+def test_the_landing_credits_open_by_touch_and_hold_the_footers_links_at_every_width(server: object) -> None:
+    """Review of lane v2-landing, blocking 1 and 2. The landing has no footer, and its links (About, the
+    method, the glossary, Attribution, the reuse conditions, the API, Privacy) and the endorsement line
+    (docs/31-brand-identity.md B-4) could not be reached from it; and on a phone the credits' "i" lay
+    under the front strip's "Sources read", so no tap could open the OpenStreetMap credit (D-27). The
+    credits are now the page's own disclosure at the canvas's bottom right: "© OpenStreetMap" and its
+    "i" in sight from the first paint at every width, on top of everything at the national view, and
+    open by a tap or a click on every credit, the footer's links in the footer's order, and the
+    endorsement. Escape closes it and puts focus back on it."""
+    proposals = _geo_envelope([_in_view_feature("credits-one", "solar", -100.0)], records=1)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for width, height in ((360, 740), (390, 844), (1440, 900)):
+                touch = width < 720
+                context = browser.new_context(
+                    viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch
+                )
+                page = context.new_page()
+                _stub_map(page, proposals)
+                page.goto(BASE_URL + "/")
+                page.wait_for_function("() => window.__mapIdle === true", timeout=30000)
+                page.evaluate(_DROP_SUITE_NOTES)
+                credits = page.locator("#map-credits")
+                toggle = credits.locator("summary")
+                assert credits.get_attribute("open") is None, width  # closed on arrival
+                osm = " ".join(credits.locator(".map-credits__osm").inner_text().split())
+                assert osm == "© OpenStreetMap", osm
+                covered = f"the credits are covered at {width}px"
+                assert toggle.is_visible() and toggle.evaluate(_ON_TOP), covered
+                assert page.locator(".maplibregl-ctrl-attrib").count() == 0  # one set of credits
+                # Nor does the chip lie over the strip's links beside it.
+                strip_links = page.locator("#map-strip a").evaluate_all(f"(links) => links.map({_ON_TOP})")
+                assert strip_links and all(strip_links), (width, strip_links)
+                if touch:
+                    toggle.tap(timeout=5000)
+                else:
+                    toggle.click(timeout=5000)
+                page.wait_for_function("() => document.getElementById('map-credits').open")
+                links = page.evaluate(_CREDIT_LINKS)
+                assert [href for href, _ in links] == page.evaluate(_FOOTER_HREFS), (width, links)
+                legal = {"/privacy", "/legal/reuse", "/docs/api", "/methodology"}
+                assert legal <= {href for href, _ in links}
+                assert all(on_top for _, on_top in links), (width, links)
+                endorse = credits.locator(".map-credits__endorse")
+                assert (
+                    endorse.is_visible()
+                    and endorse.inner_text()
+                    == (page.locator(".site-footer__endorse").text_content() or "").strip()
+                )
+                assert "OpenStreetMap contributors" in credits.locator("#map-attribution").inner_text()
+                toggle.focus()
+                page.keyboard.press("Escape")
+                assert credits.get_attribute("open") is None, width
+                assert page.evaluate(
+                    "document.activeElement === document.querySelector('#map-credits summary')"
+                )
+                context.close()
+        finally:
+            browser.close()
+
+
+def test_a_short_window_does_not_scroll_and_nothing_lies_over_the_zoom_column(server: object) -> None:
+    """Review of lane v2-landing: from 720px the landing does not scroll (docs/30 §11.6), but a window
+    under about 536px tall did (a phone on its side, 844x390), from a minimum height; and once the map
+    had moved, the strip lay over Reset, because the column had no layer of its own."""
+    proposals = _geo_envelope([_in_view_feature("short-one", "solar", -100.0)], records=1)
+    reset_on_top = (
+        "() => { const e = document.getElementById('zoom-reset'); const r = e.getBoundingClientRect();"
+        " const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);"
+        " return r.width > 0 && !!t && (t === e || e.contains(t)); }"
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            for width, height in ((844, 390), (915, 412)):
+                page = browser.new_page(viewport={"width": width, "height": height})
+                _stub_map(page, proposals)
+                page.goto(BASE_URL + "/")
+                page.wait_for_function("() => window.__mapIdle === true", timeout=30000)
+                scroll = page.evaluate("[document.scrollingElement.scrollHeight, window.innerHeight]")
+                assert scroll[0] <= scroll[1], f"the page scrolls at {width}x{height}: {scroll}"
+                page.evaluate("window.__map.jumpTo({center: [-98, 33], zoom: 6})")
+                page.wait_for_function(
+                    "() => !document.querySelector('.map-controls--reset').hidden", timeout=10000
+                )
+                assert page.evaluate(reset_on_top), f"Reset is covered at {width}x{height}"
+                for control in ("#zoom-in", "#zoom-out", "#map-jump-toggle"):
+                    assert page.locator(control).evaluate(_ON_TOP), (control, width)
+                page.close()
+        finally:
+            browser.close()
+
+
+def test_a_phone_keeps_the_h1_once_the_map_moves_and_shows_the_strip_to_the_keyboard(server: object) -> None:
+    """Review of lane v2-landing: on a phone the strip gives the map back once it has moved, and it did
+    so with `display: none`, which took the page's h1 and the three figure links out of the
+    accessibility tree until Reset. It now leaves the screen only: the h1 is still the page's heading,
+    and the strip comes back while focus is inside it."""
+    proposals = _geo_envelope([_in_view_feature("phone-h1", "solar", -100.0)], records=1)
+    heading = "Planned US energy projects, each linked to its source."
+    strip_size = (
+        "() => { const r = document.getElementById('map-strip').getBoundingClientRect();"
+        " return [r.width, r.height]; }"
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_context(**PHONE).new_page()
+            _stub_map(page, proposals)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function("() => window.__mapIdle === true", timeout=30000)
+            page.evaluate("window.__map.jumpTo({center: [-98, 33], zoom: 6})")
+            page.wait_for_function("() => document.getElementById('map-strip').classList.contains('is-away')")
+            width, height = page.evaluate(strip_size)
+            assert width <= 1 and height <= 1, (width, height)  # the map is given back
+            assert page.get_by_role("heading", level=1, name=heading).count() == 1
+            # The figures too: "N projects" is the strip's link, not the section bar's "Projects".
+            assert page.get_by_role("link", name=re.compile(r"^[\d,]+ projects$")).count() == 1
+            page.locator(".map-figures a").first.focus()
+            width, height = page.evaluate(strip_size)
+            assert width > 300 and height > 60, (width, height)  # focus inside brings it back
+        finally:
+            browser.close()
+
+
+def test_a_county_not_yet_shaded_answers_neither_a_pointer_nor_a_click(server: object) -> None:
+    """Review of lane v2-landing: below zoom 6 a county's projects are marks at its middle and its
+    shading is drawn at nothing, but the invisible polygon still took the pointer and a click, so a tap
+    on bare map in Millard County, Utah, opened that county's summary. Unshaded counties are now left
+    out of the fill; from zoom 6, where they are shaded, they answer as before."""
+    proposals = _geo_envelope([_TARRANT], records=4)
+    counties = (
+        "() => window.__map.queryRenderedFeatures({layers: ['region-fill']})"
+        ".filter((f) => f.properties.region_level === 'county').length"
+    )
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _stub_map(page, proposals, regions=_TARRANT_POLYGON)
+            page.goto(BASE_URL + "/?center=-97.3,32.8&zoom=4.5")
+            page.wait_for_function("() => window.__mapIdle === true", timeout=30000)
+            page.wait_for_function(
+                "() => window.__map.getSource('regions') && window.__map.querySourceFeatures('regions')"
+                ".some((f) => f.geometry.type === 'Polygon')",
+                timeout=15000,
+            )
+            assert page.evaluate(counties) == 0
+            # A corner of the county, away from its marks: bare map, no summary.
+            x, y = _screen_point(page, [-97.58, 32.98])
+            page.mouse.click(x, y)
+            page.wait_for_timeout(500)
+            assert not _drawer_open(page)
+            page.evaluate("window.__map.jumpTo({center: [-97.3, 32.8], zoom: 7})")
+            page.wait_for_function(f"() => ({counties})() > 0", timeout=15000)
         finally:
             browser.close()
 
@@ -3767,10 +4344,11 @@ def test_a_transmission_line_hover_card_closes_on_the_next_tap_or_a_map_move(ser
             page.mouse.move(x - 30, y)
             page.mouse.move(x, y)
             page.wait_for_function(f"() => ({card})() === 1", timeout=5000)
-            # Anywhere else on the page: the map's top left corner, just under the sticky top bar
-            # (whose wordmark at (20, 20) would be a link away from the page).
-            below_bar = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().bottom")
-            page.touchscreen.tap(20, below_bar + 20)
+            # Anywhere else on the page: on the full-screen landing, a bare part of the map at its left,
+            # clear of the floating bar above it, the column at the right and the strip at the foot
+            # (under the two bars are the section bar's links, which would leave the page).
+            left, top, _w, height = page.locator("#map").evaluate(_BOX)
+            page.touchscreen.tap(left + 30, top + height * 0.45)
             page.wait_for_function(f"() => ({card})() === 0", timeout=5000)
 
             page.wait_for_timeout(900)
@@ -4365,9 +4943,12 @@ def test_a_picked_place_leaves_the_map_search_field_in_sight_under_the_top_bar(s
             _pick(page, "travi", "Travis County, TX")
             page.wait_for_function("() => !window.__map.isMoving()")
             page.wait_for_timeout(300)
-            bar = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().bottom")
+            # On the full-screen landing the field is the floating bar's, over the map 8px under the
+            # two bars, and the page never scrolls: it stays there through a pick.
+            bar = page.evaluate("document.querySelector('.section-bar').getBoundingClientRect().bottom")
             field = page.locator("#map-search-input").evaluate(_BOX)
-            assert bar <= field[1] <= bar + 12, (bar, field)
+            assert bar <= field[1] <= bar + 16, (bar, field)
+            assert page.evaluate("window.scrollY") == 0
             for selector in ("#map-search-input", "#map-search-clear"):
                 page.locator(selector).focus()
                 assert page.evaluate(_FOCUS_IN_SIGHT) == "", selector
@@ -4396,19 +4977,28 @@ def test_a_tapped_point_just_under_the_top_bar_is_eased_clear_of_it(server: obje
             _stub_map(page, proposals)
             page.goto(BASE_URL + "/?center=-100,40&zoom=4")
             page.wait_for_function(_rendered("points"), timeout=30000)
-            bar = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().height")
+            # On the full-screen landing the page does not scroll and the floating bar lies over the
+            # map's top: the point is panned to 12px under that bar, the top of the map left showing.
+            # (This suite's dev-preview label sits under the bar, where production draws nothing.)
+            page.evaluate(_DROP_PREVIEW_LABEL)
+            bar = page.evaluate("document.querySelector('.map-float').getBoundingClientRect().bottom")
             _x, y = _screen_point(page, _HIGH_POINT)
-            page.evaluate(f"window.scrollBy(0, {y - (bar + 12)})")
+            page.evaluate(f"window.__map.panBy([0, {y - (bar + 12)}], {{duration: 0}})")
+            page.wait_for_function("() => !window.__map.isMoving()")
             page.wait_for_timeout(200)
             x, y = _screen_point(page, _HIGH_POINT)
             assert bar < y < bar + 24, (bar, y)
+            # This suite's basemap fails, so its note lies here, over the canvas: a tap goes through it.
+            assert page.evaluate("([x, y]) => !!document.elementFromPoint(x, y).closest('#map')", [x, y]), (
+                page.evaluate("([x, y]) => document.elementFromPoint(x, y).className", [x, y])
+            )
             page.touchscreen.tap(x, y)
             page.wait_for_function(_DRAWER_IS_OPEN)
             page.wait_for_function(_DRAWER_SETTLED)
             page.wait_for_function("() => !window.__map.isMoving()")
             page.wait_for_timeout(700)
             _px, py = _screen_point(page, _HIGH_POINT)
-            bar_bottom = page.evaluate("document.querySelector('.top-bar').getBoundingClientRect().bottom")
+            bar_bottom = page.evaluate("document.querySelector('.map-float').getBoundingClientRect().bottom")
             sheet_top = page.locator("#map-drawer").evaluate(_BOX)[1]
             assert bar_bottom + 24 - 1 <= py <= sheet_top - 24 + 1, (bar_bottom, py, sheet_top)
         finally:
