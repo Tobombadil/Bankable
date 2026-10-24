@@ -250,6 +250,189 @@ sources:
     accurate, useful, and up-to-date information. ... By accessing DEQ data, you agree to the terms and
     conditions outlined above."
 
+# Local land use (2026-10-23, docs/08-data-centre-sources.md §4.5 and §6 lane C; PLAN row "Data-centre
+# coverage grows from primary public sources, never from aggregators"): a county's own data-centre layers,
+# and the agenda API many local governments use. Built: Loudoun. Gated on terms: Prince William, Legistar.
+- id: us.va.loudoun.data_centers
+  name: Loudoun County data center pipeline — land with a data center application in review or approved
+  jurisdiction: US-VA
+  category: permit
+  operator: Loudoun County, Virginia (Department of Planning and Zoning; Office of Mapping and Geographic Information)
+  url: https://services1.arcgis.com/MxjRokvPm7bjslyR/arcgis/rest/services/Pipeline_Data_Center_Areas/FeatureServer/1
+  access: api
+  auth: none (public ArcGIS Online hosted feature layer behind the county's "Existing & Potential Data Centers" map)
+  format: json (ArcGIS REST query, WGS84 polygons; one polygon per application)
+  cadence: irregular (staff-maintained layer; data last edited 2026-05-21)
+  poll: weekly
+  rate_limit_rps: 0.5
+  license: >-
+    Licence on the layer's own ArcGIS item, https://www.arcgis.com/home/item.html?id=2a084dcc039249f286685205f1f4b33b
+    (read 2026-10-23; the connector re-reads it on every run and is blocked if it changes): "These data were generated
+    for use by Loudoun County and are available to the public. These data are intended for use at 1:2400 scale or
+    smaller. Acknowledgement of Loudoun County would be appreciated in products derived from this data." With the
+    county's disclaimer: "Loudoun County is not liable for any use of or reliance upon this map or data, or any
+    information contained herein. While reasonable efforts have been made to obtain accurate data, the County makes no
+    warranty, expressed or implied, as to its accuracy, completeness, or fitness for use of any purpose."
+    loudoun.gov's footer link "Privacy Policy/Copyright Notices"
+    (https://www.loudoun.gov/904/Privacy-Practices-Security-Policy, read 2026-10-23) carries a privacy statement and
+    no copyright or reuse clause; the county GIS portal sets no terms of use.
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Source: Loudoun County, Virginia"
+  licence_url: "https://www.arcgis.com/home/item.html?id=2a084dcc039249f286685205f1f4b33b"
+  tier: 2
+  effort: S
+  probe: {method: GET, url: "https://services1.arcgis.com/MxjRokvPm7bjslyR/arcgis/rest/services/Pipeline_Data_Center_Areas/FeatureServer/1?f=json"}
+  verified:
+    date: 2026-10-24
+    result: ok
+    rows: 81
+    note: >-
+      Connector run 6f1a67fa 2026-10-24T00:54:09Z (python -m pipeline.connectors run us.va.loudoun.data_centers,
+      scratch data root, its first run): 7 requests (item licence, layer metadata, one query page, the Virginia DEQ
+      air-site query, three robots.txt), 9.3 s, snapshot 228,485 bytes, sha256
+      4d2baacda675a2d7a5da69c82c6859dabdd00441e11d10ac214f6f8aceb0c940, DQ pass (no unmapped status, no duplicate id,
+      provenance on every row). Licence text unchanged since 2026-10-23 (sha256 f85e0490…a930a7); layer data last
+      edited 2026-05-21. 85 applications (Active 51, Approved: Conditionally 18, Approved 16) -> 81 sites: 4 pairs are
+      a legislative application and a site plan on the same land. Lifecycle: filed 47, permitted 34; county Loudoun on
+      all 81; floor area applied for 56.4 M sq ft in all. 17 of 85 subdivisions withheld before storage; none of the
+      12 distinct withheld values is in the stored snapshot. 10 record links (the 4 pairs and 6 others) fetched live:
+      each returns exactly its site's applications. Resolution against the held loads, `pipeline.resolve.run` at
+      threshold 75 over the ICIS-Air frame of 2026-10-09 and the DEQ frame of 2026-10-24: 5 sites fold into held
+      records by D3 (DEQ's own facility point lies inside their land and they cite its ICIS id): Kincora and Twin
+      Creeks (DEQ Planned; the county's approval moves them to permitted), Vantage VA3, 22995 Wilder Court and Amazon
+      IAD-120/121/122 (DEQ Operating; they stay built). No other pair forms. The other 76 are new records. Distance
+      from their land to the nearest held point: 53 / 68 / 70 within 0.5 / 1.0 / 1.5 km, so 23 / 8 / 6 have none that
+      close (the survey's 40 / 18 / 6 were point distances before the merges). Two are possible duplicates, left
+      apart and reported: LEGI-2023-0097 (Quantum Park) holds the ICIS-Air geocode of Aligned's Ashburn campus, while
+      DEQ's point for that campus lies 75 m outside; and STPL-2022-0051 (Loudoun Tech Center H1, Approved:
+      Conditionally) has DEQ registration 73160 (Operating) about 10 m outside its land, a point that lies in no
+      pipeline polygon, no Existing_Data_Center_Parcel and no Existing_Permitted_Data_Center_Buildings polygon
+      (count-only point queries, 2026-10-24), so it may be the same facility geocoded to the street frontage. Besides
+      LEGI-2023-0097, 10 sites have a held point 1 to 35 m outside their land, STPL-2022-0051 among them. One more was
+      checked: DEQ 74164 (CyrusOne, Maries Rd), 30 m outside STPL-2022-0052, lies inside an existing data-centre
+      parcel, so that site is a neighbouring lot. The other 8 are not yet checked one by one and stay separate
+      records (nearness is not identity here). Against the other new data-centre lanes' frames (NPDES of
+      2026-10-23; FAA Eastern region of 2026-10-24, built with that lane's code): 6 sites hold an FAA site's surveyed
+      point (e.g. IAD156 inside ZMAP-2021-0018, the Equinix DC17 crane inside EPLAN-2024-0193): known duplicates once
+      the FAA lane lands, until the resolver compares places; NPDES: none inside. Two Active applications fold into
+      Operating DEQ records (D3): EPLAN-2025-0102 onto Amazon IAD-120/121/122 and LEGI-2024-0039 onto 22995 Wilder
+      Court; by the one-site rule they are one record, which stays built, so their filed signal shows only in that
+      record's sources. Review round, 2026-10-24 from about 02:50Z to at least 03:17Z: Virginia DEQ's public map
+      folder answered "Service not found" for MapServer/294 (it listed no services), so a full run fails rather
+      than load sites without their held links; read through the connector's own methods with an empty held page,
+      the live layer gave 85 applications -> 81 sites (largest 2 applications, no chained group), filed 47 /
+      permitted 34, 17 subdivisions withheld, licence hash unchanged. Still so at 03:52Z: connector run 71adf9ad
+      (scratch data root) read the licence, the layer and its rows, then failed on DEQ's query ("Service not
+      found"; the public folder lists no services), so nothing was stored; the folder was still empty at 05:44Z.
+      The same outage stops us.va.deq.data_center_air_sites, which reads that layer.
+  notes: >-
+    The county's own data-centre pipeline (docs/08-data-centre-sources.md §4.5, survey rank 3): one polygon per
+    land-use application for a data centre (legislative applications, site plans and amendments, and two Town of
+    Leesburg cases), with status, zoning case, floor area applied for and acreage; no applicant or owner column, and
+    the connector requests an explicit field list so none can arrive. One record per site: applications on the same
+    land are one record, and a site whose land holds exactly one Virginia DEQ data-centre air site cites that
+    facility's ICIS id so the resolver folds it into the held record. Only DEQ's own facility point decides:
+    ICIS-Air's geocode of the same Loudoun facility lies a median 190 m from DEQ's (41 facilities with both, 5 %
+    within 30 m), so nearness to a held point is never a link (connector docstring). Lifecycle from what the layer
+    proves: Active -> filed; Approved and Approved: Conditionally -> permitted (a county land-use approval, not proof
+    of other permits or of construction); nothing here proves under_construction or built (status_map.yaml). Location:
+    a point inside the site's land, exact; parcel outlines are not stored. Record link: the layer's own query for the
+    site's applications, matched on the numbers as stored (the layer refuses TRIM in a query). Credit "Source: Loudoun
+    County, Virginia" on every record, as the item asks ("Acknowledgement of Loudoun County would be appreciated");
+    the "1:2400 scale or smaller" note is met by publishing a point and no outline. Terms gate: the run is blocked if
+    the item's licence text changes (LICENCE_SHA256 in the connector). robots.txt: services1.arcgis.com serves none
+    (its /robots.txt answers "Invalid URL"), www.arcgis.com allows all, gisdata.deq.virginia.gov answers 404; 0.5 rps
+    on each. Personal data: a subdivision is kept only when services.personal_names proves an organisation or place by
+    its structure, and is otherwise nulled before the snapshot is stored; the item's publishing-account field is never
+    stored. A kept subdivision is the recorded plat's name, not the applicant or the owner: some name a company that
+    may once have held the land ("PHILIPS ELECTRONICS NA CORP", "LUCK STONE CORPORATION"), so the record name labels
+    it as a subdivision ("..., LOUDOUN TECH CENTER H1 subdivision") and never reads as who applied. Same-land
+    grouping alarm: a site whose applications do not all share land with each other (a large application chaining
+    separate sites) fails the run until a reviewer splits it or records it in ACCEPTED_CHAINS; none on 2026-10-24
+    (the largest overlap outside the 4 pairs is 0.2 %). Sibling layers not read: Existing_Data_Center_Parcel (139
+    parcels, has an Owner column) and Existing_Permitted_Data_Center_Buildings (239 buildings); a later lane can add
+    them with explicit field lists.
+    Cadence: staff-maintained snapshots named by date ("Proposed_DC_Parcels_March1"), so the layer can be renamed or
+    replaced: a missing field or an ArcGIS error body fails the run. Not yet wired into web/build_data.py
+    SOURCE_POLICY or the web source labels (coordinator, after review).
+
+- id: us.va.pwc.data_center_campuses
+  name: Prince William County data center campuses and buildings (Planning build-out analysis layers)
+  jurisdiction: US-VA
+  category: planning
+  operator: Prince William County, Virginia (Department of Information Technology, GIS)
+  url: https://gisweb.pwcva.gov/arcgis/rest/services/Planning/Build_Out_Analysis/MapServer/10
+  access: api
+  auth: none (public ArcGIS MapServer; licence needed for reuse)
+  format: json (ArcGIS REST query; campuses MapServer/10, buildings MapServer/9)
+  cadence: irregular (layer modified 2026-02-02)
+  status: pending
+  license: >-
+    Layer metadata, https://gisweb.pwcva.gov/arcgis/rest/services/Planning/Build_Out_Analysis/MapServer/10/metadata
+    (read 2026-10-23, lane dc-survey, docs/08-data-centre-sources.md §4.5): "The Prince William County GIS database is
+    copyrighted and digital map data will be released under a license-to-use agreement." The county's disclaimer page
+    grants no reuse. No licence is held. The owner's licence request is drafted in docs/66-owner-actions.md (item 26,
+    letter A).
+  reuse: restricted
+  publication: none
+  tier: 2
+  effort: S
+  verified:
+    date: 2026-10-23
+    result: terms_read
+    note: >-
+      Survey reads only (docs/08-data-centre-sources.md §4.5; lane dc-survey, 2026-10-23, 0.5 rps): 78 campuses
+      (Planned 53, Pending 15, Completed 10) and 247 buildings (Planned 91, Pending 68, Under Construction 29,
+      Completed 59). Not near a record we hold: 33 at 0.5 km, 12 at 1.0 km, 8 at 1.5 km. Those reads took whole rows
+      (outFields=*), so they included the staff user-name columns; the survey's scratch copies were deleted after
+      counting on 2026-10-23 and only the totals above are kept. Letter A tells the county so. Nothing is fetched by a
+      connector; lane dc-local made no request to gisweb.pwcva.gov.
+  notes: >-
+    The richest county layer found: campus name, case number, zoning district, project status (Planned / Pending /
+    Completed), planned and remaining floor area, acreage and polygon; the buildings layer adds permit status, year
+    built and occupancy date. Restricted by its own metadata, so no connector until the county licenses republication
+    (contact named in the metadata: pwcmaps@pwcgov.org). If a licence arrives: drop the staff user-name columns
+    CreateUser and LastEditUser at fetch (explicit field list), read the campus layer as the site and the buildings
+    layer as its stages, and link to held records the way us.va.loudoun.data_centers does.
+
+- id: us.legistar.webapi
+  name: Granicus Legistar Web API — council and commission matters naming a data centre (per-client)
+  jurisdiction: US
+  category: planning
+  operator: Granicus (Legistar); content is each client government's public record
+  url: https://webapi.legistar.com/v1/{client}/matters
+  access: api
+  auth: none for most clients ("Some clients require use of API tokens")
+  format: json (OData-filtered matters, capped at 1,000 rows a reply; attachments separate)
+  cadence: daily
+  status: pending
+  license: >-
+    NOT RETRIEVED: webapi.legistar.com publishes no terms of use (robots.txt answers 404; the examples page,
+    https://webapi.legistar.com/Home/Examples, read 2026-10-23, says "Items returned to GET requests are limited to
+    those items marked as public and available for view on InSite"). The matters are each client government's public
+    record, and each client's own InSite and website terms decide reuse; none were read for publication
+    (mesa.legistar.com states none). Per-client terms are read and recorded before any client's matters are published.
+  reuse: unknown
+  publication: none
+  tier: 3
+  effort: L
+  verified:
+    date: 2026-10-23
+    result: terms_not_found
+    note: >-
+      Survey reads only (docs/08-data-centre-sources.md §4.5; lane dc-survey, 2026-10-23, 0.5 rps): 93 candidate
+      client names tried, 33 answered; 177 matters since 2024 name a data centre (43 project-specific: Mesa 16, Fort
+      Worth 10, Phoenix 7; 58 policy; 19 the government's own IT; 57 other), an estimated 20 to 25 distinct projects.
+      Loudoun is not a client; Prince William's Legistar (pwcgov) holds none. This lane made no request to
+      webapi.legistar.com.
+  notes: >-
+    Leads, not records, until per-client terms are read: titles carry case numbers, acreage and zoning changes but no
+    coordinates, so a connector needs a per-client registry, title parsing and geocoding (effort L). Personal data is
+    common in titles (Fort Worth lists individual landowners, a Phoenix title names an owner, Mesa names staff
+    planners, Columbus notices carry a contact's name, phone and email): an extractor keeps only the case number,
+    address or intersection, acreage, zoning change, applicant organisation and dates, never a person.
+
 - id: us.epa.echo.icis_air
   name: EPA ECHO ICIS-Air national facility download (data-centre selection, placed through FRS)
   jurisdiction: US
@@ -305,16 +488,95 @@ sources:
     row (4 folded on the 2026-10-07 snapshot: 521 -> 517); a name-based tightening of the NAICS 518210 basis was
     tested and rejected, because the enterprise-named rows it would drop are mostly real data centres.
 
+- id: us.epa.echo.icis_npdes_construction
+  name: EPA ECHO ICIS-NPDES construction stormwater coverage (data-centre sites, national)
+  jurisdiction: US
+  category: permit
+  operator: US EPA Office of Enforcement and Compliance Assurance (ECHO)
+  url: https://echo.epa.gov/files/echodownloads/npdes_downloads.zip
+  access: bulk_file
+  auth: none
+  format: >-
+    zip of 15 CSVs (357,154,247 bytes on 2026-10-18); the connector reads three members by HTTP range
+    (central directory, then each member, streamed): ICIS_FACILITIES.csv (73.1 MB compressed, 1,256,976
+    facilities), ICIS_PERMITS.csv (101.5 MB, 1,774,058 permit versions) and NPDES_PERM_COMPONENTS.csv (3.0 MB,
+    782,220 rows). Columns: https://echo.epa.gov/tools/data-downloads/icis-npdes-download-summary
+  cadence: weekly
+  rate_limit_rps: 0.1
+  license: US federal work — public domain, 17 U.S.C. §105 (docs/13 §2.12 EPA hedge applies)
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: M
+  probe: {method: HEAD}
+  verified:
+    date: 2026-10-24
+    result: ok
+    rows: 229
+    note: >-
+      Connector run 1c039fec 2026-10-24T01:31:02Z (python -m pipeline.connectors run us.epa.echo.icis_npdes_construction,
+      scratch data root, fetch version 2): 5 requests to echo.epa.gov (robots.txt, the zip tail, three member ranges),
+      52.4 s, 177,680,992 bytes read of 357,154,247 (Last-Modified 2026-10-18, ETag recorded), stored snapshot
+      179,368 bytes, sha256 018e07e05ff38a657ddd599594b3673b244cbd59c48b0676e9a6ccfbf85c1bda (the candidate tables,
+      every master permit's dates, construction-coverage filings by state and month, the file's date), DQ pass.
+      Re-read under the final parser (run 8f050024, --reparse; its DQ warn is the scratch root's own 279 -> 229 row
+      drift between two parser revisions): 439 candidate facilities -> 387 data-centre construction coverages
+      (component 279, master component 74, master title 34; excluded: 28 not construction stormwater, 14
+      cryptocurrency mines, 9 names the rule rejects, 1 name read as a person's) -> 295 groups: 19 works-only sites
+      dropped, 47 held (46 duplicates of a held ICIS-Air or DEQ record, 3 of them uncertain; 1 bridge between held
+      campuses), 229 published sites, 51 of them holding several permits, exact point on 213. Lifecycle (judged at the
+      file's date) under_construction 105, built 77, unknown 47 (not stated 27, state not reporting 8, lapsed coverage
+      6, terminated at expiry 6). A conditional run (665ce4fc) was answered 304: unchanged, 2 requests, 10.1 s. Against
+      the store's ICIS-Air and Virginia DEQ frames (2026-10-09, 583 live proposals) through the production chain
+      (loader, pipeline.resolve, the confidence gate, suppressions): 11 sites merge, all hand-checked correct (9 by a
+      shared FRS id, 2 through a DEQ record), none joins two held campuses; live proposals 583 -> 801; load 0.6 s,
+      resolve 1.3 s. 218 are new: TX 53, AZ 20, VA 14, OR 13, GA 12, CA 10, FL 10, IN 7, UT 7; 98 of them under
+      construction, 66 of those first covered since 2024 (TX 22, AZ 8, GA 5, IL 4, NC 4, NJ 4) and 13 more in Virginia,
+      whose coverages carry only the general permit's dates. Precision on a random 50 of the 229 (crypto counted as a
+      miss): 45 data-centre sites, 2 works serving one, 3 uncertain (possible mines).
+  notes: >-
+    Rank 1 of the data-centre source survey (docs/08 §4.1): construction stormwater coverage, the notice of intent
+    every site disturbing an acre or more files before grading. Selection (connector docstring): a facility name
+    that says data center/centre, datacenter, hyperscale, DC campus, server farm or data hall (or the file's
+    abbreviations, truncations and two misspellings of them), not a cryptocurrency mine (a name that declares mining,
+    or a mine its operator's own SEC filings name: King Mountain, Alborz, Bear, Chief, Argo's Helios), whose current
+    permit is construction stormwater coverage (its own SWC component, its master general permit's SWC component, or
+    a master titled as a construction permit). Recall on a hand-checked random 160 construction coverages within 300 m
+    of a held data-centre point: 23 of the 54 that were the data centre's own construction (43 %; Northern Virginia
+    files under campus codes and project names). Lifecycle from what the filing proves, at the file's own date
+    (status_map.yaml): pending NOI filed, coverage in force under_construction (an NOI precedes ground-breaking; a
+    stalled project can keep coverage), terminated built (construction ended and the site was stabilised; not proof
+    of operation), expired unknown; and unknown for coverage in force more than a year past its own expiry, coverage
+    in force in a state that stopped reporting to ICIS (fewer than 50 construction filings in the year before the
+    file, or under a quarter of the year before: California, Wyoming, Oklahoma, Guam on 2026-10-18), and a
+    termination on the expiry date. A site takes its most recent filing's state, except that coverage in force filed
+    within a year before the latest termination keeps it under construction (a handover, a renewal, the next phase).
+    Cross-refs cite every permit's FRS id (frs:), so the resolver refuses a fuzzy pair with an ICIS-Air record of
+    another facility and pairs the same facility deterministically. Coordinates: the NOI's own point, exact only with
+    3 or more decimals and inside the stated state (Georgia files whole degrees); otherwise the county from
+    COUNTY_CODE or the state. Personal data: ICIS_PERMITS.csv PERMIT_NAME is the permittee and sometimes a natural
+    person; it is never stored (fetch keeps an explicit column list; redact and parse drop it again); only master
+    general permits' titles are read from that column. robots: echo.epa.gov allows /files/ (Crawl-delay 10, honoured
+    by the 0.1 rps limit). Known limits: the resolver compares names, counties and registry ids, not points, so the
+    connector holds the sites its reviewed list (held.yaml) names as duplicates of, or bridges between, held records;
+    a new permit beside a held record is published until the list is reviewed again or the resolver compares points.
+    docs/08 §4.1's "Georgia and Virginia report nothing since 2025" counted only coverages with their own SWC
+    component; counted by the master permit, Georgia filed 6,196 and Virginia 944 in the year before 2026-10-18.
+
 - id: us.ga.epd.air_permit_advisories
   name: Georgia EPD Air Protection Branch public advisories (permit applications received)
   jurisdiction: US-GA
   category: permit
   operator: Georgia Environmental Protection Division
-  url: https://epd.georgia.gov/forms-permits/air-protection-branch-forms-permits/air-permits
+  url: https://epd.georgia.gov/permitting-public-advisories-and-public-notices
   access: pdf
   auth: none
-  format: biweekly text PDF (e.g. https://epd.georgia.gov/document/document/pa1225-3/download, 3 pages, one block per application)
+  format: >-
+    biweekly to weekly text PDF linked from the advisories page (e.g. pa1026-3,
+    https://epd.georgia.gov/document/document/pa1026-3/download), one block per application: county, facility name,
+    application number, facility address, notice type, description of operation, reason for application
   cadence: biweekly
+  status: pending
   license: 'No reuse terms published (read 2026-10-24, docs/07 §1.2). epd.georgia.gov links only accessibility, privacy and platform pages; the Georgia.gov privacy statement (https://georgia.gov/privacy-and-security) "applies to Georgia.gov websites that link to it in the footer" and covers visitor information and the Georgia Open Records Act. Footer: "© Georgia.gov".'
   reuse: attribution
   publication: derived_only
@@ -323,8 +585,38 @@ sources:
   tier: 2
   effort: M
   probe: {method: GET}
-  verified: {date: 2026-10-24, result: ok_terms_silent, note: 'docs/07 §1.2: no terms, copyright or disclaimer page exists on epd.georgia.gov or georgia.gov beyond the privacy statement; silent-site rule (docs/07 §2).'}
-  notes: 'Silent-site rule (docs/07 §2): derived facts only (county, facility organisation, application number, described operation, received date), credited and linked to the advisory PDF; never the PDF itself. Hold before paid use: counsel confirms the silent-site reading (docs/07 §5 item 1) or EPD confirms in writing before PLATFORM_POSTURE=commercial or a Pro sale with these rows (docs/26 §5).'
+  verified:
+    date: 2026-10-24
+    result: ok_terms_silent
+    note: >-
+      docs/07 §1.2: no terms, copyright or disclaimer page exists on epd.georgia.gov or georgia.gov beyond the
+      privacy statement; silent-site rule (docs/07 §2). 2026-10-24 (lane dc-local, PoliteSession, robots.txt read
+      first, 0.5 rps, no retry): the advisories page answered 200 (126,066 bytes) and lists the same seven
+      advisories, pa0926-2 to pa1026-3; the contact page (https://epd.georgia.gov/about-us/contact-us) answered 200
+      and gives the Air Protection Branch's phone and address used in letter B. Neither page carries copyright,
+      terms-of-use or reuse text; the Georgia Technology Authority standard SA-03-005
+      (https://gta-psg.georgia.gov/node/171) governs what agencies post on the state portal, not public reuse. This
+      lane opened no advisory PDF. Survey reads of 2026-10-23 (lane dc-survey, docs/08-data-centre-sources.md §4.2
+      and §5): the seven advisory PDFs were opened and parsed (text layer present; epd.georgia.gov robots.txt allows
+      /document/): 54 applications, 6 for data centres (for example Amazon Data Services ATL 114 Campus, Douglas
+      County, application 30374), about 3 a month. The survey's downloads (the seven PDFs and their extracted text)
+      were still in that lane's scratch space outside the repository on 2026-10-24, so no deletion is claimed; none is
+      under data/, and nothing from them is shown on the site (this note and docs/08-data-centre-sources.md §4.2 cite one
+      application as an example). Letter B says what was read and when, and says nothing about copies.
+      2026-09-28: pa1225-3 PDF 200, 101,871 bytes, one data-centre application in that issue.
+  notes: >-
+    Silent-site rule (docs/07 §2): derived facts only (county, facility organisation, application number, described
+    operation, received date), credited and linked to the advisory PDF; never the PDF itself. Hold before paid use:
+    counsel confirms the silent-site reading (docs/07 §5 item 1) or EPD confirms in writing before
+    PLATFORM_POSTURE=commercial or a Pro sale with these rows (docs/26-platform-posture.md §5). EPD's written answer
+    is requested by docs/66-owner-actions.md item 27, letter B, drafted for the owner to send (no agent sends it).
+    The earliest public trace found for a Georgia data centre: each advisory lists air permit applications received
+    and still under review, with county, address and a description that names the use and generator counts (e.g.
+    "seventy-six emergency generators", "construction and operation of a data center campus"), before
+    construction; survey rank 5 (docs/08-data-centre-sources.md §5). Not built (status pending): no connector reads
+    it yet, so nothing is stored or published; the parser needs PDF text extraction. Owner decision 2026-10-24
+    (docs/00-PLAN.md, "Owner decisions on the weekend list" (5)): silent state sites move forward under this rule, so
+    a connector may be built and published on the free site now; only paid use waits for EPD's or counsel's answer.
 
 - id: us.tx.tceq.air_permits
   name: TCEQ New Source Review air permits database
@@ -346,6 +638,82 @@ sources:
   probe: {method: GET, url: "https://www2.tceq.texas.gov/robots.txt"}
   verified: {date: 2026-10-24, result: terms_ok_route_closed, note: 'docs/07 §1.1: terms read (public domain unless otherwise noted). www2.tceq.texas.gov/robots.txt and www15.tceq.texas.gov/robots.txt answered HTTP 401 "Page Not Found" (were Disallow: / on 2026-09-28); the permit database was not requested. A 401 is not read as permission.'}
   notes: Terms clear; the route does not. Do not build until the www2 robots.txt is readable and allows the NSR pages (re-check after 2026-11-24). Most Texas data-centre emergency engines are authorised by Permit by Rule 30 TAC §106.511 and leave no record here; ERCOT (us.iso.ercot.large_load_queue) is the better Texas demand route. "As long as a fee is not charged to access our material" is a counsel question before paid use (docs/07 §5 item 2).
+
+- id: us.faa.oeaaa.part77_cases
+  name: FAA OE/AAA Part 77 obstruction evaluation case archives (data-centre sites, buildings and cranes)
+  jurisdiction: US
+  category: permit
+  operator: Federal Aviation Administration, Obstruction Evaluation / Airport Airspace Analysis (OE/AAA)
+  url: https://oeaaa.faa.gov/oeaaa/oe3a/main/#/download
+  access: bulk_file
+  auth: none
+  format: >-
+    one CSV per FAA region per year (Part77<REGION><YEAR>List.gzip from
+    /oeaaa/oe3a-external-api/downloadArchives.do, the URL the site's own download controller builds),
+    served gzip-encoded, 44 columns, quotes inside quoted fields escaped with a backslash, a trailing
+    "Data as of" line; no ETag or Last-Modified, so every run downloads the files
+  # No `cadence` on purpose (2026-10-24, review of lane dc-faa): infra/scheduler/app.py fetches every row that has
+  # one, and pipeline/resolve.py has no location veto yet, so a scheduled load would merge these sites into held
+  # loads 8 to 32 km away (docs/08 §4.1 "Built"). The archives are regenerated weekly (Saturday evenings): restore
+  # `cadence: weekly` in the change that lands the veto. Runs by hand (`python -m pipeline.connectors run
+  # us.faa.oeaaa.part77_cases`) still work, for measurement only.
+  rate_limit_rps: 0.1
+  license: >-
+    US federal government work, public domain (17 U.S.C. §105). The OE3A download page (read 2026-10-23)
+    offers the archives "so that it can easily be taken into the public and private sectors through your
+    own applications and pages" and disclaims: "FAA provides aeronautical study information "as is" and on
+    an "as available" basis and does not purport to indicate the presence of all aeronautical study data
+    via these public downloads and services." The faa.gov Web Policies page answered an Akamai 403 to this
+    environment (survey, 2026-10-23), so no further FAA clause is quoted.
+  reuse: open
+  publication: raw_ok
+  tier: 2
+  effort: M
+  probe: {method: GET, url: "https://oeaaa.faa.gov/oeaaa/oe3a/main/"}
+  verified:
+    date: 2026-10-24
+    result: ok
+    rows: 268
+    note: >-
+      2026-10-24 (fix round of lane dc-faa): the 20 requests a run makes, downloaded live at 0.1 rps in 218 s
+      (01:22:33-01:26:11Z: robots.txt 404, the 18 archives for 2025 and 2026, data as of 2026-10-17, and the
+      furlough flag, which answered {"enableOegFurloughPublicMsg":false}: the shutdown banner the page's
+      template carries is not shown), then read by the connector offline from those bytes (fetch 18.3 s,
+      parse and normalise 0.7 s; a live run is therefore about 4 minutes). Snapshot 667,239 bytes, sha256
+      a93b4d431500dc51cb5556e8fd56994d27aaa976eee09fce9461da4a7f2ec4a9. 240,960 cases, 1,173 candidates
+      kept, 922 data-centre cases selected (description 365, structure name 182, location description 118,
+      campus code 108, operator 83, sponsor 37, linked case 29; excluded: 193 by structure type, 51 power
+      infrastructure, 1 antenna), 276 sites (none wider than 1.18 km), of which 8 hold no active case and
+      are not records; 268 records: filed 246, built 14, under_construction 8; every record placed exactly.
+      States: VA 58, TX 41, AZ 27, IL 18, OH 14, GA 10, CA 10. The lane's first run (ba8752a8,
+      2026-10-23T23:00:57Z, 191.1 s) gave 248 sites: its 1 km chain joined neighbouring campuses (four
+      records held several each). Overlap with the held loads and resolver behaviour: docs/08 §4.1 "Built".
+  notes: >-
+    Rank 2 of the data-centre survey (docs/08 §4.1). A building or construction crane that is tall or near
+    a public airport needs a Part 77 notice (14 CFR 77.9), filed with an exact point, so data-centre
+    campuses near Dulles, Phoenix, Dallas and Chicago file buildings and cranes months before they open.
+    NOT SCHEDULED (no `cadence`, 2026-10-24): pipeline/resolve.py has no location veto, and a replay of
+    these records against the held loads accepted 14 fuzzy merges of points more than 2 km apart (up to
+    32 km: same operator, another campus); restore `cadence: weekly` with the veto. The connector reads the
+    current and previous year's regional archives (the page says they are regenerated on Saturday evenings;
+    no validators, so every run downloads about 260 MB decoded, served gzip-encoded), keeps the cases that
+    name a data centre, an operator or an AWS campus code (or cite such a case), leaves out lines, poles,
+    substations, generation, towers and antennas (a campus's own generator buildings stay), and groups
+    cases into one record per campus (1 km link, a site never wider than 1.2 km, never across two named
+    operators, a campus-code group never with an operator other than Amazon or Digital Realty; keys kept
+    across runs and year boundaries). Lifecycle from what a filing proves: a case under study or an
+    unexpired Determination of No Hazard is `filed` (not a permit, not a construction start); a permanent
+    structure with a reported date built is `under_construction` (a date built on a notice of an existing
+    structure proves `built`); work at an existing data centre is `built`; a site whose determinations have
+    all expired is not a record (a loaded one becomes a `removed` event keeping its last state, never
+    `withdrawn`). Expiry is the FAA's own expiration date, else 18 months (14 CFR 77.33(b)). Personal data:
+    REPRESENTATIVE NAME and SIGNATURE CONTROL NUMBER are never stored; SPONSOR NAME is kept only when
+    services/personal_names.py proves an organisation and no part of it, brackets included, reads as a
+    person; a bracketed suffix is cut; structure names lose any person's name in them; free text is scrubbed
+    of names, e-mails and phone numbers before the snapshot is stored. The shutdown banner is read only while
+    the site's own furlough flag is on. robots.txt on oeaaa.faa.gov answers 404 (no rule); the interactive
+    search pages are never fetched. The terms of faa.gov's Web Policies page were not read (Akamai 403 to this
+    environment); the archives are federal works.
 
 - id: us.iso.spp.gen_queue
   name: SPP Generator Interconnection Active/Withdrawn/Completed Requests

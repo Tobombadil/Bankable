@@ -219,6 +219,8 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
 | 23 | **Send the SPP and ISO-NE permission requests** (drafts in `docs/37` §5.1 and §5.2). Both terms are read: SPP needs written authorisation for commercial publication, ISO-NE says duplication or non-personal use may violate copyright. | 15 min | Two more US queues, withheld today (SPP about 3,000 rows, ISO-NE about 1,750) | [`docs/37` §5](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/37-pjm-data-licence-request.md) |
 | 24 | **Send the Louisiana DCE letter** (drafted, was missing from this list). | 10 min + their reply | SONRIS Class VI applications, the largest primacy state | [`docs/35`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/35-louisiana-dce-data-request.md) |
 | 25 | ~~Trademark check on "Inframation"~~ **Done 2026-10-24 by the owner:** the only live mark is INFRAMATION, Serial 75741290, Teledyne FLIR, LLC, class 41 (conducting conferences, its thermography conference). Optional next: file Inframation in classes 42 and 35 (about $350 a class), ideally with counsel. Do not brand an event or conference "Inframation". | — | — | PLAN row 2026-10-24 |
+| 26 | **Ask Prince William County for a data-centre layer licence**: send the drafted email (below, letter A) to the county GIS office at [pwcmaps@pwcgov.org](mailto:pwcmaps@pwcgov.org?subject=Licence%20request%3A%20data%20center%20campus%20layer). Its layer says the county's GIS data is copyrighted and released under a licence-to-use agreement, so nothing of it is fetched or shown until it answers. Fill the sender block first (`docs/39` §0.1). **Send back:** "sent", with the date; later, the county's reply word for word. | 10 min + their reply | 78 Prince William data-centre campuses (about 12 new to us) | [letter A](#a-prince-william-county-licence-for-the-data-centre-campus-layer); [`docs/08-data-centre-sources.md` §4.5](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/08-data-centre-sources.md) |
+| 27 | **Ask Georgia EPD to confirm in writing that facts from its air permit advisories may be republished**: send the drafted letter (below, letter B) to the Air Protection Branch. EPD publishes no reuse terms. Under the silent-site rule you accepted on 2026-10-24 ("just move forward, assume no issue"; `docs/07` §2) a connector may show the facts on the free site now; only paid use waits for EPD's written answer or counsel's. Post it to the address given above the letter, after filling the sender block (`docs/39` §0.1). **Send back:** "sent", with the date; later, EPD's reply word for word. | 10 min + their reply | Georgia data-centre applications before construction (about 3 a month) in paid features | [letter B](#b-georgia-epd-reuse-terms-for-the-air-permit-advisories); [`docs/07` §1.2, §2](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/07-terms-sweep-2026-10-24.md); [`docs/08-data-centre-sources.md` §4.2](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/08-data-centre-sources.md) |
 
 ## When convenient
 
@@ -230,6 +232,107 @@ already there: deploy-beta deployed the site with them (Done, 2026-10-22), and t
 | 12 | **Ask Elexon** through their [contact page](https://www.elexon.co.uk/contact/) whether their market index data (MID) is inside the open BMRS licence. | 5 min | GB market index prices | [`docs/29`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/29-energy-prices.md) |
 | 13 | **A lawyer's read** of the open questions, when budget allows: the noncommercial posture with a free deal workspace, CAISO's "competitive purposes" clause, the RRC copying conditions, OpenStreetMap share-alike for the derived database. | — | Confidence before charging or promoting My pipeline beyond the beta | [`docs/19` §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/19-build-a-deal.md), [`docs/29`](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/29-energy-prices.md), [`docs/13` §6.4](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/13-legal-data-rights.md) |
 | 14 | **Optional, Bankable (Lovable) app:** in your [Lovable dashboard](https://lovable.dev/dashboard), unpublish it, or switch off its open email-sending and AI functions, so nobody can misuse them. You said not to spend time on Bankable, so this is only if it stays online. | 10 min | Removes two abuse risks | Private findings file sent 2026-10-22 |
+
+## Drafted letters: data-centre sources
+
+Drafted 2026-10-24 by lane dc-local for items 26 and 27. **The owner sends them; no agent sends either.** You
+write as yourself, for Inframation: fill the sender block once, as `docs/39` §0.1 says (your name, a role you hold,
+the legal entity that runs Inframation, a contact address on a domain you control, a postal address). Keep the
+facts as written, and tell the coordinator the date sent and, later, the answer word for word: the answer goes into
+`data/sources.yaml` and `docs/13` §6 before anything is built.
+
+Each letter says what Inframation has already read from the source and that nothing from it appears on the site,
+as true on 2026-10-24 (`data/sources.yaml` records each read). Letter A also says the survey's copies of the
+county's rows were deleted on 2026-10-23, as the register records; letter B says nothing about copies, because the
+survey's downloads of the advisories were still held on 2026-10-24. If a connector for either source ships before
+you send, ask the coordinator to update those sentences first.
+
+### A. Prince William County: licence for the data-centre campus layer
+
+Register row: `us.va.pwc.data_center_campuses`.
+
+To: Prince William County GIS, [pwcmaps@pwcgov.org](mailto:pwcmaps@pwcgov.org) (the contact the layer's metadata
+names). Subject: *Licence request: data center campus and building layers (Planning / Build_Out_Analysis)*
+
+> Dear Prince William County GIS team,
+>
+> I'm [Owner name], [Role] at Inframation (https://inframation.io), a free public site that maps proposed and
+> operating energy and infrastructure projects in the United States, each record linked to the public filing it
+> comes from.
+>
+> The county's map service publishes two layers we would like to use:
+> Planning/Build_Out_Analysis/MapServer/10 (data center campuses) and MapServer/9 (data center buildings). The
+> layer metadata says: "The Prince William County GIS database is copyrighted and digital map data will be
+> released under a license-to-use agreement." On 23 October 2026 we queried the two layers to count the campuses
+> and buildings and to compare their locations with records we already hold. Those queries returned whole rows,
+> including the editor user-name fields; we deleted those copies the same day and kept only our counts (78
+> campuses and 247 buildings, by status). Nothing from the layers appears on Inframation, and we will not use them
+> further until we hold that agreement.
+>
+> What we would like to do, if the county agrees:
+> - read the two layers automatically about once a week, at no more than one request every two seconds;
+> - show, for each campus: its name, case number, zoning district, project status, planned and remaining floor
+>   area, acreage, and one point inside the campus (not the outline); and for each campus, how many of its
+>   buildings are planned, pending, under construction or completed;
+> - credit every record "Source: Prince William County, Virginia" (or the wording you prefer), with a link to the
+>   county's data;
+> - never store staff user names or any other personal information.
+>
+> Inframation is run by [Organisation]. It is free to use today. We may later offer paid features to professional
+> users, so we would like a licence that covers both, or to know the terms for each.
+>
+> Could you tell us whether the county can license this use, on what terms (including any fee and the credit
+> wording), and whether the county publishes these layers under an open-data licence elsewhere?
+>
+> Thank you,
+> [Owner name]
+> [Role], Inframation ([Organisation])
+> [Contact email] | [Phone]
+> [Postal address]
+
+### B. Georgia EPD: reuse terms for the air permit advisories
+
+Register row: `us.ga.epd.air_permit_advisories`.
+
+To: Georgia Environmental Protection Division, Air Protection Branch, Atlanta Tradeport, 4244 International
+Parkway, Atlanta, GA 30354, phone (404) 363-7000 (both from [EPD's contact page](https://epd.georgia.gov/about-us/contact-us),
+read 2026-10-24; its link "Contact the Air Protection Branch" opens
+[the branch's own page](https://epd.georgia.gov/air-protection-branch/air-protection-branch)). Subject:
+*Permission to republish facts from the Air Protection Branch public advisories*
+
+> Dear Air Protection Branch,
+>
+> I'm [Owner name], [Role] at Inframation (https://inframation.io), a free public site that maps proposed and
+> operating energy and infrastructure projects in the United States, each record linked to the public filing it
+> comes from.
+>
+> The Air Protection Branch's public advisories
+> (https://epd.georgia.gov/permitting-public-advisories-and-public-notices) list the permit applications the
+> branch has received. We could not find terms on epd.georgia.gov that say whether their contents may be
+> republished. On 23 October 2026 we downloaded the seven advisories then listed on that page (pa0926-2 to
+> pa1026-3) to see what they contain, and counted the applications in them. Nothing from them appears on
+> Inframation.
+>
+> What we would like to do, if EPD agrees:
+> - read the advisories page and each new advisory PDF automatically, about once a week;
+> - show, for each application for a data center or other energy facility: the county, facility name,
+>   application number, facility address, the reason for the application as EPD states it, and the advisory's
+>   date, with a link to the advisory PDF;
+> - credit every record "Source: Georgia Environmental Protection Division" (or the wording you prefer);
+> - never store the name or contact details of any person.
+>
+> Inframation is run by [Organisation]. It is free to use today. We may later offer paid features to professional
+> users, so we would like to know whether the answer differs for that use.
+>
+> May we republish these facts in this way, and is there a credit line or other condition you would like us to
+> follow? If another office handles questions about reuse of EPD's published content, we would be grateful for
+> its name.
+>
+> Thank you,
+> [Owner name]
+> [Role], Inframation ([Organisation])
+> [Contact email] | [Phone]
+> [Postal address]
 
 ## Every January
 

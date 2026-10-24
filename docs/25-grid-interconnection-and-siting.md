@@ -1471,7 +1471,7 @@ example Allegheny vs Westmoreland. They are not a normalisation error.
 
 | Named in the review | Basis | Evidence | Verdict |
 |---|---|---|---|
-| The World Bank, 4120 Lafayette Center Dr, Chantilly VA | NAICS 518210 | The address is a 54,530 sq ft data-centre building with 1.5 MW delivered ([datacenterHawk](https://datacenterhawk.com/marketplace/providers/legacy-investing/4120-lafayette-center-drive/1041828)) | data centre |
+| The World Bank, 4120 Lafayette Center Dr, Chantilly VA | NAICS 518210 | ICIS-Air's own record (programme id VA0000005105901126): a Planned Facility, minor source, NAICS 518210. Virginia DEQ holds no air site for it on either public layer (294 Air Sites, 298 Planned Air Sites; queried by that id and by name, 2026-10-24). No primary public source naming the building's use was found; the floor-area and power figures this row used to quote came from a private aggregator and are withdrawn (2026-10-24) | unverified |
 | The Travelers Indemnity Co, 14715 Schram Rd, Omaha NE | NAICS 518210 | Travelers' $200 M Tier III data centre on Schram Road, with its own OPPD substation ([DCD](https://datacenterdynamics.com/en/news/insurance-company-opens-200m-data-center-in-nebraska)) | data centre |
 | Sentara Healthcare, Virginia Beach | NAICS 518210 | Virginia DEQ's own register flags it as a data centre (§3.4) | data centre (regulator's flag) |
 | Bank of America – Villa Park Data Center, Richmond | name | named a data centre by the source; DEQ also flags "Bank of America - Sandston" | enterprise data centre |
@@ -1481,17 +1481,24 @@ example Allegheny vs Westmoreland. They are not a normalisation error.
 A name rule was tested and rejected: drop NAICS 518210 rows whose names declare a non-hosting industry (bank,
 insurer, health, hospital, institution, customs, school) unless they also name computing ("technology center",
 "IT operations", "info sys"). It would drop 12 rows, and the evidence splits them three ways.
-- **6 are data centres.** The World Bank and Travelers (above). Sentara, the Smithsonian at Herndon and US Customs
-  and Border Protection at Springfield, all flagged by DEQ. Optum / UnitedHealth Group at 1707 W Creek Ln, Chaska MN, which is UnitedHealth's
-  West Creek data centre ([baxtel](https://baxtel.com/data-center/unitedhealth-chaska)).
+- **5 are data centres.** Travelers (above). Sentara, the Smithsonian at Herndon and US Customs and Border
+  Protection at Springfield, all flagged by DEQ. Optum / UnitedHealth Group at 1707 W Creek Ln, Chaska MN, which
+  the Minnesota Pollution Control Agency's own permit record names "United HealthCare Services Inc - Data Center"
+  (registration permit 01900066-001, EPA id MN0000002701900066, NAICS 518210;
+  [MPCA, What's in My Neighborhood, site 132882](https://webapp.pca.state.mn.us/wimn/site/132882), a page that
+  renders by script, so read through the
+  [MPCA Air Quality Permits layer](https://enterprise.gisdata.mn.gov/aghost/rest/services/us_mn_state_pca/env_air_quality_permits/FeatureServer/0)
+  on the Minnesota Geospatial Commons, 2026-10-24).
 - **3 are not.** Health and Hospital Corporation (below), and two already suppressed (US Liability Insurance,
   Concordance).
-- **3 are unverified.** Iowa Health System, UnityPoint Health and First Health Services. Separately, "NALCO WATER" at 505 N Railroad Ave,
-Northlake IL is a Digital Realty data centre
-([datacentermap](https://www.datacentermap.com/usa/illinois/chicago/505-north-railroad-avenue/)), which shows that
-the operator's name is not the occupant's industry. The selection rule is unchanged. The review's examples are
-mostly *enterprise* data centres, not offices. The distinction a planner needs is enterprise vs colocation or
-hyperscale, which is a classification for later, not a selection rule.
+- **4 are unverified.** The World Bank (above), Iowa Health System, UnityPoint Health and First Health Services.
+
+Separately, "NALCO WATER" at 505 N Railroad Ave, Northlake IL is the address Digital Realty gives for its ORD23
+data centre ("505 North Railroad Avenue, Northlake, IL 60164",
+[Digital Realty, ORD23](https://www.digitalrealty.com/data-centers/americas/chicago/ord23), read 2026-10-24),
+which shows that the operator's name is not the occupant's industry. The selection rule is unchanged. The review's
+examples are mostly *enterprise* data centres, not offices. The distinction a planner needs is enterprise vs
+colocation or hyperscale, which is a classification for later, not a selection rule.
 
 **Hand check.** One new verified false positive was found. HEALTH AND HOSPITAL CORPORATION, 3838 N Rural St,
 Indianapolis (FRS 110055591328) is the Marion County Public Health Department's building
@@ -1512,7 +1519,16 @@ Moline. None was found to be a data centre or an office.
 | Precision | 92% strict (unverified counted wrong), 100% lenient | same |
 
 The fold changes no sampled row: the one duplicate drawn, "CYRUS ONE LLC", has a different name. On the
-review's six named rows, precision is 5 of 6 before and after, because the sixth was already unpublished.
+review's six named rows, precision is 4 of 6 strict (the World Bank unverified) and 5 of 6 lenient, before and
+after, because the sixth was already unpublished.
+
+*Sources (2026-10-24).* This section cited datacenterHawk, Baxtel and datacentermap as evidence until 2026-10-24.
+Those are private aggregators, which this repo never uses as sources (CLAUDE.md guardrail 1; the survey's list in
+`docs/08-data-centre-sources.md` §1), so each citation was replaced (Chaska: the MPCA permit record; Northlake: the
+operator's own page) or its claim removed (Chantilly: the building's floor area and delivered power; the verdict
+moves to unverified). Chaska and Northlake were re-checked against those primary sources on 2026-10-24. For
+Chantilly no primary public source naming the building's use was found (ICIS-Air's own record and both Virginia
+DEQ air-site layers were searched), so the row stays unverified until one is.
 
 ## 4. Fiber availability by area
 

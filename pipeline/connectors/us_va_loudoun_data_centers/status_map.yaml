@@ -1,0 +1,34 @@
+# us.va.loudoun.data_centers: Loudoun County pipeline layer `FIRST_Status` -> proposal lifecycle (docs/21 §7.1).
+# `field: Status` is the literal pipeline.normalize.harmonise_status recognises; the connector passes the
+# application's FIRST_Status under ctx["status_raw"], as every other connector's status map does.
+# Values measured 2026-10-23 on all 85 rows of the layer: Active 51, Approved: Conditionally 18,
+# Approved 16. Anything else is unmapped -> unknown + a DQ vocabulary warning, never coerced.
+version: 1
+updated: 2026-10-23
+canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
+sources:
+  loudoun_dc_pipeline:
+    field: Status
+    map:
+      Active: filed
+      Approved: permitted
+      "Approved: Conditionally": permitted
+    caveats:
+      - >-
+        Active maps to filed. The county lists the application as in review; the layer proves that a
+        land-use application for a data centre on this land has been accepted, nothing more.
+      - >-
+        Approved and "Approved: Conditionally" map to permitted. The layer proves that the county
+        approved this land-use application (a legislative application, a site plan or an amendment),
+        with conditions in the second case. It does not prove that the other approvals a data centre
+        needs (an air permit, building permits) are in hand, nor that construction has started. The raw
+        value stays in status_raw, so "Approved: Conditionally" -> "Approved" is a status_raw_change event.
+      - >-
+        Nothing in this layer proves under_construction or built. The county keeps sites under
+        construction and built sites in separate layers (Existing_Data_Center_Parcel,
+        Existing_Permitted_Data_Center_Buildings), which this connector does not read; an application
+        that leaves this layer is a `removed` event whose meaning is unknown (approved and moved on,
+        withdrawn, or the layer rebuilt).
+      - >-
+        A site holding several applications on the same land takes the most advanced state among them
+        (filed < permitted); status_raw is the deciding application's value.
