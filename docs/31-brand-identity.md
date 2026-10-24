@@ -70,7 +70,9 @@ taste skill's terracotta check.
 - **The royal-blue links and the gradient pill button.** Gradients are banned. A second hue on the chrome breaks the
   style. And the blue is 8° from Interconnection.fyi's brand blue.
 - **A navy or forest ground on app screens.** The skill bans navy dark themes. Navy appears as a field only on read
-  pages and the share card.
+  pages and the share card. **Exception (owner, 2026-10-24):** the full-screen map landing's dark theme takes the
+  share card's navy ground (V2 direction A, "Night survey"); the owner asked for the "very dark blue" with bright green
+  dots and chose A. Other app screens keep the neutral dark until the owner has seen both side by side.
 - **The Avenir-like light face.** It is replaced by the face the skill dealt (§4).
 - **The floating "Let's Talk" pill and a photograph hero on the map.** Floating pills are banned. On the front page
   the map is the picture.
