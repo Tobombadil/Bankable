@@ -25,10 +25,12 @@ What is kept. Only the rows LBNL places in the non-ISO regions (`region` West or
 Southern, Duke, FPL, PacifiCorp, BPA, APS, NV Energy, Xcel Colorado and 40 more transmission
 providers), the queues no other connector reads. Every other row is dropped in `parse`, never
 stored as a record, and counted in the snapshot's `meta`:
-- ERCOT, CAISO and NYISO are read first-hand (`us.iso.*.gen_queue`), fresher than an annual file;
+- ERCOT, CAISO and NYISO are read first-hand (`us.iso.*.gen_queue`), fresher than an annual file,
+  and so is SPP, whose own queue is published as derived fields under the owner's decision of
+  2026-10-24 (`data/sources.yaml`; until its connector lands, SPP rows show from neither source);
 - PJM rows are not public until a PJM licence exists (CLAUDE.md), whatever LBNL's licence says,
-  and SPP, ISO-NE and MISO follow their operators' recorded status (`restricted`, `restricted`,
-  `unknown` in `data/sources.yaml`), because a CC BY notice from a compiler cannot license what
+  and ISO-NE and MISO follow their operators' recorded status (`restricted`, `unknown` in
+  `data/sources.yaml`), because a CC BY notice from a compiler cannot license what
   the operator's own terms withhold (the reading `docs/13` §6 applies to the LevelTen sheets in
   LBNL's solar and wind files).
 A region label this module does not know is dropped and counted too, so a new label cannot publish
@@ -128,12 +130,12 @@ FIRST_HAND_REGIONS = {
     "ERCOT": "us.iso.ercot.gen_queue",
     "CAISO": "us.iso.caiso.gen_queue",
     "NYISO": "us.iso.nyiso.gen_queue",
+    "SPP": "us.iso.spp.gen_queue",
 }
 #: Regions whose operators' terms withhold their rows (module docstring).
 WITHHELD_REGIONS = {
     "PJM": "us.iso.pjm.gen_queue",
     "MISO": "us.iso.miso.gen_queue",
-    "SPP": "us.iso.spp.gen_queue",
     "ISO-NE": "us.iso.isone.gen_queue",
 }
 #: The register row whose unread terms hold this source's own kept rows (module docstring).

@@ -89,15 +89,17 @@ def _parse_edited(column: str, values: dict[int, object]):
 
 
 def test_pjm_miso_spp_and_isone_rows_never_become_records():
-    """CLAUDE.md: PJM rows are not public until a licence exists, whatever LBNL's licence says; MISO,
-    SPP and ISO-NE follow their operators' recorded status. They are dropped in `parse`, so no
-    record, no `raw` payload and no event can carry them."""
+    """CLAUDE.md: PJM rows are not public until a licence exists, whatever LBNL's licence says; MISO
+    and ISO-NE follow their operators' recorded status, and SPP is read first-hand (owner,
+    2026-10-24). They are dropped in `parse`, so no record, no `raw` payload and no event can carry
+    them."""
     c = _lbnl()
     raw = snapshot(WORKBOOK, DATA_URL)
     raw.content = _with_regions({3: "PJM", 4: "MISO", 5: "SPP", 6: "ISO-NE", 7: "Mid-Atlantic"})
     rows = c.parse(raw)
     assert len(rows) == 33 - 5
-    assert raw.meta["dropped_withheld"] == {"PJM": 1, "MISO": 1, "SPP": 1, "ISO-NE": 1}
+    assert raw.meta["dropped_withheld"] == {"PJM": 1, "MISO": 1, "ISO-NE": 1}
+    assert raw.meta["dropped_first_hand"]["SPP"] == 1
     assert raw.meta["dropped_unrecognised_region"] == {"Mid-Atlantic": 1}
     df = c.normalize(rows, raw)
     assert not df["raw"].str.contains('"region": "(?:PJM|MISO|SPP|ISO-NE|Mid-Atlantic)"', regex=True).any()
