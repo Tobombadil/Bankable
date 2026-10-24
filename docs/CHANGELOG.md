@@ -498,3 +498,4 @@
 - 2026-10-24 coordinator: drill-down hierarchy (holding company > company > project or asset > parts) recorded (owner); PLAN row.
 - 2026-10-24 coordinator: Market as one section with Map and List views and filterable aspects; list clicks filter the map; nearby RFPs at the bottom of a project or company (owner); PLAN row.
 - 2026-10-24 coordinator: RFPs reach projects and companies through the matcher, geography one factor (owner); PLAN row.
+- 2026-10-24 coordinator: ownership-link safeguard (primary document or two agreeing sources; Matador case as a labelled negative) (owner); PLAN row.
