@@ -750,6 +750,7 @@ MARKET = [
 #: The About bar: the reference pages, reached from the footer, the Menu and "About & sources".
 ABOUT = [
     ("/about", "About"),
+    ("/about/sources", "Sources &amp; licences"),  # lane V7 built its page, so it joined the bar
     ("/methodology", "Coverage &amp; methodology"),
     ("/attribution", "Attribution"),
     ("/docs/api", "API &amp; feeds"),
@@ -852,6 +853,7 @@ def test_the_site_finder_is_not_listed_until_it_has_a_run_to_show(
     ("path", "bar"),
     [
         ("/about", ABOUT),
+        ("/about/sources", ABOUT),
         ("/methodology", ABOUT),
         ("/attribution", ABOUT),
         ("/search", None),

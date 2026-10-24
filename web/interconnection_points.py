@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
-from web import formatting, labels
+from web import formatting, labels, record_tabs
 from web.api_client import ApiError, ApiNotFound
 from web.list_sort import POINT_COLUMNS, chosen_sort, sort_caption, sort_headers, valid_sort
 from web.page import (
@@ -229,8 +230,36 @@ def interconnection_points_list(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "interconnection_points_list.html", context)
 
 
+#: The point's lists in its breadcrumb (docs/30 §11.3): Infrastructure, then its Grid connection points tab.
+_POINT_TRAIL: tuple[tuple[str, str], ...] = (
+    (labels.SECTION_LABELS["infrastructure"], "/assets"),
+    (labels.SECTION_LABELS["points"], "/interconnection-points"),
+)
+
+
 @router.get("/interconnection-points/{public_id}", response_class=HTMLResponse)
-def interconnection_point_detail(request: Request, public_id: str) -> HTMLResponse:
+def interconnection_point_detail(request: Request, public_id: str) -> Response:
+    """A grid connection point's Overview (docs/30 §11.5: Overview · Projects · Changes · Sources)."""
+    return _point_page(request, public_id, "overview")
+
+
+@router.get("/interconnection-points/{public_id}/{tab}", response_class=HTMLResponse)
+def interconnection_point_tab(request: Request, public_id: str, tab: str) -> Response:
+    """A grid connection point's Projects, Changes or Sources tab (docs/30 §11.10)."""
+    if tab == "overview":
+        return record_tabs.overview_redirect(request, f"/interconnection-points/{quote(public_id, safe='')}")
+    return _point_page(request, public_id, tab)
+
+
+def _point_page(request: Request, public_id: str, tab: str) -> Response:
+    """One tab of a grid connection point. One API call carries every tab's rows (the detail response's
+    `proposals[]` and `recent_changes[]`), so each tab's presence and count are known on every tab."""
+    base = f"/interconnection-points/{quote(public_id, safe='')}"
+    moved = record_tabs.query_tab_redirect(request, base, record_tabs.POINT_TABS, tab)
+    if moved is not None:
+        return moved
+    if tab != "overview" and not record_tabs.is_tab(record_tabs.POINT_TABS, tab):
+        return not_found_response(request, "page")
     api = get_api(request)
     try:
         envelope = api.get(f"/v1/interconnection-points/{public_id}")
@@ -242,31 +271,67 @@ def interconnection_point_detail(request: Request, public_id: str) -> HTMLRespon
     record = flatten_point(entity)
     proposals = [_flatten_point_proposal(p) for p in entity.get("proposals") or []]
     changes = list(entity.get("recent_changes") or [])
-    path = f"/interconnection-points/{public_id}"
-    response = templates.TemplateResponse(
-        request,
-        "interconnection_point_detail.html",
-        {
-            "record": record,
-            "proposals": proposals,
-            "proposals_truncated": bool(entity.get("proposals_truncated")),
-            "changes": [flatten_change(e) for e in changes],
-            "provenance_rows": provenance_panel_rows(api, _panel_provenance(record, changes)),
-            "canonical_path": path,
-            "jsonld": [
-                breadcrumb_jsonld(
-                    request,
-                    [
-                        ("Home", "/"),
-                        (labels.SECTION_LABELS["infrastructure"], "/assets"),
-                        (labels.SECTION_LABELS["points"], "/interconnection-points"),
-                        (record["name"], path),
-                    ],
-                )
-            ],
+    path = f"/interconnection-points/{quote(str(record['public_id'] or public_id), safe='')}"
+    totals = record.get("totals") or {}
+    tabs = record_tabs.Tabs(
+        "interconnection_point",
+        path,
+        record_tabs.POINT_TABS,
+        present={"projects": bool(proposals), "changes": bool(changes), "sources": True},
+        current=tab,
+        # No count on Changes: `recent_changes` is the newest few (the API's RECENT_CHANGES_LIMIT), not
+        # a total, and a bare number beside the tab would read as one (T-2).
+        counts={
+            "projects": int(totals.get("proposal_count") or len(proposals)),
+            "sources": record_tabs.source_count(_panel_provenance(record, changes)),
         },
     )
-    return count_page_view(request, response, "point")
+    # The point's register names it as filed: a bus name is not re-cased.
+    name = str(record.get("name") or public_id)
+    context: dict[str, Any] = {
+        "record": record,
+        "head": {
+            "type": "interconnection_point",
+            "crumbs": record_tabs.crumbs(tabs, _POINT_TRAIL, name),
+            "name": name,
+            "badge": record.get("kind_label"),
+            "facts": record_tabs.point_facts(record),
+            "action": record_tabs.primary_action(
+                request,
+                tabs,
+                "interconnection_point",
+                record,
+                (
+                    "Open in Projects",
+                    f"/proposals?{urlencode({'interconnection_point_id': record['public_id']})}",
+                ),
+                ("View at source", record.get("source_url")),
+            ),
+        },
+        "delayed": record_tabs.tier_notice(request),
+        "proposals": proposals,
+        "proposals_truncated": bool(entity.get("proposals_truncated")),
+        "changes": [flatten_change(e) for e in changes],
+        "credits": record_tabs.credits(record["provenance"]),
+        "canonical_path": tabs.href(tab),
+    }
+    if tab == "overview":
+        context["jsonld"] = [breadcrumb_jsonld(request, record_tabs.jsonld_trail(_POINT_TRAIL, name, path))]
+        # The Overview lists the first change rows, so it credits the registers that recorded them too.
+        context["credits"] = record_tabs.credits(
+            _panel_provenance(record, changes[: record_tabs.OVERVIEW_ROWS])
+        )
+    elif tab == "changes":
+        # Each change credits the register that recorded it.
+        context["credits"] = record_tabs.credits(_panel_provenance(record, changes))
+    elif tab == "sources":
+        context["provenance_rows"] = provenance_panel_rows(api, _panel_provenance(record, changes))
+    template = (
+        "interconnection_point_detail.html" if tab == "overview" else f"interconnection_point_{tab}.html"
+    )
+    response = record_tabs.render(request, template, context, tabs)
+    # One view of the record per visit (PM-5): the Overview counts, its tabs do not.
+    return count_page_view(request, response, "point") if tabs.is_overview else response
 
 
 def proposal_connection(api: Any, proposal_public_id: str | None) -> dict[str, Any] | None:

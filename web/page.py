@@ -276,9 +276,9 @@ MY_PIPELINE_ENV: str = "MY_PIPELINE"
 #: Pages Navigation v2 names that have no page yet (docs/30 §11.3: "Pages that are not yet live are left
 #: out, never shown disabled"). Each joins the bars in the change that builds it: Funding and its pages
 #: with `/funding` and its count rule (§11.2, lane V4), State averages with `/prices/states` (V5),
-#: Sources & licences with `/about/sources` (V7), Invitations with a list of waiting invitations (V6).
+#: Invitations with a list of waiting invitations (V6). Sources & licences joined with `/about/sources` (V7).
 NOT_YET_LIVE: frozenset[str] = frozenset(
-    {"funding", "funding_grants", "funders", "prices_states", "about_sources", "invitations"}
+    {"funding", "funding_grants", "funders", "prices_states", "invitations"}
 )
 
 

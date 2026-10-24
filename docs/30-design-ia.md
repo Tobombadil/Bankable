@@ -1425,6 +1425,82 @@ joins `test_a_section_is_named_in_one_place` in V4's change to that page (build 
 `test_a_section_is_named_in_one_place`"). **V3 and V4:** breadcrumbs that start with the section (`web/test_seo.py`
 row) live in the page bodies, which V1 does not change; V3 does it for record pages, V4 for Companies and RFPs.
 
+**Built: V3, record tabs (2026-10-23, lane record-tabs).** One module, `web/record_tabs.py` (tab orders, the
+absent-tab lines, `Tabs`, the `?tab=` and merged-slug 301s, the per-tab credits line, the header's key facts and
+glossary keys, the one primary action, the Timeline's rows), two partials (`partials/_record_header.html`,
+`partials/_record_tabs.html`) and one template per tab: projects Overview · Timeline · Sources (Matches stays
+unlinked and answers 404, IA-9); plants, pipelines and lines Overview · Retirement · Grid · Ownership · Nearby ·
+Sources; grid connection points Overview · Projects · Changes · Sources. As built, against §11.5:
+
+- **Retirement** is present only where the plant has retired or scheduled-to-retire generators. Its facts leave the
+  status to the header's badge, and the Overview's block leads with when, or how much by when ("Capacity scheduled
+  to retire 320 MW", "Next scheduled retirement December 2028").
+- **Grid** is present only where such a plant reports EIA-860 grid fields or the grid around it
+  (`GET /v1/assets/{id}/nearby-grid`) lists a line or a connection point. The grid call runs on every tab only when
+  the plant's own fields are empty, so a plant that reports them keeps it to the Grid tab (T-10). A plant that
+  retired before EIA-860's report year, one with no mapped location and one whose grid call fails have no Grid tab
+  and no Overview Grid block; their Retirement tab keeps the reuse note behind its disclosure. Grid widens with B-3.
+- **Ownership** is present with two or more ownership records, except one company's owner and operator pair (§11.5:
+  "a sole owner and operator stays the header line"). Without the tab, the header line carries every record's
+  share, source and date whatever its role (an operator-only pipeline included) and keeps the `#owners` anchor.
+- **Nearby** is present only with exact-grade projects within 25 km; a point's **Projects** and **Changes** only when
+  it has them. Changes carries no count: the API serves the newest ten changes, not a total. The point's Overview
+  credits the registers of the change rows it lists (T-4).
+- `{record}/overview` answers 301 to the record; an empty or unknown `?tab=` keeps the path's tab; only the Overview
+  records `page.viewed`, so PM-5's series counts one view per record visit, as the one-page record did.
+
+The header carries the key facts as labels over values (capacity, interconnection queue, queue position, in-service
+date, large load; a plant's year is "Commissioned", which stays true once it retires), each term and the status chip
+linking to `/glossary#<key>`, and the D-3 tier notice, which asset and point pages did not show before. The
+primary action is Track where `track_offer` offers it, otherwise Show on map, Open in Projects or View at source;
+Track itself stays in `partials/_track.html` (V6), included on the Overview. Merged-slug redirects exist only for projects (assets and points have no merges in the API). The sitemap
+lists Overviews only and adds `/prices` because its route exists; `/funding`, `/prices/states`, `/about/sources`
+and the methodology tabs join by themselves once their routes do (`web/sitemaps.py` `sitemap_static_paths`).
+`site.js` maps the old anchors (`#sources`, `#timeline`, `#history`, `#report-problem`, `#retirement`, `#grid`,
+`#owners`, `#nearby`, `#projects`, `#changes`) to their tabs, and only when the tab is linked from the page. Measured
+on a demo store (served on a spare port), words above the fold at 1440x900 and 390x844, before → after: project
+Overview 133 → 130 and 94 → 77, data-centre project 135 → 130 and 91 → 97, plant Overview 113 → 131 and 72 → 98, wind
+farm 81 → 98 and 47 → 80, grid point 179 → 172 and 84 → 83 (the plants gained the tier notice and the facts row);
+page height at 390px 2326 → 2116, 3775 → 2887 and 3745 → 2803. Taste inspector (`--app`): Overviews went from
+1 FAIL 5 WARN (project) and 0 FAIL 5 WARN (plant, point) to 0 FAIL with 1-2 WARN; every tab is 0 FAIL, and the WARNs
+left are the brand palette, the section bar's mono label and its cut "Prices" at 390px (V1, brand lane), and on
+the six-tab bar at 390px a cut neighbour of the current tab (the bar scrolls sideways by design). axe-core 4.10:
+0 violations on all fourteen tabs at 1440 and 390px. Fix round (review of 2026-10-23), on a fake-API demo of the
+reviewer's scenarios (closed disclosures not counted), words above the fold at 1440x900 and 390x844, before →
+after: retiring plant 118 → 116 and 93 → 91, its Retirement tab 209 → 205 and 100 → 105 (the tables move up),
+retired plant 111 → 108 and 89 → 86 (390px height 2138 → 1949, the Grid block gone), its Retirement tab 180 → 179
+and 95 → 94, operator-only pipeline 140 → 146 and 86 → 92 (its record's source and date back on the header line),
+one-company plant 107 → 110 and 87 → 88 (no Ownership tab; 390px height 1928 → 1811), grid point 149 → 148 and
+83 → 82, project unchanged (112, 78); no horizontal scroll at 360, 390 or 1440px. Taste lint unchanged; inspector
+0 FAIL on all ten pages before and after, the retired plant's Retirement tab 3 → 2 WARN (the WARNs left are the
+brand palette and V1's section bar); axe-core 4.10 0 violations and no duplicate id on twelve pages, 404 tabs
+included, at 1440, 390 and 360px.
+
+**Built: V7, search, About and Methodology (2026-10-23, lane search-about).** `/search`: §11.4's tabs in a fixed
+order with counts (`type=`), a top hit (a company's name, else an asset's, that starts with the words), five rows a
+kind on All and fifty on a kind's tab; each "All N" and full-list link shows exactly what its count counted (Projects
+names every lifecycle state; RFPs and Funding carry their kinds and `status=all&relevance=all`; Infrastructure prints
+"50+", as `/v1/assets` has no count); a kind whose read fails costs only itself. `/about`: the reach by region, US
+first, each figure the published registers its `/about/sources` table lists; `#sources`, `#deals`, `#tiers` stay.
+`/about/sources`: every register by cursor (the old page read 100 of 180), counts only for published registers a list
+counts, each a link to that list; Sources & licences joined the About bar. Coverage & methodology: three URL tabs;
+`/methodology` keeps the old anchors on a summary list that links on; status words are `#state-<key>` and
+`#notice-<key>` (no duplicate ids). `/glossary` (`web/glossary.py`): every `LIFECYCLE_LABELS` key at `#<key>`, the
+seven record-page anchors and six more, DefinedTermSet JSON-LD, no API call. Measured on a copy of the e2e store:
+`/methodology` 9,731 to 1,653px tall at 1440, `/search?q=solar` 6,959 to 1,009; taste-gate FAILs `/about` 7 to 4 and
+`/methodology` 8 to 5, search 0 and 0 (`--app`). Fix round (review of 2026-10-23): `/attribution` reads every
+page of `/v1/sources` (it showed 100 of 180 registers, none of the ISO queues); glossary links show what their words
+say (Operating plants `status=operating`; "Earliest stated date first", not "Soonest"; RFPs and funding calls name
+their kinds and no status, so the list's default and Recently closed apply); `/about` counts no news feed or social
+channel as a register and places a blank-jurisdiction or US-clipped register by its id or clip; `/about/sources`
+lists news feeds after the regions, leaves out the site's own channels, keeps each register's count for 15 minutes
+and stacks its cells below 720px; the methodology tabs keep one row; an
+unread platform status prints outside "About this". Left for other lanes: `site.js` `MOVED_FRAGMENTS` rows (`#sources`,
+`#absences`, `#withheld`, `#ownership`, `#asset-sources`, `#absent-technologies`, `#absent-states`, `#states`,
+`#lifecycle`, `#opportunity-statuses`, `#note-*`), `/glossary`, `/about/sources` and the two methodology tabs in
+`web/sitemaps.py`, the footer's `/about#sources` link, Glossary in the About bar, footer and Menu, and
+`web/record_tabs.py` taking its anchors from `web.glossary.RECORD_PAGE_ANCHORS`.
+
 **Asked by the owner, verbatim:** "could we also improve the navigation and various pages? For navigation, use a top
 bar and follow best practices from leading industry platforms to separate the site's major sections Map vs deal
 building vs funding (with whatever names we are using for that). Further, give each page a clear purpose. Do not have

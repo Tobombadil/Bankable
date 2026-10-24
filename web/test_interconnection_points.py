@@ -188,8 +188,9 @@ def test_detail_page_shows_the_queue_and_its_source(web_client: TestClient, stor
     assert f'href="/proposals/{b1_slug}"' in body
     assert "Project b3" not in body  # unpublished
     assert '<dd class="tnum">200 <span' in body and "345 kV" in body and "59903" in body
-    assert "Test Public Source" in body  # the provenance panel names the register
-    assert "View at source" in body
+    assert "Test Public Source" in body  # the credits line names the register (docs/30 §11.5, T-4)
+    sources = web_client.get(f"/interconnection-points/{store['points']['b1']}/sources").text
+    assert "Test Public Source" in sources and "View at source" in sources  # the full Sources panel
 
 
 def _add_changes(db_sessionmaker: sessionmaker[Session], store: dict[str, Any]) -> None:
@@ -218,14 +219,22 @@ def _add_changes(db_sessionmaker: sessionmaker[Session], store: dict[str, Any]) 
 def test_detail_page_lists_recent_changes_at_the_point(
     web_client: TestClient, store: dict[str, Any], db_sessionmaker: sessionmaker[Session]
 ) -> None:
-    quiet = web_client.get(f"/interconnection-points/{store['points']['b1']}").text
-    assert "Recent changes at this point" in quiet
-    assert "No change events are recorded for the projects listed here yet." in quiet
+    point = store["points"]["b1"]
+    quiet = web_client.get(f"/interconnection-points/{point}").text
+    # No changes yet: no Changes tab, and its URL says so in one line (docs/30 §11.5, T-3).
+    assert f'href="/interconnection-points/{point}/changes"' not in quiet
+    empty = web_client.get(f"/interconnection-points/{point}/changes")
+    assert empty.status_code == 404
+    assert "No change events are recorded for the projects here yet." in empty.text
     _add_changes(db_sessionmaker, store)
 
-    body = web_client.get(f"/interconnection-points/{store['points']['b1']}").text
+    assert (
+        f'href="/interconnection-points/{point}/changes"'
+        in web_client.get(f"/interconnection-points/{point}").text
+    )
+    body = web_client.get(f"/interconnection-points/{point}/changes").text
 
-    section = body.split("Recent changes at this point", 1)[1].split('aria-label="Sources"', 1)[0]
+    section = body.split("Recent changes at this point", 1)[1].split('class="record-foot"', 1)[0]
     _b1, b1_slug = store["props"]["b1"]
     _b2, b2_slug = store["props"]["b2"]
     assert section.index("Withdrawn") < section.index("Entered the queue here as filed")  # newest first

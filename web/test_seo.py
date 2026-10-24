@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from web.api_client import ApiClient
 from web.app import app as web_app
-from web.sitemaps import SITEMAP_STATIC_PATHS
+from web.sitemaps import sitemap_static_paths
 
 #: A name carrying every character that could break an HTML attribute or close a `<script>` block
 #: early. Task item 7 asks for exactly this to be pushed through the meta tags and the JSON-LD.
@@ -475,7 +475,7 @@ def test_record_pages_emit_a_breadcrumb_list(web_client: TestClient) -> None:
     crumbs = next(g for g in graphs if g["@type"] == "BreadcrumbList")
     assert crumbs["@context"] == "https://schema.org"
     assert [(i["position"], i["name"], i["item"]) for i in crumbs["itemListElement"]] == [
-        (1, "Home", "http://testserver/"),
+        (1, "Market", "http://testserver/"),
         (2, "Infrastructure", "http://testserver/assets"),
         (3, "Roscoe Wind Farm", "http://testserver/assets/roscoe-wind-farm-tx"),
     ]
@@ -686,7 +686,7 @@ def test_sitemap_splits_into_an_index_once_the_urls_exceed_one_file(web_client: 
     # The static pages plus 25,001 assets, minus the 25,000 that filled the first chunk. Counted
     # from `SITEMAP_STATIC_PATHS` rather than written out, so adding a public page (e.g. /pricing,
     # 2026-09-20) does not fail this test for the wrong reason.
-    assert second.text.count("<loc>") == len(SITEMAP_STATIC_PATHS) + 1
+    assert second.text.count("<loc>") == len(sitemap_static_paths(web_app)) + 1
     assert "<urlset" in first.text and "<urlset" in second.text
     assert len(first.content) < 50 * 1024 * 1024
 

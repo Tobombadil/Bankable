@@ -1,0 +1,71 @@
+{#- A retired or retiring plant's Retirement tab (docs/30 §11.5; lane R1: retired and retiring plants as a
+    powered-land signal). Every row is conditional on its value; the dates and MW come from EIA-860M
+    (web/retirement.py). The grid around the plant is the Grid tab; when the plant has none recorded (no
+    Grid tab, T-3), the note on reusing a retiring plant's connection and why EIA-860 names no grid for it
+    stay here, behind one disclosure. -#}
+{% extends "base.html" %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name | readable_name }} · Retirement — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: retired and scheduled generators, capacity and dates from EIA-860M.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<section class="record-tab retirement" aria-labelledby="tab-heading">
+  <h2 class="visually-hidden" id="tab-heading">Retirement</h2>
+  {#- The status is the header's badge on every tab, so its row is not repeated here. -#}
+  {% set facts = retirement.facts | rejectattr(0, 'equalto', 'Status') | list %}
+  {% if facts %}
+  <dl class="field-grid">
+    {% for label, value in facts %}<div><dt>{{ label }}</dt><dd class="tnum">{{ value }}</dd></div>{% endfor %}
+  </dl>
+  {% endif %}
+  {% if retirement.rule_text %}<p class="attribution-line">{{ retirement.rule_text }}{% if retirement.as_of %} As of EIA-860M for {{ retirement.as_of }}.{% endif %}</p>{% endif %}
+  {% if retirement.by_technology %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption>Nameplate capacity retired or scheduled to retire, by technology</caption>
+    <thead><tr><th scope="col">Technology</th><th scope="col" class="num">Retired</th><th scope="col" class="num">Scheduled to retire</th></tr></thead>
+    <tbody>
+      {% for row in retirement.by_technology %}
+      <tr><td data-label="Technology">{{ row.technology }}</td><td data-label="Retired" class="num tnum">{{ row.retired or '—' }}</td><td data-label="Scheduled to retire" class="num tnum">{{ row.retiring or '—' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  {% if retirement.units %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption>Generators that retired or are scheduled to retire</caption>
+    <thead><tr><th scope="col">Generator</th><th scope="col">Technology</th><th scope="col" class="num">Nameplate</th><th scope="col">State</th><th scope="col">Date</th></tr></thead>
+    <tbody>
+      {% for u in retirement.units %}
+      <tr><td data-label="Generator" class="tnum">{{ u.generator_id }}</td><td data-label="Technology">{{ u.technology or '—' }}</td><td data-label="Nameplate" class="num tnum">{{ u.capacity or '—' }}</td><td data-label="State">{{ u.state }}</td><td data-label="Date" class="tnum">{{ u.when or '—' }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if retirement.units_more %}<p class="attribution-line">{{ retirement.units_more }} more generators are listed in the source.</p>{% endif %}
+  {% endif %}
+  {% if retirement.changes %}
+  <h3 class="retirement__subhead">Retirement changes</h3>
+  <ul class="in-view-list">
+    {% for c in retirement.changes %}
+    <li><strong>{{ c.label }}</strong>{% if c.observed %} <span class="meta tnum">seen {{ c.observed }}</span>{% endif %}{% if c.capacity %} <span class="meta tnum">{{ c.capacity }}</span>{% endif %}
+      {% if c.units %}<span class="meta">{% for u in c.units %}unit {{ u.generator_id }}{% if u.technology %} ({{ u.technology }}{% if u.capacity %}, {{ u.capacity }}{% endif %}){% endif %}{% if u.when %}: {{ u.when }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if not tabs.has('grid') and retirement.reuse_note %}
+  <details class="record-disclosure">
+    <summary>Can the connection be reused?</summary>
+    <p class="field-note retirement__note">{{ retirement.reuse_note }}</p>
+    <p class="field-note retirement__note">EIA-860 states no grid voltage or transmission owner for this plant{% if record.status == 'retired' %}: its annual file lists plants with a generator in the report year, so a plant that retired earlier is not in it{% endif %}.</p>
+  </details>
+  {% endif %}
+</section>
+{{ rt.foot(tabs, credits, record) }}
+</div>
+{% endblock %}

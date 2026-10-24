@@ -1,0 +1,112 @@
+{#- The record header (docs/30 §11.5 T-1), the same on every tab of a record: the breadcrumb (Market, the
+    record's list, the record), the name with its status chip or type badge, who is behind it, its key
+    figures, the one primary action and the tier notice (D-3), then the tab bar.
+
+    `head` is built by the route (web/record_tabs.py): `type` ("proposal", "asset",
+    "interconnection_point"), `crumbs`, `name`, `chip` or `badge`, `facts` and `action`. A status chip
+    links to its lifecycle state in the glossary, and each technical term among the key figures to its
+    entry (`glossary_href`; owner, 2026-10-23: readable by anyone), so the words a newcomer stops at are
+    one click from a plain explanation. -#}
+{%- import "_macros.html" as m -%}
+{%- import "partials/_record_tabs.html" as rt -%}
+<header class="record-header">
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    {%- for label, href in head.crumbs %}{% if not loop.first %} / {% endif %}{% if href %}<a href="{{ href }}">{{ label }}</a>{% else %}{{ label }}{% endif %}{% endfor -%}
+  </nav>
+  <div class="detail-header">
+    <h1>{{ head.name }}</h1>
+    {%- if head.chip %}
+    {%- set chip_href = glossary_href(head.chip.state) %}
+    {%- if chip_href %}
+    <a class="record-header__chip" href="{{ chip_href }}">{{ m.status_chip(head.chip.state, head.chip.family, head.chip.raw) }}<span class="visually-hidden"> (what this status means)</span></a>
+    {%- else %}
+    {{ m.status_chip(head.chip.state, head.chip.family, head.chip.raw) }}
+    {%- endif %}
+    {%- endif %}
+    {%- if head.badge %}
+    <span class="record-header__badge">{{ head.badge }}</span>
+    {%- endif %}
+    {%- if head.type == "proposal" %}{{ m.slip_note(record.slip) }}{% endif %}
+  </div>
+  {%- if head.type == "proposal" %}
+  {%- if not_listed %}
+  <p class="attribution-line" id="not-listed">No longer listed in any register{% if not_listed.since %} since <time datetime="{{ not_listed.since }}">{{ not_listed.since | display_date }}</time>{% endif %}.</p>
+  {%- endif %}
+  {{ m.as_filed(record.name) }}
+  {#- docs/16 U-2: who is behind the project, linked to its company page, with the parent where one is
+      recorded. The parent is an ownership claim, so its source and date sit under it (web/ownership.py).
+      A natural person named in a register keeps their page's `noindex` (the link says `nofollow`) and is
+      labelled "Sponsor", not "Company". With no company the line says "not recorded", never "not named
+      in the source": the API serves no sponsor both when the register names none and when the company is
+      not public (docs/21 §8 item 3). -#}
+  {%- set co = record.company %}
+  <p class="record-company" id="record-company"><span class="record-company__label">{{ 'Sponsor' if co and co.personal_data else 'Company' }}</span>
+  {%- if co %} {% if co.href %}<a href="{{ co.href }}"{% if co.personal_data %} rel="nofollow"{% endif %}>{{ co.name | readable_name }}</a>{% else %}{{ co.name | readable_name }}{% endif %}
+  {%- if record.company_parent %}<span class="record-company__group"> &middot; part of {% if record.company_parent.href %}<a href="{{ record.company_parent.href }}">{{ record.company_parent.name | readable_name }}</a>{% else %}{{ record.company_parent.name | readable_name }}{% endif %}</span>{% endif %}
+  {%- else %} <span class="record-company__none">not recorded</span>{% endif %}</p>
+  {%- if record.company_parent and record.company_parent.note %}
+  <p class="ownership-claim record-company__claim{% if not record.company_parent.dated %} ownership-claim--undated{% endif %}" id="record-company-claim">{{ record.company_parent.note }}</p>
+  {%- endif %}
+  {%- elif head.type == "asset" %}
+  {{ m.as_filed(record.name) }}
+  {#- docs/16 U-20: who runs and who owns the asset, each linked to its company page where the register's
+      name resolved to one. One name per company (an owner can hold two edges, one per source), largest
+      stated share first and owners with no stated share after, in the API's order; the first three, then
+      a link to the Ownership tab, which keeps each edge's role, share, date and source. Without an
+      Ownership tab (one record, or one company's owner and operator records: docs/30 §11.5) every
+      record's share, source and date sit here instead, whatever its role, so none is lost; the line then
+      keeps the old `#owners` anchor (T-8). A natural person named in a register keeps their page's
+      `noindex` (`nofollow`). -#}
+  {%- set owner_edges = record.owners | selectattr('role', 'equalto', 'owner') | selectattr('name') | list %}
+  {%- set ranked = (owner_edges | selectattr('share_pct', 'number') | sort(attribute='share_pct', reverse=True) | list) + (owner_edges | rejectattr('share_pct', 'number') | list) %}
+  {%- set holders = namespace(owners=[], seen=[]) %}
+  {%- for o in ranked %}{% set key = o.public_id or o.name %}{% if key not in holders.seen %}{% set holders.seen = holders.seen + [key] %}{% set holders.owners = holders.owners + [o] %}{% endif %}{% endfor %}
+  {%- set op = record.operator %}
+  {%- set op_key = op.public_id or op.name %}
+  {%- set op_edges = record.owners | selectattr('role', 'equalto', 'operator') | list %}
+  {%- set sole = holders.owners | length == 1 and op.name and (holders.owners[0].public_id or holders.owners[0].name) == op_key %}
+  {%- macro holder_link(o) -%}
+  {%- set ident = o.slug or o.public_id -%}
+  {%- if ident %}<a href="/organizations/{{ ident }}"{% if o.public_id in (record.personal_holder_ids or []) %} rel="nofollow"{% endif %}>{{ o.name | readable_name }}</a>{% else %}{{ o.name | readable_name }}{% endif -%}
+  {%- endmacro %}
+  {#- The share, source and date of the records behind one name, once each; a second record under the
+      same name with another source or date says whose it is ("operator: EIA-860M, as of 1 Jan 2025"). -#}
+  {%- macro holder_source(edges) -%}
+  {%- if not tabs.has('ownership') %}
+  {%- set notes = namespace(texts=[], seen=[]) %}
+  {%- for o in edges %}
+  {%- set parts = [] %}
+  {%- if o.share_pct is not none %}{% set _ = parts.append('%.1f%%' | format(o.share_pct)) %}{% endif %}
+  {%- if o.source_name %}{% set _ = parts.append(o.source_name) %}{% endif %}
+  {%- if o.as_of %}{% set _ = parts.append('as of ' ~ (o.as_of | display_date)) %}{% endif %}
+  {%- set key = (o.source_name or '') ~ '|' ~ (o.as_of or '') %}
+  {%- if parts and key not in notes.seen %}
+  {%- set notes.seen = notes.seen + [key] %}
+  {%- set notes.texts = notes.texts + [((o.role | humanise | lower) ~ ': ' if notes.texts and o.role else '') ~ parts | join(', ')] %}
+  {%- endif %}
+  {%- endfor %}
+  {%- if notes.texts %} <span class="record-company__source tnum">{{ notes.texts | join('; ') }}</span>{% endif %}
+  {%- endif -%}
+  {%- endmacro %}
+  {%- if op.name or holders.owners %}
+  <p class="record-company" id="record-company">{% if not tabs.has('ownership') %}<span id="owners">{% endif %}
+  {%- if sole %}<span class="record-company__label">Owned and operated by</span> {{ holder_link(holders.owners[0]) }}{{ holder_source([holders.owners[0]] + op_edges) }}
+  {%- else %}
+  {%- if op.name %}<span class="record-company__label">Operated by</span> {{ holder_link(op) }}{{ holder_source(op_edges) }}{% endif %}
+  {%- if holders.owners %}{% if op.name %} <span class="record-company__sep">&middot;</span> {% endif %}<span class="record-company__label">Owned by</span> {% for o in holders.owners[:3] %}{{ holder_link(o) }}{{ ', ' if not loop.last }}{% endfor %}{% if holders.owners | length > 3 %} and <a href="{{ tabs.href('ownership') }}">{{ holders.owners | length - 3 }} more</a>{% elif holders.owners | length == 1 %}{{ holder_source(owner_edges) }}{% endif %}{% endif %}
+  {%- endif %}{% if not tabs.has('ownership') %}</span>{% endif %}</p>
+  {%- endif %}
+  {%- endif %}
+  {%- if head.facts %}
+  <dl class="record-facts">
+    {%- for f in head.facts %}
+    <div><dt>{% if f.label_href %}<a href="{{ f.label_href }}">{{ f.label }}</a>{% else %}{{ f.label }}{% endif %}</dt><dd class="tnum">{% if f.value_href %}<a href="{{ f.value_href }}">{{ f.value }}</a>{% elif f.datetime %}<time datetime="{{ f.datetime }}">{{ f.value }}</time>{% if f.note %} {{ f.note }}{% endif %}{% else %}{{ f.value }}{% endif %}</dd></div>
+    {%- endfor %}
+  </dl>
+  {%- endif %}
+  {%- if head.action %}
+  <p class="record-header__action"><a class="record-action" href="{{ head.action.href }}">{{ head.action.label }}</a></p>
+  {%- endif %}
+  {{ m.delayed_banner(delayed) }}
+</header>
+{{ rt.tab_bar(tabs, head.name) }}

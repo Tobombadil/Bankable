@@ -230,10 +230,11 @@ def client() -> Iterator[TestClient]:
 
 
 def test_the_record_page_says_no_longer_in_the_report(client: TestClient) -> None:
-    resp = client.get("/proposals/prop_e1")
+    # The history is the Timeline tab's (docs/30 §11.5).
+    resp = client.get("/proposals/prop_e1/timeline")
     assert resp.status_code == 200
     page = html.unescape(resp.text)
-    history = page[page.index('aria-label="History"') :]
+    history = page[page.index('<ul class="timeline">') :]
     assert "No longer in ERCOT's report (reason not stated)." in history
     assert "First published from" in history
     assert "withdrawn" not in history.lower()

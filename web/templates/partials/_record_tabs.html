@@ -1,0 +1,52 @@
+{#- Record pages as URL tabs (docs/30 §11.5; web/record_tabs.py): the tab bar, the Overview's summary of
+    another tab, and the foot every tab ends with.
+
+    The tab bar (T-9) is a `<nav aria-label="{record name} sections">` of plain links with
+    `aria-current="page"`, not a `role="tablist"`: each tab is its own URL and works without scripts. Its
+    row takes the section bar's class too, so site.js brings the current tab into view below 720px and
+    fades a cut edge, as it does for the section bar (§11.8). A tab with no content is not linked (T-3),
+    and the bar is drawn only with two or more tabs. -#}
+{%- import "_macros.html" as m -%}
+
+{%- macro tab_bar(tabs, name) -%}
+{%- if tabs.bar %}
+<nav class="record-tabs" aria-label="{{ name }} sections">
+  <ul class="record-tabs__items section-bar__items">
+    {%- for t in tabs.shown %}
+    <li><a href="{{ t.href }}"{% if t.current %} aria-current="page"{% endif %}>{{ t.label }}{% if t.count is not none %} <span class="record-tabs__count">{{ t.count }}</span>{% endif %}</a></li>
+    {%- endfor %}
+  </ul>
+</nav>
+{%- endif %}
+{%- endmacro %}
+
+{#- The Overview's block for another tab (T-5, T-8): a heading, the first rows (the caller's body), then
+    "All N in {tab}". The block keeps the id the old one-page record used, so `#owners` or `#sources`
+    still lands on something that links to the tab (site.js moves the reader there when it can). -#}
+{%- macro summary(id, heading, tabs, key, total=None) -%}
+<section class="record-summary" id="{{ id }}" aria-labelledby="{{ id }}-heading">
+  <h2 class="record-summary__title" id="{{ id }}-heading">{{ heading }}</h2>
+  {{ caller() }}
+  {%- if tabs.has(key) %}
+  <p class="record-summary__more"><a href="{{ tabs.href(key) }}">{% if total %}All {{ '{:,}'.format(total) }} in {{ tabs.label(key) }}{% else %}Open {{ tabs.label(key) }}{% endif %}</a></p>
+  {%- endif %}
+</section>
+{%- endmacro %}
+
+{#- The foot of every tab (T-4): the registers behind this tab's rows, each with its licence's words and
+    retrieval date (`web/record_tabs.py::credits`, the licence's own credit text beside it where it sets
+    one), a link to the full Sources panel, and the record's attribution line. On a project, "Report a
+    problem" opens the form on the Sources tab. -#}
+{%- macro foot(tabs, credits, record, report=False) -%}
+<div class="record-foot">
+  {%- if credits %}
+  <p class="attribution-line record-credits"{% if tabs.is_overview %} id="sources"{% endif %}>Sources of this {{ 'page' if tabs.is_overview else 'tab' }}: {% for c in credits -%}
+    {{ c.name }} ({% if c.licence %}{{ c.licence | lower }}{% if c.credit %}; {% endif %}{% endif %}{% if c.credit %}{{ c.credit | trim('.') }}{% endif %}{% if c.retrieved_at %}, retrieved <span class="tnum">{{ c.retrieved_at | display_date }}</span>{% endif %}){{ '; ' if not loop.last }}
+  {%- endfor %}.{% if tabs.current != 'sources' and tabs.has('sources') %} <a href="{{ tabs.sources_href }}">Every source and licence</a>{% endif %}</p>
+  {%- endif %}
+  {{ m.attribution_line(record) }}
+  {%- if report and tabs.current != 'sources' %}
+  <p class="record-foot__report"><a href="{{ tabs.sources_href }}#report-problem">Report a problem with this record</a></p>
+  {%- endif %}
+</div>
+{%- endmacro %}

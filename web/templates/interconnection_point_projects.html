@@ -1,0 +1,52 @@
+{#- A grid connection point's Projects tab (docs/30 §11.5): the projects that connect here, active first,
+    then built, other and withdrawn, each by capacity, as the API serves them at the reader's tier. -#}
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name }} · Projects — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: the projects queued to connect here, with their status, capacity and company.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<section class="record-tab" aria-label="Projects connecting here">
+  <h2 class="visually-hidden">Projects connecting here</h2>
+  {% if proposals_truncated %}<p class="attribution-line">Showing the first {{ proposals | length }} of {{ record.totals.proposal_count }} projects; the totals cover all of them.</p>{% endif %}
+  {#- docs/16 U-2: the filing company, linked, from each row's `sponsor` embed
+      (`InterconnectionPointProposal.sponsor`: `null` where the tier may not see one, a natural
+      person flagged `personal_data`, whose link says `nofollow`); the column shows when any row
+      names one. -#}
+  {%- set show_company = proposals | selectattr('sponsor') | list | length > 0 %}
+  <div class="table-scroll">
+  <table class="record-table">
+    <caption class="visually-hidden">Projects that connect at this point: active first, then built, other and withdrawn, each by capacity.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Status</th>
+        <th scope="col">Name</th>
+        {% if show_company %}<th scope="col">Company</th>{% endif %}
+        <th scope="col">Technology</th>
+        <th scope="col" class="num">Capacity (MW)</th>
+        <th scope="col">Jurisdiction</th>
+        <th scope="col">Proposed online</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in proposals %}
+      <tr>
+        <td data-label="Status">{{ m.status_chip(p.lifecycle_state, p.lifecycle_family) }}</td>
+        <td data-label="Name"><a class="row-link" href="{{ p.href }}">{{ p.name_canonical }}</a></td>
+        {% if show_company %}{% set co = p.sponsor if p.sponsor is mapping else {} %}{% set ident = co.slug or co.public_id %}<td data-label="Company">{% if co.name_canonical and ident %}<a href="/organizations/{{ ident }}"{% if co.personal_data %} rel="nofollow"{% endif %}>{{ co.name_canonical | readable_name }}</a>{% elif co.name_canonical %}{{ co.name_canonical | readable_name }}{% else %}—{% endif %}</td>{% endif %}
+        <td data-label="Technology">{{ (p.technology | technology_label) or '—' }}</td>
+        <td data-label="Capacity (MW)" class="num tnum">{{ p.capacity_label }}</td>
+        <td data-label="Jurisdiction">{{ p.jurisdiction or '—' }}</td>
+        <td data-label="Proposed online" class="tnum">{{ p.proposed_online_date | display_date if p.proposed_online_date else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{ rt.foot(tabs, credits, record) }}
+</div>
+{% endblock %}

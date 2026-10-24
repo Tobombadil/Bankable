@@ -19,6 +19,10 @@ from web.api_client import ApiClient
 from web.app import app as web_app
 from web.viewmodels import absence_note, asset_count_note
 
+#: Coverage & methodology's other two URL tabs (lane V7, docs/30 §11.10); `/methodology` is Release dates.
+GAPS = "/methodology/gaps"
+STATUS_WORDS = "/methodology/status-words"
+
 HEALTH: dict[str, Any] = {
     "status": "ok",
     "data_as_of": "2026-09-21",
@@ -372,11 +376,51 @@ def test_a_source_stating_no_release_is_labelled_not_left_blank(web_client: Test
     assert "the source publishes no release label" in section
 
 
+def test_release_dates_say_how_many_sources_state_no_release_at_all(web_client: TestClient) -> None:
+    """`vintage.sources_stating_none` as a sentence: the one-page methodology printed it, and the split
+    into three tabs had dropped it (review of 2026-10-23). For those sources the fetch date is all there
+    is."""
+    import re
+
+    _install(_transport())
+    section = web_client.get("/methodology").text.split('id="vintage"')[1].split("</section>")[0]
+    text = " ".join(re.sub(r"<[^>]+>", "", section).split())
+    assert "1 of the 2 loaded sources publish no release label" in text
+    assert "the fetch date is the only date there is" in text
+
+
+@pytest.mark.parametrize("path", ["/methodology", GAPS, STATUS_WORDS])
+def test_an_unread_platform_status_is_printed_and_announced_not_folded_away(
+    web_client: TestClient, path: str
+) -> None:
+    """The posture sentence sits in each tab's closed "About this" disclosure. When `/v1/health` fails,
+    its "status unavailable" line is a `role="status"` region, which a closed disclosure never announces,
+    so it is printed under the title instead (review of 2026-10-23)."""
+    healthy = {**HEALTH, "posture": "noncommercial", "posture_statement": "Operates under a test posture."}
+
+    def head(body: str) -> tuple[str, str]:
+        block = body.split('<header class="ref-head ref-head--tabbed">', 1)[1].split("</header>", 1)[0]
+        before, _, inside = block.partition("<details")
+        return before, inside
+
+    _install(_transport(**{"/v1/health": (503, {"title": "unavailable"})}))
+    before, inside = head(web_client.get(path).text)
+    assert 'data-status="unavailable" role="status"' in before
+    assert "Platform status unavailable" in before
+    assert "platform-posture" not in inside
+
+    _install(_transport(**{"/v1/health": (200, healthy)}))
+    before, inside = head(web_client.get(path).text)
+    assert "platform-posture" not in before
+    assert "Operates under a test posture." in inside and 'role="status"' not in inside
+
+
 def test_the_page_states_the_absent_technologies_and_the_withheld_registers(
     web_client: TestClient,
 ) -> None:
     _install(_transport())
-    section = web_client.get("/methodology").text.split('id="absences"')[1].split('id="states"')[0]
+    # Lane V7: "What is not here" is its own URL tab (docs/30 §11.10).
+    section = web_client.get(GAPS).text.split('id="absences"')[1].split("</section>")[0]
     assert "load" in section
     assert "PJM New Services Queue" in section
     assert "MISO Generator Interconnection Queue" in section
@@ -385,14 +429,14 @@ def test_the_page_states_the_absent_technologies_and_the_withheld_registers(
 
 def test_the_page_states_ownership_depth_with_measured_numbers(web_client: TestClient) -> None:
     _install(_transport())
-    section = web_client.get("/methodology").text.split('id="ownership"')[1]
+    section = web_client.get(GAPS).text.split('id="ownership"')[1]
     assert "7,114" in section
     assert "7,412" in section
 
 
 def test_written_prose_carries_its_date_and_derived_numbers_do_not(web_client: TestClient) -> None:
     _install(_transport())
-    body = web_client.get("/methodology").text
+    body = web_client.get(GAPS).text
     assert "No large-load or data-centre proposals." in body
     assert 'Written <span class="tnum">2026-09-20</span>' in body
 
@@ -401,7 +445,7 @@ def test_the_page_defines_each_status_and_shows_the_raw_values_that_map_into_it(
     web_client: TestClient,
 ) -> None:
     _install(_transport())
-    section = web_client.get("/methodology").text.split('id="states"')[1]
+    section = web_client.get(STATUS_WORDS).text.split('id="states"')[1]
     assert "Inside the operator&#39;s process." in section or "Inside the operator's process." in section
     assert "ACTIVE" in section
     assert "DISIS STAGE" in section
@@ -412,23 +456,69 @@ def test_the_page_defines_each_status_and_shows_the_raw_values_that_map_into_it(
 
 def test_the_fallback_state_says_why_it_has_no_mappings(web_client: TestClient) -> None:
     _install(_transport())
-    block = web_client.get("/methodology").text.split('id="state-unknown"')[1].split("</div>")[0]
+    block = web_client.get(STATUS_WORDS).text.split('id="state-unknown"')[1].split("</div>")[0]
     assert "falling through every mapping" in block
 
 
 def test_a_state_no_source_produces_says_so(web_client: TestClient) -> None:
+    """`frozen` is an RFP and funding status: those carry `notice-<key>`, so the three words both kinds
+    share no longer give the page two elements with one id."""
     _install(_transport())
-    block = web_client.get("/methodology").text.split('id="state-frozen"')[1].split("</div>")[0]
+    block = web_client.get(STATUS_WORDS).text.split('id="notice-frozen"')[1].split("</div>")[0]
     assert "No loaded source maps into this state." in block
+
+
+def test_the_status_words_page_gives_each_id_once_and_links_the_glossary(web_client: TestClient) -> None:
+    import re
+
+    _install(_transport())
+    body = web_client.get(STATUS_WORDS).text
+    ids = re.findall(r' id="([^"]+)"', body)
+    assert len(ids) == len(set(ids)), sorted(i for i in ids if ids.count(i) > 1)
+    assert 'id="state-unknown"' in body and 'id="notice-frozen"' in body
+    assert '<a href="/glossary#unknown">In plain words</a>' in body
 
 
 def test_the_page_makes_the_four_state_pre_construction_claim_with_a_measured_count(
     web_client: TestClient,
 ) -> None:
     _install(_transport())
-    section = web_client.get("/methodology").text.split('id="states"')[1]
+    section = web_client.get(STATUS_WORDS).text.split('id="states"')[1]
     assert "4,111" in section
     assert "permitted" in section
+
+
+def test_each_methodology_tab_is_its_own_page_and_marks_itself(web_client: TestClient) -> None:
+    """Lane V7 (docs/30 §11.3 third level, §11.10): three URL tabs under one heading, each marked
+    `aria-current="page"` on its own URL, each with the posture sentence's disclosure."""
+    _install(_transport())
+    tabs = [("/methodology", "Release dates"), (GAPS, "What is not here"), (STATUS_WORDS, "Status words")]
+    for path, label in tabs:
+        resp = web_client.get(path)
+        assert resp.status_code == 200, path
+        nav = resp.text.split('class="ref-tabs"')[1].split("</nav>")[0]
+        assert f'<a href="{path}" aria-current="page">{label}</a>' in nav, path
+        assert nav.count('aria-current="page"') == 1, path
+        assert "<h1>Coverage &amp; methodology</h1>" in resp.text
+
+
+def test_the_old_methodology_anchors_still_land_on_their_subject(web_client: TestClient) -> None:
+    """docs/30 §11.10: `/methodology#absences`, `#withheld`, `#ownership`, `#states`, `#lifecycle` and
+    `#note-…` keep an element on `/methodology` that links to where the content now is."""
+    _install(_transport())
+    body = web_client.get("/methodology").text
+    for anchor, target in (
+        ("absences", 'href="/methodology/gaps"'),
+        ("withheld", 'href="/methodology/gaps#withheld"'),
+        ("ownership", 'href="/methodology/gaps#ownership"'),
+        ("note-ethanol_two_sources", 'href="/methodology/gaps#note-ethanol_two_sources"'),
+        ("states", 'href="/methodology/status-words"'),
+        ("lifecycle", 'href="/methodology/status-words#lifecycle"'),
+        ("opportunity-statuses", 'href="/methodology/status-words#opportunity-statuses"'),
+    ):
+        block = body.split(f'id="{anchor}"', 1)[1][:400]
+        assert target in block, anchor
+    assert 'id="vintage"' in body  # the freshness line's own anchor stays on this tab
 
 
 # --------------------------------------------------------------- the note where it bites
@@ -666,7 +756,7 @@ def test_the_attribution_page_carries_the_release_to_cite(web_client: TestClient
 def test_the_page_states_sources_and_rows_per_asset_type_with_resolution(web_client: TestClient) -> None:
     """Derived: rows per source, located rows, and whether anything resolves two sources."""
     _install(_transport())
-    section = web_client.get("/methodology").text.split('id="asset-sources"')[1].split("</table>")[0]
+    section = web_client.get(GAPS).text.split('id="asset-sources"')[1].split("</table>")[0]
     assert "No such resolution layer exists today" in section.split("<table")[0]
     ethanol = section.split('id="asset-sources-ethanol_plant"')[1].split("</tr>")[0]
     assert "388" in ethanol
@@ -686,7 +776,7 @@ def test_the_ethanol_note_prints_the_estimate_beside_the_derived_count(web_clien
     """Both numbers: the measured 201 in the written note, the derived 388 and 197 beside it,
     so a reader can see whether the two still agree."""
     _install(_transport())
-    block = web_client.get("/methodology").text.split('id="note-ethanol_two_sources"')[1].split("</div>")[0]
+    block = web_client.get(GAPS).text.split('id="note-ethanol_two_sources"')[1].split("</div>")[0]
     assert "not yet resolved to one record per plant" in block
     assert "About 201 distinct plants" in block
     assert 'On this load: <span class="tnum">388</span> rows from 2 sources' in block
@@ -697,7 +787,7 @@ def test_the_ethanol_note_prints_the_estimate_beside_the_derived_count(web_clien
 
 def test_a_note_without_an_asset_fact_gets_no_derived_line(web_client: TestClient) -> None:
     _install(_transport())
-    block = web_client.get("/methodology").text.split('id="note-no_large_load"')[1].split("</div>")[0]
+    block = web_client.get(GAPS).text.split('id="note-no_large_load"')[1].split("</div>")[0]
     assert "On this load:" not in block
 
 
@@ -706,9 +796,10 @@ def test_the_page_survives_a_coverage_body_with_no_asset_fact(web_client: TestCl
     data = {k: v for k, v in COVERAGE["data"].items() if k != "assets"}
     data["notes"] = [n for n in data["notes"] if "unresolved_asset_type" not in n.get("applies_to", {})]
     _install(_transport(**{"/v1/coverage": (200, {"data": data})}))
-    resp = web_client.get("/methodology")
-    assert resp.status_code == 200
-    assert 'id="asset-sources"' not in resp.text
+    for path in ("/methodology", GAPS):
+        resp = web_client.get(path)
+        assert resp.status_code == 200, path
+        assert 'id="asset-sources"' not in resp.text, path
 
 
 # --------------------------------------- the corrected count, only where the count is wrong

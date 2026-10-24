@@ -1,0 +1,31 @@
+{#- The shared head of Coverage & methodology's three URL tabs (Navigation v2 lane V7; docs/30 §11.3 third
+    level, §11.10): the title, one line, the tabs (plain links, each its own server-rendered URL, so they
+    work without scripts and a tab is a navigation, not a `role="tablist"` widget), and an "About this"
+    disclosure that holds the page's explanation and the posture sentence. When the platform status cannot
+    be read, its line leaves the disclosure and is printed under the title, so its `role="status"` is
+    announced and seen. Rendered by methodology.html, methodology_gaps.html and
+    methodology_status_words.html with `tab`, `tabs` and `posture` (web/app.py `_methodology_page`). -#}
+{%- import "partials/_sections.html" as sections -%}
+<header class="ref-head ref-head--tabbed">
+  <h1>{{ sections.label.methodology }}</h1>
+  <p class="ref-head__lede">How current each source is, what is missing, and what each status word means.</p>
+  <nav class="ref-tabs" aria-label="{{ sections.label.methodology }} tabs">
+    <ul>
+      {%- for key, href, text in tabs %}
+      <li><a href="{{ href }}"{% if key == tab %} aria-current="page"{% endif %}>{{ text }}</a></li>
+      {%- endfor %}
+    </ul>
+  </nav>
+  {%- set status_unread = posture and posture.available is false %}
+  {%- if status_unread %}
+  <p class="platform-posture" data-posture="{{ posture.value }}" data-status="unavailable" role="status">{{ posture.statement }}</p>
+  {%- endif %}
+  <details class="ref-about">
+    <summary>About this</summary>
+    <p>Three things a record page cannot tell you: how old the source&rsquo;s own data is, which categories are empty because we have no source rather than because nothing is happening, and what the status words assert. Every number on these tabs is measured when the page loads.</p>
+    {%- if posture and not status_unread %}
+    {#- The API's sentence (`GET /v1/health` `posture_statement`), not this template's. -#}
+    <p class="platform-posture" data-posture="{{ posture.value }}">{{ posture.statement }}</p>
+    {%- endif %}
+  </details>
+</header>

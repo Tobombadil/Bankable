@@ -93,7 +93,7 @@ def test_methodology_explains_why_there_is_no_texas_large_load_request() -> None
     web_app.state.api_client = ApiClient(TestClient(api_app, base_url="http://api-internal"))
     try:
         with TestClient(web_app) as client:
-            body = client.get("/methodology").text
+            body = client.get("/methodology/gaps").text  # lane V7: "What is not here" is its own tab
     finally:
         api_app.dependency_overrides.clear()
         del web_app.state.api_client

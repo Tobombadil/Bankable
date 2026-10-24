@@ -472,13 +472,15 @@ def _check_desktop_and_narrow(browser: object) -> None:
     assert "Alerts and API in Pro" in tier_line
     page.screenshot(path=str(SCREENSHOT_DIR / "list-desktop.png"), full_page=True)
 
-    # ---- desktop: proposal detail, provenance panel + attribution ----
+    # ---- desktop: proposal detail, its tabs, credits + attribution, the Sources panel one click away ----
     first_row_link = page.locator(".record-table a.row-link").first
     detail_href = first_row_link.get_attribute("href")
     first_row_link.click()
-    page.wait_for_selector(".provenance-panel")
-    assert page.locator(".attribution-line").count() > 0
+    page.wait_for_selector(".record-tabs")
+    assert page.locator(".record-credits").count() == 1 and page.locator(".attribution-line").count() > 0
     page.screenshot(path=str(SCREENSHOT_DIR / "detail-desktop.png"), full_page=True)
+    page.locator(".record-tabs a", has_text="Sources").click()
+    page.wait_for_selector(".provenance-panel")
 
     # ---- desktop: list -> record -> company, one company linked at each step (docs/16 U-2) ----
     page.goto(BASE_URL + "/proposals")
@@ -492,7 +494,7 @@ def _check_desktop_and_narrow(browser: object) -> None:
     page.wait_for_selector("#record-company")
     header_link = page.locator("#record-company a").first
     assert header_link.get_attribute("href") == company_href
-    assert page.locator(".provenance-panel").count() == 1, "the record keeps its sources"
+    assert page.locator(".record-credits").count() == 1, "the record keeps its sources"
     header_link.click()
     page.wait_for_selector("h1")
     assert urlsplit(page.url).path == company_href
@@ -519,8 +521,10 @@ def _check_desktop_and_narrow(browser: object) -> None:
 
     assert detail_href
     narrow.goto(BASE_URL + detail_href)
-    narrow.wait_for_selector(".provenance-panel")
+    narrow.wait_for_selector(".record-tabs")
     narrow.screenshot(path=str(SCREENSHOT_DIR / "detail-400px.png"), full_page=True)
+    narrow.goto(BASE_URL + detail_href + "/sources")
+    narrow.wait_for_selector(".provenance-panel")
     page.close()
     narrow.close()
 
@@ -1103,6 +1107,57 @@ def test_map_announces_what_is_in_view_and_names_and_counts_lines(server: object
             browser.close()
 
 
+def test_a_record_opens_on_its_overview_and_moves_between_url_tabs(server: object) -> None:
+    """Record pages as URL tabs (docs/30 §11.5, §11.8; lane V3), the smoke path: from the list to a
+    project's Overview, to its Timeline by the tab bar (the header stays), `?tab=` lands on the Sources
+    tab, an old one-page anchor moves to its tab, and at 360px the tab bar scrolls inside itself with the
+    current tab in view, the page never sideways, and the one action a full-width 44px button."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            page = browser.new_page(viewport=DESKTOP_VIEWPORT)
+            _install_offline_routes(page)
+            page.goto(BASE_URL + "/proposals")
+            href = page.locator("#result-rows a[href^='/proposals/']").first.get_attribute("href")
+            assert href
+            page.goto(BASE_URL + href)
+            name = page.locator("h1").inner_text()
+            assert page.locator('.record-tabs a[aria-current="page"]').inner_text().strip() == "Overview"
+            assert page.locator(".record-action").count() == 1
+            page.locator(".record-tabs a", has_text="Timeline").click()
+            page.wait_for_url(f"**{href}/timeline")
+            assert page.locator("h1").inner_text() == name, "the header is the same on every tab"
+            assert page.locator('.record-tabs a[aria-current="page"]').inner_text().strip() == "Timeline"
+            assert page.locator(".timeline li").count() >= 1 and page.locator(".record-credits").count() == 1
+            assert page.get_attribute('meta[name="robots"]', "content") == "noindex, follow"
+            page.goto(BASE_URL + href + "?tab=sources")
+            assert urlsplit(page.url).path == href + "/sources"
+            page.wait_for_selector(".provenance-panel")
+            page.goto(BASE_URL + href + "#history")  # the one-page record's anchor (T-8)
+            page.wait_for_url(f"**{href}/timeline")
+            page.close()
+
+            phone = browser.new_page(viewport={"width": 360, "height": 800})
+            _install_offline_routes(phone)
+            phone.goto(BASE_URL + href + "/sources")
+            assert phone.evaluate("document.documentElement.scrollWidth") <= 360, "no sideways page scroll"
+            row = phone.locator(".record-tabs__items")
+            current = phone.locator('.record-tabs a[aria-current="page"]').bounding_box()
+            box = row.bounding_box()
+            assert (
+                current
+                and box
+                and current["x"] >= box["x"] - 1
+                and current["x"] + current["width"] <= box["x"] + box["width"] + 1
+            )
+            action = phone.locator(".record-action").bounding_box()
+            assert action and action["height"] >= 44 and action["width"] >= 360 - 2 * 16 - 1
+            phone.screenshot(path=str(SCREENSHOT_DIR / "record-tabs-360px.png"), full_page=True)
+            phone.close()
+        finally:
+            browser.close()
+
+
 def test_report_a_problem_creates_a_review_task(server: object) -> None:
     """D-6: the "Report a problem" link was `mailto:` with no recipient. The form now posts through
     the site to `POST /v1/reports`; the answer replaces the form and takes focus."""
@@ -1113,7 +1168,10 @@ def test_report_a_problem_creates_a_review_task(server: object) -> None:
             _install_offline_routes(page)
             page.goto(BASE_URL + "/proposals")
             href = page.locator("#result-rows a[href^='/proposals/']").first.get_attribute("href")
+            # The form is on the record's Sources tab; every other tab links to it (docs/30 §11.5).
             page.goto(BASE_URL + href)
+            page.locator(".record-foot__report a").click()
+            page.wait_for_url(f"**{href}/sources#report-problem")
             assert page.locator("a[href^='mailto:']").count() == 0
             page.get_by_text("Something wrong with this record? Report a problem").click()
             page.get_by_label("The status is wrong").check()

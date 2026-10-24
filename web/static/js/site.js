@@ -56,8 +56,29 @@
   // Fragments whose content moved to a page of its own (docs/30 §11.10, T-8): "path#id" -> the new URL.
   // The old page keeps the id on a summary block that links onward; a reader arriving on the old
   // fragment goes straight to the new page. The lanes that move content add their rows here.
-  var MOVED_FRAGMENTS = {};
-  var movedTo = MOVED_FRAGMENTS[window.location.pathname + window.location.hash];
+  // A record's anchors are keyed on "{record}", its one path segment (a slug or an id), and move the
+  // reader only to a tab the page links: a record without that tab keeps the reader on its Overview.
+  var MOVED_FRAGMENTS = {
+    // Record tabs (lane V3, docs/30 §11.5).
+    "/proposals/{record}#sources": "/proposals/{record}/sources",
+    "/proposals/{record}#report-problem": "/proposals/{record}/sources#report-problem",
+    "/proposals/{record}#timeline": "/proposals/{record}/timeline",
+    "/proposals/{record}#history": "/proposals/{record}/timeline",
+    "/assets/{record}#retirement": "/assets/{record}/retirement",
+    "/assets/{record}#grid": "/assets/{record}/grid",
+    "/assets/{record}#owners": "/assets/{record}/ownership",
+    "/assets/{record}#nearby": "/assets/{record}/nearby",
+    "/assets/{record}#sources": "/assets/{record}/sources",
+    "/interconnection-points/{record}#projects": "/interconnection-points/{record}/projects",
+    "/interconnection-points/{record}#changes": "/interconnection-points/{record}/changes",
+    "/interconnection-points/{record}#sources": "/interconnection-points/{record}/sources"
+  };
+  var record = window.location.pathname.match(/^(\/(?:proposals|assets|interconnection-points)\/)([^\/]+)$/);
+  var movedTo = MOVED_FRAGMENTS[(record ? record[1] + "{record}" : window.location.pathname) + window.location.hash];
+  if (movedTo && record) {
+    movedTo = movedTo.replace("{record}", record[2]);
+    if (!document.querySelector('a[href="' + movedTo.split("#")[0] + '"]')) movedTo = null;
+  }
   if (movedTo) window.location.replace(movedTo);
 
   var navButton = document.querySelector(".nav-toggle");

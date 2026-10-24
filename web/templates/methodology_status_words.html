@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% import "partials/_sections.html" as sections %}
+{#- Coverage & methodology, tab three: Status words (Navigation v2 lane V7; docs/30 §11.4, §11.10). What
+    each chip asserts and what it does not, with how many records carry it on this load and which source
+    values map into it, read from the pipeline's own status maps (`/v1/lifecycle-states`). A project
+    status is `#state-<key>`; an RFP or funding status `#notice-<key>`, so the three words both kinds
+    share (unknown, announced, cancelled) no longer give the page two elements with one id. The
+    plain-language version of each word is its glossary entry, `/glossary#<key>`. -#}
+{#- One status's published definition. `count` is how many records carry it on this load, printed because
+    "0 records" is the most useful thing a definition can say about a word. `maps_from` is derived from the
+    pipeline's own status maps, so it cannot describe a mapping the code does not make. -#}
+{% macro state_block(s, count, prefix) -%}
+<div class="state-def" id="{{ prefix }}-{{ s.state }}">
+  <h4>{{ s.state | lifecycle_label }}</h4>
+  <p class="state-def__count"><span class="tnum">{{ '{:,}'.format(count or 0) }}</span> record{{ '' if count == 1 else 's' }} &middot; <a href="/glossary#{{ s.state }}">In plain words</a></p>
+  <p>{{ s.definition }}</p>
+  {%- if s.excludes %}<p><strong>Not:</strong> {{ s.excludes }}</p>{% endif %}
+  {%- if s.uncertainty %}
+  <details class="state-def__maps">
+    <summary>Where this is a judgement</summary>
+    <p>{{ s.uncertainty }}</p>
+  </details>
+  {%- endif %}
+  {%- if s.is_fallback %}
+  <p class="method-muted">Reached by falling through every mapping rather than by a rule, so it has no source values of its own.</p>
+  {%- elif s.maps_from %}
+  <details class="state-def__maps">
+    <summary>{{ s.maps_from | length }} source value{{ '' if s.maps_from | length == 1 else 's' }} map here</summary>
+    <ul>
+      {%- for map in s.maps_from %}
+      <li>
+        {{ source_names.get(map.source_id) or source_names.get(map.status_key) or (map.status_key | humanise) }}
+        {%- if map.rule not in ('map', 'fallback_map') %}: when {{ map.raw | condition_words }} <span class="method-muted">(combined rule)</span>
+        {%- else %}{% if map.field %} &middot; {{ map.field }}{% endif %} &rarr; <q>{{ map.raw }}</q>{% endif %}
+        {%- if not map.rows_published %} <span class="method-muted">(source withheld, produces no rows)</span>{% endif %}
+        {%- if map.note %}<br><span class="method-muted">{{ map.note | words_in_prose }}</span>{% endif %}
+      </li>
+      {%- endfor %}
+    </ul>
+  </details>
+  {%- else %}
+  <p class="method-muted">No loaded source maps into this state.</p>
+  {%- endif %}
+</div>
+{%- endmacro %}
+{% block title %}Status words: {{ sections.label.methodology | lower }} — Inframation{% endblock %}
+{% block meta_description %}What each project and notice status on Inframation asserts, what it does not, which source values map into it and how many records carry it.{% endblock %}
+{% block content %}
+<article class="ref-page method-page">
+{% include "partials/_methodology_head.html" %}
+
+<section id="states" class="method-section" aria-labelledby="states-title">
+  <h2 id="states-title">Status words</h2>
+  <p class="method-lede">Every chip on every list and record is one of these words, its source values read from the pipeline&rsquo;s status maps on every load. <a href="/glossary#projects">Plain words for each</a>.</p>
+  {%- if vocabulary.pre_construction_states %}
+  <details class="ref-about">
+    <summary>Why {{ vocabulary.pre_construction_states | length }} words before construction?</summary>
+    <p>{% for s in vocabulary.pre_construction_states %}<strong>{{ s | lifecycle_label | lower }}</strong>{% if not loop.last %}, {% endif %}{% endfor %} split a pre-construction phase that trackers built from announcements publish as one bucket. That split holds <span class="tnum">{{ '{:,}'.format(coverage.states.pre_construction_count) }}</span> projects, and it comes from interconnection queues publishing study stage and agreement status as separate columns.</p>
+  </details>
+  {%- endif %}
+
+  <h3 id="lifecycle" class="state-group">Project status</h3>
+  <div class="state-defs">
+  {%- for s in vocabulary.lifecycle_states %}
+  {{ state_block(s, coverage.states.lifecycle_counts.get(s.state), "state") }}
+  {%- endfor %}
+  </div>
+
+  <h3 id="opportunity-statuses" class="state-group">RFP and funding status</h3>
+  <div class="state-defs">
+  {%- for s in vocabulary.opportunity_statuses %}
+  {{ state_block(s, coverage.states.opportunity_status_counts.get(s.state), "notice") }}
+  {%- endfor %}
+  </div>
+
+  <p class="method-muted">Definitions written <span class="tnum">{{ vocabulary.definitions_written }}</span>. The source values under each word are read from the pipeline&rsquo;s {{ vocabulary.status_map_files | length }} status-map files on every request.</p>
+</section>
+</article>
+{% endblock %}

@@ -1,0 +1,45 @@
+{#- A project's Timeline tab (docs/30 §11.5; docs/16 §4.2): one dated list, newest first. The in-service
+    date its source states is marked as stated, never a commitment; the status is as last observed, with
+    the source's own words; every recorded change follows with its source. The merges that built the
+    record are our bookkeeping, so they sit apart, collapsed, as record maintenance, beside the list with
+    what the dates mean ("About these dates"). -#}
+{% extends "base.html" %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name | readable_name }} · Timeline — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: status and stated dates, newest first, each with its source.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<div class="record-split">
+<section class="record-tab" aria-labelledby="tab-heading">
+  <h2 class="visually-hidden" id="tab-heading">Timeline</h2>
+  <ul class="timeline">
+    {%- for item in timeline.entries %}
+    <li{% if item.stated %} class="timeline__stated"{% endif %}><time datetime="{{ item.date }}">{{ item.date | display_date if item.date else 'Date not stated' }}</time> <span class="timeline__event">{% if item.stated %}<span class="timeline__mark">Stated</span> {% endif %}{{ item.text }}</span></li>
+    {%- endfor %}
+  </ul>
+</section>
+<div class="record-split__aside">
+  {%- if timeline.maintenance %}
+  <details class="record-disclosure">
+    <summary>Record maintenance ({{ timeline.maintenance | length }})</summary>
+    <ul class="timeline">
+      {%- for item in timeline.maintenance %}
+      <li><time datetime="{{ item.date }}">{{ item.date | display_date if item.date else 'unknown date' }}</time> <span class="timeline__event">{{ item.text }}</span></li>
+      {%- endfor %}
+    </ul>
+  </details>
+  {%- endif %}
+  <details class="record-disclosure">
+    <summary>About these dates</summary>
+    <p>{% if record.members | length > 1 %}The status is the most advanced one the sources report; its date is read from the same source where it gives one.{% else %}The status and dates come from this record&rsquo;s most recent source snapshot.{% endif %} Changes recorded since are listed as they were observed.</p>
+    {%- if record.slip %}
+    <p>Overdue is derived at read time by comparing the source-stated date with today&rsquo;s date; it is not a status the source publishes, and it is only claimed once the date is more than 90 days past. Some registers stop maintaining this date once a project is built, which would leave a finished project reading as overdue: check the source&rsquo;s retrieval date before relying on it.</p>
+    {%- endif %}
+  </details>
+</div>
+</div>
+{{ rt.foot(tabs, credits, record, report=True) }}
+</div>
+{% endblock %}

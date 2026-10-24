@@ -319,9 +319,14 @@ def test_asset_detail_renders_identity_attributes_owners_and_provenance(web_clie
     assert "Capacity factor, 2025" in body  # attributes table, key in words (web/labels.py)
     assert "NextEra Energy Resources" in body
     assert 'href="/organizations/org_01JBQ8C4X1"' in body
-    assert "50.0%" in body  # share
-    assert "No exact-grade proposals nearby." in body
-    assert "provenance-panel" in body
+    assert "50.0%" in body  # share: a sole owner's line carries it, with its date (docs/30 §11.5)
+    # Record tabs (docs/30 §11.5, T-3): no projects nearby, so no Nearby tab, and its URL says so.
+    assert 'href="/assets/roscoe-wind-farm-tx/nearby"' not in body
+    nearby = web_client.get("/assets/roscoe-wind-farm-tx/nearby")
+    assert nearby.status_code == 404 and "No exact-grade projects are recorded within 25 km." in nearby.text
+    # The full Sources panel is the Sources tab's (T-4); every tab ends with its own credits line.
+    assert "provenance-panel" not in body and "Sources of this page:" in body
+    assert "provenance-panel" in web_client.get("/assets/roscoe-wind-farm-tx/sources").text
 
 
 def test_asset_detail_slug_lookup_forwards_the_slug_filter(web_client: TestClient) -> None:
@@ -731,13 +736,14 @@ def test_asset_detail_pipeline_renders_map_length_diameter_states_and_operator_l
     assert "Tallgrass Energy" in body
     assert "EIA U.S. Energy Atlas" in body and "18 Sep 2026" in body  # source and retrieval date (docs/31 §4)
     # Promoted attributes are not repeated in the generic table, and a list never renders as a repr.
-    attributes_table = body.split("2.</span> Attributes")[1].split("</section>")[0]
+    attributes_table = body.split('id="attributes"')[1].split("</details>")[0]
     assert "diameter in" not in attributes_table and "['CO'" not in body
     # Static SVG of the route (no-JS rendering) plus the GeoJSON the mini-map script reads.
     assert 'id="asset-map"' in body and "<svg" in body and 'class="mini-map__line"' in body
     assert 'id="asset-map-data"' in body and '"MultiLineString"' in body
     assert 'src="/static/js/asset_map.js' in body
-    assert "pipeline&rsquo;s route" in body  # line-aware nearby wording
+    # Line-aware nearby wording, on the Nearby tab (docs/30 §11.5).
+    assert "pipeline&rsquo;s route" in web_client.get("/assets/rockies-express-pipeline/nearby").text
 
 
 def test_asset_detail_nearby_proposals_carry_distance_and_draw_on_the_map(web_client: TestClient) -> None:
@@ -798,8 +804,24 @@ def test_asset_detail_reads_the_owner_organisation_embed(web_client: TestClient)
 
     body = web_client.get("/assets/rockies-express-pipeline").text
 
-    assert body.count("Tallgrass Energy") >= 2  # operator field + owners table
-    assert '<td data-label="Role">Operator</td>' in body
+    assert body.count("Tallgrass Energy") >= 2  # the header line + the operator field
+    # One ownership record: no Ownership tab; the header line names it with its date (docs/30 §11.5).
+    line = body[body.index('id="record-company"') :].split("</p>")[0]
+    assert 'Operated by</span> <a href="/organizations/tallgrass-energy">Tallgrass Energy</a>' in line
+    assert 'href="/assets/rockies-express-pipeline/ownership"' not in body
+    owners = _pipeline_entity()["owners"] + [
+        {"organization": {"public_id": "org_01X", "slug": "x-co", "name_canonical": "X Co"}, "role": "owner"}
+    ]
+    _install(
+        _default_transport(
+            {
+                "/v1/assets": (200, {"data": [_pipeline_entity(owners=owners)]}),
+                "/v1/assets/asset_01REX/nearby-proposals": (200, {"data": []}),
+            }
+        )
+    )
+    table = web_client.get("/assets/rockies-express-pipeline/ownership").text
+    assert table.count("Tallgrass Energy") >= 2 and '<td data-label="Role">Operator</td>' in table
 
 
 def _tallgrass_org(**overrides: Any) -> dict[str, Any]:
@@ -1130,7 +1152,9 @@ def test_search_resolves_a_pipeline_operator_and_a_pipeline_asset(web_client: Te
     assert "Pipeline operator" in body
     assert 'href="/assets/rockies-express-pipeline"' in body and "Rockies Express Pipeline" in body
     assert "Gas pipeline · Tallgrass Energy · CO, WY" in body
-    assert "1 asset, 1 company" in body
+    # Lane V7: the counts are the tabs' (docs/30 §11.4), one per kind, each its own URL.
+    assert 'Companies <span class="search-tabs__n tnum">1</span>' in body
+    assert 'Infrastructure <span class="search-tabs__n tnum">1</span>' in body
     asset_calls = [c for c in transport.calls if c[1] == "/v1/assets"]
     assert asset_calls[0][2] == {"q": "Tallgrass", "limit": 50}
 
@@ -1149,7 +1173,9 @@ def test_search_survives_an_assets_list_error(web_client: TestClient) -> None:
     resp = web_client.get("/search", params={"q": "Rockies Express"})
 
     assert resp.status_code == 200
-    assert "No matching assets." in resp.text
+    # Lane V7: the failed kind says so in its own block and its tab shows a dash, not a zero.
+    assert "Infrastructure could not be searched just now." in resp.text
+    assert 'Infrastructure <span class="search-tabs__n tnum">—</span>' in resp.text
 
 
 def test_map_script_draws_asset_lines_and_the_new_point_types() -> None:
@@ -1474,7 +1500,7 @@ def test_asset_detail_rng_landfill_project_promotes_project_fields(web_client: T
     assert "Rated capacity" not in rows and "Biogas end use" not in rows and "Digester type" not in rows
     assert "Capacity (mmscfd)" not in rows and "Commissioned" not in rows
     # Header badge carries the family in words (D-5), not a hue.
-    badge = body.split('<span class="reuse-badge">')[1].split("</span>")[0]
+    badge = body.split('<span class="record-header__badge">')[1].split("</span>")[0]
     assert (
         "RNG project" in badge and "Renewable natural gas" in badge and "Operating" in badge
     )  # the status label, not the token (lane R1)
@@ -1695,8 +1721,9 @@ def test_asset_detail_nearby_list_shows_units_and_summed_capacity(web_client: Te
     _install(_fuel_transport(_ethanol_entity(), nearby=units))
 
     body = web_client.get("/assets/absolute-energy-llc-st-ansgar-ia-us-ia").text
+    tab = web_client.get("/assets/absolute-energy-llc-st-ansgar-ia-us-ia/nearby").text
 
-    nearby = body.split('aria-label="Nearby proposals"')[1].split("</section>")[0]
+    nearby = tab.split('aria-label="Nearby proposals"')[1].split("</section>")[0]
     assert nearby.count("<li>") == 2
     assert "&times; 2 units" in nearby and "300 MW" in nearby and "2.9 km away" in nearby
     assert 'href="/proposals/danish-fields-2"' in nearby  # the nearest unit's page
@@ -1859,8 +1886,9 @@ def test_search_assets_section_labels_ethanol_and_rng_types(web_client: TestClie
 
     body = web_client.get("/search?q=energy").text
 
-    section = body.split("<h2>Assets</h2>")[1].split("<h2>Companies</h2>")[0]
-    assert "3 assets" in body
+    # Lane V7: assets are the Infrastructure kind, counted on its tab (docs/30 §11.4).
+    section = body.split("<h2>Infrastructure</h2>")[1].split("</section>")[0]
+    assert 'Infrastructure <span class="search-tabs__n tnum">3</span>' in body
     ethanol = section.split("Absolute Energy LLC (St Ansgar, IA)</a>")[1].split("</li>")[0]
     assert "Ethanol plant · Absolute Energy LLC · US-IA" in ethanol
     lmop = section.split("City of Charleston Landfill</a>")[1].split("</li>")[0]
@@ -1985,7 +2013,7 @@ def test_asset_detail_renders_nested_mapping_attributes_as_rows_not_reprs(web_cl
 
     assert resp.status_code == 200
     body = resp.text
-    table = body.split("2.</span> Attributes")[1].split("</section>")[0]
+    table = body.split('id="attributes"')[1].split("</details>")[0]
     # Never a Python repr of a dict or a list, never "None".
     assert "{'" not in body and "['" not in body and "{&#39;" not in body and "[&#39;" not in body
     assert ">None<" not in body and "None</" not in body

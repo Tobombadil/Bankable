@@ -183,17 +183,26 @@ def _detail(web_client: TestClient, entity: dict[str, Any], grid: Any = GRID) ->
     return resp.text, transport
 
 
+def _tabs(
+    web_client: TestClient, entity: dict[str, Any], tabs: tuple[str, ...] = ("retirement", "grid")
+) -> str:
+    """The Retirement and Grid tabs of the plant's page (docs/30 §11.5), which hold what the one-page
+    record's Retirement section held. Grid is a tab only when it has content (T-3)."""
+    pages = [web_client.get(f"/assets/{entity['slug']}/{tab}") for tab in tabs]
+    assert all(page.status_code == 200 for page in pages)
+    return "".join(page.text for page in pages)
+
+
 def _section(body: str) -> str:
-    m = re.search(r'<section aria-label="Retirement".*?</section>', body, re.S)
-    assert m is not None, "no Retirement section"
-    return m.group(0)
+    found = re.findall(r'<section class="record-tab retirement".*?</section>', body, re.S)
+    assert found, "no Retirement section"
+    return "".join(found)
 
 
 def test_retiring_plant_page_has_a_retirement_section_in_words(web_client: TestClient) -> None:
     body, transport = _detail(web_client, _plant())
-    section = _section(body)
+    section = _section(_tabs(web_client, _plant()))
     for words in (
-        "Retiring",
         "Next scheduled retirement",
         "December 2028",
         "2,600 MW",
@@ -216,8 +225,9 @@ def test_retiring_plant_page_has_a_retirement_section_in_words(web_client: TestC
     # Nor anywhere else on the page: the Attributes table leaves both blocks to the section.
     for token in ("majority_mw_retiring", "us.eia.860<", "retiring_share"):
         assert token not in body, token
-    # The header badge and the Status row print the label, not the token.
-    assert "&middot; Retiring</span>" in body
+    # The header badge prints the label, not the token; the Retirement tab leaves the status to it.
+    assert "\u00b7 Retiring</span>" in body
+    assert "<dt>Status</dt>" not in section
 
 
 def test_retired_plant_says_when_and_how_much(web_client: TestClient) -> None:
@@ -246,15 +256,18 @@ def test_retired_plant_says_when_and_how_much(web_client: TestClient) -> None:
         attributes={"retirement": retired},
         retirement_changes=[],
     )
-    body, _ = _detail(
+    _detail(
         web_client,
         entity,
         grid={"data": {"radius_km": 25.0, "transmission_lines": [], "interconnection_points": []}},
     )
-    section = _section(body)
+    # No grid fields and nothing listed around it: no Grid tab (T-3). The Retirement tab keeps the reuse
+    # note and why EIA-860 names no grid for the plant.
+    assert web_client.get("/assets/homer-city-us-pa/grid").status_code == 404
+    section = _section(_tabs(web_client, entity, ("retirement",)))
     assert "April 2024" in section and "July 2023" in section and "2,012 MW" in section
     assert "Every generator EIA lists at this plant has retired." in section
-    assert "states no grid voltage" in section  # not in the 2025 annual file
+    assert "states no grid voltage" in section and "retired earlier is not in it" in section
     assert INTERCONNECTION_REUSE_NOTE[:60] in section
 
 
@@ -271,8 +284,8 @@ def test_a_plant_with_no_retirement_has_no_section_and_no_grid_call(web_client: 
 
 
 def test_a_failed_grid_call_keeps_the_dates(web_client: TestClient) -> None:
-    body, _ = _detail(web_client, _plant(), grid=None)
-    section = _section(body)
+    _detail(web_client, _plant(), grid=None)
+    section = _section(_tabs(web_client, _plant()))
     assert "December 2028" in section and "Rockport - Jefferson" not in section
 
 

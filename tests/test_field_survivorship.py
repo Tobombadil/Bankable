@@ -378,10 +378,12 @@ def test_the_page_credits_the_status_to_the_register_that_reported_it(
     prop = _record(db, INVENTORY, "69662-IPD2S")
     assert prop.status_raw == EIA_STATUS
 
-    html = web_client.get(f"/proposals/{prop.slug}").text
-    assert f"in Test EIA-860M (source status: &ldquo;{EIA_STATUS}&rdquo;)" in html
+    # The status line is on the Timeline tab, the combined records on the Sources tab (docs/30 §11.5).
+    html = web_client.get(f"/proposals/{prop.slug}/timeline").text
+    assert f"in Test EIA-860M (source status: \u201c{EIA_STATUS}\u201d)" in html
     assert "in Test CAISO Queue (source status" not in html
     # D-5: what the record combines, each member with its own figures.
-    assert "What this record combines" in html
+    html = web_client.get(f"/proposals/{prop.slug}/sources").text
+    assert "Combined records" in html
     assert "342.7" in html and "303.7" in html and "1,150" in html  # capacity through `mw`
     assert "1949" in html

@@ -1386,6 +1386,109 @@ a.button-secondary:visited { color: var(--link); }
 .raw-fields { font-family: var(--font-mono); font-size: var(--text-1); white-space: pre-wrap; word-break: break-word; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2); padding: var(--space-4); max-height: 20rem; overflow: auto; }
 .raw-fields-details summary { cursor: pointer; font-weight: 600; }
 
+/* ---------- 9.1 Record pages as URL tabs (2026-10-23, lane record-tabs; docs/30 §11.5, §11.8) ----------
+   A project, a plant, pipeline or line, and a grid connection point: one header on every tab (breadcrumb,
+   name with its status chip or type badge, who is behind it, key figures, the one primary action, the
+   tier notice), then the tab bar, the tab, and its credits line. App-screen rules of the taste skill
+   (references/app-screens.md): the title is 23-28px, key figures are type (a small grey label over the
+   value), colour sits on data, status and the one primary action, and nothing here adds a treatment
+   the skill bans (its lint and inspector pass this section with no new finding).
+   Scoped to `.record-page`, so no other page changes. Below 720px the action is a full-width 44px
+   button under the header and the tab bar scrolls sideways inside itself (it takes the section bar's
+   row class, so site.js brings the current tab into view and fades a cut edge). */
+.record-page [id] { scroll-margin-top: calc(var(--top-bar-h, 3rem) + var(--space-4)); }
+.record-header {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-6);
+  align-items: start; padding-top: var(--space-4);
+}
+.record-header > * { grid-column: 1 / -1; }
+.record-header .breadcrumbs { margin: 0 0 var(--space-2); }
+.record-header > .detail-header { grid-column: 1; gap: var(--space-2) var(--space-3); }
+.record-header .detail-header h1 { font-size: var(--text-5); line-height: 1.2; overflow-wrap: anywhere; }
+.record-header__chip { display: inline-flex; align-items: center; min-height: 1.5rem; text-decoration: none; border-radius: var(--radius-1); }
+.record-header__chip:hover .chip__label, .record-header__chip:focus-visible .chip__label { text-decoration: underline; }
+.record-header__badge { font-size: var(--text-1); color: var(--text-muted); }
+.record-header__action { grid-column: 2; grid-row: 2; align-self: center; margin: 0; }
+.record-action {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 2.5rem;
+  padding: 0 var(--space-5); border-radius: var(--radius-2); white-space: nowrap;
+  background: var(--text); color: var(--bg); font-weight: 600; text-decoration: none;
+}
+.record-action:hover, .record-action:focus-visible { background: var(--link); color: var(--surface); }
+.record-company__source { font-size: var(--text-1); color: var(--text-muted); margin-inline-start: var(--space-1); }
+/* Key figures: a small grey label over the value; the label is the glossary link where it is a term. */
+.record-facts { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); margin: var(--space-4) 0 0; }
+.record-facts div { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.record-facts dt { font-size: var(--text-1); color: var(--text-muted); }
+.record-facts dt a, .record-facts dd a {
+  display: inline-flex; align-items: center; min-height: 1.5rem; /* SC 2.5.8: 24px targets */
+  color: inherit; text-decoration: underline dotted; text-underline-offset: 0.2em;
+}
+.record-facts dt a:hover, .record-facts dt a:focus-visible, .record-facts dd a:hover { color: var(--link); }
+.record-facts dd { margin: 0; color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.record-header .delayed-notice { margin: var(--space-4) 0 0; }
+.record-page .stamp-label { font-family: var(--font-body); font-size: var(--text-1); font-weight: 600; text-transform: none; letter-spacing: 0; }
+/* The tab bar: plain links, the current one in ink at 600 with a 2px mark under it; no rule across. */
+.record-tabs { margin: var(--space-5) 0 var(--space-5); }
+.record-tabs__items { gap: var(--space-6); }
+.record-tabs__items a { min-height: 2.75rem; }
+.record-tabs__count { margin-inline-start: var(--space-1); color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+/* The Overview's summaries of the other tabs: two columns from 1080px, each its own heading. */
+.record-summaries { display: grid; gap: var(--space-7); margin: var(--space-7) 0 0; }
+@media (min-width: 1080px) { .record-summaries { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+.record-summary { margin: var(--space-7) 0 0; min-width: 0; }
+.record-summaries .record-summary { margin: 0; }
+.record-summary__title { font-size: var(--text-4); margin: 0 0 var(--space-3); }
+.record-summary__more { margin: var(--space-3) 0 0; }
+.record-summary__more a { font-weight: 600; }
+.record-summary__empty { color: var(--text-muted); margin: 0; }
+.record-summary__facts { display: grid; gap: var(--space-2); margin: 0; }
+.record-summary__facts div { display: flex; justify-content: space-between; gap: var(--space-4); }
+.record-summary__facts dt { color: var(--text-muted); }
+.record-summary__facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.record-summary__list { list-style: none; margin: 0; padding: 0; }
+.record-summary__list li { padding: var(--space-1) 0; overflow-wrap: anywhere; }
+.record-summary__list .meta { font-size: var(--text-1); color: var(--text-muted); margin-inline-start: var(--space-1); }
+/* Explanations on demand (declutter, 2026-10-23): "About this", "Record maintenance", attributes. */
+.record-disclosure { margin: var(--space-5) 0; }
+.record-disclosure > summary { cursor: pointer; color: var(--link); font-weight: 600; min-height: 1.5rem; }
+.record-disclosure > p { max-width: 72ch; margin: var(--space-3) 0 0; }
+.record-map { margin: var(--space-7) 0 0; }
+/* A tab whose list is narrow keeps its notes or its map beside it from 1080px, so no half screen is empty. */
+.record-split { display: grid; gap: var(--space-6) var(--space-8); }
+.record-split > * { min-width: 0; }
+.record-split .record-map, .record-split__aside > .record-disclosure:first-child { margin-top: 0; }
+@media (min-width: 1080px) { .record-split { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; } }
+.record-attributes { margin-top: var(--space-7); }
+.record-absent { margin: var(--space-6) 0; font-size: var(--text-3); }
+.record-foot { margin-top: var(--space-8); }
+.record-credits { max-width: 80ch; }
+.record-foot__report { margin: var(--space-3) 0 0; font-size: var(--text-1); }
+.record-page .timeline__mark { margin-inline-end: var(--space-1); font-weight: 600; color: var(--family-progress-text); }
+.record-basis { list-style: none; margin: var(--space-3) 0 0; padding: 0; max-width: 80ch; }
+.record-basis li + li { margin-top: var(--space-1); }
+.record-basis__source { font-size: var(--text-1); color: var(--text-muted); margin-inline-start: var(--space-1); }
+/* Shared idioms as they read on a record page, under the skill's bans: sentence-case badges, dates in the
+   text face with tabular figures, and the Sources panel without the rules above and below it. */
+.record-page .reuse-badge, .record-page .provenance-panel__licence { text-transform: none; letter-spacing: 0; }
+.record-page .timeline time { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.record-page .provenance-panel { border-block: 0; padding-top: 0; margin-top: 0; }
+.record-page .provenance-panel__name::before { font-family: var(--font-body); }
+.record-page .maplibregl-map, .record-page .maplibregl-ctrl { font-family: var(--font-body); }
+.record-page .report-problem .field label {
+  font-family: var(--font-body); font-size: var(--text-2); text-transform: none; letter-spacing: 0;
+}
+@media (max-width: 719px) {
+  .record-header { grid-template-columns: minmax(0, 1fr); }
+  .record-header .detail-header h1 { font-size: var(--text-4); }
+  .record-header__action { grid-column: 1; grid-row: auto; margin-top: var(--space-4); }
+  .record-action { display: flex; width: 100%; min-height: 2.75rem; }
+  .record-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); }
+  .record-tabs { margin: var(--space-4) calc(-1 * var(--space-4)) var(--space-4); padding: 0 var(--space-4); }
+  .record-summaries, .record-summary { margin-top: var(--space-6); }
+}
+/* ---------- end 9.1 Record pages as URL tabs ---------- */
+
 /* ---------- 10. About page ---------- */
 .source-table td, .source-table th { vertical-align: top; }
 .reuse-badge { font-size: var(--text-1); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
@@ -2578,4 +2681,221 @@ html { scroll-padding-top: var(--top-bar-h); }
   .recent-closed .cell-text-short { display: inline; }
   .rfp-empty { padding: var(--space-6) var(--space-4); }
   .rfp-empty__lead { font-size: var(--text-2); font-weight: 600; }
+}
+
+/* ==========================================================================================================
+   Lane V7, Navigation v2 (docs/30 §11.4, §11.10, 2026-10-23): Search, About, Sources & licences, the three
+   Coverage & methodology tabs, and the Glossary. Every rule reaches only these pages' own classes
+   (.search-*, .top-hit*, .ref-*, .about-*, .sources-*, .method-*, .state-def*, .gloss-*), on the site's
+   tokens, which the brand lane swaps. Taste-skill house rules: no tracked capitals, no monospace labels, no
+   hairlines outside tables and forms, no shadows at rest, no gradients, no glass; running text in the full
+   ink; nothing meant to be read under 13px. Phone first: one column at 360px, more from 560, 900 and 1080px.
+   ========================================================================================================== */
+
+/* Reference pages (About, Sources & licences, Coverage & methodology, Glossary): one left edge, a title
+   with one line under it, explanations behind a disclosure, sections apart by space alone. */
+.ref-page { padding-block: var(--space-6) var(--space-9); }
+.ref-page p, .ref-page li, .ref-page dd { color: var(--text); }
+.ref-head { margin-bottom: var(--space-8); }
+.ref-head h1 { margin: 0 0 var(--space-2); }
+.ref-head__lede { font-size: var(--text-3); line-height: 1.45; margin: 0; max-width: 50rem; }
+.ref-about { margin-top: var(--space-2); max-width: 75ch; }
+.ref-about > summary { cursor: pointer; color: var(--link); padding-block: var(--space-2); width: fit-content; }
+.ref-about > p { margin: 0 0 var(--space-3); }
+.ref-page h2 { font-size: var(--text-5); margin: 0 0 var(--space-4); }
+.ref-page h3 { font-size: var(--text-3); margin: var(--space-7) 0 var(--space-2); }
+.ref-page section + section, .ref-page .gloss-group + .gloss-group { margin-top: clamp(3rem, 7vw, 6rem); }
+.ref-page .record-table th, .ref-page .record-table td::before { font-size: 0.8125rem; }
+.ref-page .record-table td { vertical-align: top; }
+.ref-index ul {
+  display: flex; flex-wrap: wrap; gap: 0 var(--space-5);
+  list-style: none; margin: 0 0 var(--space-8); padding: 0;
+}
+.ref-index a { display: inline-block; padding-block: var(--space-2); }
+/* The landed-on entry or row of an anchor link stands out by a step in tone, never a line. */
+.ref-page :target { background: var(--surface); border-radius: var(--radius-3); }
+
+/* Coverage & methodology's URL tabs: plain links; the current one carries weight and a 2px rule. One row
+   at every width, as the search tabs are: on a phone narrower than the three labels the row scrolls
+   sideways inside itself rather than leave one tab alone on a second line. */
+.ref-tabs ul {
+  display: flex; flex-wrap: nowrap; gap: 0 var(--space-5); list-style: none; margin: var(--space-5) 0 0; padding: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+@media (max-width: 479px) { .ref-tabs ul { gap: 0 var(--space-4); } }
+.ref-tabs a {
+  display: inline-flex; align-items: center; min-height: 2.75rem; white-space: nowrap;
+  color: var(--text); text-decoration: none; border-bottom: 2px solid transparent;
+}
+.ref-tabs a:hover, .ref-tabs a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.ref-tabs a[aria-current="page"] { font-weight: 600; border-bottom-color: var(--text); }
+.ref-tabs a[aria-current="page"]:hover { color: var(--text); }
+
+/* About: a title set large, the reach of the register as one field of tone with a figure per region (each a
+   link to its table on /about/sources), then labelled rows. */
+.about-head h1 { font-size: clamp(2.5rem, 4.8vw, 4.5rem); line-height: 1.02; letter-spacing: -0.02em; }
+.about-reach {
+  background: var(--surface); border-radius: var(--radius-3);
+  padding: var(--space-6) clamp(var(--space-4), 3vw, var(--space-6));
+}
+.about-reach h2 { margin-bottom: var(--space-5); }
+/* Two regions to a row from a 360px phone, four across a desktop. */
+.about-reach__list {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  gap: var(--space-6) var(--space-7); margin: 0;
+}
+.about-reach__list { list-style: none; padding: 0; }
+.about-reach__item { display: grid; gap: var(--space-1); align-content: start; }
+.about-reach__figure, .about-reach__figure:visited { color: var(--text); text-underline-offset: 0.2em; }
+.about-reach__figure:hover { color: var(--link); }
+.about-reach__figure .tnum {
+  font-family: var(--font-display); font-size: clamp(2.25rem, 3.6vw, 3rem); line-height: 1.1; font-weight: 600;
+}
+.about-reach__name { font-weight: 600; }
+.about-reach__kinds { color: var(--text-muted); font-size: 0.875rem; }
+.ref-page .about-reach__kinds { color: var(--text-muted); }
+/* From 1080px the title and the reach share the first screen: the figures sit beside the words. */
+@media (min-width: 1080px) {
+  .about-intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-8); align-items: start; }
+  .about-intro .ref-head { margin-bottom: 0; }
+  .about-intro .about-reach__list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.about-intro + section { margin-top: clamp(3rem, 7vw, 6rem); }
+.about-links { margin: var(--space-6) 0 0; }
+.about-do__list { margin: 0; }
+.about-do__list > div {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-1); padding-block: var(--space-3);
+}
+.about-do__list dt { font-weight: 600; }
+.about-do__list dd { margin: 0; max-width: 75ch; }
+.about-tiers p, .about-who p { max-width: 75ch; }
+@media (min-width: 560px) {
+  .about-do__list > div { grid-template-columns: 10rem minmax(0, 1fr); gap: var(--space-5); }
+}
+
+/* Sources & licences: real tables (their lines are allowed), the register's operator and id under its name. */
+.sources-table__sub { display: block; color: var(--text-muted); font-size: 0.875rem; }
+.sources-table__id { display: block; color: var(--text-muted); font-size: 0.8125rem; overflow-wrap: anywhere; }
+.sources-table__none { color: var(--text-muted); }
+/* Below 720px a record-table cell is one row, its label then its value (`.record-table td`, display:flex).
+   The Register and Licence cells hold several lines (name, operator, id; class, use, terms), so there the
+   label sits above them and they stack, rather than squeeze side by side and break the id mid-word. */
+@media (max-width: 719px) {
+  .sources-table td.sources-table__stack { flex-direction: column; justify-content: flex-start; gap: 2px; }
+}
+.sources-withheld { margin-top: var(--space-4); }
+.sources-withheld > summary { cursor: pointer; color: var(--link); padding-block: var(--space-2); width: fit-content; }
+.sources-withheld ul { columns: 18rem 3; column-gap: var(--space-7); margin: var(--space-2) 0; padding-left: var(--space-5); }
+.sources-withheld li { break-inside: avoid; padding-block: var(--space-1); }
+/* One column grid for every region's table, so the columns line up down the page. */
+@media (min-width: 720px) {
+  .sources-table { table-layout: fixed; }
+  .sources-table th:nth-child(1) { width: 34%; }
+  .sources-table th:nth-child(2) { width: 18%; }
+  .sources-table th:nth-child(3) { width: 15%; }
+  .sources-table th:nth-child(5) { width: 9%; }
+}
+
+/* Coverage & methodology. Status definitions sit two to a row from 1080px: definitions, not cards. */
+.method-lede, .method-notes { max-width: 75ch; }
+.method-after { margin-top: var(--space-4); }
+.method-notes { padding-left: var(--space-5); }
+.method-notes li + li { margin-top: var(--space-2); }
+.ref-page .method-muted, .method-muted { color: var(--text-muted); }
+.method-elsewhere__cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6) var(--space-8); }
+.ref-page .method-elsewhere__cols h3 { margin-top: 0; }
+.method-elsewhere__cols p { margin: 0 0 var(--space-2); }
+.method-elsewhere__list { list-style: none; margin: 0; padding: 0; }
+.method-elsewhere__list li { padding: var(--space-2) var(--space-2) var(--space-2) 0; }
+.ref-page h3.state-group { font-size: var(--text-4); margin-top: var(--space-9); }
+@media (min-width: 900px) {
+  .method-elsewhere__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .method-notes { max-width: none; columns: 2 26rem; column-gap: var(--space-8); }
+  .method-notes li { break-inside: avoid; }
+}
+.state-defs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-7) var(--space-8); }
+.state-def { scroll-margin-top: calc(var(--top-bar-h) + var(--space-4)); }
+.state-def h4 { font-family: var(--font-display); font-size: var(--text-3); margin: 0 0 var(--space-1); }
+.state-def p { margin: 0 0 var(--space-2); max-width: 75ch; }
+.ref-page .state-def__count { color: var(--text-muted); }
+.state-def__maps > summary { cursor: pointer; color: var(--link); padding-block: var(--space-1); width: fit-content; }
+.state-def__maps ul { padding-left: var(--space-5); }
+.coverage-note p { max-width: 75ch; }
+@media (min-width: 1080px) { .state-defs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Glossary: a ledger. One column on a phone; from 900px the term, what it means, and why it matters with
+   its links, side by side on one row, so the page uses its width and a term is read across. */
+.gloss-group h2 { margin-bottom: var(--space-2); }
+.gloss-entry {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2);
+  padding-block: var(--space-5); scroll-margin-top: calc(var(--top-bar-h) + var(--space-4));
+}
+.ref-page .gloss-entry__term { font-size: var(--text-3); margin: 0; }
+.gloss-entry__means, .gloss-entry__more p { margin: 0; }
+.gloss-entry__more { display: grid; gap: var(--space-2); }
+.gloss-entry:target { padding-inline-start: var(--space-3); }
+@media (min-width: 900px) {
+  .gloss-entry {
+    grid-template-columns: minmax(10rem, 15rem) minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: var(--space-7); align-items: start;
+  }
+}
+
+/* Search (an app screen: docs/30 §11.4): the field, tabs by kind with counts, a top hit, then each kind's
+   first rows; on a kind's own tab, its first fifty. Rows are apart by space, not rules. */
+.search-page { padding-block: var(--space-5) var(--space-9); }
+.search-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); margin-bottom: var(--space-4); }
+.search-head h1 { font-size: var(--text-4); margin: 0; }
+.search-form { display: flex; flex: 1 1 20rem; max-width: 42rem; gap: var(--space-2); }
+.search-form input {
+  flex: 1; min-width: 0; min-height: 2.75rem; padding: 0 var(--space-3); font: inherit;
+  color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
+}
+.search-form input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.search-form button {
+  min-height: 2.75rem; padding: 0 var(--space-5); font: inherit; font-weight: 600; cursor: pointer;
+  color: var(--text); background: var(--family-neutral-fill); border: 0; border-radius: var(--radius-2);
+}
+.search-form button:hover { background: var(--border); }
+.search-hint { margin: 0; }
+.search-tabs ul {
+  display: flex; gap: 0 var(--space-6); list-style: none; margin: 0 0 var(--space-5); padding: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+.search-tabs a {
+  display: inline-flex; align-items: baseline; gap: var(--space-1); padding-top: var(--space-3); min-height: 2.75rem;
+  color: var(--text); text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent;
+}
+.search-tabs a:hover, .search-tabs a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
+.search-tabs a[aria-current="page"] { font-weight: 600; border-bottom-color: var(--text); }
+.search-tabs__n { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.top-hit {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4);
+  background: var(--surface); border-radius: var(--radius-3); padding: var(--space-5); margin-bottom: var(--space-7);
+}
+.top-hit__name { font-size: var(--text-4); margin: 0; }
+.top-hit__name a { color: var(--text); text-decoration: none; }
+.top-hit__name a:hover { color: var(--link); text-decoration: underline; }
+.top-hit__meta { color: var(--text-muted); margin: var(--space-1) 0 0; }
+.top-hit__figures { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); margin: var(--space-4) 0 0; }
+.top-hit__figures dt { color: var(--text-muted); font-size: 0.8125rem; }
+.top-hit__figures dd { margin: 0; font-size: var(--text-4); font-variant-numeric: tabular-nums; }
+.top-hit__open, .top-hit__open:visited {
+  display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 var(--space-5);
+  color: var(--surface); background: var(--link); border-radius: var(--radius-2); font-weight: 600; text-decoration: none;
+}
+.top-hit__open:hover { background: var(--text); }
+.search-buckets { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-7) var(--space-8); align-items: start; }
+.search-bucket__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-2); }
+.search-bucket__head h2 { font-size: var(--text-3); margin: 0; }
+.search-rows { display: grid; gap: var(--space-3); list-style: none; margin: 0 0 var(--space-2); padding: 0; }
+.search-row { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.search-row__name { color: var(--text); font-weight: 600; text-decoration: none; }
+.search-row__name:hover { color: var(--link); text-decoration: underline; }
+.search-row__meta { color: var(--text-muted); font-size: 0.875rem; }
+.search-row__meta .chip { margin-inline-end: var(--space-1); }
+.search-empty, .search-range { color: var(--text-muted); margin: 0 0 var(--space-2); }
+@media (min-width: 1080px) {
+  .search-buckets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .search-buckets > .search-bucket:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }

@@ -1,0 +1,45 @@
+{#- An asset's Nearby tab (docs/30 §11.5): exact-grade projects within 25 km of its point or route,
+    nearest first, one row per project (`group_nearby_proposals`), with the map of them beside the list
+    from 1080px (the list carries the magnitudes; the map every unit's dot). Only projects with a site
+    location are matched; how is behind "About this list". -#}
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% import "partials/_record_tabs.html" as rt %}
+{% block title %}{{ record.name | readable_name }} · Nearby — Inframation{% endblock %}
+{% block meta_description %}{{ record.name }}: projects within 25 km, nearest first, each with its source.{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block extra_head %}
+{% if mini_map %}{{ m.cdn_style("maplibre_css") }}{% endif %}
+{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<div class="record-split">
+<section class="record-tab" aria-label="Nearby proposals">
+  <h2 class="visually-hidden">Projects within 25 km</h2>
+  {{ m.nearby_proposals_list(nearby_proposals) }}
+  <details class="record-disclosure">
+    <summary>About this list</summary>
+    <p>Exact-grade proposals within 25&nbsp;km of this {% if record.is_line %}{{ record.route_noun or 'pipeline' }}&rsquo;s route{% else %}asset&rsquo;s point{% endif %}, nearest first. Only proposals with a site location are matched to assets; those placed only by county or state are not.</p>
+  </details>
+</section>
+{% if mini_map %}
+<section class="record-map record-split__aside" aria-label="Location map">
+  {{ m.mini_map(mini_map, tile_url, tile_mode) }}
+</section>
+{% endif %}
+</div>
+{{ rt.foot(tabs, credits, record) }}
+</div>
+{% endblock %}
+{% block extra_scripts %}
+{% if mini_map %}
+{{ m.cdn_script("maplibre_js") }}
+{% if tile_mode == "pmtiles" %}
+{{ m.cdn_script("pmtiles_js") }}
+{{ m.cdn_script("basemaps_js") }}
+{% endif %}
+<script src="/static/js/basemap.js?v={{ asset_version }}"></script>
+<script src="/static/js/asset_map.js?v={{ asset_version }}"></script>
+{% endif %}
+{% endblock %}

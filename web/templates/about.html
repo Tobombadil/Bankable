@@ -1,80 +1,89 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
-{% block title %}About &amp; sources — Inframation{% endblock %}
-{% block meta_description %}Method, sources and licences behind Inframation's proposal and opportunity data.{% endblock %}
+{% import "partials/_sections.html" as sections %}
+{#- About (Navigation v2 lane V7; docs/30 §11.4): what Inframation is, where it reaches (US first, then Great
+    Britain, Europe and international), what a reader can do here, the tiers and the posture sentence, and
+    who runs it. The register and its licences moved to /about/sources; the method notes to
+    /methodology. `#sources`, `#deals` and `#tiers` keep answering (docs/30 §11.10). Each region's figure
+    is the number of published registers its /about/sources table lists (web/app.py `about`). -#}
+{% block title %}About Inframation: energy market intelligence{% endblock %}
+{% block meta_description %}Inframation is energy market intelligence from public registers: one record per project, every fact traced to its source. United States first, with Great Britain, Europe and international coverage.{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>About &amp; sources</h1>
-  <p>Inframation fuses public energy and infrastructure registers into one record per project. This is the public tier: every record, no login, no admin.{% if paid_tiers_offered(request) %} The paid tier is workflow &mdash; alerts, the API and, when they are built, exports and watchlists.{% endif %}</p>
+<article class="ref-page about-page">
+<div class="about-intro">
+<header class="ref-head about-head">
+  <h1>About Inframation</h1>
+  <p class="ref-head__lede">Energy market intelligence from public registers.</p>
+  <details class="ref-about">
+    <summary>How it works</summary>
+    <p>One record per project, every fact sourced. Each register is read on its own schedule; rows from different registers that describe one real-world project are fused into one record, and every fact keeps its source, the date we read it and its licence. Registers whose terms do not allow republishing are linked to, never copied.</p>
+  </details>
+</header>
+
+{%- if regions %}
+{#- Each figure first, then the region it counts, then what its registers publish: a label set above a large
+    number reads as a kicker. -#}
+<section class="about-reach" id="sources" aria-labelledby="about-reach-title">
+  <h2 id="about-reach-title">Where it reaches</h2>
+  <ul class="about-reach__list">
+    {%- for r in regions %}
+    <li class="about-reach__item">
+      <a class="about-reach__figure" href="{{ r.href }}"><span class="tnum">{{ '{:,}'.format(r.count) }}</span> register{{ '' if r.count == 1 else 's' }}<span class="visually-hidden">, {{ r.name }}</span></a>
+      <span class="about-reach__name" aria-hidden="true">{{ r.name }}</span>
+      <span class="about-reach__kinds">{{ r.kinds | join(', ') }}</span>
+    </li>
+    {%- endfor %}
+  </ul>
+  <p class="about-links"><a href="{{ sections.href.about_sources }}">{{ sections.label.about_sources }}</a> · <a href="{{ sections.href.methodology }}">{{ sections.label.methodology }}</a></p>
+</section>
+{%- else %}
+<p class="about-links" id="sources"><a href="{{ sections.href.about_sources }}">{{ sections.label.about_sources }}</a> · <a href="{{ sections.href.methodology }}">{{ sections.label.methodology }}</a></p>
+{%- endif %}
 </div>
 
-<section id="tiers">
-  {{ m.section_heading("1.", "Tiers") }}
-  <p>The free tier shows every record, undelayed: a proposal or an opportunity is public the moment it is ingested. What the paid tier buys is shape, not freshness: alerts, the API and &mdash; once built &mdash; exports and watchlists.
+<section class="about-do" id="deals" aria-labelledby="about-do-title">
+  <h2 id="about-do-title">What you can do here</h2>
+  <dl class="about-do__list">
+    <div>
+      <dt>Find</dt>
+      <dd>Projects, companies, RFPs and the grid around them, on one map. <a href="{{ sections.href.map }}">{{ sections.label.map }}</a> · <a href="{{ sections.href.projects }}">{{ sections.label.projects }}</a> · <a href="{{ sections.href.companies }}">{{ sections.label.companies }}</a></dd>
+    </div>
+    {%- if pipeline_on %}
+    <div>
+      <dt>Build a deal</dt>
+      <dd>Track projects, bids and investments privately: sign in, then Track on any record. Only you, and the people you invite, see it.</dd>
+    </div>
+    {%- endif %}
+    <div>
+      <dt>Follow</dt>
+      <dd>Email alerts on any search, and a feed on every list. <a href="{{ sections.href.alerts }}">{{ sections.label.alerts }}</a></dd>
+    </div>
+    <div>
+      <dt>Cite</dt>
+      <dd>Every fact names its register and licence. <a href="/glossary#cite">How to cite</a> · <a href="{{ sections.href.attribution }}">{{ sections.label.attribution }}</a></dd>
+    </div>
+    <div>
+      <dt>Learn</dt>
+      <dd>Plain words for every term, from queues to PPAs. <a href="/glossary">Glossary</a></dd>
+    </div>
+  </dl>
+</section>
+
+<section class="about-tiers" id="tiers" aria-labelledby="about-tiers-title">
+  <h2 id="about-tiers-title">Free to read</h2>
+  <p>Every record is public as soon as it is ingested, with no delay on any tier.
+  {%- if paid_tiers_offered(request) %} The paid tier is workflow: alerts, the API and, when they are built, exports and watchlists.{% endif %}
   {%- if free_alerts %} While the platform operates as a noncommercial service the paid tiers are not offered, and email alerts are free to any registered reader: up to <span class="tnum">{{ free_alerts.cap }}</span> saved searches, each a daily or weekly digest. <a href="/alerts">Set up an alert</a>.
   {%- else %} Saved searches and alerts are managed at <a href="/alerts">Alerts</a>; the API is reached with a key.{% endif %}</p>
   {%- if posture %}
-  {#- The sentence is the API's (`GET /v1/health` `posture_statement`), derived from the
-      PLATFORM_POSTURE setting; nothing about the posture is typed into this template. -#}
+  {#- The sentence is the API's (`GET /v1/health` `posture_statement`), derived from the PLATFORM_POSTURE
+      setting; nothing about the posture is typed into this template. -#}
   <p class="platform-posture" data-posture="{{ posture.value }}"{% if posture.available is false %} data-status="unavailable" role="status"{% endif %}>{{ posture.statement }}</p>
   {%- endif %}
 </section>
 
-<section id="sources">
-  {{ m.section_heading("2.", "Sources and licences") }}
-  <p>Every field on every page traces to one of the rows below. Sources marked "No, derived fields only" have their raw source row and exact coordinates withheld; the page links out to the source instead.</p>
-  <div class="table-scroll">
-  <table class="record-table source-table">
-    <thead>
-      <tr>
-        <th scope="col">Source</th>
-        <th scope="col">Operator</th>
-        <th scope="col">Reuse class</th>
-        <th scope="col">Raw fields shown?</th>
-        <th scope="col">Attribution</th>
-        <th scope="col" class="num">Rows visible</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for s in sources %}
-      <tr>
-        <td data-label="Source"><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a><br><span class="mono reuse-badge">{{ s.source_id }}</span></td>
-        <td data-label="Operator">{{ s.operator or '—' }}</td>
-        <td data-label="Reuse class"><span class="reuse-badge">{{ s.licence.reuse_class | reuse_class_label }}</span></td>
-        <td data-label="Raw fields shown?">{{ 'Yes' if s.licence.allows_raw_publication else 'No, derived fields only' }}</td>
-        <td data-label="Attribution">{{ s.attribution_text }}</td>
-        <td data-label="Rows visible" class="num tnum">{{ s.rows_visible if s.rows_visible is not none else '—' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
+<section class="about-who" id="who" aria-labelledby="about-who-title">
+  <h2 id="about-who-title">Who runs it</h2>
+  <p>Inframation is run by {% if controller.name %}{{ controller.name }}{% else %}a small team{% endif %}. A person reads every message. <a href="/contact">Contact</a> · <a href="/submit">Submit a project</a></p>
 </section>
-
-<section>
-  {{ m.section_heading("3.", "Licence terms") }}
-  <dl>
-    {% for s in sources %}
-    <dt class="mono">{{ s.source_id }}</dt>
-    <dd>
-      Reuse class: {{ s.licence.reuse_class | reuse_class_label }}. Derived publication: {{ 'allowed' if s.licence.allows_derived_publication else 'withheld' }}.
-      Raw publication: {{ 'allowed' if s.licence.allows_raw_publication else 'withheld' }}.
-      Commercial use: {{ 'allowed' if s.licence.allows_commercial_use else 'not allowed' }}.
-      Attribution: {{ 'required' if s.licence.attribution_required else 'not required' }}.
-      {% if s.licence.url %}<a href="{{ s.licence.url }}" rel="noopener nofollow">Full terms &rarr;</a>{% endif %}
-    </dd>
-    {% endfor %}
-  </dl>
-</section>
-
-<section>
-  {{ m.section_heading("4.", "Method notes") }}
-  <ul>
-    <li>Placement on the map follows source precision: an exact coordinate where the source supplies one and its licence allows raw publication; otherwise a county centroid (US Census Gazetteer 2024, public domain); records with neither a usable county nor a state are counted as Unplaced rather than guessed at.</li>
-    <li>Clustering on the map is computed server-side; this page's client script renders whatever the API returns and does not cluster on its own.</li>
-    <li>The default map and proposal list show active lifecycle states only (announced through under construction); withdrawn and cancelled proposals sit behind the "Include withdrawn &amp; cancelled" toggle, because most of this dataset's history is withdrawn queue positions and a default view of them reads as a map of what died rather than what's active.</li>
-    <li>NESO TEC Register rows have no US-style county or state field in the source and are counted under Unplaced rather than guessed at.</li>
-    <li>The map's basemap tiles come from OpenStreetMap; a lightweight world-country and US-state outline layer (Natural Earth and US Census Bureau TIGERweb, both public domain) is drawn underneath them so the map stays legible if the tile provider is ever unreachable.</li>
-  </ul>
-</section>
+</article>
 {% endblock %}

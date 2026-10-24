@@ -63,7 +63,8 @@ def test_provenance_panel_collapses_the_licence_quote_behind_the_source_name(
         session.commit()
         slug = proposal.slug
 
-    resp = web_client.get(f"/proposals/{slug}")
+    # The full Sources panel is the record's Sources tab (docs/30 §11.5, T-4).
+    resp = web_client.get(f"/proposals/{slug}/sources")
     assert resp.status_code == 200
     body = resp.text
     assert "Sources" in body
@@ -89,6 +90,7 @@ def test_restricted_precision_renders_the_redaction_note(
     resp = web_client.get(f"/proposals/{slug}")
     assert resp.status_code == 200
     assert "county level (source licence)" in resp.text
+    resp = web_client.get(f"/proposals/{slug}/sources")  # the panel is the Sources tab (docs/30 §11.5)
     assert "Derived fields only" in resp.text  # provenance panel's raw-withheld note
     # `make_attribution_licence` sets no `quote_text` -- the honest fallback renders instead of an
     # empty expandable region.

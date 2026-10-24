@@ -1,0 +1,15 @@
+{#- A tab URL reached while the record has nothing for it (docs/30 §11.5 T-3): a 404 that keeps the header
+    and the tab bar, so the reader can move on, says so in one line, and is never indexed. The record's
+    attribution line stays, because the header shows the record's facts. -#}
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ head.name }} · {{ tabs.label(tabs.current) }} — Inframation{% endblock %}
+{% block meta_description %}{{ tabs.absent_line }}{% endblock %}
+{% block robots %}noindex, follow{% endblock %}
+{% block content %}
+<div class="record-page">
+{% include "partials/_record_header.html" %}
+<p class="record-absent" role="status">{{ tabs.absent_line }}</p>
+<div class="record-foot">{{ m.attribution_line(record) }}</div>
+</div>
+{% endblock %}

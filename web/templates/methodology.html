@@ -1,204 +1,104 @@
 {% extends "base.html" %}
-{% import "_macros.html" as m %}
-{#- One state's published definition. `count` is how many records carry it on this load, printed
-    because "0 records" is the most useful thing a definition can say about a word. `maps_from` is
-    derived from the pipeline's own status maps, so it cannot describe a mapping the code does not
-    make. -#}
-{% macro state_block(s, count) -%}
-<div class="state-def" id="state-{{ s.state }}">
-  <h4>{{ s.state | lifecycle_label }} <span class="reuse-badge tnum">{{ '{:,}'.format(count or 0) }} record{{ '' if count == 1 else 's' }}</span></h4>
-  <p>{{ s.definition }}</p>
-  {%- if s.excludes %}<p><strong>Not:</strong> {{ s.excludes }}</p>{% endif %}
-  {%- if s.uncertainty %}<p><strong>Where this is a judgement:</strong> {{ s.uncertainty }}</p>{% endif %}
-  {%- if s.is_fallback %}
-  <p class="attribution-line">Reached by falling through every mapping rather than by a rule, so it has no source values of its own.</p>
-  {%- elif s.maps_from %}
-  <details class="state-def__maps">
-    <summary>{{ s.maps_from|length }} source value{{ '' if s.maps_from|length == 1 else 's' }} map here</summary>
-    <ul>
-      {%- for map in s.maps_from %}
-      <li>
-        {{ source_names.get(map.source_id) or source_names.get(map.status_key) or (map.status_key | humanise) }}
-        {%- if map.rule not in ('map', 'fallback_map') %}: when {{ map.raw | condition_words }} <span class="reuse-badge">combined rule</span>
-        {%- else %}{% if map.field %} &middot; {{ map.field }}{% endif %} &rarr; <q>{{ map.raw }}</q>{% endif %}
-        {%- if not map.rows_published %} <span class="reuse-badge">source withheld, produces no rows</span>{% endif %}
-        {%- if map.note %}<br><span class="attribution-line">{{ map.note | words_in_prose }}</span>{% endif %}
-      </li>
-      {%- endfor %}
-    </ul>
-  </details>
-  {%- else %}
-  <p class="attribution-line">No loaded source maps into this state.</p>
-  {%- endif %}
-</div>
-{%- endmacro %}
-{% block title %}Coverage &amp; methodology — Inframation{% endblock %}
-{% block meta_description %}What Inframation's data is, what release each source is on, what each status word means, and what the register does not contain.{% endblock %}
+{% import "partials/_sections.html" as sections %}
+{#- Coverage & methodology, tab one: Release dates (Navigation v2 lane V7; docs/30 §11.4, §11.10). Each
+    source's own release against the date we fetched it, then how records are placed and shown (the
+    method notes that were on /about). The page this replaced held all three tabs (10,894px at 1440); the
+    other two are /methodology/gaps and /methodology/status-words. Their old anchors on this page
+    (`#absences`, `#withheld`, `#ownership`, `#asset-sources`, `#absent-technologies`, `#absent-states`,
+    `#note-…`, `#states`, `#lifecycle`, `#opportunity-statuses`) stay on the summary list at the end, each
+    a link to where the content now is, so every old link still lands on its subject. -#}
+{% block title %}Release dates: {{ sections.label.methodology | lower }} — Inframation{% endblock %}
+{% block meta_description %}How current each source behind Inframation is: the release each register states against the date we last fetched it, and how records are placed on the map.{% endblock %}
 {% block content %}
-<div class="page-header">
-  <h1>Coverage &amp; methodology</h1>
-  <p>Three things a reader cannot get from a record page: how old the source&rsquo;s own data is, which categories are empty because we have no source rather than because nothing is happening, and what the status words on every chip actually assert. Every number below is measured when this page loads.</p>
-  {%- if posture %}
-  {#- The API's sentence (`GET /v1/health` `posture_statement`), not this template's. -#}
-  <p class="platform-posture" data-posture="{{ posture.value }}"{% if posture.available is false %} data-status="unavailable" role="status"{% endif %}>{{ posture.statement }}</p>
-  {%- endif %}
-</div>
+<article class="ref-page method-page">
+{% include "partials/_methodology_head.html" %}
 
-<section id="vintage">
-  {{ m.section_heading("1.", "Release date, and the date we fetched") }}
-  <p>
-    A fetch date is a fact about us. A release is a fact about the source. They are not the same number and one cannot stand in for the other.
-    {%- if vintage.oldest %} The oldest release loaded is <strong>{{ vintage.oldest.vintage_label }}</strong>, from {{ vintage.oldest.name }} &mdash; so anything you read here can be that old, whatever date the footer gives for the last fetch.{% endif %}
-    {%- if vintage.sources_stating_none %} {{ vintage.sources_stating_none }} of the {{ vintage.sources|length }} loaded sources publish no release label at all; for those, the fetch date is the only statement available, and it is labelled as a fetch.{% endif %}
-  </p>
+<section id="vintage" class="method-section" aria-labelledby="vintage-title">
+  <h2 id="vintage-title">Release dates</h2>
+  <p class="method-lede">A release is the source&rsquo;s own date; a fetch is ours. Cite the release.
+    {%- if vintage.oldest %} The oldest release loaded is <strong>{{ vintage.oldest.vintage_label }}</strong>, from {{ vintage.oldest.name }}, so a fact here can be that old whatever the fetch date says.{% endif %}</p>
   <div class="table-scroll" tabindex="0" role="region" aria-label="Source release dates (scrolls sideways on a narrow screen)">
-  <table class="record-table source-table">
+  <table class="record-table method-table">
     <thead>
       <tr>
         <th scope="col">Source</th>
-        <th scope="col">Source&rsquo;s stated release</th>
+        <th scope="col">Stated release</th>
         <th scope="col">How we know</th>
-        <th scope="col">We last fetched</th>
+        <th scope="col" class="num">Last fetched</th>
       </tr>
     </thead>
     <tbody>
-      {% for s in vintage.sources %}
+      {%- for s in vintage.sources %}
       <tr>
-        <td data-label="Source">{{ s.name }}<br><span class="mono reuse-badge">{{ s.source_id }}</span></td>
-        <td data-label="Source&rsquo;s stated release" class="tnum">
+        <td data-label="Source">{{ s.name or source_names.get(s.source_id) }}</td>
+        <td data-label="Stated release" class="tnum">
           {%- if s.vintage_label %}{{ s.vintage_label }}
-          {%- elif s.vintage_basis == 'not_stated' %}<span class="reuse-badge">states none</span>
-          {%- else %}<span class="reuse-badge">not determined</span>{% endif -%}
+          {%- elif s.vintage_basis == 'not_stated' %}<span class="method-muted">states none</span>
+          {%- else %}<span class="method-muted">not determined</span>{% endif -%}
         </td>
         <td data-label="How we know">{{ basis_labels.get(s.vintage_basis, s.vintage_basis) }}</td>
-        <td data-label="We last fetched" class="tnum">{{ s.fetched_at | display_date if s.fetched_at else '—' }}</td>
+        <td data-label="Last fetched" class="num tnum">{{ s.fetched_at | display_date if s.fetched_at else '—' }}</td>
       </tr>
-      {% endfor %}
+      {%- endfor %}
     </tbody>
   </table>
   </div>
+  {%- if vintage.sources_stating_none %}
+  {#- `vintage.sources_stating_none`, which the one-page methodology printed: for these sources the fetch
+      date is all there is, and the table labels it as a fetch. -#}
+  <p class="method-lede method-after"><span class="tnum">{{ vintage.sources_stating_none }}</span> of the <span class="tnum">{{ vintage.sources | length }}</span> loaded sources publish no release label; for those, the fetch date is the only date there is.</p>
+  {%- endif %}
 </section>
 
-<section id="absences">
-  {{ m.section_heading("2.", "What is not in here") }}
-  <p>
-    {{ coverage.sources.registered }} sources are registered; {{ coverage.sources.with_rows }} have rows flowing.
-    The register holds {{ '{:,}'.format(coverage.records.proposals) }} proposals, {{ '{:,}'.format(coverage.records.opportunities) }} opportunities and {{ '{:,}'.format(coverage.records.assets) }} existing assets.
-  </p>
+<section id="placement" class="method-section" aria-labelledby="placement-title">
+  <h2 id="placement-title">Placement and defaults</h2>
+  <details class="ref-about">
+  <summary>How records are placed and shown</summary>
+  <ul class="method-notes">
+    <li>A record sits where its source puts it: an exact coordinate where the source gives one and its licence allows it to be shown, otherwise the centre of its county (US Census Gazetteer 2024, public domain). A record with neither a usable county nor a state is counted as Unplaced, never guessed.</li>
+    <li>The map and the Projects list open on active projects, announced to under construction. Withdrawn and cancelled ones are one switch away: most of a queue&rsquo;s history is withdrawn requests, and a default view of them would map what died rather than what is active.</li>
+    <li>NESO&rsquo;s TEC Register gives no US-style county or state, so its rows count as Unplaced rather than guessed.</li>
+    <li>Clusters on the map are computed by the server; the page draws what the API returns.</li>
+    <li>Basemap tiles come from OpenStreetMap. World-country and US-state outlines (Natural Earth and US Census Bureau TIGERweb, both public domain) are drawn beneath them, so the map stays legible if the tiles cannot load.</li>
+  </ul>
+  </details>
+</section>
 
-  {% if coverage.technologies.absent %}
-  <h3 id="absent-technologies">Technologies with no rows</h3>
-  <p>These are tokens our normaliser can produce and no loaded source has ever produced. An empty filter result for one of them means we have no source, not that there are no projects.</p>
-  <p>{% for t in coverage.technologies.absent %}<span class="reuse-badge">{{ t | technology_label }}</span>{% if not loop.last %} {% endif %}{% endfor %}</p>
-  {% endif %}
-
-  {% if coverage.sources.withheld %}
-  <h3 id="withheld">Sources we hold but do not publish</h3>
-  <p>Nothing from these appears on any tier, paid included. {{ withheld_supply|length }} of the {{ coverage.sources.withheld|length }} are interconnection or connection registers, which is the absence you would feel on the map.</p>
-  <div class="table-scroll" tabindex="0" role="region" aria-label="Sources we hold but do not publish (scrolls sideways on a narrow screen)">
-  <table class="record-table source-table">
-    <thead>
-      <tr><th scope="col">Register</th><th scope="col">Where</th><th scope="col">Why nothing is shown</th></tr>
-    </thead>
-    <tbody>
-      {% for s in coverage.sources.withheld %}
-      <tr>
-        <td data-label="Register"><a href="{{ s.url }}" rel="noopener nofollow">{{ s.name }}</a>{% if s.supply %} <span class="reuse-badge">supply</span>{% endif %}<br><span class="mono reuse-badge">{{ s.source_id }}</span></td>
-        <td data-label="Where">{{ s.jurisdiction or s.operator or '—' }}</td>
-        <td data-label="Why nothing is shown">{{ s.reason }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% endif %}
-
-  <h3 id="ownership">Ownership depth</h3>
-  <p>
-    {{ '{:,}'.format(coverage.ownership.without_recorded_parent) }} of {{ '{:,}'.format(coverage.ownership.organizations) }} companies have no recorded parent
-    ({{ '{:,}'.format(coverage.ownership.with_recorded_parent) }} do). A company page showing no parent is a company we have no parent <em>record</em> for.
-  </p>
-
-  {% if asset_sources %}
-  <h3 id="asset-sources">Existing assets: sources per type</h3>
-  {#- Derived on every load: rows and located rows per source, and whether the store can resolve
-      two sources' rows to one asset (`services/api/coverage.py::asset_sources`). A type with two
-      sources and no resolution *can* hold one asset twice; whether it does is a measurement, so
-      that is a dated note, keyed to this fact and dropped the day the fact stops holding. -#}
-  <p>
-    Each asset type is loaded from the registers below, one row per source record. Where a type has more than one source and nothing yet resolves them to one record per asset, a count over its rows can exceed the number of assets; the notes beneath say by how much, where that has been measured.
-    {%- if not coverage.assets.resolution.exists %} No such resolution layer exists today for any type.{% endif %}
-  </p>
-  <div class="table-scroll" tabindex="0" role="region" aria-label="Existing assets: sources per type (scrolls sideways on a narrow screen)">
-  <table class="record-table source-table">
-    <thead>
-      <tr><th scope="col">Asset type</th><th scope="col">Rows</th><th scope="col">Sources</th><th scope="col">Resolved to one record per asset</th></tr>
-    </thead>
-    <tbody>
-      {% for asset_type, entry in asset_sources %}
-      <tr id="asset-sources-{{ asset_type }}">
-        <td data-label="Asset type"><a href="/assets?asset_type={{ asset_type }}">{{ asset_type_labels.get(asset_type, asset_type | replace('_', ' ')) }}</a></td>
-        <td data-label="Rows" class="tnum">{{ '{:,}'.format(entry.rows) }}{% if entry.located != entry.rows %} <span class="reuse-badge">{{ '{:,}'.format(entry.located) }} with a location</span>{% endif %}</td>
-        <td data-label="Sources">
-          {%- for source_id, per in entry.sources.items() %}{{ source_names.get(source_id) or source_id }} <span class="tnum">{{ '{:,}'.format(per.rows) }}</span>{% if not loop.last %}<br>{% endif %}{% endfor -%}
-        </td>
-        <td data-label="Resolved to one record per asset">
-          {%- if entry.source_count < 2 %}One source, so nothing to resolve
-          {%- elif entry.resolved %}Yes
-          {%- else %}<strong>Not yet</strong>{% if asset_notes.get(asset_type) %} &mdash; <a href="#note-{{ asset_notes[asset_type].id }}">measured</a>{% endif %}
-          {%- endif -%}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% endif %}
-
-  {% if coverage.states.lifecycle_absent or coverage.states.opportunity_status_absent %}
-  <h3 id="absent-states">Status values no source currently produces</h3>
-  <p>These words are in the vocabulary and no loaded source maps into them, so no record carries them today.</p>
-  <p>
-    {%- for s in coverage.states.lifecycle_absent %}<span class="reuse-badge">{{ s | lifecycle_label }}</span> {% endfor -%}
-    {%- for s in coverage.states.opportunity_status_absent %}<span class="reuse-badge">{{ s | lifecycle_label }}</span> {% endfor -%}
-  </p>
-  {% endif %}
-
-  {% for note in coverage.notes %}
-  <div class="coverage-note">
-    <h3 id="note-{{ note.id }}">{{ note.headline }}</h3>
-    <p>{{ note.body }}</p>
-    {%- set noted_type = (note.applies_to or {}).get('unresolved_asset_type') %}
-    {%- set noted = coverage.assets.by_type.get(noted_type) if noted_type else none %}
-    {%- if noted %}
-    {#- The derived half, printed beside the written one so a reader can see whether they still
-        agree: the row and source counts move with every load, the estimate does not. -#}
-    <p class="attribution-line">On this load: <span class="tnum">{{ '{:,}'.format(noted.rows) }}</span> rows from {{ noted.source_count }} sources, <span class="tnum">{{ '{:,}'.format(noted.located) }}</span> with a location. This note is withdrawn automatically when the type has one source or a resolution exists.</p>
+<section class="method-elsewhere" aria-labelledby="elsewhere-title">
+  <h2 id="elsewhere-title">On the other tabs</h2>
+  <div class="method-elsewhere__cols">
+  <div id="absences">
+  <h3><a href="/methodology/gaps">What is not here</a></h3>
+  <p><span class="tnum">{{ coverage.sources.registered }}</span> sources registered, <span class="tnum">{{ coverage.sources.with_rows }}</span> with rows flowing.</p>
+  <ul class="method-elsewhere__list">
+    {%- if coverage.technologies.absent %}
+    <li id="absent-technologies"><a href="/methodology/gaps#absent-technologies">Technologies with no rows</a>: <span class="tnum">{{ coverage.technologies.absent | length }}</span></li>
     {%- endif %}
-    <p class="attribution-line">Written <span class="tnum">{{ note.written }}</span>. The numbers above it are measured on every page load; this paragraph is not.</p>
+    {%- if coverage.sources.withheld %}
+    <li id="withheld"><a href="/methodology/gaps#withheld">Registers we hold but do not publish</a>: <span class="tnum">{{ coverage.sources.withheld | length }}</span></li>
+    {%- endif %}
+    <li id="ownership"><a href="/methodology/gaps#ownership">Ownership depth</a>: <span class="tnum">{{ '{:,}'.format(coverage.ownership.without_recorded_parent) }}</span> of <span class="tnum">{{ '{:,}'.format(coverage.ownership.organizations) }}</span> companies have no recorded parent</li>
+    {%- if (coverage.assets or {}).get('by_type') %}
+    <li id="asset-sources"><a href="/methodology/gaps#asset-sources">Existing assets: sources per type</a></li>
+    {%- endif %}
+    {%- if coverage.states.lifecycle_absent or coverage.states.opportunity_status_absent %}
+    <li id="absent-states"><a href="/methodology/gaps#absent-states">Status values no source produces</a></li>
+    {%- endif %}
+    {%- for note in coverage.notes %}
+    <li id="note-{{ note.id }}"><a href="/methodology/gaps#note-{{ note.id }}">{{ note.headline }}</a></li>
+    {%- endfor %}
+  </ul>
   </div>
-  {% endfor %}
+  <div id="states">
+  <h3><a href="/methodology/status-words">Status words</a></h3>
+  <p>What each status asserts, what it does not, and which source values map into it.</p>
+  <ul class="method-elsewhere__list">
+    <li id="lifecycle"><a href="/methodology/status-words#lifecycle">Project status</a></li>
+    <li id="opportunity-statuses"><a href="/methodology/status-words#opportunity-statuses">RFP and funding status</a></li>
+    <li><a href="/glossary">Every status in plain words</a></li>
+  </ul>
+  </div>
+  </div>
 </section>
-
-<section id="states">
-  {{ m.section_heading("3.", "What the status words mean") }}
-  <p>
-    Every chip on every list and record page is one of these words. The definitions are written; what maps into each one is read from the pipeline&rsquo;s own status maps when this page loads, so the values shown are the values used.
-    {% if vocabulary.pre_construction_states %}Four of them &mdash; {% for s in vocabulary.pre_construction_states %}<strong>{{ s | lifecycle_label | lower }}</strong>{% if not loop.last %}, {% endif %}{% endfor %} &mdash; split a pre-construction phase that trackers built from announcements publish as one bucket. That split holds {{ '{:,}'.format(coverage.states.pre_construction_count) }} proposals, and it comes from interconnection queues publishing study stage and agreement status as separate columns.{% endif %}
-  </p>
-
-  <h3 id="lifecycle">Proposal lifecycle</h3>
-  {% for s in vocabulary.lifecycle_states %}
-  {{ state_block(s, coverage.states.lifecycle_counts.get(s.state)) }}
-  {% endfor %}
-
-  <h3 id="opportunity-statuses">Opportunity status</h3>
-  {% for s in vocabulary.opportunity_statuses %}
-  {{ state_block(s, coverage.states.opportunity_status_counts.get(s.state)) }}
-  {% endfor %}
-
-  <p class="attribution-line">
-    Definitions written <span class="tnum">{{ vocabulary.definitions_written }}</span>. The source values under each word are read from the pipeline&rsquo;s {{ vocabulary.status_map_files | length }} status-map files on every request.
-  </p>
-</section>
+</article>
 {% endblock %}
