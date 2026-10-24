@@ -29,7 +29,7 @@ PATH_FIXTURES = {
     "/v1/electricity-generation/monthly": MONTHLY_JSON,
     "/v1/installed-capacity/monthly": CAPACITY_JSON,
 }
-TEST_KEY = "test-key-7f3a9c2e"
+TEST_KEY = "test-ember-key"  # low-entropy fixture value, not a credential (gitleaks generic-api-key)
 
 
 def fixture_bytes(name: str) -> bytes:
