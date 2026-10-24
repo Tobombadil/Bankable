@@ -474,3 +474,4 @@
 - 2026-10-24 coordinator: data-centre sources integrated (EPA ICIS-NPDES construction stormwater, FAA Part 77 cases held unscheduled until the resolver compares points, Loudoun County pipeline); survey renumbered docs/08; PLAN rows.
 - 2026-10-24 coordinator: lane rules for speed (changelog and decision rows returned, no rebase, area tests only, shared measurement data) in CLAUDE.md; PLAN row.
 - 2026-10-24 coordinator: owner's answers A (coordinator calls within recorded rules, daily digest), B (release windows 8 pm and 8 am Denver), C (12-hour design pick timeout) in CLAUDE.md, docs/66 and the PLAN.
+- 2026-10-24 coordinator: repository found public and its four images pullable anonymously; owner decided private before sharing; docs/66 0e steps; history scanned for secrets (none); PLAN row.
