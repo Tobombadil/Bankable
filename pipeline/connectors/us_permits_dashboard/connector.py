@@ -36,6 +36,24 @@ excludes it so a permanently-null field cannot trigger a spurious null-spike gat
 source_record_id: `Project ID`. source_url: `Project Url` (a public permits.performance.gov page
 per project) when the row carries one, else the dataset's landing page.
 Reuse: US federal government work, public domain (`data/sources.yaml`); no gating needed.
+
+TLS (2026-10-24, docs/28 lane F5). Every production run since the first seed failed with
+"certificate verify failed: unable to get local issuer certificate": the host's certificate of
+2026-10-14 is issued by GlobalSign GCC R46 AlphaSSL CA 2025, but the server still sends the
+previous certificate's intermediate (GlobalSign GCC R6 AlphaSSL CA 2025). Browsers fetch the
+missing CA from the certificate's "CA Issuers" URL; OpenSSL does not. The fetch verifies against
+`http.ca_bundle_with(TLS_INTERMEDIATES)`: the usual bundle plus that one CA
+(`globalsign_gcc_r46_alphassl_ca_2025.pem`, its provenance in its header), which chains to GlobalSign
+Root R46 in the bundle. Verification is never turned off. Reproduced from the sandbox the same day:
+the plain fetch failed exactly so; with the bundle, one GET answered 200 with 24,164,767 bytes
+(24,173 milestone rows, the same 74 columns) and the run below passed its data-quality gates with
+105 projects.
+
+Natural persons (2026-10-24). `Project Sponsor` names companies, but on 2026-10-24 one energy-sector
+project named a person as its sponsor (12 of 818 sponsor names across all sectors read as people).
+A sponsor, or one `;`-separated part of it, that `services.personal_names` reads as a person's name
+is withheld: blanked in the stored snapshot (`redact`) and in the parsed row, so it reaches neither
+`sponsor_name`, the `raw` payload, nor the object store. The count is `meta.sponsors_withheld_as_persons`.
 """
 
 from __future__ import annotations
@@ -60,9 +78,14 @@ from pipeline.connectors.canonical import (
     norm_state,
     to_date,
 )
+from pipeline.connectors.http import ca_bundle_with
+from services.personal_names import is_personal_name
 
 CSV_URL = "https://data.permits.performance.gov/api/views/mcm3-xbid/rows.csv?accessType=DOWNLOAD"
 DATASET_PAGE = "https://www.permits.performance.gov/"
+#: The issuing CA the host leaves out of its handshake (module docstring, "TLS").
+TLS_INTERMEDIATES = (pathlib.Path(__file__).with_name("globalsign_gcc_r46_alphassl_ca_2025.pem"),)
+SPONSOR_COLUMN = "Project Sponsor"
 
 # Measured 2026-09-12 against the live dataset (see module docstring for the excluded sectors).
 ENERGY_SECTORS = frozenset(
@@ -131,7 +154,9 @@ class Connector(BaseConnector):
 
     def fetch(self) -> RawSnapshot:
         t0 = time.monotonic()
-        r = self.http.get(CSV_URL, honour_robots=False, timeout=180)
+        r = self.http.get(
+            CSV_URL, honour_robots=False, timeout=180, verify=ca_bundle_with(*TLS_INTERMEDIATES)
+        )
         if r.status_code != 200:
             raise ConnectorError(f"GET {CSV_URL} -> HTTP {r.status_code}")
         return RawSnapshot(
@@ -145,6 +170,35 @@ class Connector(BaseConnector):
             elapsed_s=round(time.monotonic() - t0, 2),
             requests_made=1,
         )
+
+    def redact(self, content: bytes) -> bytes:
+        """Blank every `Project Sponsor` part that reads as a person's name (module docstring), in
+        every sector, before the snapshot is stored. Bytes untouched when there is none. The ids of
+        the projects it changed are kept for `parse`'s count."""
+        self._redacted_project_ids: set[str] = set()
+        bom = content.startswith(b"\xef\xbb\xbf")
+        text = content.decode("utf-8-sig", errors="replace")
+        rows = list(csv.reader(io.StringIO(text, newline="")))
+        if not rows or SPONSOR_COLUMN not in rows[0]:
+            return content
+        col = rows[0].index(SPONSOR_COLUMN)
+        pid = rows[0].index("Project ID") if "Project ID" in rows[0] else None
+        seen: dict[str, tuple[str | None, int]] = {}  # about 800 distinct sponsors over 24,000 rows
+        for row in rows[1:]:
+            if col < len(row):
+                if row[col] not in seen:
+                    seen[row[col]] = withhold_persons(row[col])
+                kept, withheld = seen[row[col]]
+                if withheld:
+                    row[col] = kept or ""
+                    self._redacted_project_ids.add(
+                        row[pid].strip() if pid is not None and pid < len(row) else ""
+                    )
+        if not self._redacted_project_ids:
+            return content
+        out = io.StringIO(newline="")
+        csv.writer(out, lineterminator="\r\n" if "\r\n" in text[:65536] else "\n").writerows(rows)
+        return (b"\xef\xbb\xbf" if bom else b"") + out.getvalue().encode("utf-8")
 
     def parse(self, raw: RawSnapshot) -> list[dict[str, Any]]:
         text = raw.content.decode("utf-8-sig", errors="replace")
@@ -166,11 +220,19 @@ class Connector(BaseConnector):
             groups.setdefault(pid, []).append(row)
 
         projects: list[dict[str, Any]] = []
+        #: Projects whose sponsor lost a part: blanked by `redact` before this parse, or here.
+        redacted: set[str] = self.__dict__.pop("_redacted_project_ids", set())  # this run's `redact`, once
+        withheld = 0
         for group in groups.values():
             first = group[0]
             project = {k: first.get(k) for k in PROJECT_FIELDS}
+            # A snapshot stored before `redact` existed is read through the same rule.
+            project[SPONSOR_COLUMN], n = withhold_persons(project.get(SPONSOR_COLUMN))
+            if n or str(project.get("Project ID") or "").strip() in redacted:
+                withheld += 1
             project["milestones"] = [{k: r.get(k) for k in MILESTONE_FIELDS} for r in group]
             projects.append(project)
+        raw.meta["sponsors_withheld_as_persons"] = withheld
         return projects
 
     def normalize(self, rows: list[dict[str, Any]], raw: RawSnapshot) -> pd.DataFrame:
@@ -211,3 +273,18 @@ class Connector(BaseConnector):
             }
         )
         return self.finalize(df, rows, raw)
+
+
+def withhold_persons(value: Any) -> tuple[str | None, int]:
+    """`value` without the `;`-separated parts `services.personal_names` reads as a person's name,
+    and how many it dropped. None when nothing is left; the value untouched when nothing was."""
+    if value is None:
+        return None, 0
+    text = str(value)
+    parts = text.split(";")
+    kept = [p for p in parts if not (p.strip() and is_personal_name(p.strip()))]
+    dropped = len(parts) - len(kept)
+    if not dropped:
+        return (text if text.strip() else None), 0
+    rest = ";".join(p.strip() for p in kept if p.strip())
+    return (rest or None), dropped

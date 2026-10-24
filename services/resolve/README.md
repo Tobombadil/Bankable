@@ -29,6 +29,13 @@ services/resolve/
   survivorship.py  Field survivorship (docs/22 §23): each field of a multi-source proposal from all
                its active links, with field-level provenance; run on merge/unmerge, after every
                proposal load and store-wide each resolve tick (a restatement, no events).
+  operators.py  Data-centre operators (docs/22 §27): a large-load record is linked to the operator its
+               own name names (data/vendored/organizations/data_centre_operators.yaml), one reversible
+               `sponsor_linked` event each; run by `resolve_organizations` every resolve tick.
+  org_types.py  Organisation types from EIA-860 Schedule 1 (docs/22 §27), read from the stored
+               `us.eia.860` zip; one reversible `type_classified` event per change; same tick.
+  fixtures/data_centre_operator_labels.csv  the hand-checked operator sample and every unlinked
+               record of the 2026-10-23 register, with its reason (test_operators.py).
 
 tests/test_resolve_store.py           canonical choice, the gate (incl. id-reuse refusal), merge
                                        event shape, apply_cluster, organization merge/resolve

@@ -37,6 +37,7 @@ from sqlalchemy.orm import (
     selectinload,
 )
 
+from pipeline.connectors.opportunity import ALL_SOURCE
 from services.api import geo_cache
 from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST
@@ -1214,8 +1215,11 @@ def value_bounds(
 
 
 def _opportunity_technologies_filter(db: Session, values: list[str]) -> ColumnElement[bool]:
-    """Any-of over `Opportunity.technologies[]`; an all-source opportunity (empty array) matches
-    every value (api/openapi.yaml `Technologies` parameter). `technologies` is a real Postgres
+    """Any-of over `Opportunity.technologies[]`, plus every notice tagged `all_source`
+    (`pipeline.connectors.opportunity.ALL_SOURCE`: an all-source or capacity solicitation, which
+    the RFP registers set). An untagged notice (empty array) matches no value: no technology was
+    read from it, and matching it to every value made each option count them (docs/28 B-1:
+    "Offshore wind (82)" held no offshore-wind notice). `technologies` is a real Postgres
     `ARRAY(Text)` in the canonical migration but a JSON-encoded `TEXT` column on SQLite
     (`services/db/types.py TextArray`, this sprint's test target — services/README.md), so the
     membership test is dialect-specific: Postgres uses the native `&&` overlap operator; SQLite
@@ -1224,19 +1228,16 @@ def _opportunity_technologies_filter(db: Session, values: list[str]) -> ColumnEl
     written to spec but not exercised here, same caveat as every other dialect-specific path in
     this service.
     """
-    empty = Opportunity.technologies == []
+    wanted = list(dict.fromkeys([*values, ALL_SOURCE]))
     dialect = db.bind.dialect.name if db.bind is not None else "sqlite"
-    overlap: ColumnElement[bool]
     if dialect == "postgresql":
-        overlap = Opportunity.technologies.op("&&")(list(values))
-    else:
-        # `.like()` on a `TextArray` column would otherwise bind the pattern *through the
-        # column's own type* (`services/db/types.py` JSON-encodes it, turning `%"wind"%` into a
-        # JSON array of one character per list element) rather than as a plain string -- casting
-        # to `Text` first makes the right-hand literal an ordinary string bind again.
-        technologies_text = sa.cast(Opportunity.technologies, sa.Text)
-        overlap = sa.or_(*(technologies_text.like(f'%"{t}"%') for t in values))
-    return sa.or_(empty, overlap)
+        return Opportunity.technologies.op("&&")(wanted)
+    # `.like()` on a `TextArray` column would otherwise bind the pattern *through the column's
+    # own type* (`services/db/types.py` JSON-encodes it, turning `%"wind"%` into a JSON array of
+    # one character per list element) rather than as a plain string -- casting to `Text` first
+    # makes the right-hand literal an ordinary string bind again.
+    technologies_text = sa.cast(Opportunity.technologies, sa.Text)
+    return sa.or_(*(technologies_text.like(f'%"{t}"%') for t in wanted))
 
 
 def _opportunity_query_with_filters(

@@ -3896,3 +3896,81 @@ notices, one event, no runs: it exercises the rule on nothing), 30 calls each: c
   rows for the two operations; `services/trends/snapshot.py::BUCKET_FILTERS["by_country"]` can name `country` for
   its `US` and `GB` buckets (`other` stays unfiltered); `infra/importlinter.ini`'s `private-projects-isolated`
   can list `services.api.front`, `country` and `change_rule` among the public read paths.
+
+## 27. Data-centre operators and organisation types (lane F6, 2026-10-24)
+
+docs/28 B-9 and §3.3, both reproduced on the pulled register (6,633 proposals, 2026-10-23 23:16 UTC) and the
+public organisation list (13,856 rows, pulled 2026-10-24 02:46–03:16 UTC, 70 requests at the public rate): all 582
+large-load records had no sponsor, so `technology=load` returned 0 companies; 13,854 of 13,856 organisations were
+`other`. One claim did not hold: EIA-860 Schedule 1 was not "already loaded". Its workbook sits inside the stored
+`us.eia.860` zip (production's last run succeeded 2026-10-22 00:25:52 UTC by `GET /v1/sources`; the file measured
+here is the same URL's, sha256 `2b27929d…`), but nothing read it: the connector reads Schedule 4 only.
+
+**Operators** (`services/resolve/operators.py`, rules in `data/vendored/organizations/data_centre_operators.yaml`).
+A large-load record is linked to an operator only when its own name, or a source link's name, carries that
+operator's own name; the check runs on every match. A vehicle is linked only when its name names its operator
+(`QTS Richmond V LLC`); `SI NVA05D LLC`, `VADATA Inc` and `Digital Filigree LLC` stay unlinked. A short token that
+is also a building code or a place (H5, T5, Anthem, Visa, Oath) links only in the shape that company files under
+(`T5@CHICAGO III LP`, `H5 DATA CENTERS`); the change removed no link on the measured register. Public bodies and
+non-profits are not listed; a name two operators share links neither; an organisation flagged as a natural person
+is never linked. Each link is a `sponsor_linked` event (before, after, the evidence, the link's provenance quartet,
+no public timestamp); `unlink` reverses one and the pass never re-links it.
+
+**Types** (`services/resolve/org_types.py`, table in `data/vendored/organizations/eia860_entity_types.yaml`, docs/28
+§8.2's mapping). Schedule 1 is read as three columns (id, name, code); addresses are dropped at parse, as are the 15
+rows of 6,946 whose name has a person's shape. Join: the EIA utility id an organisation's EIA-860M link carries,
+when that link's `Entity Name` is the organisation's; else `org_key`. Only `other`, or a type this pass set,
+changes; a name-only match on an organisation whose records are all outside the US is refused. Each change is a
+`type_classified` event with the snapshot's quartet; `revert` undoes one for good.
+
+**How the stored rows get it.** Both passes run inside `resolve_organizations`, which the scheduler's
+`resolve_tick` calls after every load and daily, so the first tick after deploy writes them over every stored row
+and a record loaded later is linked on the tick its load chains into; the companies index refreshes at the end of
+the same tick. A link survives later loads: the loader sets a sponsor only when it creates a record and
+survivorship never touches one. No migration and no one-off job. A failure is rolled back to a savepoint and
+reported; the merges stand. Steady state on the measured store (everything already linked and typed), median of
+3 on SQLite: operator pass 0.74 s, type pass 1.54 s, plus 0.81 s to parse Schedule 1 once per snapshot per process.
+Neither event type is news: both carry no `public_at`, so `event_visibility_filter` keeps them out of every feed,
+alert, webhook and trend count. By hand: `python -m services.resolve.operators [--dry-run]`,
+`python -m services.resolve.org_types [--archive ZIP] [--dry-run]`.
+
+**Measured** on an SQLite store built from the pulled register and organisation list (the 582 load records with
+their links; the 2,271 EIA-860M records with each link's `Entity ID` and `Entity Name` from the EIA-860M workbook of
+2026-10-23), then the two passes and `services.api.org_stats_refresh.refresh`:
+
+| | Before | After |
+|---|---:|---:|
+| Data centres with a sponsor | 0 of 582 | 365 of 582 (113 operators; 101 organisations created, 12 existing) |
+| Active data centres (filed, under construction) with a sponsor | 0 of 73 | 40 of 73 |
+| Companies, `technology=load`, group scope, public tier | 0 | 14 |
+| Companies `other` / `ipp` / `agency` / `utility` / `coop` (the 13,856) | 13,854 / 0 / 2 / 0 / 0 | 7,834 / 4,874 / 841 / 190 / 117 |
+
+The 14: Amazon.com, Inc. (17 active records), Joule Capital Partners (6), Vantage Data Centers (3), EdgeConneX,
+Microsoft Corporation, Core Scientific, Inc. (2 each), Clean Arc Data Centers, DataBank, Equinix, Iron Mountain
+Incorporated, Oso Grande Technologies, QTS Data Centers, T5 Data Centers, The Travelers Companies, Inc. (1 each).
+It is 14, not 113, because the index takes a company's technologies from its current assets and active pipeline
+(`services/api/org_stats.py`), and a built data centre is a proposal, not an asset: the other 99 operators hold
+only built or unknown-state records (309 built, 16 unknown of the 365). Of the 217 unlinked: 161 vehicles, addresses or site codes that name no operator, 33 that name a company the file does
+not list or a vehicle whose owner is known only by repute, 22 public bodies or non-profits, 1 conflict. Types: 6,809
+organisations matched Schedule 1 (936 by utility id, 5,873 by name); 789 industrial or commercial stay `other`;
+5 conflicts, 1 foreign, 28 natural persons and 2 curated issuers left alone; 7,112 have no EIA row (NESO, ERCOT and
+other non-EIA sponsors). The 101 operator organisations are created `other`.
+
+**Precision.** Operators: seeded sample (`random.Random(20261024)`) of 80 links, hand-checked: 77 correct, 3
+uncertain (an ADP-named Maryland entity, Colovore in Illinois, `Chantilly Technology Partners, LLC/H5 VA`), 0
+wrong: 0.963 strict (Wilson 95 % 0.895–0.987). In-sample: the file was written from these 582 names, so a later
+register's names will do worse; `services/resolve/fixtures/data_centre_operator_labels.csv` (the 80 and all 217
+unlinked, each with its reason) pins every verdict in a test. Types: on the 936 organisations both joins reach, the
+name join gives the utility id's type 936 times of 936 (0.996–1.000); a seeded sample of 60 name-only matches is
+60 of 60 the same entity as EIA's row, and 58 of 60 read right: two follow EIA's code but read oddly (a tribal
+government coded Q, a utility-owned project company coded I).
+
+- **A-22-38:** the name a data-centre register files under names its operator when it carries the operator's
+  own name; a vehicle that does not is unknown, not anyone's.
+- **A-22-39:** EIA's `Entity Type` describes the organisation EIA files under that name; types follow EIA's code
+  even where it reads oddly, and the raw code is on every event for a later split.
+- Open, outside this lane's files: `infra/scheduler/jobs.py::default_resolve` reads `organizations_merged` from an
+  attribute the report never had (`merged`), so it always says 0, and does not surface the two new reports
+  (they are logged); the 101 operator organisations could take a data-centre operator type once the vocabulary
+  has one (F1); whether built data centres should count under Companies' Large load (F1, `org_stats`); municipal,
+  state and federal utilities read as Public agency per docs/28 §8.2 (owner question).

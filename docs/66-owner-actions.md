@@ -61,6 +61,13 @@ that run on GitHub's machines, then one deploy. About 30 minutes of clicks, up t
 **Start when the coordinator says the release is ready**, except step (a), which comes first. Detail:
 [`docs/25` §2.7, §5, §7](https://github.com/Tobombadil/Bankable/blob/claude/sprint-3-attio-adapter-sbxbvy/docs/25-grid-interconnection-and-siting.md).
 
+**Where it stands (2026-10-24, 02:20 UTC, lane F5).** Production runs the release with the memory change
+(`/v1/health` build `5c0d6b11af47`) and reads `"site_finder": {"computed": false, "segments": 0}`.
+[tiles.inframation.io/grid/osm-power/latest.json](https://tiles.inframation.io/grid/osm-power/latest.json)
+answers 404: step (b) 1 has not published, and the finder's only line source (OpenStreetMap) reaches the
+server through that file alone, so there is nothing to measure yet. Next: (b), then (d) `seed`. After the
+next deploy, deploy-beta's `status` action ends with a "Site finder:" line naming what is missing.
+
 **The worker's memory.** The Texas run peaked at 1.2 GB, and the server's worker is limited to 1 GB until the
 coordinator raises it to 3 GB (`infra/compose/compose.single.yml`). Until that change is deployed, the server
 pulls and loads the data but does not start the site finder run: it logs `site_finder_refresh: not run: the

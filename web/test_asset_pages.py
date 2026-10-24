@@ -11,6 +11,7 @@ contract this file codes against.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Mapping
 from typing import Any
 
@@ -468,7 +469,8 @@ def test_search_renders_organizations_section(web_client: TestClient) -> None:
 
     assert resp.status_code == 200
     body = resp.text
-    assert "<h2>Companies</h2>" in body  # docs/30 §1 naming (UX-7)
+    # docs/30 §1 naming (UX-7): the one kind found opens, under a head that names it.
+    assert 'id="search-list-title">Companies' in body
     assert 'href="/organizations/nextera-energy-resources"' in body
     calls = [c for c in transport.calls if c[1] == "/v1/organizations"]
     assert calls[0][2]["q"] == "nextera"
@@ -1098,7 +1100,7 @@ def test_organization_detail_lists_proposals_near_its_assets_with_nearest_asset(
 
     body = web_client.get("/organizations/tallgrass-energy").text
 
-    section = body.split("Proposals near these assets")[1].split("</section>")[0]
+    section = body.split("Projects near its assets")[1].split("</section>")[0]
     assert "Cheyenne Storage 1" in section and "12.3 km away" in section
     assert 'nearest: <a href="/assets/rockies-express-pipeline">Rockies Express Pipeline</a>' in section
     assert 'class="mini-map__proposal"' in body  # drawn on the company map too
@@ -1107,7 +1109,9 @@ def test_organization_detail_lists_proposals_near_its_assets_with_nearest_asset(
 
 
 def test_organization_detail_survives_a_missing_nearby_endpoint(web_client: TestClient) -> None:
-    """An API without `/v1/organizations/{id}/nearby-proposals` yet (404) still renders the page."""
+    """An API without `/v1/organizations/{id}/nearby-proposals` yet (404) still renders the page. The
+    section says it was not read (lane stacked-lists, fix round): it used to say "No exact-grade
+    projects within 25 km", a claim about the data that an unanswered read cannot make."""
     transport = _tallgrass_transport()
     transport.responses.pop("/v1/organizations/org_01TALLGRASS/nearby-proposals")
     _install(transport)
@@ -1115,7 +1119,8 @@ def test_organization_detail_survives_a_missing_nearby_endpoint(web_client: Test
     resp = web_client.get("/organizations/tallgrass-energy")
 
     assert resp.status_code == 200
-    assert "No exact-grade proposals within 25" in resp.text
+    assert "Projects near these assets could not be read just now." in resp.text
+    assert "No exact-grade projects within 25" not in resp.text
 
 
 def test_asset_by_public_id_redirects_to_the_slug_page(web_client: TestClient) -> None:
@@ -1150,11 +1155,19 @@ def test_search_resolves_a_pipeline_operator_and_a_pipeline_asset(web_client: Te
     body = resp.text
     assert 'href="/organizations/tallgrass-energy"' in body and "Tallgrass Energy" in body
     assert "Pipeline operator" in body
-    assert 'href="/assets/rockies-express-pipeline"' in body and "Rockies Express Pipeline" in body
-    assert "Gas pipeline · Tallgrass Energy · CO, WY" in body
-    # Lane V7: the counts are the tabs' (docs/30 §11.4), one per kind, each its own URL.
-    assert 'Companies <span class="search-tabs__n tnum">1</span>' in body
-    assert 'Infrastructure <span class="search-tabs__n tnum">1</span>' in body
+    # Lane V7, then lane stacked-lists: every kind's count beside it (docs/30 §11.4), each its own URL;
+    # one kind at a time, so the pipeline is on the Infrastructure view, not stacked under the company.
+    assert 'Companies <span class="search-kinds__n tnum">1</span>' in body
+    assert 'Infrastructure <span class="search-kinds__n tnum">1</span>' in body
+    assets = web_client.get("/search", params={"q": "Tallgrass", "type": "infrastructure"}).text
+    assert 'href="/assets/rockies-express-pipeline"' in assets and "Rockies Express Pipeline" in assets
+    row = assets.split('href="/assets/rockies-express-pipeline"', 1)[1].split("</tr>", 1)[0]
+    cells = re.findall(r'<td data-label="(\w+)" class="cell-meta[^"]*">(.*?)</td>', row)
+    assert cells[:3] == [
+        ("Type", "Gas pipeline"),
+        ("Operator", "Tallgrass Energy"),
+        ("Where", "CO, WY, NE, KS, MO, IL, IN, OH"),
+    ]
     asset_calls = [c for c in transport.calls if c[1] == "/v1/assets"]
     assert asset_calls[0][2] == {"q": "Tallgrass", "limit": 50}
 
@@ -1175,7 +1188,7 @@ def test_search_survives_an_assets_list_error(web_client: TestClient) -> None:
     assert resp.status_code == 200
     # Lane V7: the failed kind says so in its own block and its tab shows a dash, not a zero.
     assert "Infrastructure could not be searched just now." in resp.text
-    assert 'Infrastructure <span class="search-tabs__n tnum">—</span>' in resp.text
+    assert 'Infrastructure <span class="search-kinds__n tnum">—</span>' in resp.text
 
 
 def test_map_script_draws_asset_lines_and_the_new_point_types() -> None:
@@ -1864,10 +1877,110 @@ def test_organization_nearby_list_groups_generator_units(web_client: TestClient)
 
     body = web_client.get("/organizations/tallgrass-energy").text
 
-    nearby = body.split('aria-label="Nearby proposals"')[1].split("</section>")[0]
+    nearby = body.split('aria-labelledby="nearby-title" id="nearby"')[1].split("</section>")[0]
     assert nearby.count("<li>") == 1
     assert "&times; 2 units" in nearby and "150 MW" in nearby and "3.5 km away" in nearby
     assert 'href="/proposals/unit-2"' in nearby and "Rockies Express Pipeline" in nearby
+
+
+def _nearby_heading(body: str) -> str:
+    return body.split('id="nearby-title">')[1].split("</h2>")[0]
+
+
+@pytest.mark.parametrize("matched", [12, 150])
+def test_the_nearby_heading_prints_the_apis_count_as_its_notice_does(
+    web_client: TestClient, matched: int
+) -> None:
+    """Reviewer, 2026-10-24 (lane stacked-lists, fix round): the heading counted the rendered rows, so
+    with 12 matched and three rows, two of them units of one project, it read "Projects near its
+    assets 2" over "Showing all 12 nearby proposals", and "1" over "Showing all 150". It prints the
+    API's `proposals_within_radius` now, as the notice and the Projects heading do."""
+    nearest = {
+        "public_id": "asset_01REX",
+        "slug": "rockies-express-pipeline",
+        "name": "Rockies Express Pipeline",
+    }
+    rows = [
+        _nearby_row(
+            public_id="prop_u1", slug="unit-1", name_canonical="Prairie Solar", nearest_asset=nearest
+        ),
+        _nearby_row(
+            public_id="prop_u2", slug="unit-2", name_canonical="Prairie Solar", nearest_asset=nearest
+        ),
+        _nearby_row(
+            public_id="prop_x", slug="other-1", name_canonical="Other Storage", nearest_asset=nearest
+        ),
+    ]
+    totals = {"proposals_within_radius": matched, "proposals_within_radius_unfiltered": matched}
+    transport = _tallgrass_transport()
+    transport.responses["/v1/organizations/org_01TALLGRASS/nearby-proposals"] = (
+        200,
+        {"data": rows, "totals": totals},
+    )
+    _install(transport)
+
+    body = web_client.get("/organizations/tallgrass-energy?nearby_technology=all").text
+
+    heading = _nearby_heading(body)
+    assert re.sub(r"<[^>]+>", "", heading).split() == ["Projects", "near", "its", "assets", f"{matched:,}"], (
+        heading
+    )
+    notice = body.split('id="nearby-filter-notice"')[1].split("</p>")[0]
+    assert f"Showing all {matched} nearby proposals" in notice, notice
+
+
+def test_an_unread_nearby_list_claims_no_count(web_client: TestClient) -> None:
+    """A kind whose read fails costs only itself, and says so: no "0" in the heading, no "Showing all 0
+    nearby proposals", and no claim that nothing is within 25 km."""
+    transport = _tallgrass_transport()
+    transport.responses["/v1/organizations/org_01TALLGRASS/nearby-proposals"] = (
+        503,
+        {"title": "unavailable"},
+    )
+    _install(transport)
+
+    body = web_client.get("/organizations/tallgrass-energy").text
+
+    assert "org-section__n" not in _nearby_heading(body)
+    nearby = body.split('aria-labelledby="nearby-title" id="nearby"')[1].split("</section>")[0]
+    assert "could not be read just now" in nearby
+    assert "nearby-filter-notice" not in nearby and "No exact-grade projects" not in nearby
+    # The rest of the page still renders its own lists.
+    assert 'id="assets-title"' in body and 'id="proposals-title"' in body
+
+
+def test_the_rfps_heading_says_when_the_company_has_more_notices_than_the_page_read(
+    web_client: TestClient,
+) -> None:
+    """Reviewer: "RFPs & funding N" counted one page of `limit=100`, so an issuer with more notices than
+    that, such as a federal agency on Grants.gov, read "100" with no "+"."""
+    transport = _tallgrass_transport()
+    opportunity = {
+        "public_id": "opp_01A",
+        "slug": "grid-resilience-grants",
+        "title": "Grid resilience grants",
+        "status": "open",
+        "kind": "grant",
+        "provenance": [],
+    }
+    transport.responses["/v1/organizations/org_01TALLGRASS/opportunities"] = (
+        200,
+        {"data": [opportunity], "page": {"has_more": True, "next_cursor": "c2"}},
+    )
+    _install(transport)
+
+    body = web_client.get("/organizations/tallgrass-energy").text
+
+    heading = body.split('id="opportunities-title">')[1].split("</h2>")[0]
+    assert '<span class="org-section__n tnum">1+</span>' in heading, heading
+
+    transport.responses["/v1/organizations/org_01TALLGRASS/opportunities"] = (
+        200,
+        {"data": [opportunity], "page": {"has_more": False, "next_cursor": None}},
+    )
+    body = web_client.get("/organizations/tallgrass-energy").text
+    heading = body.split('id="opportunities-title">')[1].split("</h2>")[0]
+    assert '<span class="org-section__n tnum">1</span>' in heading, heading
 
 
 def test_search_assets_section_labels_ethanol_and_rng_types(web_client: TestClient) -> None:
@@ -1886,16 +1999,33 @@ def test_search_assets_section_labels_ethanol_and_rng_types(web_client: TestClie
 
     body = web_client.get("/search?q=energy").text
 
-    # Lane V7: assets are the Infrastructure kind, counted on its tab (docs/30 §11.4).
-    section = body.split("<h2>Infrastructure</h2>")[1].split("</section>")[0]
-    assert 'Infrastructure <span class="search-tabs__n tnum">3</span>' in body
-    ethanol = section.split("Absolute Energy LLC (St Ansgar, IA)</a>")[1].split("</li>")[0]
-    assert "Ethanol plant · Absolute Energy LLC · US-IA" in ethanol
-    lmop = section.split("City of Charleston Landfill</a>")[1].split("</li>")[0]
-    assert "RNG project · Landfill gas to electricity · Tallarico Energy · US-WV" in lmop
-    agstar = section.split("Tinedale Farms Digester</a>")[1].split("</li>")[0]
-    assert "RNG project · Farm digester · US-WI" in agstar
-    assert "—" not in section and ">None<" not in section
+    # Lane V7: assets are the Infrastructure kind, counted beside it (docs/30 §11.4); the only kind
+    # found, so the page opens on it (lane stacked-lists), one table whose columns each mean one thing.
+    section = body.split('id="search-list-title">Infrastructure', 1)[1].split("</section>")[0]
+    assert 'Infrastructure <span class="search-kinds__n tnum">3</span>' in body
+
+    def cells(name: str) -> list[tuple[str, str, str]]:
+        row = section.split(name + "</a>", 1)[1].split("</tr>", 1)[0]
+        return re.findall(r'<td data-label="(\w+)" class="cell-meta([^"]*)">(.*?)</td>', row)
+
+    assert cells("Absolute Energy LLC (St Ansgar, IA)")[:3] == [
+        ("Type", "", "Ethanol plant"),
+        ("Operator", "", "Absolute Energy LLC"),
+        ("Where", "", "US-IA"),
+    ]
+    assert cells("City of Charleston Landfill")[:3] == [
+        ("Type", "", "RNG project, Landfill gas to electricity"),
+        ("Operator", "", "Tallarico Energy"),
+        ("Where", "", "US-WV"),
+    ]
+    # A value the register does not state is a grey dash in the table and left off a phone's line
+    # (`is-empty`), never "None".
+    assert cells("Tinedale Farms Digester")[:3] == [
+        ("Type", "", "RNG project, Farm digester"),
+        ("Operator", " is-empty", "—"),
+        ("Where", "", "US-WI"),
+    ]
+    assert ">None<" not in section
 
 
 def test_asset_detail_proxy_relays_the_detail_envelope_without_cookies(web_client: TestClient) -> None:

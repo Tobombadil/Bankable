@@ -37,7 +37,7 @@
       <button type="button" class="search-toggle" aria-expanded="false" aria-controls="site-search"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-search"/></svg><span class="visually-hidden">Search</span></button>
       <form class="site-search" id="site-search" action="/search" method="get" role="search" aria-label="Site search">
         <label class="visually-hidden" for="site-search-q">Search projects, companies, RFPs and infrastructure</label>
-        <input id="site-search-q" type="search" name="q" placeholder="Search by name, sponsor, queue ID&hellip;" value="{{ request.query_params.get('q', '') }}">
+        <input id="site-search-q" type="search" name="q" placeholder="Name, company or queue ID" value="{{ request.query_params.get('q', '') }}">
         <button type="submit" class="site-search__submit"><svg class="icon" width="20" height="20" aria-hidden="true"><use href="#icon-search"/></svg><span class="visually-hidden">Search</span></button>
         <button type="button" class="site-search__close">Close</button>
       </form>

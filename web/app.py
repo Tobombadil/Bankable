@@ -1382,11 +1382,17 @@ def asset_detail_proxy(request: Request, public_id: str) -> JSONResponse:
     return JSONResponse(envelope)
 
 
-# ---- Search (Navigation v2 lane V7; docs/30 §11.4, docs/16 §4.4 U-8) ---------------------------------
-#: The type tabs after "All", in order: companies first (the owner's "companies on top"), then the
-#: Market lists in their bar's order, then public money. RFPs are buyers asking for projects and Funding
-#: is public money offered (docs/30 §11.2); a notice goes where its kind says, the split `/funding` makes
-#: in lane V4. "RFPs" is typed here because the section label still reads "RFPs & funding" until then.
+# ---- Search (Navigation v2 lane V7; docs/30 §11.4, docs/16 §4.4 U-8; lane stacked-lists) ---------------
+#: The kinds of record a search finds, in their fixed order: companies first (the owner's "companies on
+#: top"), then the Market lists in their bar's order, then public money. RFPs are buyers asking for projects
+#: and Funding is public money offered (docs/30 §11.2); a notice goes where its kind says, the split
+#: `/funding` makes in lane V4. "RFPs" is typed here because the section label still reads "RFPs & funding"
+#: until then.
+#:
+#: The page shows one kind at a time (owner, 2026-10-24: "different stacked lists are really confusing ...
+#: I don't really know what I'm looking at"): every kind with its count down the left, one list at the
+#: right under a heading that names its kind and count and stays in view as the rows scroll. Without a
+#: `type` the page opens on the kind with the most matches (`search_opening_kind`).
 SEARCH_TABS: tuple[tuple[str, str], ...] = (
     ("companies", SECTION_LABELS["companies"]),
     ("projects", SECTION_LABELS["projects"]),
@@ -1397,11 +1403,12 @@ SEARCH_TABS: tuple[tuple[str, str], ...] = (
 SEARCH_TAB_KEYS = frozenset(key for key, _ in SEARCH_TABS)
 SEARCH_RFP_KINDS = "rfp,tender,auction,procurement_notice"
 SEARCH_FUNDING_KINDS = "foa,loan_program,program"
-#: Rows per bucket on "All" (docs/16 §4.4: "five rows per bucket ... each with All N"), and on a type tab.
-SEARCH_ALL_ROWS = 5
+#: Rows read of a kind the page does not open: enough for its count and for the top hit, which is read from
+#: the first companies and assets. The kind the page opens shows up to `SEARCH_TAB_ROWS`.
+SEARCH_COUNT_ROWS = 5
 SEARCH_TAB_ROWS = 50
 #: `GET /v1/assets` takes no `include=count`, so Infrastructure always reads one page of 50 and says "50+"
-#: when there is more, on every tab: a count of "5+" would say nothing.
+#: when there is more: a count of "5+" would say nothing.
 SEARCH_ASSET_ROWS = 50
 #: A top hit needs at least this many letters or digits of query: "so" would make every name a match.
 SEARCH_TOP_HIT_MIN = 3
@@ -1423,12 +1430,12 @@ def _search_bucket(
     credits: list[dict[str, Any]] | None = None,
     read: int | None = None,
 ) -> dict[str, Any]:
-    """One tab's results: its rows, its total and how the tab prints it, and the list that holds them all.
+    """One kind's results: its rows, its total and how the page prints it, and the list that holds them all.
 
     The total is the API's count where the route counts (`include=count`); otherwise the rows read, with
     a "+" when the page says there are more (`read`: how many were read, when more were read than shown).
-    Each tab and "All N" link carries the same query, and the full list link reproduces exactly the set
-    counted, so a figure never names more than its link shows.
+    Each kind's link and its "Open all N" link carry the same query, and the full list link reproduces
+    exactly the set counted, so a figure never names more than its link shows.
     """
     meta = (envelope or {}).get("meta") or {}
     page = (envelope or {}).get("page") or {}
@@ -1450,8 +1457,8 @@ def _search_bucket(
 
 
 def _search_read(api: ApiClient, path: str, params: dict[str, Any]) -> Mapping[str, Any] | None:
-    """One bucket's read. A refusal for capacity, an upstream failure or a list route this API does not
-    serve costs that bucket only (it says it could not be searched), as the assets bucket always did; any
+    """One kind's read. A refusal for capacity, an upstream failure or a list route this API does not
+    serve costs that kind only (it says it could not be searched), as the assets read always did; any
     other client error is a bug in this page and stays loud."""
     try:
         return api.get(path, params=params)
@@ -1481,38 +1488,68 @@ def search_top_hit(
     return None
 
 
+#: The kind a top hit belongs to, by the key of the list that holds it.
+SEARCH_HIT_KINDS = {"company": "companies", "asset": "infrastructure"}
+SEARCH_TAB_ORDER = {key: n for n, (key, _) in enumerate(SEARCH_TABS)}
+
+
+def search_opening_kind(buckets: Sequence[Mapping[str, Any]]) -> str | None:
+    """The kind a search without `type` opens on: the one with the most matches, ties going to the fixed
+    order (companies first). A kind that could not be searched is never opened on its own; `None` when
+    nothing matched, so the page says so once instead of opening an empty list."""
+    found = [b for b in buckets if not b["error"] and b["total"]]
+    if not found:
+        return None
+    return str(max(found, key=lambda b: (b["total"], -SEARCH_TAB_ORDER[b["key"]]))["key"])
+
+
 @app.get("/search", response_class=HTMLResponse)
 def search(request: Request) -> HTMLResponse:
-    """One field, five kinds of record (docs/30 §11.4): tabs with counts, a top hit, five rows per kind on
-    "All" and fifty on a kind's own tab, each with its sources credited. `type` picks the tab; an unknown
-    one is "All". Five reads per search, whichever tab: the tabs print every kind's count."""
+    """One field, five kinds of record, one kind at a time (docs/30 §11.4): every kind with its count down
+    the left, the open kind's first fifty rows at the right with its full list and its sources credited,
+    and a top hit above them when the words start a company or asset name of another kind. `type` picks
+    the kind; without it, or with an unknown one, the page opens on the kind with the most matches. Five
+    reads per search, all kinds counted; a sixth reads the opened kind's fifty rows when the page chose
+    it."""
     api = get_api(request)
     qp = request.query_params
     q = qp.get("q", "").strip()
-    view = qp.get("type", "").strip().lower()
-    view = view if view in SEARCH_TAB_KEYS else "all"
+    asked = qp.get("type", "").strip().lower()
+    asked = asked if asked in SEARCH_TAB_KEYS else ""
     if not q:
-        return templates.TemplateResponse(request, "search.html", {"q": "", "view": "all", "buckets": []})
+        return templates.TemplateResponse(request, "search.html", {"q": "", "view": "", "buckets": []})
 
     def limit(key: str) -> int:
-        return SEARCH_TAB_ROWS if view == key else SEARCH_ALL_ROWS
+        return SEARCH_TAB_ROWS if asked == key else SEARCH_COUNT_ROWS
+
+    every_state = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
+    every_notice = {"q": q, "status": "all", "relevance": OPPORTUNITY_RELEVANCE_ALL}
+    tab_labels = dict(SEARCH_TABS)
 
     # Companies: the group's figures, as the companies index shows them by default.
-    org_env = _search_read(
-        api,
-        "/v1/organizations",
-        {"q": q, "limit": limit("companies"), "include": "count", ORG_SCOPE_PARAM: ORG_DEFAULT_SCOPE},
-    )
-    org_entities = list((org_env or {}).get("data") or [])
-    companies = [org_index_row(e, scope=ORG_DEFAULT_SCOPE) for e in org_entities]
+    def read_companies(n: int) -> tuple[Mapping[str, Any] | None, list[dict[str, Any]]]:
+        env = _search_read(
+            api,
+            "/v1/organizations",
+            {"q": q, "limit": n, "include": "count", ORG_SCOPE_PARAM: ORG_DEFAULT_SCOPE},
+        )
+        return env, list((env or {}).get("data") or [])
+
     # Projects in every lifecycle state: the API's default, and the full list's link names all of them so
     # it is not narrowed to the list's own default (active states, listed records).
-    projects_env = _search_read(
-        api, "/v1/proposals", {"q": q, "limit": limit("projects"), "include": "count"}
-    )
-    projects = [flatten_proposal(e) for e in (projects_env or {}).get("data") or []]
-    # Midstream slice: assets by name, operator or owner (`/v1/assets?q=`), so "Rockies Express" (a
-    # pipeline) and "Tallgrass" (its operator) both resolve from the search box.
+    def read_projects(n: int) -> tuple[Mapping[str, Any] | None, list[dict[str, Any]]]:
+        env = _search_read(api, "/v1/proposals", {"q": q, "limit": n, "include": "count"})
+        return env, [flatten_proposal(e) for e in (env or {}).get("data") or []]
+
+    def read_notices(key: str, kinds: str, n: int) -> tuple[Mapping[str, Any] | None, list[dict[str, Any]]]:
+        params = {"q": q, "limit": n, "include": "count", "status": ALL_OPPORTUNITY_STATUSES_CSV}
+        env = _search_read(api, "/v1/opportunities", {**params, "kind": kinds})
+        return env, [flatten_opportunity(e) for e in (env or {}).get("data") or []]
+
+    org_env, org_entities = read_companies(limit("companies"))
+    projects_env, projects = read_projects(limit("projects"))
+    # Midstream slice: assets by name, operator or owner (`/v1/assets?q=`), so a pipeline and its operator
+    # both resolve from the search box.
     assets_env = _search_read(api, "/v1/assets", {"q": q, "limit": SEARCH_ASSET_ROWS})
     assets: list[dict[str, Any]] = []
     for e in (assets_env or {}).get("data") or []:
@@ -1520,76 +1557,91 @@ def search(request: Request) -> HTMLResponse:
         flat.update(_asset_extras(e))
         flat["operator_name"] = flat["operator"].get("name")
         assets.append(flat)
+    rfps_env, rfps = read_notices("rfps", SEARCH_RFP_KINDS, limit("rfps"))
+    funding_env, funding = read_notices("funding", SEARCH_FUNDING_KINDS, limit("funding"))
 
-    def notices(key: str, kinds: str) -> tuple[Mapping[str, Any] | None, list[dict[str, Any]]]:
-        params = {"q": q, "limit": limit(key), "include": "count", "status": ALL_OPPORTUNITY_STATUSES_CSV}
-        env = _search_read(api, "/v1/opportunities", {**params, "kind": kinds})
-        return env, [flatten_opportunity(e) for e in (env or {}).get("data") or []]
+    def buckets_now() -> list[dict[str, Any]]:
+        return [
+            _search_bucket(
+                "companies",
+                tab_labels["companies"],
+                [org_index_row(e, scope=ORG_DEFAULT_SCOPE) for e in org_entities],
+                org_env,
+                list_href="/organizations?" + urlencode({"q": q}),
+                q=q,
+            ),
+            _search_bucket(
+                "projects",
+                tab_labels["projects"],
+                projects,
+                projects_env,
+                list_href="/proposals?" + urlencode({"q": q, "lifecycle_state": every_state}),
+                q=q,
+                credits=page_credits(projects_env) if projects_env else [],
+            ),
+            _search_bucket(
+                "infrastructure",
+                tab_labels["infrastructure"],
+                assets[:SEARCH_TAB_ROWS],
+                assets_env,
+                list_href="/assets?" + urlencode({"q": q}),
+                q=q,
+                # `/v1/assets` sends an empty licence summary; each row carries its provenance.
+                credits=page_credits(assets_env, assets_env["data"]) if assets_env else [],
+                read=len(assets),
+            ),
+            _search_bucket(
+                "rfps",
+                tab_labels["rfps"],
+                rfps,
+                rfps_env,
+                list_href="/opportunities?" + urlencode({**every_notice, "kind": SEARCH_RFP_KINDS}),
+                q=q,
+                credits=page_credits(rfps_env) if rfps_env else [],
+            ),
+            _search_bucket(
+                "funding",
+                tab_labels["funding"],
+                funding,
+                funding_env,
+                list_href="/opportunities?" + urlencode({**every_notice, "kind": SEARCH_FUNDING_KINDS}),
+                q=q,
+                credits=page_credits(funding_env) if funding_env else [],
+            ),
+        ]
 
-    rfps_env, rfps = notices("rfps", SEARCH_RFP_KINDS)
-    funding_env, funding = notices("funding", SEARCH_FUNDING_KINDS)
-
-    every_state = ",".join(ALL_PROPOSAL_LIFECYCLE_STATES)
-    every_notice = {"q": q, "status": "all", "relevance": OPPORTUNITY_RELEVANCE_ALL}
-    tab_labels = dict(SEARCH_TABS)
-    shown = SEARCH_TAB_ROWS if view != "all" else SEARCH_ALL_ROWS
-    buckets = [
-        _search_bucket(
-            "companies",
-            tab_labels["companies"],
-            companies,
-            org_env,
-            list_href="/organizations?" + urlencode({"q": q}),
-            q=q,
-        ),
-        _search_bucket(
-            "projects",
-            tab_labels["projects"],
-            projects,
-            projects_env,
-            list_href="/proposals?" + urlencode({"q": q, "lifecycle_state": every_state}),
-            q=q,
-            credits=page_credits(projects_env) if projects_env else [],
-        ),
-        _search_bucket(
-            "infrastructure",
-            tab_labels["infrastructure"],
-            assets[:shown],
-            assets_env,
-            list_href="/assets?" + urlencode({"q": q}),
-            q=q,
-            # `/v1/assets` sends an empty licence summary; each row carries its provenance.
-            credits=page_credits(assets_env, assets_env["data"]) if assets_env else [],
-            read=len(assets),
-        ),
-        _search_bucket(
-            "rfps",
-            tab_labels["rfps"],
-            rfps,
-            rfps_env,
-            list_href="/opportunities?" + urlencode({**every_notice, "kind": SEARCH_RFP_KINDS}),
-            q=q,
-            credits=page_credits(rfps_env) if rfps_env else [],
-        ),
-        _search_bucket(
-            "funding",
-            tab_labels["funding"],
-            funding,
-            funding_env,
-            list_href="/opportunities?" + urlencode({**every_notice, "kind": SEARCH_FUNDING_KINDS}),
-            q=q,
-            credits=page_credits(funding_env) if funding_env else [],
-        ),
-    ]
+    buckets = buckets_now()
+    top_hit = None if asked else search_top_hit(q, org_entities, assets)
+    view = asked or search_opening_kind(buckets)
+    if not asked and view and view != "infrastructure":
+        # The page chose this kind from five rows each: read its fifty. Its count is that read's too, so
+        # the figure beside the list and the list come from one answer.
+        if view == "companies":
+            org_env, org_entities = read_companies(SEARCH_TAB_ROWS)
+        elif view == "projects":
+            projects_env, projects = read_projects(SEARCH_TAB_ROWS)
+        elif view == "rfps":
+            rfps_env, rfps = read_notices("rfps", SEARCH_RFP_KINDS, SEARCH_TAB_ROWS)
+        else:
+            funding_env, funding = read_notices("funding", SEARCH_FUNDING_KINDS, SEARCH_TAB_ROWS)
+        buckets = buckets_now()
+    current = next((b for b in buckets if b["key"] == view), None)
+    # The top hit stands above the list only when it is of another kind: of the open kind, it is already
+    # one of that list's rows (the first, among the rows read, whose name the words start, so it may be
+    # the second to fifth), and is not printed twice.
+    if top_hit and current and SEARCH_HIT_KINDS[top_hit["kind"]] == current["key"]:
+        top_hit = None
     return templates.TemplateResponse(
         request,
         "search.html",
         {
             "q": q,
-            "view": view,
+            "view": view or "",
+            "chosen": not asked,
             "buckets": buckets,
-            "current": next((b for b in buckets if b["key"] == view), None),
-            "top_hit": search_top_hit(q, org_entities, assets) if view == "all" else None,
+            "current": current,
+            "failed": [b for b in buckets if b["error"] and b["key"] != view],
+            "top_hit": top_hit,
             "org_credits_note": ORG_CREDITS_NOTE,
         },
     )

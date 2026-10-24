@@ -76,17 +76,52 @@ def test_every_raw_string_in_the_table_gets_its_pinned_class() -> None:
             "Non-Federal Hydropower - Licenses (including Non-Federal Marine and Hydrokinetic Projects)",
             "hydro",
         ),
-        # An LNG terminal "in State Water" is not hydro.
+        # An LNG terminal "in State Water" is not hydro, and not gas generation either (docs/28 B-2).
         (
             "Liquefied Natural Gas Terminal Facilities (Onshore or in State Water), and associated "
             "Natural Gas Pipelines",
-            "gas_other",
+            "lng_terminal",
         ),
         ("Water - Other", "hydro"),
     ],
 )
 def test_the_audited_rule_order_cases(raw: str, tech: str) -> None:
     assert classify_tech(raw)[0] == tech
+
+
+@pytest.mark.parametrize(
+    ("raw", "tech", "kind"),
+    [
+        # docs/28 B-15: NESO's grid equipment and CHP had a real home and fell to `other`.
+        ("Reactive Compensation", "grid_equipment", "transmission"),
+        ("CHP (Combined Heat and Power)", "chp", "generation"),
+        # ... and a battery with reactive compensation is still a battery, not grid equipment.
+        ("Energy Storage System;Reactive Compensation", "storage", "storage"),
+        ("Demand;Energy Storage System;Reactive Compensation", "storage", "storage"),
+        ("CCGT (Combined Cycle Gas Turbine);Reactive Compensation", "gas_cc", "generation"),
+        # A cogeneration plant whose fuel is stated is classified by the fuel (the CHP rule follows
+        # the gas rules); one whose fuel is not stated is CHP.
+        ("Natural Gas Cogeneration", "gas_other", "generation"),
+        ("Cogeneration", "chp", "generation"),
+        # docs/28 B-2: LNG is its own kind; nuclear and hydrogen are technologies of generation.
+        ("Liquefied Natural Gas", "lng_terminal", "lng"),
+        ("LNG export terminal", "lng_terminal", "lng"),
+        ("Nuclear", "nuclear", "generation"),
+        ("Hydrogen", "hydrogen", "generation"),
+        ("Demand;Hydrogen", "hydrogen", "generation"),
+        # The negated "without Energy Storage" is not storage; the affirmed one still is.
+        ("Solar Thermal without Energy Storage", "solar_thermal", "generation"),
+        ("Solar Thermal with Energy Storage", "solar_storage", "generation"),
+        # EIA's coal gasification combined cycle is coal, not a gas combined cycle.
+        ("Coal Integrated Gasification Combined Cycle", "coal", "generation"),
+        ("Natural Gas Fired Combined Cycle", "gas_cc", "generation"),
+        # Flywheels store electricity; EIA's "Other Gases" are fossil gases.
+        ("Flywheels", "storage", "storage"),
+        ("Other Gases", "gas_other", "generation"),
+    ],
+)
+def test_the_taxonomy_fixes_of_2026_10_24(raw: str, tech: str, kind: str) -> None:
+    assert classify_tech(raw) == (tech, kind)
 
 
 @pytest.mark.parametrize(

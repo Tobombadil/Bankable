@@ -226,7 +226,8 @@ C2_LABELS = (
     ".field label",
     ".alert-card__filters dt",
     ".field--choices legend",
-    ".map-search__group-name",
+    # The map search's group names became each row's kind word (lane stacked-lists): the same label rule.
+    ".map-search__kind",
     ".view-switch__label",
 )
 

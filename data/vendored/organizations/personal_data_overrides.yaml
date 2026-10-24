@@ -18,6 +18,9 @@ not_personal:
   # Checked 2026-10-07 by the legal-compliance lane against the store copy measured in docs/13 §5.5:
   # an insurer named after a historical person, not a natural person holding the asset.
   - John Hancock
+  # Checked 2026-10-24 by the entity-resolution lane (docs/22 §27): the investment bank, whose data centre
+  # the EPA ICIS-Air register lists as "MORGAN STANLEY DATA CENTER"; its name has a person's shape.
+  - Morgan Stanley
 
 personal_sha256:
   # Checked 2026-10-07 by the legal-compliance lane on the store copy measured in docs/13 §5.5: an

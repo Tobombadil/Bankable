@@ -76,10 +76,20 @@ def test_every_name_fits_postgres_identifiers() -> None:
             assert len(identifier.encode()) <= 63, identifier
 
 
+#: Classifier classes a private project cannot carry yet: added on 2026-10-24 (docs/28 B-2, B-15)
+#: after the project column's CHECK was frozen, so they wait for a migration that widens it. A
+#: project started from such a record gets no technology prefilled (`services/api/my_projects.py`).
+AWAITING_PROJECT_MIGRATION = frozenset(
+    {"grid_equipment", "chp", "lng_terminal", "gas_pipeline", "pipeline", "ccs"}
+)
+
+
 def test_technology_vocabulary_is_inframations_classes_plus_other() -> None:
     from pipeline.normalize import TECH_RULES
 
-    assert set(models.PROJECT_TECHNOLOGIES) == {tech for _, tech, _ in TECH_RULES} | {"other"}
+    classes = {tech for _, tech, _ in TECH_RULES}
+    assert AWAITING_PROJECT_MIGRATION <= classes
+    assert set(models.PROJECT_TECHNOLOGIES) == (classes - AWAITING_PROJECT_MIGRATION) | {"other"}
     assert "unknown" not in models.PROJECT_TECHNOLOGIES
 
 

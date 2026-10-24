@@ -65,6 +65,14 @@ EIA_SOURCE_IDS = frozenset({"eia860m", "us.eia.860m"})
 TECH_FAMILIES: dict[str, frozenset[str]] = {
     "load": frozenset({"load"}),
     "transmission": frozenset({"transmission"}),
+    # docs/28 B-15, B-2 (2026-10-24): grid equipment is the grid's; an LNG terminal, a pipeline
+    # (gas or not stated) and a carbon capture project are neither power plants nor lines, so each
+    # is only ever itself (`NON_GENERATION`).
+    "grid_equipment": frozenset({"transmission"}),
+    "lng_terminal": frozenset({"lng"}),
+    "gas_pipeline": frozenset({"pipeline"}),
+    "pipeline": frozenset({"pipeline"}),
+    "ccs": frozenset({"ccs"}),
     "storage": frozenset({"storage"}),
     "solar": frozenset({"solar"}),
     "solar_thermal": frozenset({"solar"}),
@@ -91,10 +99,11 @@ TECH_FAMILIES: dict[str, frozenset[str]] = {
             "waste",
             "hydrogen",
             "fuel_cell",
+            "chp",
         )
     },
 }
-NON_GENERATION = frozenset({"load", "transmission"})
+NON_GENERATION = frozenset({"load", "transmission", "lng", "pipeline", "ccs"})
 #: Proposal `kind` (docs/02 §5, docs/21 §3 `proposal.kind`) -> its identity class, the second half
 #: of rule T (2026-10-07). `generation`, `storage` and `nuclear` are one class, `power`: a hybrid
 #: files generation and storage separately (the technology families above judge those pairs) and

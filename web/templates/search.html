@@ -1,71 +1,102 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{#- Search (Navigation v2 lane V7; docs/30 §11.4, docs/16 §4.4 U-8): one field, tabs by kind with counts
-    (All · Companies · Projects · Infrastructure · RFPs · Funding), a top hit when the words start a company
-    or asset name, five rows per kind on All with "All N", fifty on a kind's own tab with its full list.
-    Every row credits its source register. The route is web/app.py `search`. -#}
+{#- Search (docs/30 §11.4; lane V7, then lane stacked-lists, 2026-10-24): one field and one kind at a time.
+    Every kind with its count down the left (a row of chips on phones), the open kind's rows at the right
+    in one table whose columns mean one thing, under a heading that names the kind and its count and stays
+    in view while the rows scroll. Without `type` the page opens on the kind with the most matches; a top
+    hit of another kind (a company or asset name the words start) stands above the list. Owner,
+    2026-10-24: "different stacked lists are really confusing ... maybe the title follows along with the
+    information below it." Every row credits its source register. The route is web/app.py `search`. -#}
 {% block title %}{% if q %}{{ q }}: search{% else %}Search{% endif %} — Inframation{% endblock %}
-{% block meta_description %}Search Inframation's projects, companies, infrastructure, RFPs and funding notices by name, sponsor, operator, place or queue ID.{% endblock %}
+{% block meta_description %}Search Inframation's projects, companies, infrastructure, RFPs and funding notices by name, company or queue ID.{% endblock %}
 {% block robots %}{% if q %}noindex, follow{% else %}index, follow{% endif %}{% endblock %}
 
+{#- The rows are the record lists' own table (`.record-table--compact`, docs/16 U-10): on a wide screen a
+    table whose columns each mean one thing, numbers right-aligned; below 720px two lines, the status and
+    name, then the rest joined by middle dots. An empty value prints a grey dash in the table and is left
+    off the phone's second line, so a row is never a line of dashes. -#}
+{%- macro nil() %}—{% endmacro -%}
+{%- macro cell(value, label, num=False, unit=None) -%}
+<td data-label="{{ label }}" class="cell-meta{{ ' num tnum' if num }}{{ ' is-empty' if not value }}">{% if value %}{{ value }}{% if unit %}<span class="cell-unit"> {{ unit }}</span>{% endif %}{% else %}{{ nil() }}{% endif %}</td>
+{%- endmacro -%}
+
+{%- macro source_cell(r) -%}
+<td data-label="Source" class="cell-meta{{ ' is-empty' if not r.source_url }}">{% if r.source_url %}<a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_name }}</a>{% else %}{{ nil() }}{% endif %}</td>
+{%- endmacro -%}
+
 {%- macro project_row(r) -%}
-<li class="search-row">
-  <a class="search-row__name" href="/proposals/{{ r.slug }}">{{ r.name }}</a>
-  <span class="search-row__meta">{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }}
-    {%- set parts = [] -%}
-    {%- if r.technology %}{% set _ = parts.append(r.technology | technology_label) %}{% endif -%}
-    {%- if r.state or r.jurisdiction %}{% set _ = parts.append(r.state or r.jurisdiction) %}{% endif -%}
-    {%- if r.capacity_mw %}{% set _ = parts.append((r.capacity_mw | mw) ~ ' MW') %}{% endif %}
-    {{ parts | join(' · ') }}{% if r.source_url %} · <a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_name }}</a>{% endif %}</span>
-</li>
+<tr class="search-row">
+  <td data-label="Status" class="cell-lead">{{ m.status_chip(r.lifecycle_state, r.lifecycle_family) }}</td>
+  <td data-label="Project" class="cell-title"><a class="row-link" href="/proposals/{{ r.slug }}">{{ r.name }}</a></td>
+  {{ cell(r.technology | technology_label if r.technology else '', 'Technology') }}
+  {{ cell(((r.county ~ ', ') if r.county and r.state else '') ~ (r.state or r.jurisdiction or ''), 'Where') }}
+  {{ cell(r.capacity_mw | mw if r.capacity_mw else '', 'MW', num=True, unit='MW') }}
+  {{ source_cell(r) }}
+</tr>
 {%- endmacro -%}
 
 {%- macro company_row(r) -%}
-<li class="search-row">
-  <a class="search-row__name" href="{{ r.href }}">{{ r.name }}</a>
-  <span class="search-row__meta">
-    {%- set parts = [] -%}
-    {%- if r.type %}{% set _ = parts.append(r.type | organization_type_label) %}{% endif -%}
-    {%- if r.places %}{% set _ = parts.append(r.places) %}{% elif r.jurisdiction %}{% set _ = parts.append(r.jurisdiction) %}{% endif -%}
-    {%- if r.figures.operating_mw.text and r.figures.operating_mw.value %}{% set _ = parts.append(r.figures.operating_mw.text ~ ' GW operating') %}{% endif -%}
-    {%- if r.figures.pipeline_count.value %}{% set _ = parts.append('{:,}'.format(r.figures.pipeline_count.value) ~ ' active project' ~ ('' if r.figures.pipeline_count.value == 1 else 's')) %}{% endif %}
-    {{ parts | join(' · ') }}</span>
-</li>
+{%- set op = r.figures.operating_mw if r.figures else none %}
+{%- set pc = r.figures.pipeline_count if r.figures else none %}
+<tr class="search-row">
+  <td data-label="Company" class="cell-title"><a class="row-link" href="{{ r.href }}">{{ r.name }}</a></td>
+  {{ cell(r.type | organization_type_label if r.type and r.type != 'other' else '', 'Type') }}
+  {{ cell(r.places or r.jurisdiction or '', 'Where') }}
+  {{ cell(op.text if op and op.value else '', 'Operating GW', num=True, unit='GW operating') }}
+  {{ cell('{:,}'.format(pc.value) if pc and pc.value else '', 'Active projects', num=True, unit='active projects') }}
+</tr>
 {%- endmacro -%}
 
 {%- macro asset_row(r) -%}
-<li class="search-row">
-  <a class="search-row__name" href="/assets/{{ r.slug }}">{{ r.name }}</a>
-  <span class="search-row__meta">
-    {%- set parts = [r.type_label] -%}
-    {%- if r.technology_label %}{% set _ = parts.append(r.technology_label) %}{% endif -%}
-    {%- if r.operator_name %}{% set _ = parts.append(r.operator_name) %}{% endif -%}
-    {%- if r.states %}{% set _ = parts.append(r.states) %}{% elif r.state %}{% set _ = parts.append(r.state) %}{% endif %}
-    {{ parts | join(' · ') }}</span>
-</li>
+<tr class="search-row">
+  <td data-label="Asset" class="cell-title"><a class="row-link" href="/assets/{{ r.slug }}">{{ r.name }}</a></td>
+  {{ cell([r.type_label, r.technology_label] | select | join(', '), 'Type') }}
+  {{ cell(r.operator_name or '', 'Operator') }}
+  {{ cell(r.states or r.state or '', 'Where') }}
+  {{ cell(r.capacity_mw | mw if r.capacity_mw else '', 'MW', num=True, unit='MW') }}
+</tr>
 {%- endmacro -%}
 
 {%- macro notice_row(r) -%}
-<li class="search-row">
-  <a class="search-row__name" href="/opportunities/{{ r.slug }}">{{ r.title }}</a>
-  <span class="search-row__meta">{{ m.status_chip(r.status, r.lifecycle_family) }}{{ m.deadline_note(r) }} {{ r.issuer or 'Issuer not stated' }}{% if r.due_at %} · due {{ r.due_at | display_date }}{% endif %}{% if r.source_url %} · <a href="{{ r.source_url }}" rel="noopener nofollow">{{ r.source_label or r.source_name }}</a>{% endif %}</span>
-</li>
+<tr class="search-row">
+  <td data-label="Status" class="cell-lead">{{ m.status_chip(r.status, r.lifecycle_family) }}{{ m.deadline_note(r) }}</td>
+  <td data-label="Title" class="cell-title"><a class="row-link" href="/opportunities/{{ r.slug }}">{{ r.title }}</a></td>
+  {{ cell(r.issuer or 'Not stated', 'Issuer') }}
+  {{ cell((r.jurisdiction or '') | replace('US-', ''), 'Where') }}
+  <td data-label="Due" class="cell-meta num tnum{{ ' is-empty' if not r.due_at }}">{% if r.due_at %}<span class="cell-unit">due </span>{{ r.due_at | display_date }}{% else %}{{ nil() }}{% endif %}</td>
+  {{ source_cell(r) }}
+</tr>
 {%- endmacro -%}
 
+{#- Each kind's columns, in its rows' order. The column heads name the kind ("Project", "RFP"), so a
+    screen reader hears it with every cell it reads down a column; the caption names it with the count. -#}
 {%- macro rows(b) -%}
+{%- set columns = {
+  'companies': [('Company', ''), ('Type', ''), ('Where', ''), ('Operating GW', 'num'), ('Active projects', 'num')],
+  'projects': [('Status', ''), ('Project', ''), ('Technology', ''), ('Where', ''), ('MW', 'num'), ('Source', '')],
+  'infrastructure': [('Asset', ''), ('Type', ''), ('Operator', ''), ('Where', ''), ('MW', 'num')],
+  'rfps': [('Status', ''), ('RFP', ''), ('Issuer', ''), ('Where', ''), ('Due', 'num'), ('Source', '')],
+  'funding': [('Status', ''), ('Notice', ''), ('Issuer', ''), ('Where', ''), ('Due', 'num'), ('Source', '')],
+}[b.key] -%}
+{%- set noun = {'companies': 'company', 'projects': 'project', 'infrastructure': 'asset', 'rfps': 'RFP', 'funding': 'funding notice'}[b.key] -%}
 {%- if b.error %}
 <p class="search-empty" role="status">{{ b.label }} could not be searched just now. <a href="{{ b.href }}">Try again</a>.</p>
 {%- elif not b.rows %}
-<p class="search-empty">No {{ {'companies': 'company', 'projects': 'project', 'infrastructure': 'asset', 'rfps': 'RFP', 'funding': 'funding notice'}[b.key] }} matches.</p>
+<p class="search-empty">No {{ noun }} matches.</p>
 {%- else %}
-<ul class="search-rows">
+<table class="record-table record-table--compact search-table search-table--{{ b.key }}">
+  <caption class="visually-hidden">{{ b.label }} matching “{{ q }}”: {{ b.rows | length }} of {{ b.count_text }}</caption>
+  <thead><tr>{% for name, kind in columns %}<th scope="col"{% if kind %} class="{{ kind }}"{% endif %}>{{ name }}</th>{% endfor %}</tr></thead>
+  <tbody>
   {%- for r in b.rows %}
   {%- if b.key == 'companies' %}{{ company_row(r) }}
   {%- elif b.key == 'projects' %}{{ project_row(r) }}
   {%- elif b.key == 'infrastructure' %}{{ asset_row(r) }}
   {%- else %}{{ notice_row(r) }}{% endif %}
   {%- endfor %}
-</ul>
+  </tbody>
+</table>
+<p class="search-range">Showing <span class="tnum">{{ b.rows | length }}</span> of <span class="tnum">{{ b.count_text }}</span>.</p>
 {%- if b.key == 'companies' %}{{ m.credits_line([], empty=org_credits_note) }}{% else %}{{ m.credits_line(b.credits) }}{% endif %}
 {%- endif %}
 {%- endmacro -%}
@@ -75,9 +106,9 @@
 <header class="search-head">
   <h1>Search</h1>
   <form class="search-form" action="/search" method="get" role="search" aria-label="Search the register">
-    <label class="visually-hidden" for="search-q">Search by name, sponsor, operator, place or queue ID</label>
-    <input id="search-q" type="search" name="q" value="{{ q }}" placeholder="Name, sponsor, operator, place or queue ID" autocomplete="off">
-    {%- if view != "all" %}
+    <label class="visually-hidden" for="search-q">Search by name, company or queue ID</label>
+    <input id="search-q" type="search" name="q" value="{{ q }}" placeholder="Name, company or queue ID" autocomplete="off">
+    {%- if view and not chosen %}
     <input type="hidden" name="type" value="{{ view }}">
     {%- endif %}
     <button type="submit">Search</button>
@@ -85,25 +116,29 @@
 </header>
 
 {%- if not q %}
-<p class="search-hint">Projects, companies, infrastructure, RFPs and funding notices. New to the terms? <a href="/glossary">Glossary</a>.</p>
+<p class="search-hint">Projects, companies, infrastructure, RFPs and funding. A county or state: <a href="/">the map</a>. New to the terms? <a href="/glossary">Glossary</a>.</p>
 {%- else %}
-<nav class="search-tabs" aria-label="Results by kind">
+<div class="search-layout">
+<nav class="search-kinds" aria-label="Results by kind">
   <ul>
-    <li><a href="/search?{{ {'q': q} | urlencode }}"{% if view == 'all' %} aria-current="page"{% endif %}>All</a></li>
     {%- for b in buckets %}
-    <li><a href="{{ b.href }}"{% if view == b.key %} aria-current="page"{% endif %}>{{ b.label }} <span class="search-tabs__n tnum">{{ '—' if b.error else b.count_text }}</span></a></li>
+    <li>
+      {%- if b.key == view %}<a href="{{ b.href }}" aria-current="page">{{ b.label }} <span class="search-kinds__n tnum">{{ nil() if b.error else b.count_text }}</span></a>
+      {%- elif b.error or b.total %}<a href="{{ b.href }}">{{ b.label }} <span class="search-kinds__n tnum">{{ nil() if b.error else b.count_text }}</span></a>
+      {%- else %}<span class="search-kinds__none">{{ b.label }} <span class="search-kinds__n tnum">0</span></span>{% endif -%}
+    </li>
     {%- endfor %}
   </ul>
+  <p class="search-kinds__help">A county or state: <a href="/">the map</a>. New to the terms? <a href="/glossary">Glossary</a>.</p>
 </nav>
 
-{%- if view == 'all' %}
+<div class="search-results">
 {%- if top_hit %}
 {%- set t = top_hit.record %}
-<section class="top-hit" aria-label="Top hit">
+<section class="top-hit" aria-labelledby="top-hit-name">
   {%- if top_hit.kind == 'company' %}
   <div class="top-hit__body">
-    <h2 class="top-hit__name"><a href="{{ t.href }}">{{ t.name }}</a></h2>
-    <p class="top-hit__meta">{{ (t.type | organization_type_label) if t.type else 'Company' }}{% if t.places %} · {{ t.places }}{% endif %}</p>
+    <h2 class="top-hit__name" id="top-hit-name"><span class="top-hit__kind">{{ (t.type | organization_type_label) if t.type and t.type != 'other' else 'Company' }}</span> <a href="{{ t.href }}">{{ t.name }}</a></h2>
     {%- set figs = [] %}
     {%- for key, label in [('operating_mw', 'Operating GW'), ('assets', 'Assets'), ('pipeline_mw', 'Pipeline GW'), ('pipeline_count', 'Active projects')] %}
     {%- set f = t.figures[key] %}
@@ -115,14 +150,16 @@
       <div><dt>{{ label }}</dt><dd class="tnum">{% if f.href %}<a href="{{ f.href }}"{% if f.title %} title="{{ f.title }}"{% endif %}>{{ f.text }}</a>{% else %}{{ f.text }}{% endif %}</dd></div>
       {%- endfor %}
     </dl>
+    {%- elif t.places %}
+    <p class="top-hit__meta">{{ t.places }}</p>
     {%- endif %}
   </div>
   <a class="top-hit__open" href="{{ t.href }}">Open company</a>
   {%- else %}
   <div class="top-hit__body">
-    <h2 class="top-hit__name"><a href="/assets/{{ t.slug }}">{{ t.name }}</a></h2>
+    <h2 class="top-hit__name" id="top-hit-name"><span class="top-hit__kind">{{ t.type_label }}</span> <a href="/assets/{{ t.slug }}">{{ t.name }}</a></h2>
     <p class="top-hit__meta">
-      {%- set parts = [t.type_label] -%}
+      {%- set parts = [] -%}
       {%- if t.technology_label %}{% set _ = parts.append(t.technology_label) %}{% endif -%}
       {%- if t.operator_name %}{% set _ = parts.append(t.operator_name) %}{% endif -%}
       {%- if t.states %}{% set _ = parts.append(t.states) %}{% elif t.state %}{% set _ = parts.append(t.state) %}{% endif -%}
@@ -134,36 +171,34 @@
 </section>
 {%- endif %}
 
-{#- A kind with rows (or one that could not be searched) is a section; the kinds with no match share one
-    line under them, so an empty kind costs one word, not a heading. -#}
-{%- set empty = buckets | rejectattr('rows') | rejectattr('error') | list %}
-<div class="search-buckets">
-{%- for b in buckets if b.rows or b.error %}
-<section class="search-bucket">
-  <div class="search-bucket__head">
-    <h2>{{ b.label }}</h2>
-    {%- if b.more %}
-    <a class="search-bucket__all" href="{{ b.href }}">All {{ b.count_text }}</a>
+{%- if current %}
+{%- set b = current %}
+<section class="search-list" aria-labelledby="search-list-title">
+  <div class="search-list__head">
+    <h2 id="search-list-title">{{ b.label }} <span class="search-list__n">{% if b.error %}could not be searched{% else %}<span class="tnum">{{ b.count_text }}</span> for “{{ q }}”{% endif %}</span></h2>
+    {%- if b.more and not b.error %}
+    <a class="search-list__all" href="{{ b.list_href }}">Open all {{ b.count_text }} in {{ b.label }}</a>
     {%- endif %}
   </div>
   {{ rows(b) }}
 </section>
-{%- endfor %}
-</div>
-{%- if empty %}
-<p class="search-empty search-none">No match in {% for b in empty %}{{ b.label }}{% if loop.revindex == 2 %} or {% elif not loop.last %}, {% endif %}{% endfor %}.</p>
-{%- endif %}
-
 {%- else %}
-{%- set b = current %}
-<section class="search-bucket search-bucket--tab">
-  <h2 class="visually-hidden">{{ b.label }}</h2>
-  {%- if b.rows %}
-  <p class="search-range">Showing <span class="tnum">{{ b.rows | length }}</span> of <span class="tnum">{{ b.count_text }}</span>{% if b.more %} · <a href="{{ b.list_href }}">Open all {{ b.count_text }} in {{ b.label }}</a>{% endif %}</p>
-  {%- endif %}
-  {{ rows(b) }}
-</section>
+{#- Nothing matched in the kinds read. With a kind unread the page cannot say "nothing": it names the kinds
+    it searched, and the failures follow. -#}
+{%- set searched = buckets | rejectattr('error') | map(attribute='label') | list %}
+{%- if not failed %}
+<p class="search-empty search-none" role="status">Nothing matches “{{ q }}”. Try fewer words or a queue ID; a county or state is on <a href="/">the map</a>.</p>
+{%- elif searched %}
+<p class="search-empty search-none" role="status">No match in {{ searched[:-1] | join(', ') }}{% if searched | length > 1 %} or {% endif %}{{ searched[-1] }}.</p>
 {%- endif %}
+{%- endif %}
+{%- for f in failed %}
+<p class="search-empty" role="status">{{ f.label }} could not be searched just now. <a href="{{ f.href }}">Try again</a>.</p>
+{%- endfor %}
+{#- The rail's help line, under the list on a phone, where the rail is a row of chips. -#}
+<p class="search-kinds__help search-kinds__help--foot">A county or state: <a href="/">the map</a>. New to the terms? <a href="/glossary">Glossary</a>.</p>
+</div>
+</div>
 {%- endif %}
 </div>
 {% endblock %}

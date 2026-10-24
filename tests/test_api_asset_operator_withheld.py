@@ -253,6 +253,10 @@ def test_the_web_asset_page_and_search_do_not_name_a_taken_down_operator(
         # The search box echoes the reader's own "shadow midstream"; the full name must not appear.
         for spelling in (HIDDEN, HIDDEN_REGISTER_SPELLING, HIDDEN_ALIAS):
             assert spelling.lower() not in text, f"{path} names the taken-down organisation"
-    results = web_client.get("/search?q=shadow+midstream").text
-    # Found only by the withheld operator name before the fix; not found at all now.
-    assert world["plant"].slug not in results and world["compressor"].slug not in results
+    # Found only by the withheld operator name before the fix; not found at all now. Search shows one
+    # kind at a time (lane stacked-lists), so the infrastructure view is read as well as the first one.
+    for results in (
+        web_client.get("/search?q=shadow+midstream").text,
+        web_client.get("/search?q=shadow+midstream&type=infrastructure").text,
+    ):
+        assert world["plant"].slug not in results and world["compressor"].slug not in results

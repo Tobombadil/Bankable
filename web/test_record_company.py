@@ -814,7 +814,7 @@ def test_a_company_that_issues_no_rfp_shows_no_rfp_section(client: TestClient) -
     entity["asset_counts"] = entity["group_asset_counts"] = totals
     _install(_company_routes(entity, totals, []))
     body = client.get("/organizations/duke-energy-corp").text
-    assert 'aria-label="Opportunities"' not in body
+    assert 'id="opportunities"' not in body
     assert "No opportunities issued by this company." not in body
 
 
@@ -831,5 +831,11 @@ def test_a_company_that_issues_rfps_lists_them_before_its_sources(client: TestCl
     }
     _install(_company_routes(entity, totals, [opportunity]))
     body = client.get("/organizations/duke-energy-corp").text
-    assert 'aria-label="Opportunities"' in body and "/opportunities/duke-rfp" in body
-    assert '<span class="section-num">5.</span> Sources' in body
+    assert 'id="opportunities"' in body and "/opportunities/duke-rfp" in body
+    # Each list is headed by its kind and count, never an index number (lane stacked-lists; docs/31
+    # brand C-5), and the sources follow the notices.
+    heading = re.search(r'<h2 class="org-section__title" id="opportunities-title">(.*?)</h2>', body, re.S)
+    assert heading is not None
+    assert re.sub(r"<[^>]+>", "", heading.group(1)).split() == ["RFPs", "&amp;", "funding", "1"]
+    assert "section-num" not in body.split("<main", 1)[1]
+    assert body.index('id="opportunities"') < body.index('<h2 id="sources">Sources</h2>')

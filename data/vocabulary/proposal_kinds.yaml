@@ -1,0 +1,40 @@
+# Proposal kinds: what kind of real-world thing a proposal is (docs/21 §3.1 `proposal.kind`).
+#
+# Keys only. The words a reader sees are labels (`web/labels.py` `PROPOSAL_KIND_LABELS`, lane F1/F2).
+# A kind follows the technology: `pipeline/normalize.py::TECH_RULES` gives each fine technology
+# token its kind, and the connectors that set their own token set their own kind (`load` for data
+# centres, `ccs` for CO2 injection wells).
+#
+# `kinds` is every value a classifier or connector may write, and each one is written by at least
+# one rule or connector (pinned both ways). Where each comes from:
+#   generation, storage : the classifier, from every queue and register's technology text;
+#   load                : the data-centre connectors, and the classifier's `load` rule;
+#   transmission        : the classifier (transmission lines; grid equipment such as NESO
+#                         "Reactive Compensation");
+#   ccs                 : the Class VI connectors (CO2 injection wells), and the classifier's carbon
+#                         capture rule (the Permitting Dashboard's "Carbon Capture and Sequestration");
+#   pipeline            : the classifier's pipeline rules (the Permitting Dashboard's "Pipelines" and
+#                         "Interstate Natural Gas Pipelines"; until 2026-10-24 no rule wrote it, and
+#                         those values landed under transmission and generation);
+#   lng                 : the classifier's LNG terminal rule (the Permitting Dashboard's LNG type);
+#   other               : the classifier's fall-through.
+# A kind with no record today stays a key (an empty kind is hidden by the filters until a record
+# carries it, docs/28 §9); which kinds hold records is a count, measured per run, not a fact this
+# file can keep. On the public register of 2026-10-23, re-classified by these rules, pipeline and
+# lng hold none: the Permitting Dashboard, their one implemented source, has never loaded in
+# production (docs/28 §1).
+#
+# `retired` are values no classifier or connector writes any more. They stay valid in the store and
+# in the API's vocabulary until the API and filter lanes drop them (docs/28 B-2), because a stored
+# row or a saved search may still name one:
+#   nuclear  : a technology. A nuclear plant is `kind: generation`, `technology: nuclear`.
+#   hydrogen : a technology. A hydrogen project is `kind: generation`, `technology: hydrogen`.
+#
+# Pinned by `tests/test_technology_families.py`: every kind the rules or a connector can emit is
+# in `kinds`, every kind in `kinds` is emitted by a rule or a connector, and no rule or connector
+# emits a retired kind.
+version: 1
+written: 2026-10-24
+
+kinds: [generation, storage, load, transmission, ccs, pipeline, lng, other]
+retired: [nuclear, hydrogen]

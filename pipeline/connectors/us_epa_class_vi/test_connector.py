@@ -7,14 +7,18 @@ drive a scripted page response and a scripted Engine JSON API exchange.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import pathlib
 from typing import ClassVar
 
 import pytest
 
 from conftest import connector_for, fixture_path, snapshot
-from pipeline.connectors.base import ConnectorError, ParseError
+from pipeline.connectors.base import ConnectorError, ParseError, RawSnapshot
 from pipeline.connectors.canonical import classify_tech
+from pipeline.connectors.runner import run
+from pipeline.connectors.store import Store
 from pipeline.connectors.us_epa_class_vi.connector import (
     FIELDS,
     PAGE_URL,
@@ -308,3 +312,71 @@ def test_fetch_fails_closed_when_the_page_no_longer_embeds_the_dashboard(payload
     engine = _Engine(list(FIELDS), payload["rows"])
     with pytest.raises(ConnectorError, match="appid"):
         _fetch_with(engine, _Bare())
+
+
+# ------------------------------------------------------------------ 2026-10-24 read (docs/28 lane F5)
+#: The connector's own read of 2026-10-24, trimmed (its `_fixture_note`): EPA's update of 10/9/2026
+#: prefixes the phase with "Schedule Pending: ", which held every production run.
+FIXTURE_1024 = pathlib.Path(__file__).with_name("fixtures") / "epa_class_vi_tracker_2026-10-24.json"
+
+
+def _raw_1024(content: bytes | None = None) -> RawSnapshot:
+    return RawSnapshot(
+        content=content if content is not None else FIXTURE_1024.read_bytes(),
+        content_type="application/json",
+        url=URL,
+        retrieved_at=dt.datetime(2026, 10, 24, 2, 24, 1, tzinfo=dt.UTC),
+        http_status=200,
+        ext="json",
+    )
+
+
+def test_the_schedule_pending_phases_map_to_their_phases_state():
+    c = connector_for(SOURCE_ID)
+    raw = _raw_1024()
+    df = c.normalize(c.parse(raw), raw)
+    by_phase = dict(zip(df["status_raw"], df["lifecycle_state"], strict=True))
+    assert by_phase["Schedule Pending: Completeness Review"] == "filed"
+    assert by_phase["Schedule Pending: Technical Review"] == "studied"
+    assert by_phase["Technical Review"] == "studied"  # the same phase with its schedule set
+    assert (df["status_rule"] == "epa_class_vi.map").all(), df[["status_raw", "status_rule"]]
+    assert "unknown" not in set(df["lifecycle_state"])
+
+
+def test_the_2026_10_24_read_passes_the_gates_that_held_it(tmp_path):
+    """End to end over the recorded read: before the two map entries, 5 of its 11 project rows were
+    `unknown` and the run was held (`partial`, vocabulary_unmapped), as all 19 of 68 were live."""
+    result = run(SOURCE_ID, store=Store(tmp_path), raw=_raw_1024())
+    record = result.run
+    assert record["status"] == "ok", record.get("dq")
+    holds = [ch for ch in (record.get("dq") or {}).get("checks", []) if ch.get("level") == "hold"]
+    assert holds == []
+    assert record["rows_seen"] == 11
+
+
+def test_a_company_that_reads_as_a_person_is_withheld_from_snapshot_and_rows():
+    """A made-up name in place of one applicant: blanked by `redact` before the snapshot is stored,
+    and by `parse` for a snapshot stored before `redact` existed; never in `sponsor_name` or `raw`."""
+    person = "Jane Example"
+    doc = json.loads(FIXTURE_1024.read_text())
+    target = next(r for r in doc["rows"] if r.get("Project Name"))
+    target["Company Name"] = person
+    target["Company Name: Project Name"] = f"{person}: {target['Project Name']}"
+    content = json.dumps(doc, ensure_ascii=False, sort_keys=True).encode("utf-8")
+
+    c = connector_for(SOURCE_ID)
+    stored = c.redact(content)
+    assert person.encode() not in stored
+    assert c.redact(FIXTURE_1024.read_bytes()) == FIXTURE_1024.read_bytes()  # nothing to strip
+
+    for body in (stored, content):  # redacted, and an old snapshot read as it was stored
+        c = connector_for(SOURCE_ID)
+        raw = _raw_1024(body)
+        rows = c.parse(raw)
+        df = c.normalize(rows, raw)
+        assert raw.meta["companies_withheld_as_persons"] == (0 if body is stored else 1)
+        assert not df["raw"].str.contains(person).any()
+        assert person not in set(df["sponsor_name"].dropna())
+        mine = df["name_canonical"] == target["Project Name"]
+        assert df.loc[mine, "sponsor_name"].isna().all()
+        assert df.loc[~mine, "sponsor_name"].notna().all()  # every other applicant is kept

@@ -1683,7 +1683,7 @@ may run long when it opens with a contents list; a data page may not.
 | Item | `/my/items/{id}` and tabs | Per tab (§11.5) | Per tab | Same tabs for every type |
 | Invitations | `/my/invitations` | Who has invited me, to what? | Accept | Shown only while one is pending; the accept page `/my/invitations/accept` (`docs/19` §6.2) is unchanged |
 | **Utilities and reference** | | | | |
-| Search | `/search?q=` (`&type=`) | Which records match my words? | Open the top hit | Tabs by type with counts and a top hit (`docs/16` §4.4): All · Companies · Projects · Infrastructure · RFPs · Funding |
+| Search | `/search?q=` (`&type=`) | Which records match my words? | Open the top hit | One kind at a time (§11.4.1, lane stacked-lists, 2026-10-24): the kinds with counts down the left (chips on phones), Companies · Projects · Infrastructure · RFPs · Funding, opening on the kind with the most matches; one table under a head that names the kind and count and stays in view; a top hit of another kind above it. "All" and its stacked lists are gone |
 | Alerts | `/alerts` | What am I following, and what changed? | New alert from a search | None |
 | New alert | `/alerts/new` | What should this alert watch? | Save alert | None |
 | Account | `/account` | What does my account hold, and how do I leave? | Download your data | None (one short page) |
@@ -1715,6 +1715,94 @@ page HTML, JSON-LD, social cards, analytics, logs, alerts or the admin dashboard
 it is tracked or by whom (an Investment item is the funder's private note, which keeps it clear of `docs/18` §4's
 solicitation question). This extends the 2026-10-22 consent guardrail and `docs/19` §5.2; `tests/test_private_isolation.py`
 pins it.
+
+### 11.4.1 Lists of different kinds: one kind at a time (lane stacked-lists, 2026-10-24)
+
+Owner, 2026-10-24: "if you search something, it comes up with a bunch of different lists stacked on top of each other
+... say it's companies and it's locations and it's opportunities, in different stacked lists are really confusing to see
+as a user. Like, I don't really know what I'm looking at ... maybe the title follows along with the information below
+it." And: "run the search on a few different parts across the site."
+
+**Audit.** Run on a copy of the e2e store (the eval fixture's queue rows, 2,964 companies, 9,563 projects) with the
+kinds it lacks added from the repo's own real-record fixtures: nine EIA-860M plants with their operators, twelve
+Grants.gov notices, and four utility RFPs named in `docs/28` §6. Searches: a company ("fermi", "indiana michigan"), a
+technology and a title word ("storage"), a county ("pecos"), a queue id ("16INR0049"), a state ("texas"), a broad word
+("energy"). Screenshots at 1440 and 390 are in the lane's report.
+
+| Page | What stacked | What confused | Done |
+|---|---|---|---|
+| `/search` (All) | Companies, Projects, RFPs and Funding under four headings in a 2 x 2 grid, four row shapes, a credit line under each, the empty kinds as one line at the foot | The grid reads in a Z, so the eye leaves one kind mid-list for another; a company row and a project row look alike; a reader cannot tell which list a row came from without looking up | Rebuilt: one kind at a time (below) |
+| Home map's search field | Places, Companies, Projects as three headed groups | This is the owner's "locations": the kind lived only in a small grey group name above the rows | One ranked list, each row naming its kind (below) |
+| Company page | Pipeline tables, Group, then "1. Assets", "2. Proposals near these assets", "3. Proposals", "4. Opportunities", "5. Sources"; Fermi America's page is 7,907px at 1440 with 100 rows of one name | Numbered headings that scroll away; "Proposals" where the bar says "Projects"; a "near these assets" block with a filter and three lines for a company with no assets | Each list headed by its kind and count, no number, held under the top bar while its rows scroll; the nearby block only where there are assets; the URL tabs of §11.5 (lane V4) remain the full fix |
+| Map panel "In view" | By status, Technology, Busiest areas, Projects, Existing infrastructure, Retired plants | Summary blocks and two lists of different kinds | Not changed here: §11.6's four panel tabs (lane V2) split them |
+| Record pages, About, a site page | Record pages are URL tabs since V3; About is prose; a site lists one kind | Nothing stacked | None |
+| Place or state pages | None exist. A county search finds names that contain the word, not the records in the county (`?q=` matches a name, a sponsor or issuer, or a source record id) | A reader typing a county expects its projects | The search field, hint and empty state send a county or state to the map, which finds places |
+
+**Directions** (mocked with the store's real rows at 1440 and 390, critiqued by the taste skill's app-screen rules): A,
+one ranked list, every row naming its kind in a Kind column, chips with counts above (the bolder one); B, open on the
+best kind with the others as tabs; C, two panes, the kinds with counts at the left and one list at the right; D, the
+owner's own idea, the kinds still stacked but each heading held while its rows scroll. A's columns change meaning from
+row to row (issuer or technology, MW or a due date) and companies print as rows of dashes; B hides the counts in a row
+of words that do not line up; D keeps the stacking and its held headings cover half a row at each change of kind. **C
+is built for `/search`, with D's held head; A's rule (the kind on every row) is built for the map's typeahead**, where
+a list of kinds cannot hold tabs.
+
+**Rules (search, and any page that lists more than one kind).**
+
+- **K-1** A list holds one kind, or names the kind of every row in the same place. Never two lists of different kinds
+  stacked under their headings.
+- **K-2** Every kind and its count are in view beside or above the list: a rail from 900px, chips that wrap below it
+  (never a row that scrolls a kind out of sight). A kind with no match is its word and a 0, not a link; a kind that
+  could not be read shows "—" and links to its retry.
+- **K-3** The list's head names the kind and its count ("Projects 1,297 for “storage”") and holds under the top bar
+  while its rows scroll; from 720px the column heads hold under it. The table's caption says the rows shown of that
+  count, so a screen reader hears the kind and how many.
+- **K-4** Without `type`, the page opens on the kind with the most matches, ties going to the fixed order (companies
+  first); a kind that failed is never opened by itself; when nothing matched, one line says so ("Try fewer words or a
+  queue ID; a county or state is on the map") and no empty list opens. With a kind unread, that line names the kinds
+  searched instead ("No match in Companies, Infrastructure, RFPs or Funding."), each failure follows, and with no kind
+  read there is no such line (fix round). `type` picks the kind; an unknown one is ignored.
+- **K-5** The top hit (a company or asset name the words start) shows on the opening view only, above the list, and
+  only when it is of another kind than the list (otherwise it is already one of the list's rows: the first among the
+  rows read whose name the words start, so it may be the second to fifth). Its kind is a word beside its name; "Open
+  company" stays the page's one primary.
+- **K-6** Five reads count every kind (five rows each, enough for the top hit); a sixth reads the opened kind's fifty
+  rows when the page chose it. A `type` view makes five reads.
+- **K-7** Rows are the record lists' own table (`.record-table--compact`), one column set per kind: Companies (Type,
+  Where, Operating GW, Active projects), Projects (Status, Technology, Where, MW, Source), Infrastructure (Type,
+  Operator, Where, MW), RFPs and Funding (Status, Issuer, Where, Due, Source). Below 720px each row is two lines and an
+  empty cell is left off the second.
+- **K-8** Kept from lane V7: each count is exactly what its link lists; a kind whose read fails costs only itself; the
+  glossary link; each view's credit line names the registers behind its rows.
+- **K-9** No example company names in a placeholder, hint or empty state. The field reads "Name, company or queue ID",
+  which is what `?q=` matches, and so does the top bar's field (`partials/_top_bar.html`, fix round).
+- **K-10** A heading's count is the API's figure for what the section lists (its `totals` or `meta.total`, with "+"
+  when the read stopped at a page), never the rendered rows, which are capped and may be grouped; a section whose read
+  failed prints no count and says it could not be read, never "0" or "none" (fix round, 2026-10-24).
+
+**The home map's search field** (`map.js` `renderSuggestions`, `rankSuggestions`; `web/map_search.py` `word_rank`,
+`place_rank`): one ranked list, no group headings. Every suggestion carries the server's rank on one scale for every
+kind: 0 the whole name, a state's code ("ny", "tx") or a place's name with its noun or state ("travis tx"); 1 a name
+whose first words are the words typed ("NY CDG 1 LLC", "Duke Energy Carolinas" for "duke"); 2 a name that begins with
+the letters typed ("Nye County", "Dukes County"); 3 a name with a word begun by each word typed; 4 the rest (a sponsor
+or queue id matched). The list is in rank order, places then companies then projects within a rank, so Enter takes
+New York for "ny" and Texas for "tx" (fix round: the first build compared letters only and put Nye County and four
+"NY ... LLC" companies above New York). Each row names its kind at its right end in the place's own noun ("State",
+"County", "Parish", "Borough", "Census area", "Municipio", "City", "Region", "Company", "Project"), read with the name
+("Orleans Parish, LA, Parish"); a project keeps its status chip and facts on a second line. A visually hidden status
+says how many of which kinds, naming what was typed so a repeat count is still read ("10 suggestions for “pecos”: 1
+place, 3 companies, 6 projects."), and empties when the text drops under two characters.
+
+**The company page** (`organization_detail.html`, until lane V4's tabs): the sections are headed "Assets", "Projects
+near its assets 12", "Projects 157", "RFPs & funding 1" and "Sources", in the section bar's words, without index numbers
+(`docs/31-brand-identity.md` C-5), each heading held under the top bar while its rows scroll (`isolation: isolate` on
+the mini-map keeps MapLibre's layers under it). Each count follows K-10: the nearby figure is the API's
+`proposals_within_radius`, the number its notice says is shown (the first build counted the rows left after the 50-row
+cap and the folding of generator units, so it read "2" over "Showing all 12"); "RFPs & funding" reads "100+" when the
+issuer has more notices than the page read; an unread nearby list prints no figure and "could not be read just now".
+The nearby block shows only when the company holds assets in scope or has nearby rows; its explanation sits behind "How
+these are matched". The nearby filter notice still says "proposals" (`web/relevance.py`), where "listed as N projects"
+tells records from grouped projects; lane V4 renames it with its tab.
 
 ### 11.5 Record pages as URL tabs
 
@@ -1773,6 +1861,12 @@ order plus Sources. From `organization_detail.html` as built, and as the pages l
 published proximity match; later the RFPs that fit its projects, once a rule set clears US-401 AC3 (decision rows
 2026-10-21). It shows when either has rows. The Overview's "Largest assets (5)" and "Recently changed projects (5)"
 link to Portfolio and Pipeline.
+
+*Amended by lane stacked-lists (§11.4.1 K-1, 2026-10-24):* the Overview does not stack those two lists, or any five-row
+previews of other tabs, under one another. Its figure strip names each tab's kind with its count and links to the tab
+(the tab bar's own counts, T-2), and its one list, if any, is the kind the company is best known by (Portfolio for an
+owner or operator of assets, Pipeline otherwise). Until V4 builds the tabs, the one page holds each list under a
+held heading with its count (§11.4.1, "The company page").
 
 **Project** (`/proposals/{slug}`): **Overview · Timeline · Sources · Matches** (Matches once matches publish).
 

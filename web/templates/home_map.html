@@ -172,6 +172,9 @@
       <button type="button" class="map-search__clear" id="map-search-clear" aria-label="Clear the search" hidden><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2 10 10M10 2 2 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       <div class="map-search__list" id="map-search-list" role="listbox" aria-label="Suggestions" hidden></div>
       <p class="map-search__empty" id="map-search-empty" role="status" hidden></p>
+      {#- One list of suggestions, each naming its kind (lane stacked-lists); this says how many, and of
+          which kinds, to a screen reader. -#}
+      <p class="visually-hidden" id="map-search-count" role="status"></p>
     </form>
     <div class="map-overlay__rail">
     <div class="map-controls map-controls--zoom" role="group" aria-label="Map zoom">

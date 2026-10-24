@@ -1193,6 +1193,9 @@ a.button-secondary:visited { color: var(--secondary-ink); }
   position: relative; height: 40vh; min-height: 16rem; max-height: 32rem;
   border: 1px solid var(--border); border-radius: var(--radius-3); background: var(--map-water);
   overflow: hidden; margin: var(--space-4) 0;
+  /* Its own stacking context: MapLibre's layers (the two-finger notice is z-index 99999) stay inside
+     it, so a section heading held over it while the page scrolls stays on top (lane stacked-lists). */
+  isolation: isolate;
 }
 .mini-map svg { display: block; width: 100%; height: 100%; background: var(--map-land); }
 .mini-map__line { fill: none; stroke: var(--asset-gas-pipeline); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
@@ -1205,6 +1208,20 @@ a.button-secondary:visited { color: var(--secondary-ink); }
 
 /* Company page: assets grouped by role and type; the summary line reads as one sentence. */
 .org-summary { font-size: var(--text-3); color: var(--text-muted); margin: 0 0 var(--space-4); }
+/* Its lists of different kinds (lane stacked-lists, 2026-10-24): each headed by its kind and count, no
+   index number, the heading held under the top bar while its own rows scroll, so the reader always sees
+   which list a row belongs to. Sections stand apart by space. */
+.org-section { margin-top: var(--space-9); }
+.org-section__title {
+  position: sticky; top: var(--top-bar-h); z-index: 5; background: var(--bg);
+  padding-block: var(--space-2); margin-bottom: var(--space-3); border-bottom: 1px solid var(--border);
+}
+.org-section__n { font-size: var(--text-3); font-weight: 400; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.org-section__why { margin: 0 0 var(--space-3); }
+.org-section__why > summary { cursor: pointer; color: var(--link); width: fit-content; padding-block: var(--space-1); }
+.org-section__why > p { margin: var(--space-2) 0 0; }
+/* A focused link scrolled into view clears the top bar and a held heading (SC 2.4.11). */
+html:has(.org-section) { scroll-padding-top: calc(var(--top-bar-h) + 4rem); }
 .asset-group { margin-bottom: var(--space-5); }
 .asset-group h3 { margin-bottom: var(--space-2); }
 .asset-group__more { font-size: var(--text-2); font-weight: 400; color: var(--text-muted); }
@@ -1860,18 +1877,20 @@ a.button-secondary:visited { color: var(--secondary-ink); }
   clip-path: inset(-24px -24px -32px -24px round var(--radius-2));
 }
 .map-search__empty { margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-1); color: var(--text); }
-.map-search__group + .map-search__group { border-top: 1px solid var(--border); }
-.map-search__group-name {
-  font-family: var(--font-body); font-size: var(--text-label); font-weight: 500;
-  color: var(--text-muted); padding: var(--space-2) var(--space-3) var(--space-1);
-}
+/* One list, no group headings (lane stacked-lists, 2026-10-24): each row names its kind in words at its
+   right end, in the same place on every row, so places, companies and projects never stack as lists. */
 .map-search__option {
   display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 2.75rem;
   padding: var(--space-1) var(--space-3); cursor: pointer;
 }
+.map-search__option + .map-search__option { border-top: 1px solid var(--rule); }
 .map-search__option:hover { background: var(--bg); }
 .map-search__option.is-active { background: var(--active); }
-.map-search__label { color: var(--text); font-weight: 600; font-size: var(--text-2); }
+.map-search__top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.map-search__label { color: var(--text); font-weight: 600; font-size: var(--text-2); min-width: 0; }
+.map-search__kind {
+  flex: none; font-family: var(--font-body); font-size: var(--text-label); font-weight: 500; color: var(--text-muted);
+}
 .map-search__detail { color: var(--text-muted); font-size: var(--text-1); }
 .map-search__detail .chip { padding: 0 var(--space-1); margin-inline-end: var(--space-1); }
 .map-overlay .map-controls { margin: 0; pointer-events: auto; }
@@ -2843,61 +2862,110 @@ html { scroll-padding-top: var(--top-bar-h); }
   }
 }
 
-/* Search (an app screen: docs/30 §11.4): the field, tabs by kind with counts, a top hit, then each kind's
-   first rows; on a kind's own tab, its first fifty. Rows are apart by space, not rules. */
+/* Search (an app screen: docs/30 §11.4; lane stacked-lists, 2026-10-24): the field, then one kind at a
+   time. Every kind with its count in a rail at the left from 900px (a row of chips that scrolls inside
+   itself below), the open kind's rows at the right in the record lists' table, under a head that names
+   the kind and its count and stays in view under the top bar while the rows scroll (owner: "maybe the
+   title follows along with the information below it"). No kinds stacked under one another. */
 .search-page { padding-block: var(--space-5) var(--space-9); }
-.search-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); margin-bottom: var(--space-4); }
+.search-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); margin-bottom: var(--space-5); }
 .search-head h1 { font-size: var(--text-4); margin: 0; }
 .search-form { display: flex; flex: 1 1 20rem; min-width: 0; max-width: 42rem; gap: var(--space-2); }
 .search-form input {
   flex: 1; min-width: 0; min-height: 2.75rem; padding: 0 var(--space-3); font: inherit;
-  color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-2);
+  color: var(--text); background: var(--surface); border: 1px solid var(--control); border-radius: var(--radius-2);
 }
+.search-form input::placeholder { color: var(--text-muted); }
 .search-form input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .search-form button {
   min-height: 2.75rem; padding: 0 var(--space-5); font: inherit; font-weight: 600; cursor: pointer;
   color: var(--text); background: var(--family-neutral-fill); border: 0; border-radius: var(--radius-2);
 }
 .search-form button:hover { background: var(--border); }
-.search-hint { margin: 0; }
-.search-tabs ul {
-  display: flex; gap: 0 var(--space-6); list-style: none; margin: 0 0 var(--space-5); padding: 0;
-  overflow-x: auto; scrollbar-width: none;
+.search-hint { margin: 0; max-width: 60ch; }
+/* A focused row link scrolled into view clears the top bar, the list's head and the column heads
+   (SC 2.4.11). */
+html:has(.search-list) { scroll-padding-top: calc(var(--top-bar-h) + 6.5rem); }
+
+.search-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 var(--space-8); align-items: start; }
+/* Below 900px the kinds are chips that wrap, never a row that scrolls: every kind and its count stays
+   in sight, so a reader on a phone sees that the RFP exists before choosing (a scrolled row hid the
+   last kinds at 390px), and there is no scrolling box to reach from the keyboard. */
+.search-kinds ul {
+  display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; margin: 0 0 var(--space-5); padding: 0;
 }
-.search-tabs a {
-  display: inline-flex; align-items: baseline; gap: var(--space-1); padding-top: var(--space-3); min-height: 2.75rem;
-  color: var(--text); text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent;
+.search-kinds li > a, .search-kinds__none {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  min-height: 2.5rem; padding: 0 var(--space-3); border-radius: var(--radius-2);
+  color: var(--text); text-decoration: none; white-space: nowrap;
 }
-.search-tabs a:hover, .search-tabs a:focus-visible { color: var(--link); border-bottom-color: currentColor; }
-.search-tabs a[aria-current="page"] { font-weight: 600; border-bottom-color: var(--text); }
-.search-tabs__n { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.search-kinds__none { padding-inline: var(--space-2); }
+.search-kinds li > a { background: var(--surface); border: 1px solid var(--border); }
+.search-kinds li > a:hover { text-decoration: underline; }
+.search-kinds li > a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* The open kind: the grey of a selected item, its edge in ink. The ink fill stays the one primary action's. */
+.search-kinds a[aria-current="page"] { background: var(--active); border-color: var(--text); font-weight: 600; }
+.search-kinds a[aria-current="page"] .search-kinds__n { color: var(--text); }
+/* A kind with no match is a word and a zero, not a link to an empty list. */
+.search-kinds__none { color: var(--text-muted); }
+.search-kinds__n { color: var(--text-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.search-kinds__help { display: none; font-size: 0.875rem; color: var(--text-muted); margin: var(--space-5) var(--space-3) 0; }
+.search-kinds__help--foot { display: block; margin: var(--space-6) 0 0; }
+@media (min-width: 900px) {
+  .search-layout { grid-template-columns: 13.5rem minmax(0, 1fr); }
+  .search-kinds { position: sticky; top: calc(var(--top-bar-h) + var(--space-4)); }
+  .search-kinds ul { display: block; margin: 0; }
+  .search-kinds li + li { margin-top: 2px; }
+  .search-kinds li > a, .search-kinds__none { min-height: 2.75rem; padding-inline: var(--space-3); }
+  .search-kinds li > a { background: none; border-color: transparent; }
+  .search-kinds li > a:hover { background: var(--surface); }
+  /* In the rail the open kind is the selected row of a list: the grey of a selected nav item, no edge. */
+  .search-kinds a[aria-current="page"] { background: var(--active); border-color: transparent; }
+  .search-kinds__help { display: block; }
+  .search-kinds__help--foot { display: none; }
+  /* A table of five columns runs to about 960px, not the canvas: no void between a name and its figures. */
+  .search-list:has(.search-table--companies, .search-table--infrastructure) { max-width: 60rem; }
+}
+
 .top-hit {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4);
-  background: var(--surface); border-radius: var(--radius-3); padding: var(--space-5); margin-bottom: var(--space-7);
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-4);
+  background: var(--surface); border-radius: var(--radius-3); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-6);
 }
-.top-hit__name { font-size: var(--text-4); margin: 0; }
+.top-hit__name { font-size: var(--text-3); margin: 0; }
+.top-hit__kind { font-size: var(--text-label); font-weight: 500; color: var(--text-muted); margin-inline-end: var(--space-2); }
 .top-hit__name a { color: var(--text); text-decoration: none; }
 .top-hit__name a:hover { color: var(--link); text-decoration: underline; }
 .top-hit__meta { color: var(--text-muted); margin: var(--space-1) 0 0; }
-.top-hit__figures { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); margin: var(--space-4) 0 0; }
+.top-hit__figures { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-7); margin: var(--space-3) 0 0; }
 .top-hit__figures dt { color: var(--text-muted); font-size: 0.8125rem; }
-.top-hit__figures dd { margin: 0; font-size: var(--text-4); font-variant-numeric: tabular-nums; }
+.top-hit__figures dd { margin: 0; font-size: var(--text-3); font-variant-numeric: tabular-nums; }
 .top-hit__open, .top-hit__open:visited {
   display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0 var(--space-5);
-  color: var(--surface); background: var(--link); border-radius: var(--radius-2); font-weight: 600; text-decoration: none;
+  color: var(--primary-ink); background: var(--primary); border-radius: var(--radius-2); font-weight: 600; text-decoration: none;
 }
 .top-hit__open:hover { background: var(--text); }
-.search-buckets { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-7) var(--space-8); align-items: start; }
-.search-bucket__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4); margin-bottom: var(--space-2); }
-.search-bucket__head h2 { font-size: var(--text-3); margin: 0; }
-.search-rows { display: grid; gap: var(--space-3); list-style: none; margin: 0 0 var(--space-2); padding: 0; }
-.search-row { display: grid; gap: 2px; overflow-wrap: anywhere; }
-.search-row__name { color: var(--text); font-weight: 600; text-decoration: none; }
-.search-row__name:hover { color: var(--link); text-decoration: underline; }
-.search-row__meta { color: var(--text-muted); font-size: 0.875rem; }
-.search-row__meta .chip { margin-inline-end: var(--space-1); }
-.search-empty, .search-range { color: var(--text-muted); margin: 0 0 var(--space-2); }
-@media (min-width: 1080px) {
-  .search-buckets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .search-buckets > .search-bucket:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* The list's head: the kind, its count and its full list, held under the top bar while the rows pass. */
+.search-list__head {
+  position: sticky; top: var(--top-bar-h); z-index: 2; background: var(--bg);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) 0 var(--space-3);
 }
+.search-list__head h2 { font-size: var(--text-4); margin: 0; }
+.search-list__n { font-size: var(--text-2); font-weight: 400; color: var(--text-muted); margin-inline-start: var(--space-2); }
+.search-list__all { margin-inline-start: auto; }
+@media (max-width: 719px) { .search-list__head { border-bottom: 1px solid var(--border); } }
+.search-table { margin-bottom: var(--space-3); }
+.search-table th { position: static; }
+.search-table td.cell-title { overflow-wrap: anywhere; }
+@media (min-width: 720px) {
+  .search-list__head { min-height: 3.5rem; }
+  /* The column heads hold under the list's head. */
+  .search-table thead th { position: sticky; top: calc(var(--top-bar-h) + 3.5rem); z-index: 1; }
+  .search-table td { vertical-align: middle; }
+  .search-table td.cell-lead { width: 1%; white-space: nowrap; }
+  /* A register's short name and a place stay whole ("EIA-860M" never breaks at its hyphen). */
+  .search-table td:is([data-label="Source"], [data-label="Where"], [data-label="Due"]) { white-space: nowrap; }
+}
+.search-empty, .search-range { color: var(--text-muted); margin: 0 0 var(--space-2); }
+.search-none { color: var(--text); }

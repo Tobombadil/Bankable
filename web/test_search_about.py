@@ -1,11 +1,12 @@
 """Search tabs, About and Sources & licences (Navigation v2 lane V7; docs/30 §11.4, §11.10).
 
-Search: one field, tabs by kind with counts in a fixed order (All · Companies · Projects · Infrastructure ·
-RFPs · Funding), a top hit when the words start a company or asset name, five rows per kind on All and
-fifty on a kind's tab, a kind that fails costing only itself, and every "All N" and full-list link naming
-exactly the set its count counted. About: where the register reaches, US first, each region's figure the
-number of published registers its table on /about/sources lists. Sources & licences: by region, published
-registers first by records, each count a link to the list that is that count.
+Search: one field and one kind at a time (lane stacked-lists, 2026-10-24): every kind with its count in a
+fixed order (Companies · Projects · Infrastructure · RFPs · Funding), the page opening on the kind with the
+most matches, one list under a head that names its kind and count, a top hit of another kind above it when
+the words start a company or asset name, a kind that fails costing only itself, and every full-list link
+naming exactly the set its count counted. About: where the register reaches, US first, each region's figure
+the number of published registers its table on /about/sources lists. Sources & licences: by region,
+published registers first by records, each count a link to the list that is that count.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from web.app import (
     SEARCH_FUNDING_KINDS,
     SEARCH_RFP_KINDS,
     SOURCE_REGIONS,
+    search_opening_kind,
     search_top_hit,
     source_region,
 )
@@ -155,12 +157,21 @@ def client(transport: FakeTransport) -> Iterator[TestClient]:
     web_app.state.coverage_facts = None
 
 
-def _tabs(html: str) -> list[tuple[str, str, bool]]:
-    nav = html.split('<nav class="search-tabs"', 1)[1].split("</nav>", 1)[0]
-    return [
-        (href.replace("&amp;", "&"), re.sub(r"<[^>]+>", "", text).strip(), bool(current))
-        for href, current, text in re.findall(r'<a href="([^"]+)"( aria-current="page")?>(.*?)</a>', nav)
-    ]
+def _kinds(html: str) -> list[tuple[str | None, str, bool]]:
+    """The kinds down the left (a row of chips on phones): (href, words, current) for each, in order; a
+    kind with no match is words and a zero, not a link, so its href is None."""
+    nav = html.split('<nav class="search-kinds"', 1)[1].split("</nav>", 1)[0]
+    out: list[tuple[str | None, str, bool]] = []
+    for item in re.findall(r"<li>(.*?)</li>", nav, re.S):
+        link = re.match(r'\s*<a href="([^"]+)"( aria-current="page")?>', item)
+        words = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", item)).strip()
+        href = link.group(1).replace("&amp;", "&") if link else None
+        out.append((href, words, bool(link and link.group(2))))
+    return out
+
+
+def _tables(html: str) -> int:
+    return html.count('<table class="record-table record-table--compact search-table')
 
 
 # ------------------------------------------------------------------------------------------- search
@@ -172,39 +183,74 @@ def test_search_with_no_words_reads_nothing_and_offers_the_glossary(
     assert not [u for u, _ in transport.calls if u not in ("/v1/health", "/v1/coverage")]
 
 
-def test_the_tabs_come_in_one_order_with_counts_and_mark_the_view(client: TestClient) -> None:
-    tabs = _tabs(client.get("/search", params={"q": "sun"}).text)
-    assert [(label, current) for _, label, current in tabs] == [
-        ("All", True),
+def test_the_search_field_and_its_hints_name_no_company() -> None:
+    """Owner, 2026-10-24: no fixed example company names in a placeholder, a hint or an empty state (one
+    asked to lose its place as the example). The field says what it searches: names, companies and queue
+    IDs, which is what `?q=` matches (services/api/records.py); a county or state is the map's to find."""
+    template = (Path(__file__).resolve().parent / "templates" / "search.html").read_text(encoding="utf-8")
+    placeholders = re.findall(r'placeholder="([^"]*)"', template)
+    assert placeholders == ["Name, company or queue ID"]
+    assert "e.g." not in template and "Tallgrass" not in template
+
+
+def test_the_kinds_come_in_one_order_with_counts_and_the_page_opens_on_the_most_matches(
+    client: TestClient,
+) -> None:
+    """One kind at a time (owner, 2026-10-24: "different stacked lists are really confusing"): every kind
+    with its count, in the fixed order, and the page opens on the one with the most matches. A kind with
+    none is a word and a zero, not a link to an empty list."""
+    kinds = _kinds(client.get("/search", params={"q": "sun"}).text)
+    assert [(words, current) for _, words, current in kinds] == [
         ("Companies 1", False),
-        ("Projects 60", False),
+        ("Projects 60", True),
         ("Infrastructure 1", False),
         ("RFPs 1", False),
         ("Funding 0", False),
     ]
-    assert [href for href, _, _ in tabs][1] == "/search?q=sun&type=companies"
-    on_projects = _tabs(client.get("/search", params={"q": "sun", "type": "projects"}).text)
-    assert [label for _, label, current in on_projects if current] == ["Projects 60"]
+    assert [href for href, _, _ in kinds] == [
+        "/search?q=sun&type=companies",
+        "/search?q=sun&type=projects",
+        "/search?q=sun&type=infrastructure",
+        "/search?q=sun&type=rfps",
+        None,
+    ]
+    on_rfps = _kinds(client.get("/search", params={"q": "sun", "type": "rfps"}).text)
+    assert [words for _, words, current in on_rfps if current] == ["RFPs 1"]
 
 
-def test_all_shows_five_per_kind_with_all_n_and_a_kind_tab_fifty_with_its_full_list(
+def test_the_page_shows_one_list_under_a_head_that_names_its_kind_and_count(client: TestClient) -> None:
+    """Never two kinds' lists stacked: one table, its head naming the kind and the count, its caption the
+    rows shown of that count, so a screen reader hears what the rows are and how many there are."""
+    body = client.get("/search", params={"q": "sun"}).text
+    assert _tables(body) == 1 and "search-bucket" not in body
+    head = body.split('<div class="search-list__head">', 1)[1].split("</div>", 1)[0]
+    assert re.sub(r"<[^>]+>", "", head.split("</h2>", 1)[0]).split() == ["Projects", "60", "for", "“sun”"]
+    assert '<caption class="visually-hidden">Projects matching “sun”: 50 of 60</caption>' in body
+    columns = re.findall(r'<th scope="col"[^>]*>([^<]+)</th>', body)
+    assert columns == ["Status", "Project", "Technology", "Where", "MW", "Source"]
+
+
+def test_the_page_reads_five_of_each_kind_to_count_it_and_fifty_of_the_kind_it_opens(
     client: TestClient, transport: FakeTransport
 ) -> None:
     body = client.get("/search", params={"q": "sun"}).text
-    projects = body.split("<h2>Projects</h2>", 1)[1].split("</section>", 1)[0]
-    assert projects.count('class="search-row"') == 5
-    assert '<a class="search-bucket__all" href="/search?q=sun&amp;type=projects">All 60</a>' in projects
-    assert transport.params("/v1/proposals")[-1] == {"q": "sun", "limit": 5, "include": "count"}
-
-    tab = client.get("/search", params={"q": "sun", "type": "projects"}).text
-    assert tab.count('class="search-row"') == 50
-    link = re.search(r'<a href="([^"]+)">Open all 60 in Projects</a>', tab)
+    assert body.count('class="search-row"') == 50
+    reads = transport.params("/v1/proposals")
+    assert reads[0] == {"q": "sun", "limit": 5, "include": "count"}
+    assert [p["limit"] for p in reads] == [5, 50]
+    assert [p["limit"] for p in transport.params("/v1/organizations")] == [5]
+    link = re.search(r'<a class="search-list__all" href="([^"]+)">Open all 60 in Projects</a>', body)
     assert link is not None
     # The full list names every lifecycle state, so it is not narrowed to the list's own default view
-    # (active, listed): it shows exactly the 60 the tab counted.
+    # (active, listed): it shows exactly the 60 the kind counted.
     query = parse_qs(urlsplit(link.group(1).replace("&amp;", "&")).query)
     assert query == {"q": ["sun"], "lifecycle_state": [",".join(ALL_PROPOSAL_LIFECYCLE_STATES)]}
-    assert transport.params("/v1/proposals")[-1]["limit"] == 50
+
+    transport.calls.clear()
+    tab = client.get("/search", params={"q": "sun", "type": "projects"}).text
+    assert tab.count('class="search-row"') == 50
+    assert [p["limit"] for p in transport.params("/v1/proposals")] == [50]
+    assert 'href="' + link.group(1) + '">Open all 60 in Projects</a>' in tab
 
 
 def test_rfps_and_funding_are_read_by_kind_and_every_status(
@@ -226,21 +272,59 @@ def test_the_rfps_and_funding_tabs_read_every_notice_kind_once() -> None:
     assert sorted(rfps + funding) == sorted(OPPORTUNITY_KIND_VALUES)
 
 
-def test_the_kinds_with_no_match_share_one_line(client: TestClient) -> None:
+def test_a_kind_with_no_match_is_one_word_and_a_zero_not_a_heading(client: TestClient) -> None:
     body = client.get("/search", params={"q": "sun"}).text
-    assert "<h2>Funding</h2>" not in body
-    assert '<p class="search-empty search-none">No match in Funding.</p>' in body
+    assert "<h2>Funding</h2>" not in body and 'id="search-list-title">Funding' not in body
+    zero = '<span class="search-kinds__none">Funding <span class="search-kinds__n tnum">0</span></span>'
+    assert zero in body
+
+
+def test_nothing_matching_says_so_once_and_opens_no_empty_list(
+    client: TestClient, transport: FakeTransport
+) -> None:
+    for path in ("/v1/organizations", "/v1/proposals", "/v1/assets", "/v1/opportunities"):
+        transport.responses[path] = (200, _page([], total=0))
+    body = client.get("/search", params={"q": "zzz"}).text
+    assert _tables(body) == 0 and 'id="search-list-title"' not in body
+    none = re.search(r'<p class="search-empty search-none" role="status">(.*?)</p>', body, re.S)
+    assert none is not None and "Nothing matches “zzz”" in none.group(1) and 'href="/"' in none.group(1)
+    assert [href for href, _, _ in _kinds(body)] == [None] * 5
+
+
+def test_search_opening_kind_rules() -> None:
+    def kind(key: str, total: int, error: bool = False) -> dict[str, Any]:
+        return {"key": key, "total": total, "error": error}
+
+    assert search_opening_kind([kind("companies", 3), kind("projects", 8)]) == "projects"
+    # A tie goes to the fixed order: companies first.
+    tie = [kind("companies", 1), kind("infrastructure", 1), kind("rfps", 1)]
+    assert search_opening_kind(tie) == "companies"
+    # A kind that could not be searched is never opened on its own; nothing matched opens nothing.
+    assert search_opening_kind([kind("companies", 0), kind("projects", 0, error=True)]) is None
+    assert search_opening_kind([kind("rfps", 2), kind("projects", 0, error=True)]) == "rfps"
 
 
 def test_a_company_name_is_the_top_hit_and_its_open_button_the_one_primary(client: TestClient) -> None:
     body = client.get("/search", params={"q": "sun power"}).text
     hit = body.split('<section class="top-hit"', 1)[1].split("</section>", 1)[0]
     assert '<a href="/organizations/sun-power-partners">Sun Power Partners</a>' in hit
+    assert '<span class="top-hit__kind">Developer</span>' in hit  # its kind, in words, beside its name
     assert '<a class="top-hit__open" href="/organizations/sun-power-partners">Open company</a>' in hit
+    assert hit and body.index('class="top-hit"') < body.index('id="search-list-title"')
     assert (
         "top-hit"
         not in client.get("/search", params={"q": "sun", "type": "companies"}).text.split("<main", 1)[1]
     )
+
+
+def test_a_top_hit_of_the_open_kind_is_one_of_its_rows_not_a_second_copy(
+    client: TestClient, transport: FakeTransport
+) -> None:
+    transport.responses["/v1/proposals"] = (200, _page([], total=0))
+    body = client.get("/search", params={"q": "sun power"}).text
+    assert [words for _, words, current in _kinds(body) if current] == ["Companies 1"]
+    assert 'class="top-hit"' not in body
+    assert body.count("/organizations/sun-power-partners") == 1
 
 
 def test_top_hit_rules() -> None:
@@ -257,8 +341,33 @@ def test_a_kind_that_fails_costs_only_itself(client: TestClient, transport: Fake
     resp = client.get("/search", params={"q": "sun"})
     assert resp.status_code == 200
     assert "Projects could not be searched just now." in resp.text
-    assert ("Projects —", False) in [(label, c) for _, label, c in _tabs(resp.text)]
+    assert ("/search?q=sun&type=projects", "Projects —", False) in _kinds(resp.text)
     assert "Sun Power Partners" in resp.text
+    tab = client.get("/search", params={"q": "sun", "type": "projects"}).text
+    assert "Projects could not be searched just now." in tab and _tables(tab) == 0
+
+
+def test_an_unread_kind_with_no_other_match_says_which_kinds_were_searched(
+    client: TestClient, transport: FakeTransport
+) -> None:
+    """Reviewer, 2026-10-24: with Projects unread and every other kind empty, the page said "Nothing
+    matches" and then that Projects could not be searched; the first line claimed more than the page knew.
+    It names the kinds it searched, as the page before lane stacked-lists did."""
+    for path in ("/v1/organizations", "/v1/assets", "/v1/opportunities"):
+        transport.responses[path] = (200, _page([], total=0))
+    transport.responses["/v1/proposals"] = (503, {"title": "unavailable"})
+    body = client.get("/search", params={"q": "zzz"}).text
+    assert "Nothing matches" not in body
+    none = re.search(r'<p class="search-empty search-none" role="status">(.*?)</p>', body, re.S)
+    assert none is not None and none.group(1) == "No match in Companies, Infrastructure, RFPs or Funding."
+    assert "Projects could not be searched just now." in body
+    assert body.index("No match in") < body.index("Projects could not be searched")
+    # Nothing read at all: no claim about matches, only what could not be searched.
+    for path in ("/v1/organizations", "/v1/assets", "/v1/opportunities"):
+        transport.responses[path] = (503, {"title": "unavailable"})
+    body = client.get("/search", params={"q": "zzz"}).text
+    assert "search-none" not in body and "Nothing matches" not in body
+    assert body.count("could not be searched just now.") == 5
 
 
 def test_a_client_error_is_a_bug_and_stays_loud(client: TestClient, transport: FakeTransport) -> None:
@@ -267,9 +376,9 @@ def test_a_client_error_is_a_bug_and_stays_loud(client: TestClient, transport: F
         client.get("/search", params={"q": "sun"})
 
 
-def test_an_unknown_type_is_all(client: TestClient) -> None:
-    tabs = _tabs(client.get("/search", params={"q": "sun", "type": "nonsense"}).text)
-    assert [label for _, label, current in tabs if current] == ["All"]
+def test_an_unknown_type_opens_the_kind_with_the_most_matches(client: TestClient) -> None:
+    kinds = _kinds(client.get("/search", params={"q": "sun", "type": "nonsense"}).text)
+    assert [words for _, words, current in kinds if current] == ["Projects 60"]
 
 
 def test_a_results_page_is_not_indexed_and_the_empty_page_is(client: TestClient) -> None:

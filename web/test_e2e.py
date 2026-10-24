@@ -35,6 +35,7 @@ from playwright.sync_api import Route, sync_playwright
 from services.db.session import get_engine, get_sessionmaker, init_db
 from web.data_loading import load_dev_database, load_test_database
 from web.labels import map_labels
+from web.map_search import word_rank, words_of
 from web.retirement import ASSET_STATUS_LABELS
 from web.viewmodels import TECHNOLOGY_LABELS, technology_label
 
@@ -3602,6 +3603,139 @@ def test_the_search_finds_a_county_a_project_and_a_company_and_drops_a_stale_ans
                 o.startswith("Texas") for o in options
             )
             assert outside == []
+        finally:
+            browser.close()
+
+
+#: Companies a full store holds whose names begin with a state's code or a query's word (reviewer,
+#: 2026-10-24, on a copy of the audit store), added to what the e2e server answers for that query,
+#: each with the rank the server's own `word_rank` gives it. The e2e store has its own "NY CDG ...
+#: LLC" companies, so "ny" is answered as it stands.
+_CODE_LIKE_COMPANIES = {
+    "tx": ("TX BESS 3 LLC",),
+    "duke": ("Duke Energy Carolinas, LLC",),
+}
+#: Each suggestion's name and the kind word printed beside it (its hidden ", " lead stripped).
+_SUGGESTION_ROWS = (
+    "() => Array.from(document.querySelectorAll('#map-search-list [role=option]')).map((o) => ["
+    "o.querySelector('.map-search__label').textContent,"
+    "o.querySelector('.map-search__kind').textContent.replace(/^, /, '')])"
+)
+
+
+def _with_code_like_companies(route: Route) -> None:
+    query = parse_qs(urlsplit(route.request.url).query).get("q", [""])[0]
+    names = _CODE_LIKE_COMPANIES.get(query.lower())
+    if not names:
+        route.continue_()
+        return
+    response = route.fetch()
+    body = response.json()
+    added = [
+        {
+            "public_id": f"org_rank{i}",
+            "label": name,
+            "detail": "Company",
+            "url": None,
+            "rank": word_rank(words_of(name), words_of(query)),
+        }
+        for i, name in enumerate(names)
+    ]
+    body["companies"] = added + list(body.get("companies") or [])
+    route.fulfill(response=response, body=json.dumps(body), content_type="application/json")
+
+
+def _suggestions_for(page: Any, query: str) -> list[list[str]]:
+    # Emptied first, so the list that shows is this query's and not the last one's.
+    page.fill("#map-search-input", "")
+    page.wait_for_function("() => document.getElementById('map-search-list').hidden")
+    page.fill("#map-search-input", query)
+    page.wait_for_function(
+        "() => !document.getElementById('map-search-list').hidden"
+        " && document.querySelectorAll('#map-search-list [role=option]').length > 0",
+        timeout=15000,
+    )
+    rows: list[list[str]] = page.evaluate(_SUGGESTION_ROWS)
+    return rows
+
+
+def _spoken_count(query: str, rows: list[list[str]]) -> str:
+    """What `renderSuggestions` puts in the hidden live count for these rows."""
+    tally = {"place": 0, "company": 0, "project": 0}
+    for _name, kind in rows:
+        tally[kind.lower() if kind in ("Company", "Project") else "place"] += 1
+    nouns = {
+        "place": ("place", "places"),
+        "company": ("company", "companies"),
+        "project": ("project", "projects"),
+    }
+    parts = [f"{n} {nouns[k][0 if n == 1 else 1]}" for k, n in tally.items() if n]
+    return f"{len(rows)} suggestion{'' if len(rows) == 1 else 's'} for “{query}”: {', '.join(parts)}."
+
+
+def _settled_centre_after_enter(page: Any, label: str) -> tuple[float, float]:
+    page.press("#map-search-input", "Enter")
+    page.wait_for_function("(l) => document.getElementById('map-search-input').value === l", arg=label)
+    page.wait_for_timeout(900)
+    page.wait_for_function("() => !window.__map.isMoving()")
+    lng, lat, _zoom = page.evaluate(_CENTRE_ZOOM)
+    return lng, lat
+
+
+@pytest.mark.parametrize("width", [1440, 390])
+def test_the_map_search_is_one_ranked_list_and_enter_takes_its_best_match(server: object, width: int) -> None:
+    """Lane stacked-lists, fix round (reviewer, 2026-10-24): the field's suggestions are one list, each
+    row naming its kind in words, with a spoken count of how many of each kind. The list keeps the
+    server's ranking across kinds: before the fix "ny" + Enter flew to Nye County, NV, with New York
+    under four "NY ... LLC" companies, "tx" + Enter opened TX BESS 3 LLC, and "duke" put Dukes
+    County above Duke Energy. A Louisiana parish says "Parish", not "County"."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(**_launch_kwargs())
+        try:
+            context = (
+                browser.new_context(viewport=DESKTOP_VIEWPORT)
+                if width == 1440
+                else browser.new_context(**PHONE)
+            )
+            page = context.new_page()
+            _install_offline_routes(page)
+            _ok_ui_events(page)
+            page.route("**/api/map/search?**", _with_code_like_companies)
+            page.goto(BASE_URL + "/")
+            page.wait_for_function(_COUNT_READY, timeout=30000)
+
+            # New York by its code; then the names whose first word is "NY"; then Nye County, whose
+            # name only begins with those letters.
+            ny = _suggestions_for(page, "ny")
+            assert ny[0] == ["New York", "State"], ny
+            ny_words = [i for i, (name, _kind) in enumerate(ny) if words_of(name)[:1] == ["ny"]]
+            nye = ny.index(["Nye County, NV", "County"])
+            assert ny_words and max(ny_words) < nye, ny
+            assert {kind for _name, kind in ny} >= {"State", "Company", "County"}, ny
+            assert page.text_content("#map-search-count") == _spoken_count("ny", ny)
+            lng, lat = _settled_centre_after_enter(page, "New York")
+            assert -82.0 < lng < -69.0 and 39.0 < lat < 47.0, (lng, lat)  # New York, not Nye (-115.3, 37.6)
+
+            tx = _suggestions_for(page, "tx")
+            assert tx[0] == ["Texas", "State"] and ["TX BESS 3 LLC", "Company"] in tx[1:], tx
+            lng, lat = _settled_centre_after_enter(page, "Texas")
+            assert -108.0 < lng < -92.0 and 24.0 < lat < 38.0, (lng, lat)
+            assert urlsplit(page.url).path == "/"
+
+            duke = _suggestions_for(page, "duke")
+            names = [name for name, _kind in duke]
+            whole_word = [i for i, name in enumerate(names) if words_of(name)[:1] == ["duke"]]
+            assert names[0] == "Duke Energy Carolinas, LLC" and max(whole_word) < names.index(
+                "Dukes County, MA"
+            ), duke
+
+            orleans = _suggestions_for(page, "orleans")
+            assert ["Orleans Parish, LA", "Parish"] in orleans, orleans
+
+            # Under two characters there is no list, so no count is left to be read.
+            page.fill("#map-search-input", "o")
+            page.wait_for_function("() => document.getElementById('map-search-list').hidden")
+            assert page.text_content("#map-search-count") == ""
         finally:
             browser.close()
 

@@ -78,7 +78,7 @@ def world(db: Session) -> dict[str, Opportunity]:
     )
     source = upsert_licence_and_source(db, entry, "test")
     # As the connectors write them (`technologies_str`): pipe-joined.
-    rows = [_row("1", "solar_pv|nuclear"), _row("2", "gas"), _row("3", "")]
+    rows = [_row("1", "solar_pv|nuclear"), _row("2", "gas"), _row("3", ""), _row("4", "all_source")]
     load_dataframe(db, source, "opportunity", pd.DataFrame(rows), None)
     db.commit()
     return {o.title: o for o in db.query(Opportunity).all()}
@@ -88,6 +88,7 @@ def test_the_loader_splits_the_connectors_pipe_joined_lists(world: dict[str, Opp
     assert world["Tender 1"].technologies == ["solar_pv", "nuclear"]
     assert world["Tender 2"].technologies == ["gas"]
     assert world["Tender 3"].technologies == []
+    assert world["Tender 4"].technologies == ["all_source"]
 
 
 def _titles(client: TestClient, technologies: str) -> list[str]:
@@ -97,10 +98,13 @@ def _titles(client: TestClient, technologies: str) -> list[str]:
 
 
 def test_a_stored_token_selects_its_tagged_rows(client: TestClient, world: dict[str, Opportunity]) -> None:
-    # Tender 3 is untagged (all-source) and matches every value, as documented.
-    assert _titles(client, "nuclear") == ["Tender 1", "Tender 3"]
-    assert _titles(client, "solar_pv") == ["Tender 1", "Tender 3"]
-    assert _titles(client, "gas") == ["Tender 2", "Tender 3"]
+    # Tender 4 is an all-source solicitation and matches every value; Tender 3 is untagged (no
+    # technology read) and matches none (docs/28 B-1: it used to match every value).
+    assert _titles(client, "nuclear") == ["Tender 1", "Tender 4"]
+    assert _titles(client, "solar_pv") == ["Tender 1", "Tender 4"]
+    assert _titles(client, "gas") == ["Tender 2", "Tender 4"]
+    assert _titles(client, "wind_offshore") == ["Tender 4"]
+    assert world["Tender 4"].technologies == ["all_source"]
 
 
 def test_the_vocabulary_is_the_opportunity_vocabulary(client: TestClient) -> None:
@@ -114,9 +118,11 @@ def test_the_vocabulary_is_the_opportunity_vocabulary(client: TestClient) -> Non
         "wind",
         "bess",
     ]
-    assert {"solar_pv", "bess", "gas", "heat", "ev_charging", "efficiency"} <= set(values)
+    assert {"solar_pv", "bess", "gas", "heat", "ev_charging", "efficiency", "coal"} <= set(values)
     # The two vocabularies differ: the proposal filter's tokens are not what opportunities carry.
     assert "solar" not in values and "gas_cc" not in values
+    # `all_source` is not an option: it is a marker every option matches (docs/28 B-1).
+    assert "all_source" not in values
 
 
 class _ApiTransport:

@@ -87,7 +87,7 @@
   var PLANT_FAMILY_CLASSES = {
     solar: ["solar", "solar_storage", "solar_thermal"],
     wind: ["wind", "wind_offshore", "wind_storage"],
-    gas: ["gas_cc", "gas_ct", "gas_steam", "gas_ice", "gas_other", "fuel_cell", "hydrogen"],
+    gas: ["gas_cc", "gas_ct", "gas_steam", "gas_ice", "gas_other", "fuel_cell", "hydrogen", "lng_terminal", "gas_pipeline"],
     oil: ["oil"],
     coal: ["coal"],
     nuclear: ["nuclear"],
@@ -95,7 +95,7 @@
     storage: ["storage", "pumped_storage"],
     biomass: ["biomass", "waste"],
     geothermal: ["geothermal"],
-    other: ["other", "unknown", "load", "transmission"]
+    other: ["other", "unknown", "load", "transmission", "grid_equipment", "chp", "pipeline", "ccs"]
   };
   var PLANT_TECH_FAMILY = {};
   PLANT_FAMILY_ORDER.forEach(function (family) {
@@ -3647,6 +3647,7 @@
   var searchList = document.getElementById("map-search-list");
   var searchClear = document.getElementById("map-search-clear");
   var searchEmpty = document.getElementById("map-search-empty");
+  var searchCount = document.getElementById("map-search-count");
   var SEARCH_MIN = 2;
   var SEARCH_PAUSE_MS = 250;
   var searchTimer = null;
@@ -3664,16 +3665,30 @@
   var REGION_ALIASES = { us: ["usa", "america"], gb: ["uk", "britain"] };
   var searchRegions = Array.prototype.map.call(document.querySelectorAll(".region-btn"), function (btn) {
     var code = btn.getAttribute("data-region") || "";
+    var codes = [code].concat(REGION_ALIASES[code] || []);
     return {
-      kind: "region", label: btn.textContent.trim(), detail: "Region", button: btn,
-      words: searchWords(btn.textContent).concat([code], REGION_ALIASES[code] || [])
+      kind: "region", label: btn.textContent.trim(), detail: "Region", button: btn, codes: codes,
+      words: searchWords(btn.textContent).concat(codes)
     };
   });
+  // How well a quick view answers what was typed, on the server's scale (`web/map_search.py`
+  // `word_rank`): 0 its whole name, code or alias ("uk"), 1 its first words, 2 its first letters, 3 a word.
+  // (Not `regionRank`: that name is the map's own, for which region level a tap lands on.)
+  function quickViewRank(r, tokens) {
+    var name = searchWords(r.label).join(" ");
+    var typed = tokens.join(" ");
+    if (name === typed || (tokens.length === 1 && r.codes.indexOf(tokens[0]) !== -1)) return 0;
+    if ((name + " ").indexOf(typed + " ") === 0) return 1;
+    if (name.indexOf(typed) === 0) return 2;
+    return 3;
+  }
   function regionMatches(query) {
     var tokens = searchWords(query);
     if (!tokens.length) return [];
     return searchRegions.filter(function (r) {
       return tokens.every(function (t) { return r.words.some(function (w) { return w.indexOf(t) === 0; }); });
+    }).map(function (r) {
+      return { kind: "region", label: r.label, detail: r.detail, button: r.button, rank: quickViewRank(r, tokens) };
     });
   }
 
@@ -3724,52 +3739,83 @@
     node.setAttribute("role", "option");
     node.setAttribute("aria-selected", "false");
     node.setAttribute("data-index", String(index));
+    // One list, every row saying what it is in the same place (lane stacked-lists, 2026-10-24; owner: "it's
+    // companies and it's locations ... in different stacked lists are really confusing"): the name, then
+    // its kind in words at the row's right end, read with it as "Pecos County, TX, County".
+    var top = document.createElement("span");
+    top.className = "map-search__top";
     var label = document.createElement("span");
     label.className = "map-search__label";
     label.textContent = opt.label;
-    node.appendChild(label);
-    var detail = document.createElement("span");
-    detail.className = "map-search__detail";
-    // A project's status, as the chips everywhere else print it (glyph and words, never hue alone).
-    if (opt.kind === "project" && opt.item.feature) detail.innerHTML = chipHtml(opt.item.family || familyOf(opt.item.feature.lifecycle_state), opt.item.feature.lifecycle_state) + " ";
-    detail.appendChild(document.createTextNode(opt.detail || ""));
-    node.appendChild(detail);
+    top.appendChild(label);
+    var kind = document.createElement("span");
+    kind.className = "map-search__kind";
+    kind.innerHTML = "<span class=\"visually-hidden\">, </span>";
+    kind.appendChild(document.createTextNode(searchKindWord(opt)));
+    top.appendChild(kind);
+    node.appendChild(top);
+    // A project's status and facts, as the chips everywhere else print it (glyph and words, never hue
+    // alone). A place or a company needs no second line: its kind is on the first.
+    if (opt.kind === "project") {
+      var detail = document.createElement("span");
+      detail.className = "map-search__detail";
+      if (opt.item.feature) detail.innerHTML = chipHtml(opt.item.family || familyOf(opt.item.feature.lifecycle_state), opt.item.feature.lifecycle_state) + " ";
+      detail.appendChild(document.createTextNode(opt.detail || ""));
+      node.appendChild(detail);
+    }
     return node;
   }
-  function renderSuggestions(groups) {
+  // The kind of a suggestion in a word or two: a place's own noun as the server names it ("State",
+  // "County", "Parish", "Borough", "Census area", "City").
+  function searchKindWord(opt) {
+    if (opt.kind === "project") return "Project";
+    if (opt.kind === "company") return "Company";
+    if (opt.kind === "region") return "Region";
+    if (opt.item && opt.item.noun) return String(opt.item.noun);
+    return opt.kind === "state" ? "State" : "County";
+  }
+  var SEARCH_KIND_NOUNS = { place: ["place", "places"], company: ["company", "companies"], project: ["project", "projects"] };
+  function renderSuggestions(query, options) {
     searchList.innerHTML = "";
     searchOptions = [];
-    groups.forEach(function (g) {
-      if (!g.options.length) return;
-      var group = document.createElement("div");
-      group.className = "map-search__group";
-      group.setAttribute("role", "group");
-      var name = document.createElement("div");
-      name.className = "map-search__group-name";
-      name.id = "map-search-group-" + g.key;
-      name.textContent = g.name;
-      group.setAttribute("aria-labelledby", name.id);
-      group.appendChild(name);
-      g.options.forEach(function (opt) {
-        group.appendChild(optionNode(opt, searchOptions.length));
-        searchOptions.push(opt);
-      });
-      searchList.appendChild(group);
+    options.forEach(function (opt) {
+      searchList.appendChild(optionNode(opt, searchOptions.length));
+      searchOptions.push(opt);
     });
+    // How many, and of which kinds, for a screen reader: the list itself has no headings to count.
+    if (searchCount) {
+      var tally = { place: 0, company: 0, project: 0 };
+      options.forEach(function (o) { tally[o.kind === "company" || o.kind === "project" ? o.kind : "place"] += 1; });
+      var parts = Object.keys(tally).filter(function (k) { return tally[k]; }).map(function (k) {
+        return tally[k] + " " + SEARCH_KIND_NOUNS[k][tally[k] === 1 ? 0 : 1];
+      });
+      // Naming what was typed makes each answer new text, so a live region reads it even when the
+      // count is the same as the last search's.
+      searchCount.textContent = options.length
+        ? options.length + " suggestion" + (options.length === 1 ? "" : "s") + " for “" + query + "”: " + parts.join(", ") + "."
+        : "";
+    }
     setActive(-1);
     if (searchOptions.length) openList(); else closeList();
   }
+  // One ranked list (lane stacked-lists, fix round) in the server's own order: every suggestion carries
+  // its `rank` on one scale for every kind (`web/map_search.py` `word_rank`: a whole name or a state's
+  // code, then a name that begins with the words typed, then with the letters, then a word of it, then
+  // the rest). Within a rank, places, then companies, then projects, each as the search answered. So
+  // "ny" lists New York above "NY CDG 1 LLC" and both above Nye County, and Enter takes the first.
+  var RANK_UNKNOWN = 4;
+  function rankSuggestions(groups) {
+    return [].concat.apply([], groups).map(function (o, i) {
+      return [typeof o.rank === "number" ? o.rank : RANK_UNKNOWN, i, o];
+    }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; }).map(function (row) { return row[2]; });
+  }
   function showResults(query, body, failed) {
     var places = regionMatches(query).concat((body.places || []).map(function (p) {
-      return { kind: p.kind, label: p.label, detail: p.detail, item: p };
+      return { kind: p.kind, label: p.label, detail: p.detail, item: p, rank: p.rank };
     }));
-    var companies = (body.companies || []).map(function (c) { return { kind: "company", label: c.label, detail: c.detail, item: c }; });
-    var projects = (body.projects || []).map(function (p) { return { kind: "project", label: p.label, detail: p.detail, item: p }; });
-    renderSuggestions([
-      { key: "places", name: "Places", options: places },
-      { key: "companies", name: "Companies", options: companies },
-      { key: "projects", name: "Projects", options: projects }
-    ]);
+    var companies = (body.companies || []).map(function (c) { return { kind: "company", label: c.label, detail: c.detail, item: c, rank: c.rank }; });
+    var projects = (body.projects || []).map(function (p) { return { kind: "project", label: p.label, detail: p.detail, item: p, rank: p.rank }; });
+    renderSuggestions(query, rankSuggestions([places, companies, projects]));
     searchShownFor = query;
     if (searchOptions.length) hideEmpty(); else showEmpty(query, failed);
     if (searchPendingPick) {
@@ -3801,6 +3847,7 @@
     searchShownFor = "";
     closeList();
     hideEmpty();
+    if (searchCount) searchCount.textContent = "";
     setSearchPin(null);
     syncClear();
   }
@@ -3940,6 +3987,7 @@
         searchShownFor = "";
         closeList();
         hideEmpty();
+        if (searchCount) searchCount.textContent = ""; // no list, so no count left to read
         return;
       }
       searchTimer = window.setTimeout(runSearch, SEARCH_PAUSE_MS);

@@ -4,8 +4,8 @@
 # (same convention as us.epa.class_vi, us.permits_dashboard, gb.neso.tec_register). Footnote
 # markers the spreadsheet glues onto a status ("Draft Doc6", "Pending RAD Response**") are
 # stripped by the connector before lookup; the verbatim text travels in raw.application_status_raw.
-version: 1
-updated: 2026-09-25
+version: 2
+updated: 2026-10-24
 canonical_states: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn, cancelled]
 sources:
   tx_rrc_class_vi:
@@ -18,6 +18,7 @@ sources:
       Draft Doc: studied
       Comment Period for Draft Pemit: studied
       Comment Period for Draft Permit: studied
+      Public Comment: studied
       Hearing: studied
       Approved: permitted
       Withdrawn: withdrawn
@@ -68,6 +69,13 @@ sources:
         Draft Permit and Public Comment Period: a draft permit is not a decision, and promoting it to
         `permitted` would assert an approval the RRC has not issued. The finer position is readable
         from status_raw.
+      - >-
+        Public Comment (added 2026-10-24, docs/28 B-14) is `studied` for the same reason. It is read
+        as the comment period the legend names ("Drafting Permit & Notice Documents for Public
+        Comment Period"); whatever its exact step, a comment period is not a decision. One well carried it in the
+        public register on 2026-10-23 and fell to `unknown` through `tx_rrc_class_vi.unmapped`. The
+        correction is a reclassification: the map is part of the connector's parser digest, so the
+        next run restates the previous output under it and emits no status_change event.
       - >-
         Approved is `permitted`, not `built`: the RRC's approval authorises the storage facility and its
         injection wells; it does not report construction or injection. A denial has not been observed

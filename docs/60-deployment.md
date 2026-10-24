@@ -622,6 +622,31 @@ The statement limits still bound any one statement such a thread is stuck in.
 
 All five passed on 2026-10-10 against a local Postgres 16. CI runs the Postgres four with the other Postgres tests.
 
+### 6.5 First fetch on every deploy, and why a source fails (2026-10-24)
+
+A source is fetched when its bucket next fires, so a source added to a running server waited up to a week
+(weekly) or a month (monthly); CAISO and NYISO read `freshness: never` a day after they shipped, and the
+reason a fetch failed sat in `source.last_error`, which only the admin pages showed (`docs/28` lane F5).
+
+- **Every deploy** (`infra/ci/beta.sh deploy`, after `deploy.sh` has started the stack) runs
+  `python -m infra.scheduler.bootstrap first-fetch` in a one-off worker container. It queues `run_connector`
+  for each implemented, ungated, scheduled source whose `source` row has no `last_success_at` (or no row), with
+  the `fetch` action's queue and locks. Left out: a source an operator paused, one whose last attempt was
+  `blocked` (a refusal is retried on the schedule only, §10.4 step 3), and one with a fetch already queued or
+  running. A repeat queues nothing twice. It never fails the deploy: an older image or an unreachable
+  database is a warning in the run summary. `infra/ci/beta.sh first-fetch` runs it alone.
+- **deploy-beta `status`** now prints `python -m infra.scheduler.bootstrap sources` (read-only, `exec` in the
+  running worker): per implemented source the last attempt's time and outcome, whether it succeeded, the last
+  success, any queued job and one line of error, with query strings, URL credentials, `key=value` secrets,
+  bearer tokens and the env file's secret values removed; then the implemented sources that never succeeded;
+  then the site finder (computed or not, its last run, the OpenStreetMap lines loaded, whether the grid layer
+  is on disk, and the step that would compute it). Preflight check 2 names each never-succeeded source's last
+  error the same way.
+- **TLS.** A certificate that does not verify is `HttpTlsUnverified`, recorded once and not retried
+  (`pipeline/connectors/http.py`). A host that leaves its issuing CA out of the handshake is reached with that
+  CA added to the bundle (`ca_bundle_with`), never with verification off; the Permitting Dashboard is the
+  first (`pipeline/connectors/us_permits_dashboard/`).
+
 ## 7. Observability
 
 | Signal | Mechanism | Where |
@@ -915,7 +940,8 @@ first month `staging` is live and record the result here.
 **Severity:** S3 by default (`docs/04` S-9); escalate to S2 if the source is on the critical path for a
 paying customer's saved search.
 **Preconditions and access:** admin panel source-health view (`docs/20` §8 item 1) once it exists; until
-then, `python -m pipeline.connectors list` and `data/runs/<source_id>/` on the worker VM.
+then, `python -m pipeline.connectors list` and `data/runs/<source_id>/` on the worker VM. On the beta,
+deploy-beta's `status` action prints each source's last attempt and error (§6.5).
 **Steps:**
 1. Confirm the failure mode against `docs/20` §12's table (layout change vs blocked vs DQ hold vs
    HTTP-200-with-error-body).

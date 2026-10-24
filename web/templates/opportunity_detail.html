@@ -26,7 +26,7 @@
 <dl class="field-grid">
   <div><dt>Kind</dt><dd>{{ record.kind_label or '—' }}</dd></div>
   <div><dt>Jurisdiction</dt><dd>{{ record.jurisdiction or '—' }}</dd></div>
-  <div><dt>Technologies</dt><dd>{{ (record.technologies | technologies_label) if record.technologies else 'all-source' }}</dd></div>
+  <div><dt>Technologies</dt><dd>{{ (record.technologies | technologies_label) if record.technologies else '—' }}</dd></div>
   <div><dt>Capacity sought (MW)</dt><dd class="tnum">{{ record.capacity_sought_mw | mw if record.capacity_sought_mw is not none else '—' }}</dd></div>
   <div><dt>Opens</dt><dd class="tnum">{{ record.open_at | display_date if record.open_at else '—' }}</dd></div>
   <div><dt>Due</dt><dd class="tnum">{{ record.due_at | display_date if record.due_at else '—' }}</dd></div>

@@ -252,9 +252,20 @@ def test_the_in_view_list_only_ever_holds_plain_list_items() -> None:
     assert [(close, tag) for close, tag, _ in top_level] == [("", "li"), ("/", "li")]
     assert "role=" not in top_level[0][2]
     # The drawer is a dialog; the search field's suggestions (owner, 2026-10-22) are a listbox of
-    # named groups of options (`renderSuggestions`), none of them in this list.
-    assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog", "group", "option"}
+    # options (`renderSuggestions`), none of them in this list: one ranked list since lane
+    # stacked-lists, each option naming its kind, so no named groups any more.
+    assert set(re.findall(r'setAttribute\("role", "(\w+)"\)', MAP_JS)) == {"dialog", "option"}
     assert ".role =" not in MAP_JS
+
+
+def test_map_js_declares_each_top_level_name_once() -> None:
+    """map.js is one function scope, where a second `function name()` silently replaces the first for
+    every caller. Lane stacked-lists' fix round first named the search's quick-view rank `regionRank`,
+    the map's own name for which region level a tap lands on, and every region tap stopped opening its
+    summary (web/test_e2e.py's region-tap tests caught it)."""
+    names = re.findall(r"^  (?:function|var|let|const) ([A-Za-z_$][\w$]*)", MAP_JS, re.M)
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    assert repeated == [], repeated
 
 
 def _map_notice(**context: object) -> str:

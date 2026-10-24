@@ -28,7 +28,7 @@ from pipeline.connectors.base import (
     RawSnapshot,
 )
 from pipeline.connectors.http import PoliteSession
-from pipeline.connectors.opportunity import OPPORTUNITY_STATES
+from pipeline.connectors.opportunity import ALL_SOURCE, OPPORTUNITY_STATES, work_profile
 from pipeline.connectors.registry import RegistrationError, Registry, SourceEntry
 from pipeline.connectors.runner import run
 from pipeline.connectors.store import Store
@@ -37,6 +37,7 @@ from pipeline.connectors.us_rfp import connector as module
 from pipeline.connectors.us_rfp import extract, htmltree
 from pipeline.connectors.us_rfp.issuers import IssuerRow, fetchable_ids, registry_rows
 from services import posture
+from services.match.relevance import assess_relevance, programme_codes
 
 FIX = pathlib.Path(__file__).with_name("fixtures")
 NOW = dt.datetime(2026, 10, 21, 16, 0, tzinfo=dt.UTC)
@@ -462,7 +463,8 @@ def test_a_target_needs_a_verb_of_procurement() -> None:
 
 
 def test_technologies_and_contract_types() -> None:
-    assert clf.technologies("2026 All-Source RFP", "wind, solar and battery storage") == []
+    # An all-source solicitation is tagged all-source, whatever technologies it lists (docs/28 B-1).
+    assert clf.technologies("2026 All-Source RFP", "wind, solar and battery storage") == [ALL_SOURCE]
     assert clf.technologies("2026 APCo Energy Storage CPA RFP", "Up to 300 MW of Energy Storage") == ["bess"]
     assert clf.contract_types("PSAs; PPAs; renewable energy certificates (RECs) and a CPA") == [
         "PSA",
@@ -583,9 +585,124 @@ def test_aep_per_rfp_page_gives_the_schedule() -> None:
     allsource = next(r for r in items if r["key"] == "/business/b2b/energy-rfps/allsource2026")
     assert allsource["open_at"] == "2026-01-02"  # "Final RFP Issued", not "Draft RFP Issued November 7, 2025"
     assert allsource["due_at"] == "2026-03-16T00:00:00+00:00"
-    assert allsource["capacity_sought_mw"] == 4000.0 and allsource["technologies"] == []
+    assert allsource["capacity_sought_mw"] == 4000.0 and allsource["technologies"] == [ALL_SOURCE]
     joint = next(r for r in items if r["key"] == "/business/b2b/energy-rfps/2025-spp-capacity-rfp")
     assert joint["capacity_sought_mw"] is None and joint["mw_stated"] == [350.0, 600.0]
+    # A capacity solicitation that names no technology takes any resource (docs/28 B-7).
+    assert joint["technologies"] == [ALL_SOURCE]
+
+
+@pytest.mark.parametrize(
+    ("title", "description", "expected"),
+    [
+        # The six of the 2026-10-21 run that the relevance gate dropped (docs/28 B-7), from the
+        # recorded bundles: none names a technology. Capacity and all-source solicitations named
+        # as such invite every resource.
+        ("2025 SPP Capacity RFP", "to obtain up to 350 megawatts (MW) of accredited capacity", [ALL_SOURCE]),
+        (
+            "2023 Accredited Deliverable Capacity RFP",
+            "accredited deliverable electric generating capacity",
+            [ALL_SOURCE],
+        ),
+        ("2026 All-Source RFP", "up to 3,000 MW of SPP Accredited Capacity", [ALL_SOURCE]),
+        ("Request for Proposals for Capacity Resources", "", [ALL_SOURCE]),
+        ("2027 RFP", "this all-source request for proposals seeks accredited capacity", [ALL_SOURCE]),
+        # Review of 2026-10-24, finding 1: the word "capacity" alone is no capacity solicitation
+        # (I&M's "2024 RFPs" carried it only in "capacity planning year"), and a technology class
+        # is not every technology.
+        (
+            "2024 RFPs",
+            "up to 4,000 MW of generation resources by the 2029/30 capacity planning year",
+            [],
+        ),
+        ("Renewable RFP", "seeking renewable capacity", []),
+        ("Thermal Capacity RFP", "", []),
+        ("Clean Energy RFP", "clean firm capacity", []),
+        ("2026 Capacity RFP", "seeking up to 100 MW of demand response capacity", []),
+        ("2026 All-Source Renewable RFP", "", []),
+        # A capacity purchase that names its technology keeps it.
+        (
+            "2026 APCo Energy Storage CPA RFP",
+            "Capacity Purchase Agreements (CPAs) for Energy Storage",
+            ["bess"],
+        ),
+        # No capacity and no technology: unknown, which matches no technology filter.
+        ("2026 Request for Proposals", "the company is seeking proposals", []),
+    ],
+)
+def test_capacity_solicitations_without_a_technology_are_all_source(
+    title: str, description: str, expected: list[str]
+) -> None:
+    assert clf.technologies(title, description) == expected
+
+
+def test_every_recorded_issuer_item_is_an_energy_relevant_project() -> None:
+    """All 16 items of the 2026-10-21 bundles pass the relevance gate by source (docs/28 B-7:
+    v1 dropped 6) and are type of work `project`, for developers."""
+    seen = 0
+    for issuer in (
+        "us.rfp.pso",
+        "us.rfp.swepco",
+        "us.rfp.appalachian_power",
+        "us.rfp.indiana_michigan_power",
+        "us.rfp.ct_deep",
+        "us.rfp.nj_bpu",
+    ):
+        kept, _ = extract.records(bundle(issuer), registry_rows()[issuer], NOW.date())
+        for item in kept:
+            seen += 1
+            verdict = assess_relevance(
+                title=item["title"],
+                technologies=item["technologies"],
+                programme_codes=programme_codes({"issuer_registry_id": issuer}),
+            )
+            assert verdict.relevant and verdict.reason == "energy register", item["title"]
+            notice = {"source_id": issuer, "kind": "rfp", "title": item["title"], "identifiers": {}}
+            profile = work_profile(notice, item)
+            assert profile.work_type_keys == ["project"], item["title"]
+            assert profile.audience_keys == ["developers"], item["title"]
+    assert seen == 16
+
+
+def test_im_2024_rfps_is_not_all_source_so_the_matcher_does_not_open_it_to_the_country() -> None:
+    """Review of 2026-10-24, finding 1: tagged `all_source` from "capacity planning year", I&M's
+    "2024 RFPs" (status unknown, jurisdiction US, 4,000 MW) passed the technology rule against
+    every proposal, was blocked on country alone, and matched 425 of the 2026-10-23 public
+    proposals, 310 of them in Texas. Untagged, it matches none; a capacity RFP named as one keeps
+    `all_source`."""
+    from services.match.engine import OpportunityFacts, ProposalFacts, opportunity_families, score_pair
+
+    kept, _ = extract.records(
+        bundle("us.rfp.indiana_michigan_power"), registry_rows()["us.rfp.indiana_michigan_power"], NOW.date()
+    )
+    item = next(r for r in kept if r["title"] == "2024 RFPs")
+    assert item["technologies"] == []
+    facts = OpportunityFacts(
+        item["technologies"],
+        "US",
+        4000.0,
+        "unknown",
+        None,
+        title=item["title"],
+        kind="rfp",
+        programme_codes=programme_codes({"issuer_registry_id": "us.rfp.indiana_michigan_power"}),
+    )
+    texas_solar = ProposalFacts("solar", "US-TX", 200.0, "filed")
+    assert opportunity_families(facts, rules=_rules()) == frozenset()
+    result = score_pair(texas_solar, facts, _rules(), now=NOW)
+    assert not result.is_match and "technology" in result.rules_failed
+    capacity = next(
+        r
+        for r in extract.records(bundle("us.rfp.pso"), registry_rows()["us.rfp.pso"], NOW.date())[0]
+        if r["title"] == "2025 SPP Capacity RFP"
+    )
+    assert capacity["technologies"] == [ALL_SOURCE]
+
+
+def _rules() -> Any:
+    from services.match.rules import load_rules
+
+    return load_rules()
 
 
 def test_a_self_build_deadline_is_not_the_bidders_deadline() -> None:

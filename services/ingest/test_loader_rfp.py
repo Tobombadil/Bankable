@@ -93,7 +93,8 @@ def test_aep_records_load_as_rfps_under_the_noncommercial_posture(
     assert {o.min_reuse_class for o in rows} == {"noncommercial"}
     assert {o.jurisdiction for o in rows} == {"US"}
     allsource = next(o for o in rows if o.title == "2026 All-Source RFP")
-    assert float(allsource.capacity_sought_mw) == 3000.0 and allsource.technologies == []
+    # Tagged all-source, which every technology filter matches (docs/28 B-1; lane rfp-tags).
+    assert float(allsource.capacity_sought_mw) == 3000.0 and allsource.technologies == ["all_source"]
     assert allsource.status == "closed" and allsource.due_at is not None
 
     licence = session.get(Licence, Registry().get("us.rfp.swepco").licence_id)

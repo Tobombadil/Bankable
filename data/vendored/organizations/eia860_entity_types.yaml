@@ -1,0 +1,30 @@
+# EIA-860 Schedule 1 "Entity Type" -> `organization.type` (docs/22 §27; docs/28 §8.2).
+#
+# Read by `services/resolve/org_types.py`, which the resolve pass runs on every store
+# (`services/resolve/merge.py::resolve_organizations`) against the latest stored `us.eia.860` snapshot
+# (`1___Utility_Y<year>.xlsx` inside the annual zip the connector already fetches).
+#
+# The codes and their meanings are EIA's own, from the same zip's `LayoutY2025.xlsx`, sheet "Field Directory",
+# field "Entity Type" ("Entity type of principle owner"), read 2026-10-24 from
+# https://www.eia.gov/electricity/data/eia860/xls/eia8602025.zip (sha256 2b27929d..., the file the
+# connector's first run stored on 2026-09-19, data/sources.yaml `us.eia.860` verified note; production's
+# `us.eia.860` last succeeded 2026-10-22 00:25:52 UTC by `GET /v1/sources`).
+#
+# The targets are the vocabulary in `services/api/app.py` ORGANIZATION_TYPE_VALUES. The mapping is docs/28
+# §8.2's: cooperatives are their own type; investor-owned utilities are utilities; publicly owned utilities
+# and agencies (municipal, political subdivision, state, federal) are public agencies; independent power
+# producers are IPPs; industrial and commercial owners keep `other`. The raw code is kept on every event,
+# so a later split (for example public power as utilities) needs no new read.
+
+source_id: us.eia.860
+field: Entity Type
+codes:
+  C: {type: coop, eia: Cooperative}
+  I: {type: utility, eia: Investor-Owned Utility}
+  Q: {type: ipp, eia: Independent Power Producer}
+  M: {type: agency, eia: Municipally-Owned Utility}
+  P: {type: agency, eia: Political Subdivision}
+  F: {type: agency, eia: Federally-Owned Utility}
+  S: {type: agency, eia: State-Owned Utility}
+  IND: {type: other, eia: Industrial}
+  COM: {type: other, eia: Commercial}

@@ -9915,7 +9915,7 @@ components:
     Technologies:
       name: technologies
       in: query
-      description: Any-of over the opportunity's `technologies[]`; comma-separated. Values are the `opportunity_technology` vocabulary of `/v1/meta/vocabularies` (`solar_pv`, `bess`, `gas`, ...), not the proposal `technology` tokens. All-source opportunities (empty array) match every value.
+      description: Any-of over the opportunity's `technologies[]`; comma-separated. Values are the `opportunity_technology` vocabulary of `/v1/meta/vocabularies` (`solar_pv`, `bess`, `gas`, ...), not the proposal `technology` tokens. An opportunity tagged `all_source` (an all-source or capacity solicitation the RFP registers name as such) matches every value; one with no technology read (empty array) matches none.
       style: form
       explode: false
       schema:
@@ -13621,7 +13621,7 @@ components:
           description: ISO 3166-2, or `US` for federal.
         technologies:
           type: array
-          description: Empty for all-source.
+          description: The technologies read from the notice; `["all_source"]` for a solicitation open to every resource; empty when none was read (it then matches no technology filter).
           items:
             type: string
         capacity_sought_mw:

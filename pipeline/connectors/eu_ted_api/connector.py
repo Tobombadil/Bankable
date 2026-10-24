@@ -31,15 +31,19 @@ from pipeline.connectors.base import Connector as BaseConnector
 from pipeline.connectors.base import ConnectorError, Kind, ParseError, RawSnapshot, SnapshotMode
 from pipeline.connectors.canonical import harmonise_status
 from pipeline.connectors.opportunity import (
+    GRID_TECH,
     StatedFigure,
     StatedValue,
     classify_technologies,
     currency_code,
     deadline_passed,
+    grid_evidence,
     iso2,
+    not_grid_context,
     parse_amount,
     stated_value_of,
     technologies_str,
+    ted_buyer_title,
     to_utc,
 )
 
@@ -78,31 +82,125 @@ KIND_BY_PREFIX = {
     "subco": "tender",
     "brin": "procurement_notice",
 }
+#: CPV code prefixes -> technology. Every code checked against CPV 2008 as the Publications Office
+#: publishes it (eForms SDK `codelists/cpv.gc`, read 2026-10-24). Fixed then (docs/28 B-3, B-5):
+#: `093` caught 09310000 Electricity and 09344000 Radio-isotopes as solar; `09111` caught 09111400
+#: Wood fuels as coal. And three codes named the wrong thing: 45251100 is any power plant (wind is
+#: 45251160), 45251143 a compressed-air plant (not nuclear), and `31121` generating sets, wind
+#: turbines (311213) among them (not gas). A code takes the token of its longest listed prefix
+#: (`cpv_technologies`), so 09331100 is solar heat, not PV.
 CPV_TECH = {
-    "093": "solar_pv",
-    "09330000": "solar_pv",
-    "09331000": "solar_pv",
-    "09332000": "solar_pv",
-    "45251100": "wind",
-    "45251120": "hydro",
-    "45251143": "nuclear",
-    "45231400": "transmission",
-    "45231220": "gas",
-    "45231221": "gas",
-    "45231223": "gas",
-    "45232220": "transmission",
-    "31121": "gas",
-    "31122": "gas",
-    "31210000": "transmission",
-    "31170000": "transmission",
-    "31200000": "transmission",
-    "45251111": "nuclear",
-    "09111": "coal",
-    "09120000": "gas",
-    "09123000": "gas",
-    "45231210": "gas",
-    "71314": "efficiency",
+    "0933": "solar_pv",  # solar energy, panels, PV modules, solar installation
+    "09331100": "solar_thermal",  # solar collectors for heat production (review of 2026-10-24)
+    "0932": "heat",  # steam, hot water, district and long-distance heating (review of 2026-10-24)
+    "31712331": "solar_pv",  # photovoltaic cells
+    "45261215": "solar_pv",  # solar panel roof-covering work
+    "45251160": "wind",  # wind-power installation works
+    "311213": "wind",  # wind-energy generators, windmills, wind turbines, wind farm
+    "45251120": "hydro",  # hydro-electric plant construction work
+    "421122": "hydro",  # hydraulic turbines, water wheels
+    "421132": "hydro",  # parts of hydraulic turbines
+    "45251110": "nuclear",  # nuclear-power station construction work
+    "45251111": "nuclear",  # construction work for nuclear reactors
+    "4215": "nuclear",  # nuclear reactors and parts
+    "09340000": "nuclear",  # nuclear fuels (not 09343/09344: radioactive materials, radio-isotopes)
+    "09341": "nuclear",  # uranium
+    "09342": "nuclear",  # plutonium
+    "45251141": "geothermal",  # geothermal power station construction work
+    "091114": "biomass",  # wood fuels
+    "03413": "biomass",  # fuel wood
+    "45251142": "biomass",  # wood-fired power station construction work
+    "45251240": "biomass",  # landfill-gas electricity generating plant
+    # The group code itself, "Coal and coal-based fuels" (exact, so its fossil-fuel and wood-fuel
+    # children 09111300 and 09111400 stay out): a buyer citing the coal group buys coal, except
+    # beside a wood-fuel code, where the group is that wood fuel's parent (`cpv_technologies`).
+    # Read from the CPV list; it was checked against the labelled sample afterwards, so coal's
+    # measured precision is in-sample (data/eval/opportunity_technology_tags.py).
+    "09111000": "coal",
+    "091111": "coal",  # coal
+    "091112": "coal",  # coal-based fuels, hard coal, briquettes
+    "091121": "coal",  # lignite
+    "09120000": "gas",  # gaseous fuels
+    "09121": "gas",  # coal gas, mains gas
+    "09123": "gas",  # natural gas
+    "4523122": "gas",  # gas pipelines, gas supply mains, gasholders, gas distribution
+    "421123": "gas",  # gas turbines
+    "421133": "gas",  # parts of gas turbines
+    "31122100": "hydrogen",  # fuel cells
+    "71314": "efficiency",  # energy and related services
 }
+#: Grid codes: the electricity network itself (docs/28 B-6). Substation equipment and works,
+#: transformers, distribution transformers and systems, switchgear, medium- and high-voltage and
+#: overhead equipment and cables, overhead line works.
+GRID_CPV = (
+    "31682540",
+    "31170000",
+    "31171",
+    "31172",
+    "31173",  # not 31174000, power-supply transformers for electronics
+    "31213200",
+    "31213400",
+    "31214000",
+    "31214110",
+    "31214120",
+    "31214200",
+    "31214300",
+    "31214400",
+    "31214520",  # not 312141xx, the switches of a building (dimmer, toggle, limit switches)
+    "31212100",
+    "316823",
+    "316824",
+    "31321000",
+    "31321100",
+    "313212",  # low- and medium-voltage cable (31321200) and its children (review of 2026-10-24)
+    "31321300",
+    "45231400",
+    "45232200",
+    "45232210",
+    "45232220",
+    "45232221",
+)
+#: Construction of another kind: buildings, bridges and tunnels, roads, railways, airfields, sports
+#: grounds, general, oil, gas, water and sewer pipelines, telecom lines, hydraulic works, power,
+#: water and process plants, roofing, insulation, plumbing, fencing and building completion. A grid
+#: code beside one of these is that project's own cabling or substation (docs/28 B-6 sample: cycle
+#: paths, a railway, a school; the 2026-10-23 register: a sports hall, a water intake, flood
+#: embankments), so it is not evidence of grid work; explicit grid words still are.
+OTHER_WORKS_CPV = (
+    "4521",
+    "45221",
+    "45222",
+    "45233",
+    "45234",
+    "45235",
+    "45236",
+    "452311",
+    "452312",
+    "452313",
+    "452321",
+    "452323",
+    "452324",
+    "4524",
+    "45251",
+    "45252",
+    "45253",
+    "45255",
+    "4526",
+    "4532",
+    "4533",
+    "4534",
+    "4535",
+    "454",
+)
+#: Codes of commodity energy (fuels, electricity, heat, gas; utility services): a notice that has
+#: only these buys energy, and the voltages it names are the supply's (docs/28 B-6).
+ENERGY_COMMODITY_CPV = ("09", "65")
+#: Fuels, petroleum products and lubricants: a notice that has only these buys a consumable, so a
+#: grid word in its title is the consumable's ("transformer oil", "oils for ... transformers").
+PETROLEUM_CPV = ("091", "092")
+#: "Coal and coal-based fuels", the group that also holds wood fuels, and the wood-fuel codes.
+COAL_GROUP_CPV = "09111000"
+WOOD_FUEL_CPV = ("091114", "03413")
 
 
 def first_text(v: Any) -> str | None:
@@ -164,12 +262,45 @@ def stated_value(row: dict[str, Any]) -> StatedValue | None:
 
 
 def cpv_technologies(codes: list[str]) -> list[str]:
+    """Technology tokens the CPV codes name (`CPV_TECH`, each code by its longest listed prefix),
+    in first-seen order, and the grid tag for a grid code (`GRID_CPV`) in a notice with no
+    construction of another kind (`OTHER_WORKS_CPV`)."""
     out: list[str] = []
+    other_works = any(c.startswith(OTHER_WORKS_CPV) for c in codes)
+    wood = any(c.startswith(WOOD_FUEL_CPV) for c in codes)
     for c in codes:
-        for prefix, tok in CPV_TECH.items():
-            if c.startswith(prefix) and tok not in out:
+        if c == COAL_GROUP_CPV and wood:
+            continue  # the wood fuel's parent here, not coal
+        prefixes = [p for p in CPV_TECH if c.startswith(p)]
+        if prefixes:
+            tok = CPV_TECH[max(prefixes, key=len)]
+            if tok not in out:
                 out.append(tok)
+        if not other_works and c.startswith(GRID_CPV) and GRID_TECH not in out:
+            out.append(GRID_TECH)
     return out
+
+
+def technologies(title: Any, codes: list[str]) -> list[str]:
+    """A notice's technology tokens: the buyer's own title (`ted_buyer_title`, never the CPV label
+    TED puts in front of it, docs/28 B-4) and its CPV codes. Grid work needs grid words or a grid
+    code (docs/28 B-6): a voltage in a notice that only buys energy is the supply's, and a grid code
+    in a railway, road, lighting, fibre, building or charging notice is that project's cabling
+    (`not_grid_context`)."""
+    text = ted_buyer_title(title)
+    techs = classify_technologies(text)
+    buys_energy = bool(codes) and all(c.startswith(ENERGY_COMMODITY_CPV) for c in codes)
+    buys_petroleum = bool(codes) and all(c.startswith(PETROLEUM_CPV) for c in codes)
+    if GRID_TECH in techs and (
+        buys_petroleum or (buys_energy and grid_evidence(text, buys_energy=True) is None)
+    ):
+        techs.remove(GRID_TECH)
+    for t in cpv_technologies(codes):
+        if t == GRID_TECH and (t in techs or not_grid_context(text)):
+            continue
+        if t not in techs:
+            techs.append(t)
+    return techs
 
 
 class Connector(BaseConnector):
@@ -267,10 +398,7 @@ class Connector(BaseConnector):
             state, rule = harmonise_status(self.status_key, ctx, self.status_map)
             title = first_text(r.get("notice-title"))
             cpv = [str(c) for c in (r.get("classification-cpv") or [])]
-            techs = classify_technologies(title)
-            for t in cpv_technologies(cpv):
-                if t not in techs:
-                    techs.append(t)
+            techs = technologies(title, cpv)
             value = stated_value(r)
             identifiers: dict[str, Any] = {
                 "ted_notice_id": r.get("publication-number"),

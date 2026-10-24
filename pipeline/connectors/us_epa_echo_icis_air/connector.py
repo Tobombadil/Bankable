@@ -57,7 +57,9 @@ are in docs/25 §3.7; neither rule is perfect and the basis travels on every row
 
 Record model: identical to `us.va.deq.data_center_air_sites` (docs/25 §3.3). One `proposal` per
 ICIS-Air facility, `kind = technology = load`, `capacity_mw` null (ICIS-Air publishes no capacity),
-`sponsor_name` null (the facility name mixes owner, SPV and campus code).
+`sponsor_name` null (the facility name mixes owner, SPV and campus code). The operator is linked after
+load, only where the name carries a listed operator's own name, by `services/resolve/operators.py`
+(docs/22 §27).
 - source_record_id: `PGM_SYS_ID` (unique over all 280,208 rows). source_url: ECHO's Detailed
   Facility Report for the FRS id (a page for people; never fetched by this connector), else the zip.
 - lifecycle_state: `AIR_OPERATING_STATUS_DESC` through `status_map.yaml` (Planned Facility -> filed,

@@ -1090,3 +1090,50 @@ def test_the_rendered_env_file_passes_every_deploy_sh_check(tmp_path: pathlib.Pa
     text = shipped.read_text()
     expect("SENDER_POSTAL_ADDRESS='1 Example Street, Suite #2, Springfield, IL 62701'" in text, text)
     expect(text.rstrip().endswith("ENVIRONMENT=production"), "deploy.sh appends the environment")
+
+
+# ------------------------------------------------------------- first fetch and sources (docs/28 lane F5)
+def test_every_deploy_queues_the_first_fetch_after_deploy_sh() -> None:
+    body = BETA_SH.read_text().split("cmd_deploy() {", 1)[1].split("\n}\n", 1)[0]
+    expect(body.index("infra/scripts/deploy.sh production") < body.index("cmd_first_fetch"), body)
+
+
+def test_first_fetch_runs_the_bootstrap_action_on_the_host(sh: tuple[pathlib.Path, dict[str, str]]) -> None:
+    log, env = sh
+    result = beta_sh("first-fetch", env=env)
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    call = next(ln for ln in lines_of(log) if "bootstrap first-fetch" in ln)
+    expect(
+        "compose.single.yml" in call
+        and "IMAGE_TAG=$(cat /opt/infraque/current-tag)" in call
+        and "run --rm --no-deps -T worker python -m infra.scheduler.bootstrap first-fetch" in call,
+        call,
+    )
+    expect(
+        "### First fetch for the sources that never succeeded"
+        in pathlib.Path(env["GITHUB_STEP_SUMMARY"]).read_text(),
+        "summary",
+    )
+
+
+def test_a_first_fetch_that_cannot_run_never_fails_the_deploy(
+    sh: tuple[pathlib.Path, dict[str, str]],
+) -> None:
+    """An image older than the action answers argparse's exit 2; the deploy stands, with a warning."""
+    _log, env = sh
+    ssh = pathlib.Path(env["PATH"].split(":")[0]) / "ssh"
+    ssh.write_text(
+        '#!/usr/bin/env bash\nprintf \'ssh %s\\n\' "$*" >> "$FAKE_LOG"\n'
+        '[[ "$*" == *"first-fetch"* ]] && { echo "invalid choice: \'first-fetch\'" >&2; exit 2; }\nexit 0\n'
+    )
+    result = beta_sh("first-fetch", env=env)
+    expect(result.returncode == 0, result.stdout + result.stderr)
+    expect("::warning::bootstrap first-fetch exited 2" in result.stdout, result.stdout)
+    expect(
+        "First fetch not queued (exit 2)" in pathlib.Path(env["GITHUB_STEP_SUMMARY"]).read_text(), "summary"
+    )
+
+
+def test_status_prints_each_sources_last_attempt_read_only() -> None:
+    script = BETA_SH.read_text().split("<<'REMOTE'", 1)[1].split("\nREMOTE\n", 1)[0]
+    expect("c exec -T worker python -m infra.scheduler.bootstrap sources" in script, script)
