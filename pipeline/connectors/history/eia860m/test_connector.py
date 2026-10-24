@@ -268,19 +268,33 @@ def test_a_persons_download_in_the_inbox_is_read_once(registry, store) -> None:
 
 @pytest.fixture()
 def mirror_on() -> Registry:
-    """The manifest with its mirror block switched on (`enabled: true`); as shipped it is off."""
+    """The manifest with its mirror block switched on (`enabled: true`), as shipped since 2026-10-24."""
+    return _with_mirror(enabled=True)
+
+
+@pytest.fixture()
+def mirror_off() -> Registry:
+    """The manifest with its mirror block switched off, as it shipped until 2026-10-24."""
+    return _with_mirror(enabled=False)
+
+
+def _with_mirror(*, enabled: bool) -> Registry:
     fresh = Registry()
     entry = fresh.get(SID)
-    mirror = {**entry.raw["mirror"], "enabled": True}
+    mirror = {**entry.raw["mirror"], "enabled": enabled}
     fresh.sources[SID] = dataclasses.replace(entry, raw={**entry.raw, "mirror": mirror})
     return fresh
 
 
-def test_the_mirror_is_off_as_shipped_and_switching_it_on_backfills_again(registry, store, mirror_on) -> None:
-    """Until its use is recorded in the decisions log, the shipped manifest never asks Zenodo; a
-    backfill then ends on the standing routes. Switching the block on makes the next `auto` run a
-    backfill again (its `backfill_key` names the record), so nobody has to run one by hand."""
-    assert registry.get(SID).raw["mirror"]["enabled"] is False
+def test_the_mirror_is_on_as_shipped_and_switching_it_on_backfills_again(
+    registry, store, mirror_on, mirror_off
+) -> None:
+    """The owner recorded the mirror's use on 2026-10-24 ("Load EIA history back to 2015 from the public
+    Zenodo copy: yes"), so the shipped manifest has it on. With it off, a backfill ends on the standing
+    routes and never asks Zenodo; switching it on makes the next `auto` run a backfill again (its
+    `backfill_key` names the record), so nobody has to run one by hand."""
+    assert registry.get(SID).raw["mirror"]["enabled"] is True
+    registry = mirror_off
     zipped = zip_of({"eia860m-2015-07.xlsx": fixture_bytes(OLD)})
 
     def routes() -> FakeHttp:

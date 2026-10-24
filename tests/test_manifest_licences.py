@@ -319,9 +319,11 @@ def test_only_the_named_sources_are_noncommercial() -> None:
     2026-10-22: SPP's hub prices (owner decision; SPP's grant excludes use "within a commercial
     publication", docs/29 §2.4; the register row, docs/13 §6, moved first).
     2026-10-24: NSTA's carbon storage licences (NSTA User Agreement: "exploit the Information
-    non-commercially", docs/07 §1.7; the register row moved first)."""
+    non-commercially", docs/07 §1.7; the register row moved first).
+    2026-10-24: SPP's interconnection queue (owner decision, the same clause as SPP's prices; docs/07 §3.3)."""
     assert sorted(e["id"] for e in load_manifest(MANIFEST) if e.get("reuse") == "noncommercial") == [
         "gb.nsta.carbon_storage_licences",
+        "us.iso.spp.gen_queue",
         "us.iso.spp.prices",
         "us.rfp.appalachian_power",
         "us.rfp.indiana_michigan_power",

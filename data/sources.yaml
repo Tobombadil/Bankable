@@ -358,8 +358,10 @@ sources:
   format: csv
   cadence: daily
   license: 'SPP Terms & Conditions (Copyright), retrieved 2026-09-12 — "Permission is implicitly granted to copy and distribute ... EXCEPT when such materials will be used, in whole or in part, within a commercial publication ... Any commercial use of these materials requires prior, express written authorization from the author(s) or a duly authorized officer of SPP"'
-  reuse: restricted
-  publication: none
+  reuse: noncommercial
+  publication: derived_only
+  attribution: 'Source: Southwest Power Pool'
+  licence_url: https://www.spp.org/terms-conditions/
   tier: 1
   effort: S
   connector: none yet (gridstatus.SPP.get_interconnection_queue upstream; gridstatus is no longer a dependency, vendor its parser if this source is cleared)
@@ -372,7 +374,12 @@ sources:
     2026-10-22 for us.iso.spp.prices (docs/29 §2.4). Terms and Conditions re-read 2026-10-23 (HTTP 200, lane
     national-queues): the Copyright clause is word for word the 2026-09-12 text, so SPP rows stay withheld here
     and from LBNL's Queued Up file alike. See docs/13-legal-data-rights.md section 1.4.
-
+    Owner decision 2026-10-24: SPP's Copyright clause read as a noncommercial grant ("Permission is implicitly
+    granted to copy and distribute ... (with appropriate citation) EXCEPT when such materials will be used ... within
+    a commercial publication"), as for us.iso.spp.prices. Published only while PLATFORM_POSTURE=noncommercial;
+    withdrawn at a commercial flip unless SPP authorises in writing (docs/37 §5.1). Derived fields only; the CSV at
+    most daily (External Systems Acceptable Use Policy, docs/29 §2.4). The SPP rows in us.lbnl.queued_up stay
+    dropped at ingest until decided separately. docs/07 §3.3.
 - id: us.iso.nyiso.gen_queue
   name: NYISO Interconnection Queue
   jurisdiction: US-NY
@@ -683,7 +690,7 @@ sources:
   # downloads and EIA's current month. `enabled: true` is the one switch; the next weekly tick then backfills
   # from the record (runner.effective_mode), about 1.16 GB at 0.1 rps (docs/24-trends.md section 9.6).
   mirror:
-    enabled: false
+    enabled: true  # owner, 2026-10-24: "Load EIA history back to 2015 from the public Zenodo copy: yes"
     name: Catalyst Cooperative, PUDL Raw EIA Form 860M (Zenodo)
     doi: 10.5281/zenodo.22995197
     datapackage_url: https://zenodo.org/records/22995197/files/datapackage.json

@@ -2070,7 +2070,7 @@ Keyed to `data/sources.yaml` ids. "Evidence" = whether an operative clause was q
 | `us.iso.caiso.gen_queue` | attribution-restricted | derived-only + credit "California ISO" | §1.2 quoted | mod-high |
 | `us.iso.ercot.gen_queue`, `us.iso.ercot.gen_queue.history` | permissive | raw-ok | §1.1 quoted (the history id is the same report's monthly archive on the same MIS listing, as monthly series; added 2026-10-23 by lane trends-history) | high |
 | `us.iso.ercot.large_load_queue` | permissive | raw-ok | §1.1 quoted | high |
-| `us.iso.spp.gen_queue` | restricted | **link-out-only** | §1.4 quoted; re-read 2026-10-23, unchanged (also governs the SPP rows in LBNL's Queued Up file, dropped at ingest) | high |
+| `us.iso.spp.gen_queue` | noncommercial (owner decision 2026-10-24 on SPP's Copyright clause, as for `us.iso.spp.prices`) | derived-only + credit "Source: Southwest Power Pool"; published only while the platform posture is noncommercial; withdrawn at a flip unless SPP authorises in writing (`docs/37` §5.1) | §1.4 quoted; re-read 2026-10-24, unchanged (`docs/07` §3.3); the SPP rows in LBNL's Queued Up file stay dropped at ingest | high on the text |
 | `us.iso.nyiso.gen_queue` | attribution-restricted | derived-only | §1.5 quoted | mod-high |
 | `us.iso.isone.gen_queue` | restricted | **link-out-only** | §1.6 quoted; re-read 2026-10-23, unchanged (also governs the ISO-NE rows in LBNL's Queued Up file, dropped at ingest) | mod-high |
 | `us.iso.pjm.gen_queue` | restricted (DM2) / attribution-restricted (planning pages) | link-out-only now; derived-only from planning pages after counsel | §1.3 quoted ×3 | mod |
