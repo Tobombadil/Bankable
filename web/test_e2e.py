@@ -3926,7 +3926,7 @@ def _check_phone_menu(browser: Any, width: int) -> None:
     assert page.locator("#site-menu .site-menu__group a[aria-current]").inner_text() == "Infrastructure"
     utils = page.locator("#site-menu .site-menu__utils li a")
     # This server runs under the commercial posture: Pricing is an account row.
-    assert utils.all_inner_texts() == ["Alerts", "Sign in", "Pricing", "About & sources"]
+    assert utils.all_inner_texts() == ["Alerts", "Sign in", "Pricing", "About & sources", "Glossary"]
     for link in (*pages.all(), *utils.all()):
         assert link.evaluate(_HEIGHT) >= 43.5, link.inner_text()
     assert page.locator("#site-menu .site-menu__fresh").is_visible()
