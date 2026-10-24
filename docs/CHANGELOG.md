@@ -465,3 +465,4 @@
 - 2026-10-24 coordinator: letters under Compass International Trading Group, LLC; docs/66 #25, a trademark check on "Inframation" and any trade name; PLAN row.
 - 2026-10-24 coordinator: the owner's trademark search recorded (only live INFRAMATION mark: Teledyne FLIR, class 41, conferences); docs/66 #25 done; PLAN row.
 - 2026-10-24 coordinator: legal name with its comma and ZIP 80218 (owner) in the SENDER_LEGAL_NAME default, customer terms and outreach drafts; docs/37 public beta, docs/35 SONRIS wording; docs/66 0d (the SENDER_POSTAL_ADDRESS variable) and row 4 held until PJM answers; PLAN row. 14 Gmail drafts created in andrew@compassitg.com for the owner to send.
+- 2026-10-24 coordinator: the owner's development and origination company trades as Emergent Energy (emergentenergy.io); knockout checks (USPTO, Colorado register, domains) recorded; PLAN row.
