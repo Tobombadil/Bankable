@@ -8,6 +8,10 @@ coordinator; it is then moved to "Done" with the date.
 Secrets and variables → Actions → New repository secret). Detail lives in the linked docs; this page is the short
 version. Doc links point at the working branch until it merges to `main`.
 
+**Release windows** (owner, 2026-10-24): 8 pm Denver time (primary) and 8 am (secondary). Merge whenever suits; the
+coordinator tells you the moment a release is ready, with what is in it, and the evening notice carries the day's
+list of calls the coordinator made under your recorded rules.
+
 ## Run sheet: Saturday evening and Sunday morning (2026-10-24 and 25)
 
 Slow replies first (every day they wait is a day lost), then the instant ones. **Send back** says what the
