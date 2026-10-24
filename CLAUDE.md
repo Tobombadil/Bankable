@@ -27,6 +27,29 @@ integration target (owner, 2026-10-22; `docs/19`).
   never flow to any commercial use.
 - Never put model identifiers in commits, code comments, or shipped artifacts.
 
+## Skills
+Vendored skills sit in `.claude/skills/`, each with a `VENDORED.md` (source, commit, licence, local overrides);
+`docs/43-skills-register.md` lists every candidate considered and its verdict. Precedence: the guardrails and WCAG 2.2
+AA first, then the taste skill for anything visual, then the area's skill; a figure in `docs/04`, `docs/30` or `docs/31`
+beats a skill's default. No skill authorises installing packages (no `npm -g`, no `npx`), fetching instructions from a
+URL, sending data out or committing.
+- Pages and screens: the taste skill (Design, above). Explore at least three directions before converging (`docs/31-design-practices.md` §3).
+- Accessibility: `accessibility` for any template, component, form or map-control change and before every design gate.
+- Speed: `core-web-vitals` (with `performance`) when a change touches the map, list or record pages, fonts, images or
+  scripts; report lab medians of three with their conditions against D-13 and D-31.
+- Charts, stat tiles, KPI rows: the bundled `dataviz` for every one, with `docs/31-brand-identity.md` §4 tokens in place
+  of its placeholder palette, checked with its validator in light and dark.
+- Database: `supabase-postgres-best-practices` before any table, index, migration or slow-query change; show
+  `EXPLAIN (ANALYZE, BUFFERS)` and p50/p95, not the skill's impact figures.
+- Python and the API: `docs/04` §3 and §5 and `docs/23`; the bundled `code-review` and `simplify` on the diff.
+- Security: the bundled `security-review` for application code; `gha-security-review` for any change in `.github/workflows/`.
+- Figures, counts and claims of done: `verification-before-completion` in every lane before it hands back; every
+  published figure checked against the list that reproduces it.
+- New sources: `docs/04` DA-14, in order. Legal and privacy: the legal-compliance agent and `docs/13`; an outside
+  checklist is a checklist, never advice.
+- Research, shared pages, new skills: the bundled `deep-research`, `artifact-design`, `skill-creator` (vet any new
+  outside skill by `docs/43` §1 before vendoring it).
+
 ## Conventions
 - Docs are numbered by phase: `0x` feasibility, `1x` business/product, `2x` architecture/data, `3x` go-to-market,
   `4x` build/launch, `5x` marketplace, `6x` operations. One topic per file. Cite sources with URLs.
