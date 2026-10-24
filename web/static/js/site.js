@@ -59,6 +59,18 @@
   // A record's anchors are keyed on "{record}", its one path segment (a slug or an id), and move the
   // reader only to a tab the page links: a record without that tab keeps the reader on its Overview.
   var MOVED_FRAGMENTS = {
+    // About and Coverage & methodology (lane V7, docs/30 §11.4): the register and its licences moved to
+    // /about/sources, what is not here and the status words to their own methodology tabs.
+    "/about#sources": "/about/sources",
+    "/methodology#absences": "/methodology/gaps#absences",
+    "/methodology#absent-technologies": "/methodology/gaps#absent-technologies",
+    "/methodology#withheld": "/methodology/gaps#withheld",
+    "/methodology#ownership": "/methodology/gaps#ownership",
+    "/methodology#asset-sources": "/methodology/gaps#asset-sources",
+    "/methodology#absent-states": "/methodology/gaps#absent-states",
+    "/methodology#states": "/methodology/status-words#states",
+    "/methodology#lifecycle": "/methodology/status-words#lifecycle",
+    "/methodology#opportunity-statuses": "/methodology/status-words#opportunity-statuses",
     // Record tabs (lane V3, docs/30 §11.5).
     "/proposals/{record}#sources": "/proposals/{record}/sources",
     "/proposals/{record}#report-problem": "/proposals/{record}/sources#report-problem",
@@ -73,12 +85,28 @@
     "/interconnection-points/{record}#changes": "/interconnection-points/{record}/changes",
     "/interconnection-points/{record}#sources": "/interconnection-points/{record}/sources"
   };
+  // Families of ids that moved together: "path#prefix" -> the new "path#prefix", the rest of the id
+  // kept. A method note (`#note-<id>`), a per-type asset row (`#asset-sources-<type>`) and a status
+  // definition (`#state-<key>`) are named by their data, so no list of rows could name them all.
+  var MOVED_PREFIXES = {
+    "/methodology#note-": "/methodology/gaps#note-",
+    "/methodology#asset-sources-": "/methodology/gaps#asset-sources-",
+    "/methodology#state-": "/methodology/status-words#state-"
+  };
   var record = window.location.pathname.match(/^(\/(?:proposals|assets|interconnection-points)\/)([^\/]+)$/);
-  var movedTo = MOVED_FRAGMENTS[(record ? record[1] + "{record}" : window.location.pathname) + window.location.hash];
-  if (movedTo && record) {
-    movedTo = movedTo.replace("{record}", record[2]);
-    if (!document.querySelector('a[href="' + movedTo.split("#")[0] + '"]')) movedTo = null;
+  var here = (record ? record[1] + "{record}" : window.location.pathname) + window.location.hash;
+  var movedTo = MOVED_FRAGMENTS[here];
+  if (!movedTo && !record) {
+    Object.keys(MOVED_PREFIXES).forEach(function (prefix) {
+      if (!movedTo && here.length > prefix.length && here.indexOf(prefix) === 0) {
+        movedTo = MOVED_PREFIXES[prefix] + here.slice(prefix.length);
+      }
+    });
   }
+  if (movedTo && record) movedTo = movedTo.replace("{record}", record[2]);
+  // Only to a page this one links: a record without that tab keeps the reader on its Overview, and a
+  // page whose new home is not live keeps the reader where the old link pointed.
+  if (movedTo && !document.querySelector('a[href="' + movedTo.split("#")[0] + '"]')) movedTo = null;
   if (movedTo) window.location.replace(movedTo);
 
   var navButton = document.querySelector(".nav-toggle");

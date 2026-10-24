@@ -35,6 +35,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from web.formatting import display_date, mw
+from web.glossary import RECORD_PAGE_ANCHORS
 from web.labels import LIFECYCLE_LABELS, REUSE_CLASS_LABELS, SECTION_LABELS, lifecycle_label
 from web.my_projects import track_offer
 from web.page import get_api, get_free_alerts, get_lag_days, is_preview_active, paid_tiers_offered, templates
@@ -75,19 +76,10 @@ ABSENT_LINES: dict[tuple[str, str], str] = {
 
 #: The plain-language help (owner, 2026-10-23: readable by anyone). A status chip links to its lifecycle
 #: state key (`web/labels.py` `LIFECYCLE_LABELS`); a technical term in a record header links to one of
-#: these anchors. Lane search-about builds `/glossary` with exactly these ids.
+#: these anchors. They are the glossary's own (`web/glossary.py` `RECORD_PAGE_ANCHORS`), so renaming an
+#: entry there renames the link here and the two cannot drift.
 GLOSSARY_PATH = "/glossary"
-GLOSSARY_TERMS: frozenset[str] = frozenset(
-    {
-        "interconnection-queue",
-        "queue-position",
-        "capacity",
-        "in-service-date",
-        "large-load",
-        "rfp",
-        "funding-call",
-    }
-)
+GLOSSARY_TERMS: frozenset[str] = frozenset(RECORD_PAGE_ANCHORS)
 
 #: How many rows of another tab the Overview shows before "All N in {tab}" (T-5).
 OVERVIEW_ROWS = 5

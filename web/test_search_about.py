@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator, Mapping
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -29,6 +30,7 @@ from web.app import (
     source_region,
 )
 from web.app import app as web_app
+from web.sitemaps import SITEMAP_STATIC_PATHS, _serves
 from web.viewmodels import ALL_PROPOSAL_LIFECYCLE_STATES
 
 Answer = tuple[int, Any] | Callable[[Mapping[str, Any]], tuple[int, Any]]
@@ -509,3 +511,57 @@ def test_the_old_about_anchors_still_answer(about_client: TestClient) -> None:
     body = about_client.get("/about").text
     sources = body.split('id="sources"', 1)[1][:2500]
     assert 'href="/about/sources"' in sources
+
+
+# ------------------------------------------------------------------------- old links, the sitemap
+#: Every anchor lane V7 moved off `/about` and `/methodology`, and where its content now is (docs/30
+#: §11.10). The old page keeps the id on a link onward; site.js sends a reader who arrives on it there.
+MOVED_ANCHORS = {
+    "/about#sources": "/about/sources",
+    "/methodology#absences": "/methodology/gaps#absences",
+    "/methodology#absent-technologies": "/methodology/gaps#absent-technologies",
+    "/methodology#withheld": "/methodology/gaps#withheld",
+    "/methodology#ownership": "/methodology/gaps#ownership",
+    "/methodology#asset-sources": "/methodology/gaps#asset-sources",
+    "/methodology#absent-states": "/methodology/gaps#absent-states",
+    "/methodology#states": "/methodology/status-words#states",
+    "/methodology#lifecycle": "/methodology/status-words#lifecycle",
+    "/methodology#opportunity-statuses": "/methodology/status-words#opportunity-statuses",
+}
+#: Ids named by their data (a method note, an asset type, a status key), moved as a family.
+MOVED_FAMILIES = {
+    "/methodology#note-": "/methodology/gaps#note-",
+    "/methodology#asset-sources-": "/methodology/gaps#asset-sources-",
+    "/methodology#state-": "/methodology/status-words#state-",
+}
+
+
+def test_site_js_moves_each_old_about_and_methodology_anchor_to_its_new_page() -> None:
+    script = (Path(__file__).resolve().parent / "static" / "js" / "site.js").read_text(encoding="utf-8")
+    rows = script.split("var MOVED_FRAGMENTS = {", 1)[1].split("};", 1)[0]
+    families = script.split("var MOVED_PREFIXES = {", 1)[1].split("};", 1)[0]
+    for old, new in MOVED_ANCHORS.items():
+        assert f'"{old}": "{new}"' in rows, old
+    for old, new in MOVED_FAMILIES.items():
+        assert f'"{old}": "{new}"' in families, old
+    # Lane V3's rule, for every row: a reader is moved only to a page the one they are on links.
+    guard = "document.querySelector('a[href=\"' + movedTo.split(\"#\")[0] + '\"]')) movedTo = null;"
+    assert f"if (movedTo && !{guard}" in script
+
+
+def test_the_sitemap_lists_every_reference_page_and_only_routes_the_site_serves(client: TestClient) -> None:
+    web_app.state.__dict__.pop("sitemap_cache", None)
+    locs = re.findall(r"<loc>http://testserver([^<]+)</loc>", client.get("/sitemap.xml").text)
+    reference = [
+        "/about",
+        "/about/sources",
+        "/methodology",
+        "/methodology/gaps",
+        "/methodology/status-words",
+        "/glossary",
+        "/attribution",
+        "/docs/api",
+    ]
+    assert [loc for loc in locs if loc in reference] == reference
+    assert [path for path in SITEMAP_STATIC_PATHS if not _serves(web_app, path)] == []
+    web_app.state.__dict__.pop("sitemap_cache", None)

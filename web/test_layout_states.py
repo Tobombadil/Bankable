@@ -752,6 +752,7 @@ ABOUT = [
     ("/about", "About"),
     ("/about/sources", "Sources &amp; licences"),  # lane V7 built its page, so it joined the bar
     ("/methodology", "Coverage &amp; methodology"),
+    ("/glossary", "Glossary"),  # lane V7 built its page; it joined the bar when V3 and V7 met
     ("/attribution", "Attribution"),
     ("/docs/api", "API &amp; feeds"),
 ]
@@ -855,6 +856,7 @@ def test_the_site_finder_is_not_listed_until_it_has_a_run_to_show(
         ("/about", ABOUT),
         ("/about/sources", ABOUT),
         ("/methodology", ABOUT),
+        ("/glossary", ABOUT),
         ("/attribution", ABOUT),
         ("/search", None),
         ("/alerts", None),
@@ -1075,6 +1077,7 @@ def test_a_section_is_named_in_one_place() -> None:
         "Coverage & methodology",
         "API & feeds",
         "Sources & licences",
+        "Glossary",
     )
     for name in names:
         assert labels_py.count(f'"{name}"') == 1 and f'"{name}"' not in partial, name
@@ -1200,7 +1203,7 @@ def test_about_and_sources_is_a_utility_link_not_a_section(transport: FakeTransp
     links = [href for href, _, _ in _links(footer.split("</ul>", 1)[0])]
     assert links == [
         "/about",
-        "/about#sources",
+        "/about/sources",
         "/methodology",
         "/attribution",
         "/legal/reuse",

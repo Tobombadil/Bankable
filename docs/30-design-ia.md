@@ -1501,6 +1501,13 @@ unread platform status prints outside "About this". Left for other lanes: `site.
 `web/sitemaps.py`, the footer's `/about#sources` link, Glossary in the About bar, footer and Menu, and
 `web/record_tabs.py` taking its anchors from `web.glossary.RECORD_PAGE_ANCHORS`.
 
+**Integrated: V3 and V7 (2026-10-24, lane w2a-glue).** `site.js` moves `/about#sources` and V7's nine old
+`/methodology` anchors to their new pages, and the `#note-`, `#asset-sources-` and `#state-` families by prefix, each
+row only to a page the one it is on links; the sitemap always lists `/about/sources`, the two methodology tabs and
+`/glossary`; Glossary is in the About bar (so `/glossary` now shows the bar) and §11.3; the footer's Sources & licences
+link is `/about/sources`; `web/record_tabs.py` `GLOSSARY_TERMS` is `RECORD_PAGE_ANCHORS`. Glossary in the footer and the
+phone Menu waits for `base.html` and `partials/_top_bar.html`, which the brand lane holds.
+
 **Asked by the owner, verbatim:** "could we also improve the navigation and various pages? For navigation, use a top
 bar and follow best practices from leading industry platforms to separate the site's major sections Map vs deal
 building vs funding (with whatever names we are using for that). Further, give each page a clear purpose. Do not have
@@ -1629,7 +1636,7 @@ section's bar with its list marked `aria-current="true"`. Pages that are not yet
 | Market | **MARKET INTELLIGENCE** · Map · Site finder · Projects · Companies · RFPs · Infrastructure · Prices · *(right)* source freshness · About & sources | Infrastructure: *Plants, pipelines & lines* · *Grid connection points* (as built). Prices: *Hubs & zones* · *State averages* | Map-shaped tools first (the landing, then the finder), then the record lists in the ratified order, then Prices (aggregates, not records). Site finder joins when its page has results, Prices when its page ships. Alerts leaves the bar: it is a utility in the top bar |
 | My pipeline | **MY PIPELINE** · Tracker · Invitations | None | Invitations shows only while one waits for this user. The Tracker's type filter (All · Projects · Bids · Investments) is a control on the page, not bar items: one list, filtered. Later: Documents, every file across items, when data rooms ship |
 | Funding | **FUNDING** · Grants & loans · Funders | None | Funders after counsel has read `docs/18` §4, invited capital partners only, never a public listing of deals seeking investment |
-| About (reference) | **ABOUT** · About · Sources & licences · Coverage & methodology · Attribution · API & feeds | Coverage & methodology: *Release dates* · *What is not here* · *Status words* | Reached from the footer, the Menu and About & sources. Privacy and the legal pages stay footer links with no bar |
+| About (reference) | **ABOUT** · About · Sources & licences · Coverage & methodology · Glossary · Attribution · API & feeds | Coverage & methodology: *Release dates* · *What is not here* · *Status words* | Reached from the footer, the Menu and About & sources. Privacy and the legal pages stay footer links with no bar |
 
 Search, Alerts, Account, sign-in and the admin surface have no section bar. Admin keeps its own navigation (§1.3).
 
@@ -1637,7 +1644,7 @@ Search, Alerts, Account, sign-in and the admin surface have no section bar. Admi
 Funding `funding`. Section titles: "Market intelligence", "My pipeline", "Funding", "About". New page labels: RFPs
 `rfps` (was "RFPs & funding"), Prices `prices`, Hubs & zones `prices_hubs`, State averages `prices_states`, Grants &
 loans `funding_grants`, Funders `funders`, Tracker `tracker`, Invitations `invitations`, Sources & licences
-`about_sources`, Coverage & methodology `methodology`, Attribution `attribution`, API & feeds `api`. New list H1s: "RFPs
+`about_sources`, Coverage & methodology `methodology`, Glossary `glossary`, Attribution `attribution`, API & feeds `api`. New list H1s: "RFPs
 and tenders" (`/opportunities`) and "Grants, loans and programmes" (`/funding`). Breadcrumbs start with the section,
 as the copy rule asks for "Market" there: "Market / Companies / {name}", "Funding / Grants & loans / {title}", "My
 pipeline / Tracker / {item}".

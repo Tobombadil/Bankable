@@ -166,6 +166,27 @@ def test_search_glossary_about_and_methodology_tabs(reference_server: Any) -> No
             page.locator("nav.ref-tabs a", has_text="Status words").click()
             page.wait_for_url(re.compile(r"/methodology/status-words$"))
             expect(page.locator("#state-studied")).to_contain_text("records")
+
+            # An old one-page link lands where its content moved (site.js, docs/30 §11.10), a family of
+            # ids by its prefix; the footer and the About bar name the new pages.
+            for old, new in (
+                ("/about#sources", "/about/sources"),
+                ("/methodology#withheld", "/methodology/gaps#withheld"),
+                ("/methodology#lifecycle", "/methodology/status-words#lifecycle"),
+                ("/methodology#note-solar_queue", "/methodology/gaps#note-solar_queue"),
+                ("/methodology#state-studied", "/methodology/status-words#state-studied"),
+            ):
+                page.goto(BASE_URL + old)
+                page.wait_for_url(BASE_URL + new)
+            page.goto(BASE_URL + "/methodology#vintage")  # Release dates stayed on this tab
+            expect(page.locator("#vintage")).to_be_in_viewport()
+            assert page.url == BASE_URL + "/methodology#vintage"
+            footer = page.locator("footer.site-footer")
+            expect(footer.get_by_role("link", name="Sources & licences")).to_have_attribute(
+                "href", "/about/sources"
+            )
+            page.goto(BASE_URL + "/glossary")
+            expect(page.locator('nav.section-bar a[aria-current="page"]')).to_have_text("Glossary")
             page.close()
 
             # 360px, the floor: nothing scrolls sideways; the search tabs scroll inside their own row.

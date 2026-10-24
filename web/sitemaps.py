@@ -64,23 +64,25 @@ SITEMAP_STATIC_PATHS = (
     "/interconnection-points",
     "/search",
     "/about",
+    # The About bar's reference pages (Navigation v2 lane V7, docs/30 §11.3-§11.4): built, so always listed.
+    "/about/sources",
     "/methodology",
+    "/methodology/gaps",
+    "/methodology/status-words",
+    "/glossary",
     "/attribution",
     "/pricing",
     "/docs/api",  # UX-6, 2026-10-07
     "/submit",  # US-1001, docs/30 §4.5, 2026-10-09
 )
-#: Navigation v2's new pages (docs/30 §11.10, "Sitemap"): Funding (lane V4), Prices and its State averages
-#: tab (V5), Sources & licences and the Coverage & methodology tabs (V7). Each is listed once the site has
-#: its route (`sitemap_static_paths`), so a page another lane has not built yet is never a sitemap 404.
-#: Record tabs stay out: they are `noindex, follow`, and only a record's Overview is listed (T-7).
+#: Navigation v2's new pages (docs/30 §11.10, "Sitemap") that other lanes build: Funding (lane V4), Prices
+#: and its State averages tab (V5). Each is listed once the site has its route (`sitemap_static_paths`), so
+#: a page another lane has not built yet is never a sitemap 404. Record tabs stay out: they are
+#: `noindex, follow`, and only a record's Overview is listed (T-7).
 SITEMAP_SECTION_PATHS = (
     "/funding",
     "/prices",
     "/prices/states",
-    "/about/sources",
-    "/methodology/gaps",
-    "/methodology/status-words",
 )
 
 

@@ -31,6 +31,7 @@ from web import record_tabs
 from web.api_client import ApiClient
 from web.app import app as web_app
 from web.app import delayed_notice
+from web.glossary import RECORD_PAGE_ANCHORS
 from web.labels import LIFECYCLE_LABELS
 from web.viewmodels import proposal_history
 
@@ -539,13 +540,15 @@ def test_the_sitemap_lists_overviews_and_the_new_pages_that_exist_never_a_tab(cl
         "/assets/big-spring-us-tx",
         "/interconnection-points/poi_1",
     } <= set(locs)
-    assert not [
-        loc
-        for loc in locs
-        if re.search(r"/(timeline|sources|matches|retirement|grid|ownership|nearby|projects|changes)$", loc)
-    ]
+    # No record tab is listed. Anchored on the record paths: `/about/sources` (lane V7) ends in a tab's name.
+    tab = (
+        r"^/(proposals|assets|interconnection-points)/[^/]+/"
+        r"(timeline|sources|matches|retirement|grid|ownership|nearby|projects|changes)$"
+    )
+    assert not [loc for loc in locs if re.search(tab, loc)]
     # docs/30 §11.10: the new section pages are listed once their routes exist, never before.
     assert "/prices" in locs and "/funding" not in locs
+    assert "/about/sources" in locs
 
 
 # ------------------------------------------------------------------------------------ plain words
@@ -591,6 +594,42 @@ def test_the_glossary_keys_are_the_lifecycle_states_and_the_named_terms() -> Non
     for state in LIFECYCLE_LABELS:
         assert record_tabs.glossary_href(state) == f"/glossary#{state}"
     assert record_tabs.glossary_href(None) is None and record_tabs.glossary_href("retiring") is None
+
+
+def test_every_glossary_link_a_record_page_prints_is_an_entry_the_glossary_renders(
+    client: TestClient,
+) -> None:
+    """The header's terms are the glossary's own anchors (`web/glossary.py` `RECORD_PAGE_ANCHORS`), so a
+    renamed entry renames the link. Pinned here: every `/glossary#…` any tab of any record type prints, a
+    large load and the status chip included, is an id `/glossary` renders; so is every key the header can
+    link; and every term the header names is one of those anchors, so a rename cannot drop a link."""
+    assert record_tabs.GLOSSARY_TERMS == frozenset(RECORD_PAGE_ANCHORS)
+    _install({})
+    rendered = set(re.findall(r'\bid="([^"]+)"', client.get("/glossary").text))
+    load = _proposal(kind="load", technology="load", identifiers={"select_basis": {}}, iso=None)
+    pages = [*TABS.values(), ("/proposals/bearkat-solar-b1", _proposal_routes(load), ())]
+    printed: set[str] = set()
+    for base, routes, tabs in pages:
+        _install(routes)
+        for tab in ("overview", *tabs):
+            body = client.get(base if tab == "overview" else f"{base}/{tab}").text
+            printed |= set(re.findall(r'href="/glossary#([^"]+)"', body))
+    expected = {
+        "studied",
+        "capacity",
+        "interconnection-queue",
+        "queue-position",
+        "in-service-date",
+        "large-load",
+    }
+    assert expected <= printed, expected - printed
+    assert printed <= rendered, printed - rendered
+    for key in (*record_tabs.GLOSSARY_TERMS, *LIFECYCLE_LABELS):
+        href = record_tabs.glossary_href(key)
+        assert href is not None and href.split("#", 1)[1] in rendered, key
+    source = (WEB / "record_tabs.py").read_text(encoding="utf-8")
+    named = set(re.findall(r'\b(?:value_)?term="([a-z-]+)"', source))
+    assert named and named <= record_tabs.GLOSSARY_TERMS, named - record_tabs.GLOSSARY_TERMS
 
 
 # --------------------------------------------------------------------------------- Overview and Timeline
