@@ -675,6 +675,9 @@ LOAD_EMITTERS = {
     "us_epa_echo_icis_air": "data centres (ICIS-Air facilities selected as data centres)",
     "us_va_deq_data_center_air_sites": "data centres (sites Virginia DEQ flags as data centres)",
     "us_iso_ercot_large_load_queue": "catalogue products, never written as proposals",
+    "us_epa_echo_icis_npdes_construction": "data centres (construction coverages selected, docs/08)",
+    "us_faa_oeaaa_part77_cases": "data centres (Part 77 cases selected as data-centre sites, docs/08)",
+    "us_va_loudoun_data_centers": "data centres (Loudoun County's own data-centre pipeline, docs/08)",
 }
 _KIND_LOAD = re.compile(r"""["']kind["']\s*:\s*["']load["']|\bkind\s*=\s*["']load["']""")
 
