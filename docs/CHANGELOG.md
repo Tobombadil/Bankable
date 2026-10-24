@@ -491,3 +491,4 @@
 - 2026-10-24 coordinator: design follows the taste skill first (owner); landing navy exception withdrawn; polish lane relaunched to the skill; PLAN row.
 - 2026-10-24 coordinator: no dark-mode default; navy kept for branded content such as share images (owner); PLAN row.
 - 2026-10-24 coordinator: slow down until the weekly usage reset; one last release, then no new builds (owner); next-cycle queue in the PLAN.
+- 2026-10-24 coordinator: social posts choose light or navy per post at review (owner); PLAN row, docs/31 note.

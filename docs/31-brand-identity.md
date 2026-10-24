@@ -72,7 +72,7 @@ taste skill's terracotta check.
 - **A navy or forest ground on app screens.** The skill bans navy dark themes. Navy appears as a field only on read
   pages and the share card. **Exception (owner, 2026-10-24):** the full-screen map landing's dark theme takes the
   share card's navy ground (V2 direction A, "Night survey"); the owner asked for the "very dark blue" with bright green
-  dots and chose A. Other app screens keep the neutral dark until the owner has seen both side by side.
+  dots and chose A. Other app screens keep the neutral dark until the owner has seen both side by side. **Withdrawn (owner, 2026-10-24):** the landing follows the device's setting with the neutral dark; navy is for branded content such as the share card, and a social post's look is chosen per post at review.
 - **The Avenir-like light face.** It is replaced by the face the skill dealt (§4).
 - **The floating "Let's Talk" pill and a photograph hero on the map.** Floating pills are banned. On the front page
   the map is the picture.
