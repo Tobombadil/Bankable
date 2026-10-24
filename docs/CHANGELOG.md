@@ -499,3 +499,4 @@
 - 2026-10-24 coordinator: Market as one section with Map and List views and filterable aspects; list clicks filter the map; nearby RFPs at the bottom of a project or company (owner); PLAN row.
 - 2026-10-24 coordinator: RFPs reach projects and companies through the matcher, geography one factor (owner); PLAN row.
 - 2026-10-24 coordinator: ownership-link safeguard (primary document or two agreeing sources; Matador case as a labelled negative) (owner); PLAN row.
+- 2026-10-24 coordinator: place clicks zoom and filter the map with a panel breakdown, project clicks slide a panel; Wyoming 3 vs 18 count mismatch recorded (owner); PLAN row.
