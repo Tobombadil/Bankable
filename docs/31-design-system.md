@@ -6,6 +6,15 @@
 components from that study and does not re-derive it. IA and page inventory: `docs/30-design-ia.md`.
 **Inputs:** `docs/10-prd-mvp.md` §4; `docs/23-api-spec-outline.md` §3–§4, §10; `docs/21-data-model.md` §8.
 **Product name used in this doc:** Inframation.
+**Brand system (2026-10-23, applied by lane brand-build).** The owner chose "Inframation in the Compass family"
+(variant B, `docs/00-PLAN.md` rows of 2026-10-23; spec `docs/31-brand-identity.md`). Its tokens, type, mark and
+component rows (§7 there: T-1 to T-4, B-1 to B-5, C-1 to C-4, C-6, C-7, M-1, M-2) are in `styles.css`, and this
+document has been brought into line with the 14 conflicts listed in `docs/31-brand-identity.md` §9: the cream and
+copper palette, the navy dark theme, the copper and blue status families, the three typefaces, the tracked mono
+labels, the 1.2 scale, the resting shadows, the masthead, the share card, the buttons, the map key and panel, the
+index numbering and the basemap tints. Order of authority: the `CLAUDE.md` guardrails, WCAG 2.2 AA (`docs/04`), the
+taste skill (`.claude/skills/taste-skill`), `docs/31-design-practices.md`, then this document. Where a section
+below keeps an earlier value as history, the brand system's value is the one in force.
 
 ## 1. Tokens
 
@@ -13,57 +22,99 @@ All colour, type, space, radius, motion values are CSS custom properties; compon
 (D-19). Contrast computed by the WCAG 2.x relative-luminance formula against the exact hex (`docs/30` §6), not
 estimated.
 
-### 1.1 Colour — core (unchanged from D-20, confirmed in `docs/30` §6.1)
+### 1.1 Colour — core (brand system of 2026-10-23; supersedes D-20's palette)
 
-| Token | Hex | Role | Contrast |
-|---|---|---|---|
-| `--color-ink` | `#16324f` | text, primary surfaces | 13.1:1 on white; 11.9:1 on paper |
-| `--color-paper` | `#f6f4ef` | page background | — |
-| `--color-copper` | `#a8571c` | accent, primary action, links ≥16px | 5.2:1 white; 4.7:1 paper; **2.5:1 on ink — banned pairing (D-20)** |
-| `--color-copper-deep` | `#8a4614` | small text/links on light | 7.1:1 on white |
-| `--color-copper-tint` | `#e0b58a` | accent/links on ink/dark | 7.0:1 on ink |
-| `--color-muted` | `#5b6b7c` | secondary text on light | 5.5:1 white; 5.0:1 paper (never lighter than `#6b7a8a`, 4.4:1) |
+The chrome is drawn in Compass's navy on a cool blue-grey ledger ground with no colour of its own; the one hue is
+an evergreen and it goes only on the data; Compass orange is the round dot over the i and nothing else
+(`docs/31-brand-identity.md` §1, §4). Ratios are WCAG 2.x against `--bg` / `--surface`.
 
-Copper never appears as text on navy in either theme (D-20); copper-tint does.
+| Token | Light | Dark | Role | Light ratio | Dark ratio |
+|---|---|---|---|---|---|
+| `--color-ink`, `--text`, `--link`, `--primary`, `--select` | `#0b1023` | `#f2f3f6` | text, links (underlined), the one filled button, the selected-tab line | 16.66 / 18.87 | 17.28 / 16.00 |
+| `--wordmark-ink` | `#0b1023` | `#eef1f5` | the wordmark's letters (on dark, the mark's light circle colour) | 16.66 / 18.87 | 16.93 / 15.67 |
+| `--color-paper`, `--bg` | `#eef1f5` | `#0e0f11` | page ground | — | — |
+| `--surface` | `#ffffff` | `#17181b` | panels, sheets, the drawer | — | — |
+| `--raised` / `--active` | `#f5f7fa` / `#e8ebf1` | `#1f2024` / `#26282d` | a filled field; a selected row or pressed secondary | — | — |
+| `--color-muted`, `--text-muted`, `--link-visited` | `#4a5063` | `#b0b5bf` | secondary text, visited links | 7.08 / 8.02 | 9.32 / 8.63 |
+| `--border` / `--rule` / `--control` | `#dde1e8` / `#eceff3` / `#7d8496` | `#2a2c31` / `#1d1e22` / `#7b808b` | panel edges / table row rules / input borders (3:1, SC 1.4.11) | control 3.30 / 3.74 | control 4.84 / 4.48 |
+| `--focus-ring` | `#1d7356` | `#5fcf9f` | 2px focus outline | 5.09 / 5.77 | 9.96 / 9.22 |
+| `--secondary` / `--secondary-ink` | `#e8ebf1` / `#0b1023` | `#26282d` / `#f2f3f6` | the grey secondary button | 15.80 on fill | 13.29 on fill |
+| `--color-accent`, `--accent`, `--dot` | `#1d7356` | `#5fcf9f` | the one data hue: projects in process, positive change | 5.09 / 5.77 | 9.96 / 9.22 |
+| `--color-accent-deep`, `--accent-deep` | `#16624a` | `#5fcf9f` | the accent as small text | 6.44 / 7.29 | 9.96 / 9.22 |
+| `--color-accent-tint`, `--accent-tint` | `#5fcf9f` | `#5fcf9f` | the accent on navy (the share card) | 9.81 on navy | — |
+| `--accent-ink` / `--primary-ink` | `#ffffff` | `#0e0f11` | text on an accent or primary fill | 5.77 / 18.87 | 9.96 / 17.28 |
+| `--brand-dot` | `#e68023` | `#e68023` | Compass orange: the dot over the i (the wordmark's; the mark's in `favicon.svg`) only, never text or data | a mark, not text | — |
+| `--negative` | `#c4242a` | `#f0857a` | a change in the bad direction, always with its sign | 5.10 / 5.78 | 7.62 / 7.05 |
+
+The copper names (`--color-copper`, `--color-copper-deep`, `--color-copper-tint`) stay one release as aliases of
+the accent tokens (T-1); `web/static/css/admin.css` still reads `--color-copper`. Nothing on the chrome takes the
+accent: links are ink with a 0.07em underline at a 0.18em offset whose colour turns to the accent on hover (C-7).
+**Why it changed (owner, 2026-10-23):** the old paper `#f6f4ef` sat 0.98 ΔE2000 from Cleanview's ground and the
+copper in the hue family of its orange; the taste skill bans a cream ground with terracotta. The new ground is 5.5
+ΔE2000 away and the accent hue 136° (HSL) from Cleanview's orange (`docs/31-brand-identity.md` §2.2).
+
+**Basemap tokens (light / dark).** `--map-land` `#fbfcfd` / `#1a1c20`, `--map-water` `#dfe5ee` / `#0b0c0e`,
+`--map-border` `#c3cad6` / `#32353c` (state and country lines, 0.75px), and `--ctx` `#5b6275` / `#8b909b` for
+existing infrastructure drawn at 24% opacity (32% dark). Cool and quiet, so the projects are the only saturated
+layer; they replace the paper-tinted land, water and borders (`docs/31-brand-identity.md` §5.3).
 
 ### 1.2 Colour — status families (adopted pending owner ratification, `docs/30` §6.2 REF-2)
 
 Five families, not one hue per lifecycle value — D-5's "never colour alone" plus icon/label carries the fine
 state within a family (D-25 as reinterpreted by `docs/30` REF-2).
 
-| Family | Proposal states | Opportunity states | Text hex | Contrast (white/paper) | Dark tint hex | Contrast on ink |
+| Family | Proposal states | Opportunity states | Light text / fill | Text on fill | Dark text / fill | Text on fill |
 |---|---|---|---|---|---|---|
-| Neutral | announced, unknown | closed | `#4f5e6e` (was `#5b6b7c`, 4.47:1 on the chip fill `#e4e9ed`; changed 2026-09-27) | 6.6:1 / 6.0:1; 5.4:1 on the chip fill | `#c9d2da` | 8.6:1 |
-| Progress | filed, studied, permitted, under_construction | reinstated | `#2f6480` | 6.5:1 / 5.9:1 | `#8fc4dd` | 6.9:1 |
-| Committed | contracted | awarded | `#8a4614` | 7.1:1 / — | `#e0b58a` | 7.0:1 |
-| Success | built | open | `#2f6f4f` | 6.0:1 / 5.4:1 | `#8fd6ac` | 7.7:1 |
-| Danger | withdrawn, cancelled | frozen, cancelled | `#8c3a2e` | 7.6:1 / 6.9:1 | `#e0a08f` | 6.0:1 |
+| Neutral | announced, unknown | closed | `#3d4254` / `#eceef3` | 8.59:1 | `#c2c7d0` / `#24262b` | 8.92:1 |
+| Progress | filed, studied, permitted, under_construction | reinstated | `#1d7356` / `#e0f2e9` | 4.96:1 | `#6fd8a8` / `#15302a` | 8.11:1 |
+| Committed | contracted | awarded | `#0b1023` / `#dde2ee` | 14.55:1 | `#cdd5ea` / `#232a3d` | 9.73:1 |
+| Success | built | open | `#0e3f2c` / `#d6efe1` | 9.79:1 | `#a8e8c8` / `#1a352b` | 9.47:1 |
+| Danger | withdrawn, cancelled | frozen, cancelled | `#a3211b` / `#fbe4e1` | 6.19:1 | `#f3a39a` / `#3a201e` | 7.48:1 |
 
-Chip fills (light theme, pale tint + `--color-ink` text, all ≥9.9:1): neutral `#e4e9ed` (10.7:1); progress
-`#d6e6ee` (10.2:1); committed `#f1ddc9` (9.9:1); success `#d7ead9` (10.4:1); danger `#f1dbd6` (9.9:1). Committed
-deliberately reuses the brand copper tokens — the moment a proposal becomes a contract, or an opportunity an
-award, is the only place the brand accent appears as status colour. **Status: adopted pending owner/PM
-ratification** (`docs/30` REF-2); until ratified, treat as the working default, not final canon.
+**Brand system (2026-10-23; `docs/31-brand-identity.md` §4).** Progress, the in-process states, is the map's main
+data element, so it takes the one hue (the accent); the blue `#2f6480` it had was a second hue beside the accent.
+Committed moves from copper to navy, drawn as a filled navy square: the one moment a project becomes contracted.
+Every text colour also clears 4.5:1 on `--bg` and 3:1 on `--map-land` (`web/test_map_a11y.py`). The glyphs carry
+each state with its word (D-5): a ring (neutral), a filled disc (progress; it was a half-filled ring until
+2026-10-23, and became the disc the map draws, so a key row, a chip and a marker show one shape), a square
+(committed), a check (success) and a triangle (danger). The earlier values (neutral `#4f5e6e`, progress `#2f6480`,
+committed `#8a4614`, success `#2f6f4f`, danger `#8c3a2e`, on paler copper-era fills) are history.
 
 ### 1.3 Typography
 
-Display: Newsreader (variable, optical size 6–72 + weight 200–800, SIL OFL 1.1). UI/body: IBM Plex Sans
-(variable, weight 100–700, SIL OFL 1.1). Identifiers/numbers/code: IBM Plex Mono (variable, weight 100–700, SIL
-OFL 1.1). All self-hosted, no third-party font CDN (D-21). Kept over a replacement per `docs/30` §4: the pairing
-already matches the formula Stripe docs, FT tooling and the brand's own site converge on, and all three ship as
-self-hostable variable files under one licence.
+**Brand system (2026-10-23; supersedes D-21's three faces).** One family: **Geist** sets everything, and
+**Geist Mono** sets identifiers only (queue IDs, docket numbers, EIA ids, API keys), never labels, figures or
+prose. Both are SIL OFL 1.1 with no Reserved Font Name, self-hosted from the npm `geist` 1.7.2 release as variable
+(`wght` 100–900) woff2 files subset to the latin and latin-ext ranges (`web/static/fonts/README.md`); no font CDN
+(D-21). The taste skill allows two faces at most and one grotesk on app screens; the three faces (Newsreader, Plex
+Sans, Plex Mono) and the mono upper-case labels were among its bans (`docs/31-brand-identity.md` §9). The tokens
+keep their names: `--font-display` and `--font-body` are both Geist, so a later display face is one line.
 
-| Step | Size | Line height | Family | Use |
-|---|---|---|---|---|
-| `--text-1` | 12.8px | 1.5 | Plex Sans | captions, table meta, licence badges |
-| `--text-2` | 16px (base) | 1.5 | Plex Sans | body, table cells, form labels |
-| `--text-3` | 19.2px | 1.5 | Plex Sans | list item titles, filter bar labels |
-| `--text-4` | 23px | 1.25 | Newsreader (optical ≥27.6 starts here in display contexts) | card/section headings |
-| `--text-5` | 27.6px | 1.25 | Newsreader | page H2, drawer titles |
-| `--text-6` | 33.2px | 1.25 | Newsreader | page H1 |
-| `--text-7` | 39.8px | 1.25 | Newsreader | rare — landing-style single statement, never a marketing hero (D-7) |
+| Step | Size | Line height | Use (Geist unless stated) |
+|---|---|---|---|
+| `--text-1` | 12.8px | 1.5 | captions, table meta |
+| `--text-label` | 13px, weight 500 | 1.5 | sentence-case labels: filter and form labels, legends, key and group headings, stamps (C-2) |
+| `--text-2` | 16px (base) | 1.5 | body, table cells |
+| `--text-3` | 19.2px | 1.5 | list item titles; the map's title below 720px |
+| `--text-4` | 23px | 1.25 | section headings; the top bar's wordmark |
+| `--text-5` | 27.6px | 1.25 | page H2, drawer titles, list-page H1 |
+| `--text-6` | 28px | 1.25 | page H1 (C-1: an app title stays at 32px or less; it was 33.2px) |
+| `--text-7` | 39.8px | 1.25 | rare: a read page's single statement |
 
-**As built (2026-10-07, audit UX-15, UX-17).** `--text-1` is the floor: the 0.7rem (11.2px) mono labels in nine
+Headings are Geist 600; the wordmark is outlined from Geist, "infra" 700 and "mation" 400, at -0.03em (§5.20). Labels are a noun phrase in sentence case at 13px/500
+in `--text-muted`, never tracked capitals (C-2). `.section-num`, `.timeline time` and the source-row disclosure mark
+moved from mono to the text face with tabular figures (C-3); mono stays only on `.record-table .mono`,
+`.record-company .mono`, `.field-grid .mono`, `.value-source .mono`, `.raw-fields`, `.submit-ref` and
+`.map-error .mono`. The latin Geist face is `font-display: optional` and preloaded (the only preload, T-4); its
+metric-matched "Geist Fallback" (Arial or Liberation Sans, `size-adjust` 103.55% / 101.39% bold) lays six pages out
+pixel-identically in 9 of 18 views at 1440, 768 and 390 (the Plex fallbacks: 7 of 18); where a line wraps
+differently the page keeps the face it painted, so CLS from fonts is 0 (measured with fonts on time and held back
+2.5 s). The latin-ext and mono faces swap (not on the first paint; mono advances match Courier New's 600 units).
+
+*History (2026-09-12 to 2026-10-23).* Display Newsreader, UI and body IBM Plex Sans, identifiers IBM Plex Mono,
+kept per `docs/30` §4; the steps below were set in those faces and `--text-6` was 33.2px.
+
+**As built (2026-10-07, audit UX-15, UX-17; superseded 2026-10-23 as above).** `--text-1` is the floor: the 0.7rem (11.2px) mono labels in nine
 rules (filter labels, the masthead, the "LIVE" stamp, in-view group names, form legends) are now `--text-1`, the
 smallest size anywhere in `styles.css`. Filter-bar labels stay at `--text-1` mono upper case (a toolbar caption);
 labels on full forms are `--text-2` as the table says. Plex ships as IBM's static split weights (Sans 400, 500, 600,
@@ -74,10 +125,13 @@ metric-matched "Newsreader Fallback": with `optional`, a first visit on a thrott
 off) painted the H1 and wordmark in the fallback for the whole view on 12 of 12 loads; after, 0 of 12, CLS 0. Plex
 keeps `optional`. Admin pages preload the same three files as public pages.
 
-Ratio 1.2 ("minor third"), base 16px (D-22) — deliberately tighter than editorial ratios (1.25–1.333) because
-most text in this product is body/label/chip, not headline (D-1). `font-variant-numeric: tabular-nums` on every
-table and chip. Monospace (Plex Mono) reserved strictly for identifiers, queue IDs, docket numbers, API examples
-and code — never prose (D-21, D-24; Stripe docs precedent, `docs/30` §2.10).
+Base 16px. The scale is no longer read as a 1.2 ratio (D-22; replaced 2026-10-23 by the taste skill's "few sizes,
+far apart", `references/type.md` §2): an app screen uses about six sizes, 12/14/16/24/28/36 in the brand system,
+and a read page 14/16/22/28/40 (`docs/31-brand-identity.md` §4). The existing steps are kept where they sit near
+those (12.8, 16, 23, 27.6, 28, 39.8) so pages did not reflow in this change; a page lane that redraws a page takes
+the brand sizes. `font-variant-numeric: tabular-nums` on every table, chip and figure (Geist has true tabular
+figures). Monospace (Geist Mono) reserved strictly for identifiers, queue IDs, docket numbers, API examples and
+code — never prose or labels (D-21, D-24; Stripe docs precedent, `docs/30` §2.10).
 
 ### 1.4 Spacing
 
@@ -89,16 +143,20 @@ code comment naming the exception.
 | Token | Value | Use |
 |---|---|---|
 | `--radius-1` | 2px | chips, badges |
-| `--radius-2` | 4px | inputs, buttons, table cells (focus outline) |
-| `--radius-3` | 8px | drawer panel, modal |
-| `--shadow-1` | `0 1px 2px rgba(22,50,79,0.12)` | drawer/modal only — no decorative shadow stacks (D-7, banned #5) |
+| `--radius-2` | 6px (4px until 2026-10-23) | inputs, buttons, menus, table cells (focus outline) |
+| `--radius-3` | 8px | cards, panels, the drawer, modal |
+| `--shadow-1` | `none` (was `0 1px 2px rgba(22,50,79,0.12)`) | the name stays and draws nothing: nothing at rest has a shadow |
+| `--shadow-float` | `0 8px 24px rgba(11,16,35,.14)`; dark `rgba(0,0,0,.5)` | only what floats: the drawer, the map search's suggestions, the phone's "Jump to" list (C-4) |
 | `--motion-fast` | 150ms | drawer close, chart/count cross-fade |
 | `--motion-base` | 200ms | drawer open |
 | `--motion-slow` | 300ms | cluster split/merge |
 | `--motion-map` | 600ms ease-out | `flyTo` on selection/filter change |
 
 No card-grid radius token exists for tabular data — D-1/D-7 ban card grids for lists at any breakpoint; radius
-tokens above 8px are not defined, which is deliberate (no pill buttons, no rounded hero tiles).
+tokens above 8px are not defined, which is deliberate (no pill buttons, no rounded hero tiles). **Shadows (C-4,
+2026-10-23):** `--shadow-1` sat on resting panels, controls and the map's buttons, which the taste skill bans; the
+map panel, the map's search field, its zoom and jump buttons and the site finder's key now carry a 1px `--border`
+only, and the active search suggestion takes the `--active` fill instead of an inset bar.
 
 ### 1.6 Colour and icons — existing-asset layers (added 2026-09-19, midstream slice)
 
@@ -125,6 +183,16 @@ gives a hairline the ≥24px pointer target SC 2.5.8 asks for. Interstate vs int
 word in the tooltip, drawer and legend — same hue. Names label along the line from z7. Hover shows name, type,
 class and operator; click opens the §5.8 drawer with the asset's fields (rows present only where the source
 carries the value). Point types share the plant square's opacity (0.7) and label rule (z9+).
+**Faint context (M-2, 2026-10-23; `docs/31-brand-identity.md` §5.3).** Existing infrastructure is present on arrival
+(owner, 2026-10-20) and recedes under the projects: plants, midstream points, pipelines, transmission lines and
+retired plants draw at 24% opacity on light and 32% on dark (map.js `CTX_OPACITY`). Faint marks, not faint words:
+their counts and names (cluster counts, line and plant names from z7 to z9) draw at full strength
+(`CTX_TEXT_OPACITY = 1`), where all twenty plant and asset colours keep 4.5:1 on `--map-land` (SC 1.4.3 outranks
+M-2; at the first cut's 55% / 60% they measured 2.18-2.86:1 on light land and 3.16-4.40:1 on dark, and
+`web/test_brand.py` now blends each at the shipped opacity and checks it). Lines are 0.75px at the country view, 1px at z8 and 1.5px from
+z11, over a casing as faint; power plants are 2px squares at z3 growing to 6px at z12, midstream points 5–10px.
+Every context layer stays beneath every proposals layer (`addLayer(..., "clusters")`). The per-type hues and shapes
+above are unchanged, so the key still names each.
 
 **Legend.** One group per type, shown only while its checkbox is on (`data-legend-type`), so the legend names
 exactly what is drawn (placement on the map and the compact state with a layer on: §5.17). The pipeline group carries the two line samples (solid, dashed) with their words. The
@@ -180,9 +248,12 @@ rendering; `asset_map.js` replaces it with a MapLibre map at a fixed fit on the 
 
 ## 2. Typography scale rationale (carried forward, not restated)
 
-Steps and ratio are `docs/30` §5's derivation of D-22; any future change to D-22's numbers updates that section
-first, then this table. Newsreader's own optical-size axis means `--text-4` and up shift optical cut
-automatically rather than needing a second display family (`docs/30` §4).
+**Replaced 2026-10-23.** The rationale is now the taste skill's "few sizes, far apart" (`references/type.md` §2;
+`docs/31-brand-identity.md` §9, last row): two or three sizes do the visible work, about six on an app screen, the
+title at 18–32px and no figure at 48px or more. The 1.2 modular ratio of `docs/30` §5 (D-22's derivation) no longer
+decides the steps; `docs/30` §5 and `docs/04` D-22 still state it and are for the coordinator to bring into line.
+*History:* steps and ratio were `docs/30` §5's derivation of D-22, and Newsreader's optical-size axis shifted the
+display cut from `--text-4` up.
 
 ## 3. Grid and layout
 
@@ -308,11 +379,12 @@ scroll horizontally, each inside its own `overflow-x` container — the page bod
   and 1,452). Without node, it checks that the only " MW" in `map.js` is `fmtMW`'s. Not converted (not MW): the
   drawer's other quantities (MMgal/yr, MMscf/d, cu ft/day; `fmtNumber`) still use the browser's locale.
 - **Dates** — absolute date shown always (`11 Sep 2026`), relative shown alongside where it aids scanning
-  (`11 Sep 2026 (12 days ago)`); timestamps in API/admin contexts are RFC 3339 UTC in Plex Mono (`docs/23` §1).
+  (`11 Sep 2026 (12 days ago)`); timestamps in API/admin contexts are RFC 3339 UTC in tabular figures (`docs/23`
+  §1; Plex Mono until 2026-10-23, C-3).
 - **Capacity units** — `capacity_mw` and `storage_mwh` render with their unit suffix in the header only, values
   as tabular numerals, one decimal max on public/Pro (source precision kept in the tooltip/drawer if it differs).
 - **Identifiers** — queue IDs, FERC dockets, EIA plant/generator IDs, public IDs (`prop_…`, `opp_…`) always in
-  Plex Mono, never in Plex Sans (D-21, D-24).
+  Geist Mono (Plex Mono until 2026-10-23), never in the text face, and nothing else in mono (D-21, D-24, C-3).
 - **Currency** — `budget_amount`/`budget_currency` render as `$35,000,000` with ISO 4217 code where not USD,
   tabular numerals, no decimals unless the source states cents.
 - **Counts** — `source_count`, cluster counts and aggregates are computed over **visible sources only**; a
@@ -329,8 +401,9 @@ shows. Kinds not in the table show every row. Class VI ids are labelled "Permit 
 Texas RRC tracking number), not "Queue ID". The same rule as the asset pages' "None gate" (`docs/30` §3.1);
 `docs/30` §5.2 lists fields but does not require every record to show the same set.
 
-**Chemical formulae.** "CO2", not "CO₂": U+2082 is in none of the self-hosted IBM Plex `unicode-range` blocks,
-so a subscript would render in the fallback face. Technology `co2_geologic_sequestration` reads
+**Chemical formulae.** "CO2", not "CO₂": U+2082 was in none of the self-hosted IBM Plex `unicode-range` blocks,
+so a subscript would have rendered in the fallback face. Geist has the glyph, but its latin subset leaves U+2082
+out (2026-10-23) because no label prints it, so the rule stands; adding it is one range in the subset and the face. Technology `co2_geologic_sequestration` reads
 "CO2 geologic sequestration".
 
 ## 5. Component inventory
@@ -411,6 +484,12 @@ schedule", to `/methodology#vintage`). The map page keeps that link below 720px 
 stamp `.masthead__ref` hidden), where every other page drops the masthead. List and record pages keep the notice in
 their header. The dev-preview label (`preview_banner`) still shows on `/`. The place the notice held now goes to
 the filters, one status row and the map with its key drawn on it (§5.17).
+**The masthead is gone (B-1; brand system 2026-10-23).** "Inframation register · public edition" in tracked mono
+capitals is not brought back (`docs/31-brand-identity.md` §11). The Navigation v2 shell already dropped the line
+(`docs/30` §11.2): its freshness wording sits at the section bar's right end from 1280px, in the phone Menu and the
+footer. On the front page it becomes one sentence-case stamp beside the figures, "Sources read {date}", linking to
+each source's fetch dates (M-3, the full-screen map lane). The stamp labels ("No delay", "Dev preview") are
+sentence case in the text face (C-2), and the dev-preview box's dashed rule is the committed (navy) colour.
 **Rule satisfied:** D-3, D-28, US-604 AC1.
 
 ### 5.5 Table with sticky header and density toggle
@@ -446,7 +525,19 @@ overlay for the dominant technology; hover/focus reveals a breakdown tooltip (`l
 + "county level (source licence)" label, D-9); reduced-motion (no `flyTo` easing, instant reposition, D-15).
 **Rule satisfied:** D-5, D-9, D-10, D-14.
 
-**As built (2026-10-06, audit UX lane; owner to ratify):** the shape-by-precision anatomy above was never drawn (the map drew circles, with a thicker stroke for licence-limited precision). Markers are now small status chips: the lifecycle family's fill, a family-coloured ring and the family glyph, so status is never colour alone (D-5); licence-limited precision keeps a second, wider ring (D-9) and the drawer states the precision in words (`precision_note`); the technology badge sits beside the marker from zoom 9; clusters show the dominant family's glyph above the count. Marker contrast in dark mode is 6.32–7.88:1 (`web/test_map_a11y.py`). Either this section is rewritten to match, or the shapes are drawn; until the owner decides, the as-built chips stand.
+**As built (2026-10-23, brand system M-1; `docs/31-brand-identity.md` §5.3).** The projects are the map's only
+saturated layer. A point is its family's own mark on a 16px box: **in process** a filled disc in `--dot` (the
+evergreen), **contracted** a filled navy square, **announced** a hollow ring with a 1.5px edge, each with a 1px edge
+of the land colour; built and withdrawn keep the chip (pale fill, ring, check or triangle), shown only when asked
+for. A point holds its screen size, 0.85× at z4 to 1.2× at z12. A cluster stays a ring with a number (the key's
+words) and the family glyph above it, its radius by area, `sqrt(196 + 1.66·count)` capped at 32px (14px for a few
+projects, 32px from about 500), interpolated by zoom (0.94× at z3, 1.06× at z12) so it keeps roughly its screen
+size. Licence-limited precision keeps its second ring, 8.5–11.5px by zoom (D-9). The key, the chips and the
+panel's summary use the same glyphs (§1.2), so a key row shows the mark it explains. County-placed projects at the
+national view are still the region shading below (`--region-fill`, kept by §4 of the brand spec); the full-screen
+map lane draws them as county discs (§10 of the brand spec).
+
+**As built (2026-10-06, audit UX lane; owner to ratify; superseded 2026-10-23 above):** the shape-by-precision anatomy above was never drawn (the map drew circles, with a thicker stroke for licence-limited precision). Markers are now small status chips: the lifecycle family's fill, a family-coloured ring and the family glyph, so status is never colour alone (D-5); licence-limited precision keeps a second, wider ring (D-9) and the drawer states the precision in words (`precision_note`); the technology badge sits beside the marker from zoom 9; clusters show the dominant family's glyph above the count. Marker contrast in dark mode is 6.32–7.88:1 (`web/test_map_a11y.py`). Either this section is rewritten to match, or the shapes are drawn; until the owner decides, the as-built chips stand.
 
 **One tap, one action (2026-10-21, lane m-behaviour; `docs/17` M-2):** one `map.on("click")` handler
 (`onMapClick`) acts on the first hit in this order: proposal point › proposal cluster (zooms in) › existing-asset
@@ -625,7 +716,25 @@ carried by colour alone; the chips wrap rather than scroll at 400px).
 
 The one Open Graph / Twitter card image every public page links (`og:image`, `twitter:card=summary_large_image`).
 It replaces the "no `og:image`" line in `docs/30` §3.2, which predates it.
-**Anatomy:** 1200x630 PNG, ink ground so it reads in light and dark feeds; masthead line in Plex Mono Medium,
+**Redrawn 2026-10-23 (B-5; `docs/31-brand-identity.md` §5.4).** `web/static/img/og-card-2.png` (a new name, so
+cached cards refresh; never served before this build; 60,191 bytes), 1200x630 on Compass navy `#0b1023`, a read
+surface where navy may be a ground. It carries the lockup: the mark (§5.20) in its dark-ground colours, 1.05em
+across and centred on the wordmark's ink, then the outlined wordmark (`wordmark.svg`'s own paths, 64px to the em)
+in `#eef1f5` with its orange dot, and under it "a Compass company" in `#b0b5bf` (text, never the Compass logo); the line "Planned US energy projects, each linked to its source."
+(Geist 500, 40px); "From grid queues, permits, dockets and RFPs"; and the national map of planned projects: the
+lower 48's Census state outlines in faint navy-grey, one mark per county (in process an evergreen-tint `#5fcf9f`
+disc, contracted a `#cdd5ea` square, announced a `#9aa3c0` ring), sized by area with the county's count. The points
+(`web/og_card_map.json`, 848 counties) are the committed fixture's located active proposals from sources whose
+register entry is `reuse: open` and published (EIA-860M, ERCOT), so no restricted, unknown, non-commercial or
+credit-requiring row reaches a card that travels without the site's attribution strip; the card names them
+anyway ("Map: EIA-860M, ERCOT, Census outlines"). No live figure: a cached card would show a stale number; the
+page's description carries the figures. Contrast on navy: text 17.01:1, the endorsement and credit 9.17:1, the
+evergreen tint 9.81:1, the wordmark 16.66:1, the dot 6.72:1 (`web/test_og_card.py` recomputes the text pairs, and
+finds both dots round and centred on their stems in the committed pixels). Drawn by
+`python -m web.og_card` in Geist (Pillow's basic layout, so it draws the same with or without libraqm), quantised
+by octree so the dot stays Compass orange. `--icons` redraws `favicon.svg`, `favicon.ico` and `apple-touch-icon.png`
+from the mark; `--wordmark` cuts `wordmark.svg` from Geist; `--rebuild-map` rebuilds the points.
+*History (2026-10-07 to 2026-10-23):* **Anatomy:** 1200x630 PNG, ink ground so it reads in light and dark feeds; masthead line in Plex Mono Medium,
 upper case and tracked, in copper-tint; a hairline rule; the wordmark in Plex Sans SemiBold; the default meta
 description's first sentence in Plex Sans Regular; a lifecycle strip (announced, filed, permitted, contracted,
 built) using the `base.html` status icons in the §1.2 dark tints, each state named in Plex Mono beside its icon;
@@ -643,7 +752,13 @@ version query, so cached cards stay valid; a picture that must replace cached co
 
 ### 5.16 Button (added 2026-10-07, audit UX-16)
 
-Three treatments, sentence case, `--radius-2`, at least 2.25rem tall (SC 2.5.8), the 2px focus outline of §7:
+**Brand system (C-6, 2026-10-23).** The accent never fills a button. **Primary** (`.button-link`): `--primary`
+(navy; near-white on dark) fill, `--primary-ink` text, 6px radius, no border. **Secondary** (`.button-secondary`,
+`.button-link--secondary`): `--secondary` grey fill, `--secondary-ink` text, no border, `--border` on hover; its
+danger variant is the danger family's pale fill and text. The other filled and outlined controls take `--link`,
+which is now ink, so they read as navy primary and navy outlined secondary without a rule of their own; the
+copper is gone from every button. One filled primary per screen (taste skill, app screens §4.3).
+*History:* three treatments, sentence case, `--radius-2`, at least 2.25rem tall (SC 2.5.8), the 2px focus outline of §7:
 **primary** — filled `--link`, `--surface` text (form submit, pricing calls to action, "Report a problem"; admin
 `.admin-button--primary`); **secondary** — 1px `--link` border, transparent, `--link` text, filling on hover (Search,
 Apply filters, Clear all, Details, admin `.admin-button`); **quiet** — text only (the drawer's Close). Disclosure
@@ -653,6 +768,8 @@ filled ink on the report form.
 
 ### 5.17 Map key (added 2026-10-10, as built: placement lane H, compact state lane F)
 
+**Brand system (2026-10-23).** The key's group headings are sentence case in the text face (C-2), its rows show
+the same glyphs the map draws (§1.2, §5.7), and nothing in it carries a shadow (C-4).
 **Superseded 2026-10-22 (lane home-map).** The key is the "Key" tab of the map's panel (§5.19), in plain words;
 the floating key (`.map-key__panel`), its "Key" toggle from 720px, the compact state with a layer on and its
 layer sections are gone (the panel scrolls). Below 720px the rail's "Key" stays and opens the Key tab under the
@@ -783,8 +900,13 @@ view, Reset, a region or a place) keeps clear of it: the open panel's width on t
 panel's header at the top (map.js `homePadding`, `fitPadding`; the M-7 rule of §3, which kept the key's
 width on the left before).
 
+**Brand system (2026-10-23).** No shadow: the panel at rest is `--border` only (C-4). Its headings ("By status",
+"Projects", the key's groups) and the in-view group names are sentence case at 13px/500 in the text face, not
+tracked mono capitals (C-2). Its colours are the §1.1-§1.2 tokens, so the bar's in-process part is the evergreen
+and contracted is navy; the measured worst cases below are recomputed for them by `web/test_map_a11y.py`.
+
 **Surface.** `color-mix(in srgb, var(--surface) 88%, transparent)` over a 6px backdrop blur, `--border`,
-`--radius-3`, `--shadow-1`; the plain `--surface` where `prefers-reduced-transparency: reduce`. The blur is
+`--radius-3` (and `--shadow-1` until 2026-10-23); the plain `--surface` where `prefers-reduced-transparency: reduce`. The blur is
 an owner-directed exception to D-7's "frosted panels" (§9). Every word on it keeps 4.5:1 whatever the map
 draws behind it: the ground under a word lies between the surface mixed at 88% with black and with white, and
 each text colour is measured against both (`web/test_map_a11y.py` from the tokens, `web/test_e2e.py` on the
@@ -889,6 +1011,43 @@ by the skip link, which opens the panel's "In view" tab), SC 1.4.3 (measured as 
   geo features; until then the overview gives counts for those and GW only for the whole view and each area. The
   API serves both since 2026-10-23 (§5.19 above); the overview's use of them is V2's.
 
+### 5.20 Lockup, mark and endorsement (added 2026-10-23, brand system B-2 to B-4)
+
+**Lockup** (`partials/_top_bar.html`, `.wordmark`; `docs/31-brand-identity.md` §5.1): the wordmark "inframation" in
+lower case, "infra" in Geist 700 and "mation" in Geist 400, one word at -0.03em tracking, in `--wordmark-ink`
+(navy; `#eef1f5` on dark). The first i is dotless and carries a round dot in `--brand-dot`, 1.25 times the bold
+stem's width (150 font units, so a radius of 93.75), its centre on the stem's centre as measured from the outlined
+glyph's bounds (x 140.6 of 65.6 to 215.6), its foot 0.09em above the stem. It ships as outlined paths, not live
+text, so no font load can move the dot: `web/static/img/wordmark.svg` holds them (cut from the shipped Geist file by
+`web/og_card.py` `build_wordmark`: each part instanced at its weight with overlaps removed, shaped by HarfBuzz with
+kerning, tracked), and the top bar inlines the same paths in `currentColor`, sized in em (4.978em by 0.814em, the box
+ending at the baseline). Measured in Chromium at 16, 23, 32 and 180px, light and dark: the dot's centre is the
+stem's to 0.0000px. Then "a Compass company" in Geist 500 at 0.58 of the wordmark's size in `--text-muted`, on its
+baseline, 14px after it. What is drawn is `aria-hidden`; the link's name is a visually hidden "Inframation, a
+Compass company". The top bar sets the wordmark at 23px (114.5px wide; the endorsement 13.3px, 7.08:1). The
+endorsement steps out where the row cannot hold it, and the footer and the link's name still say it: below 480px
+(the row needs 413px with the search button and Menu, 419px in the fallback face), and with all three sections and
+the account menu at 720–799px and 1080–1139px (755px of 720, 760px in the fallback; at 1080 the row fits with no
+slack; `:has()` on the third section link). The lockup measures 258px in Geist and 264px in its fallback. The admin
+header keeps its plain `.wordmark` text with the "admin" tag.
+**Mark** (`web/static/img/favicon.svg`, 16-unit grid; §5.1): the information sign. A circle of radius 8; the i's
+stem knocked out of it, 2.8 wide from y 7.35 to 13.25 with corner radius 0.5; the orange dot at (8, 4.55), radius
+1.75. Light: a navy `#0b1023` circle and a white stem; under `prefers-color-scheme: dark` a `#eef1f5` circle and a
+`#0e0f11` stem; the dot is `#e68023` in both. `favicon.ico` (16, 32 and 48px, the light mark on a transparent
+ground), `apple-touch-icon.png` (180px: the light mark inset a tenth on the `#eef1f5` ledger ground, because iOS
+fills a transparent icon's corners with black) and the share card's mark are drawn from the same numbers by
+`python -m web.og_card --icons` (`og_card.MARK_*`), which also writes `favicon.svg`. The mark is never in the top bar
+(the wordmark's own dot carries the i there) and never inside the word.
+**Endorsement** (`base.html` footer, first line, in ink): "Inframation is a Compass company. Compass International
+Trading Group, LLC, Denver, Colorado." Text only: the Compass logo is never drawn or traced; it waits for the
+owner's official file. **Settled and open** (`docs/31-brand-identity.md` §12): the owner chose the round orange dot over the i (2026-10-23);
+a navy dot stays a one-token change (`--brand-dot`, and `og_card.py` `BRAND_DOT` for the drawn files). The
+endorsement is text, the face is Geist (the files and the `--font-*` tokens), and the data hue is the evergreen
+(`--color-accent` and its dark value), as the coordinator's defaults.
+**Rule satisfied:** SC 1.1.1 and 2.5.3 (the name contains the visible words), SC 1.4.3 (the endorsement 7.08:1),
+SC 1.4.10 (no row overflows from 360px), D-21 (self-hosted face), `CLAUDE.md` (no impersonation: an endorsed brand
+the owner controls, BR-1 in the brand spec).
+
 ## 6. Empty, loading and error states — cross-component rule
 
 Per D-29, specified once here and referenced, not restated per component: **empty** states name the filter
@@ -941,6 +1100,15 @@ floating transparent box"; its words are held at 4.5:1 against the worst ground 
 configuration panel appears on public/Pro map or list surfaces (`docs/30` §2.5 rejection carried forward — filter
 bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation picker).
 
+**The taste skill's house rules (owner, 2026-10-23; `CLAUDE.md` Design).** No tracked upper-case labels, no
+monospace labels (mono is for identifiers only), no hairline rules outside tables and forms, no shadow on anything
+at rest, no gradients, no glass, no cream ground with terracotta, no navy dark theme, two faces at most, and **no
+index numbering** ("1. Sources"; record pages drop the numbers in the record lane's C-5, the `.section-num` face is
+already the text face). Gated with `scripts/lint.mjs` and `scripts/inspect.mjs --app`. Exceptions still standing,
+none added by the brand lane: the map panel's owner-directed blur (above); the section bar's mono upper-case title
+and its edge-fade masks (`styles.css` Navigation v2 shell, the inspector counts one such label as allowed on an app
+screen; `lint.mjs` reports the masks as gradients).
+
 ## 10. Standards checklist — `docs/04` §2 rule to implementation
 
 | Rule | Satisfied by |
@@ -987,7 +1155,7 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
 | ID | Assumption | Basis | Affected |
 |---|---|---|---|
 | DS-1 | The five-family status-colour system (§1.2) is used as the working default across every component in §5 pending the owner/PM ratification `docs/30` REF-2 flags | `docs/30` §6.2, REF-2 | §5.1, §5.7, §5.11, §5.12; a ratification change edits token values only, not component anatomy |
-| DS-2 | Dark-theme token values are declared as an inversion role per light token (§1) rather than enumerated hex-by-hex in this doc, since no dark-mode screen has been drawn yet | D-23, `docs/30` §2.9 (Linear precedent) | CSS token file at build time; revisit if the owner wants dark hexes fixed before Sprint 1 build |
+| DS-2 | ~~Dark-theme token values are declared as an inversion role per light token (§1) rather than enumerated hex-by-hex in this doc, since no dark-mode screen has been drawn yet~~ Closed 2026-10-23: the dark values are enumerated in §1.1-§1.2, a true-neutral dark (`#0e0f11` ground, `#17181b` surface), not the navy `#0e1e30` built before, which the taste skill bans on app screens | D-23, `docs/30` §2.9; `docs/31-brand-identity.md` T-2 | Both dark blocks of `styles.css` (the media query and `data-theme`) |
 | DS-3 | The density toggle (§5.5) persists per-viewer only (not in the URL) because it is a display preference, not a filter, distinguishing it from D-17's URL-state rule which governs filters/sort/viewport | D-17 (scope: filter, sort, viewport), §5.5 | Table component implementation |
 
 ## 12. Change history
@@ -1022,3 +1190,12 @@ bar §5.9 offers named, bounded facets only, never a field/ramp/aggregation pick
   superseded by §5.19; §5.18 the map's search field and §5.19 the panel (what is in view and the key) added; §9 the
   panel's blur as the one exception. No new tokens: the panel's custom properties (`--map-panel-inset`,
   `--map-panel-width`, `--map-height`) sit on `.map-frame` and are built from §1's.
+- 2026-10-23 — brand system applied (frontend-developer, lane brand-build; `docs/31-brand-identity.md` §7 and §9):
+  §1.1 core and basemap tokens with dark values, §1.2 status families (progress takes the accent, committed navy,
+  the in-process glyph a filled disc), §1.3 Geist and Geist Mono with the label and mono rules, §1.5 radius and
+  shadows, §1.6 faint context, §2 the scale rationale, §4 identifiers and dates, §5.4 the masthead, §5.7 the
+  markers, §5.15 the share card, §5.16 buttons, §5.17 and §5.19 key and panel, §5.20 the lockup, mark and
+  endorsement, §9 the taste skill's rules, §11 DS-2 closed. New tokens: `--raised`, `--active`, `--rule`,
+  `--control`, `--primary`, `--primary-ink`, `--secondary`, `--secondary-ink`, `--accent` (and `-deep`, `-tint`,
+  `-ink`), `--color-accent` (and `-deep`, `-tint`), `--brand-dot`, `--wordmark-ink`, `--negative`, `--dot`, `--select`, `--ctx`,
+  `--shadow-float`, `--text-label`.

@@ -794,7 +794,7 @@ def test_map_in_view_list_names_a_technology_as_the_server_does(server: object) 
 # D-13), stale responses (F3), what "in view" announces (F4), and the report form (D-6).
 
 #: A snake_case token in reader-visible text: `gas_cc`, `under_construction`, `us.eia.atlas`'s
-#: `ethanol_plants`. Identifiers are printed in Plex Mono by rule (docs/31 §4) and licence quotes
+#: `ethanol_plants`. Identifiers are printed in Geist Mono by rule (docs/31 §4) and licence quotes
 #: are verbatim legal text, so those two are the only places a token may stand. A file name a
 #: source publishes under (`ks_wells.zip`, in that register's own title) is the source's word.
 _TOKEN = re.compile(r"\b[a-z0-9]+_[a-z0-9_]+\b(?!\.[a-z]{2,4}\b)")

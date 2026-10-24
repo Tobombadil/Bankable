@@ -214,7 +214,10 @@ def test_status_chip_words_meet_aa_on_the_chip_fill(theme: str, family: str) -> 
 
 def test_the_neutral_chip_holds_the_measured_fix() -> None:
     light = THEMES["light"]
-    assert round(_contrast("#5b6b7c", light["--family-neutral-fill"]), 2) == 4.47  # what axe flagged
+    # What axe flagged on 2026-09-27: `#5b6b7c` on the neutral chip fill of the time, `#e4e9ed`.
+    assert round(_contrast("#5b6b7c", "#e4e9ed"), 2) == 4.47
+    # The brand system's neutral pair (docs/31-brand-identity.md §4): 8.59:1, well past the fix's 5.4.
+    assert light["--family-neutral-text"] == "#3d4254" and light["--family-neutral-fill"] == "#eceef3"
     assert round(_contrast(light["--family-neutral-text"], light["--family-neutral-fill"]), 2) >= 5.4
     # The map key prints the same token on the page ground (home_map.html, legend row "Announced").
     for theme in THEMES.values():
@@ -343,6 +346,9 @@ def test_the_panel_keeps_its_words_readable_over_any_basemap(theme: str, block: 
     assert found is not None
     share = int(found.group(1)) / 100
     assert "--text-muted: var(--family-neutral-text);" in panel
+    # The panel re-points the in-process words to the accent's small-text step (brand system, 2026-10-23):
+    # the evergreen `#1d7356` measured 4.37:1 here over black.
+    assert "--family-progress-text: var(--color-accent-deep);" in panel
     tokens = THEMES[theme]
     declared = _block(block) + _block(":root {")
     words = {
@@ -350,6 +356,7 @@ def test_the_panel_keeps_its_words_readable_over_any_basemap(theme: str, block: 
         "muted": tokens["--family-neutral-text"],
         "link": _resolve(tokens, declared, "--link"),
         **{family: tokens[f"--family-{family}-text"] for family in FAMILIES},
+        "progress": tokens["--color-accent-deep"],
     }
     surface = _resolve(tokens, declared, "--surface")
     for backdrop in ("#000000", "#ffffff"):

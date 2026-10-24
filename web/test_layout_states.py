@@ -701,31 +701,49 @@ def test_fonts_are_self_hosted_and_every_face_has_its_file() -> None:
     assert "fonts.googleapis.com" not in base and "fonts.gstatic.com" not in base
     css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
     sources = re.findall(r'url\("/static/fonts/([^"]+)"\)', css)
-    assert len(sources) == 23  # Newsreader latin + latin-ext; Plex Sans 4 and Mono 3 weights x Latin1-3
+    # The brand system (docs/31-brand-identity.md T-3): Geist and Geist Mono, latin and latin-ext each.
+    assert sorted(sources) == [
+        "geist-latin-ext.woff2",
+        "geist-latin.woff2",
+        "geist-mono-latin-ext.woff2",
+        "geist-mono-latin.woff2",
+    ]
     for name in sources:
         assert (WEB / "static" / "fonts" / name).is_file(), name
-    # Plex carries a Reserved Font Name: only IBM's own split files, under IBM's own names.
-    plex = [name for name in sources if "Plex" in name or "plex" in name]
-    assert plex and all(re.fullmatch(r"IBMPlex(Sans|Mono)-\w+-Latin[123]\.woff2", name) for name in plex)
+    # One family and its mono: the old faces are not shipped (the taste skill allows two at most).
+    assert not [name for name in sources if "Plex" in name or "plex" in name or "newsreader" in name]
+    assert set(re.findall(r'font-family: "([^"]+)"; font-style', css)) == {"Geist", "Geist Mono"}
     on_disk = {path.name for path in (WEB / "static" / "fonts").glob("*.woff2")}
     assert on_disk == set(sources), "every shipped font file is declared, and nothing else is shipped"
-    for preloaded in re.findall(r'<link rel="preload" href="/static/fonts/([^"]+)" as="font"', base):
+    preloads = re.findall(r'<link rel="preload" href="/static/fonts/([^"]+)" as="font"', base)
+    assert preloads == ["geist-latin.woff2"]  # T-4: the Geist latin file only
+    for preloaded in preloads:
         assert preloaded in sources
         face = css[css.rindex("@font-face", 0, css.index(preloaded)) : css.index(preloaded)]
-        # Plex keeps `optional`; the display face swaps onto a metric-matched fallback (UX-17).
-        expected = "font-display: swap" if preloaded.startswith("newsreader") else "font-display: optional"
-        assert expected in face, preloaded
-    for licence in ("OFL-Newsreader.txt", "LICENSE-IBM-Plex-Sans.txt", "LICENSE-IBM-Plex-Mono.txt"):
-        assert "SIL Open Font License" in (WEB / "static" / "fonts" / licence).read_text(encoding="utf-8")
+        # The first-paint face keeps `optional`, as Plex did: a late file leaves the metric-matched
+        # fallback for the view rather than swapping at a wrap point.
+        assert "font-display: optional" in face, preloaded
+    # Every face has its metric-matched fallback, declared and named second in its token.
+    tokens = dict(re.findall(r"(--font-(?:display|body|mono)): ([^;]+);", css))
+    for token, family, fallback in (
+        ("--font-display", "Geist", "Geist Fallback"),
+        ("--font-body", "Geist", "Geist Fallback"),
+        ("--font-mono", "Geist Mono", "Geist Mono Fallback"),
+    ):
+        assert tokens[token].startswith(f'"{family}", "{fallback}",'), token
+        assert f'font-family: "{fallback}"' in css, fallback
+    licence = (WEB / "static" / "fonts" / "OFL-Geist.txt").read_text(encoding="utf-8")
+    assert "SIL OPEN FONT LICENSE" in licence.upper() and "Vercel" in licence
+    assert "Reserved Font Name" not in licence.split("This Font Software is licensed")[0]  # none is reserved
     readme = (WEB / "static" / "fonts" / "README.md").read_text(encoding="utf-8")
-    assert "@ibm/plex-sans" in readme and "@ibm/plex-mono" in readme and "unmodified" in readme
-    # Only the instanced Newsreader file is modified, and the README says how it was made.
-    assert "newsreader-latin-600.woff2" in readme and "instancer" in readme
+    # Where the files came from, how they were subset, and the licence.
+    assert "geist" in readme and "1.7.2" in readme and "integrity `sha512-" in readme
+    assert "pyftsubset" in readme and "OFL-Geist.txt" in readme
 
 
 def test_font_files_are_served_with_a_long_lived_cache() -> None:
     with TestClient(web_app) as client:
-        response = client.get("/static/fonts/IBMPlexSans-Regular-Latin1.woff2")
+        response = client.get("/static/fonts/geist-latin.woff2")
         css = client.get("/static/css/styles.css")
     assert response.status_code == 200
     assert response.headers["content-type"] == "font/woff2"
@@ -1198,6 +1216,7 @@ def test_about_and_sources_is_a_utility_link_not_a_section(transport: FakeTransp
     assert bar is not None and '<a class="section-bar__about" href="/about">About &amp; sources</a>' in bar
     menu = html.split('<div class="site-menu" id="site-menu">', 1)[1].split("</header>", 1)[0]
     assert '<li><a href="/about">About &amp; sources</a></li>' in menu
+    assert '<li><a href="/glossary">Glossary</a></li>' in menu
     footer = html.split('<footer class="site-footer">', 1)[1]
     assert '<a href="/about">About &amp; sources</a>' in footer
     links = [href for href, _, _ in _links(footer.split("</ul>", 1)[0])]
@@ -1205,6 +1224,7 @@ def test_about_and_sources_is_a_utility_link_not_a_section(transport: FakeTransp
         "/about",
         "/about/sources",
         "/methodology",
+        "/glossary",
         "/attribution",
         "/legal/reuse",
         "/docs/api",
@@ -1234,12 +1254,19 @@ def test_every_page_declares_the_favicon_and_its_three_files_are_served(transpor
     assert '<link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">' in head
     assert svg.status_code == ico.status_code == touch.status_code == 200
     assert svg.headers["content-type"].startswith("image/svg+xml")
-    # The site's palette (styles.css :root), and a variant for a dark browser theme.
+    # The mark (docs/31-brand-identity.md §5.1, B-3), the information sign: the navy circle and the orange
+    # dot are the site's own tokens (styles.css :root), the stem is knocked out in white, and for a dark
+    # browser theme the circle turns #eef1f5 and the stem #0e0f11. No triangle: the dot is round.
     css = (WEB / "static" / "css" / "styles.css").read_text(encoding="utf-8")
-    for token in ("--color-ink", "--color-paper", "--color-copper-tint", "--color-copper-deep"):
+    for token in ("--color-ink", "--brand-dot"):
         colour = re.search(rf"{token}: (#[0-9a-f]{{6}});", css)
         assert colour is not None and colour.group(1) in svg.text, token
-    assert "@media (prefers-color-scheme: dark)" in svg.text
+    assert '<circle class="disc" cx="8" cy="8" r="8"/>' in svg.text
+    assert '<rect class="stem" x="6.6" y="7.35" width="2.8" height="5.9" rx="0.5"/>' in svg.text
+    assert '<circle fill="#e68023" cx="8" cy="4.55" r="1.75"/>' in svg.text
+    assert "<path" not in svg.text and "<polygon" not in svg.text
+    dark = svg.text.split("@media (prefers-color-scheme: dark)", 1)[1]
+    assert ".disc { fill: #eef1f5; }" in dark and ".stem { fill: #0e0f11; }" in dark
     # ICO: reserved 0, type 1, then 16, 32 and 48px frames.
     reserved, kind, count = struct.unpack("<HHH", ico.content[:6])
     sizes = sorted(ico.content[6 + 16 * i] for i in range(count))

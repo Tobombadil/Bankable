@@ -424,8 +424,8 @@ def test_every_public_page_carries_open_graph_twitter_and_canonical(
     assert f'<link rel="canonical" href="http://testserver{path}">' in body
     # One self-hosted card image, under the same base URL as the canonical link: nothing reaches
     # out to a third-party host for it (web/test_og_card.py covers the image itself).
-    assert _meta(body, "property", "og:image") == "http://testserver/static/img/og-card.png"
-    assert _meta(body, "name", "twitter:image") == "http://testserver/static/img/og-card.png"
+    assert _meta(body, "property", "og:image") == "http://testserver/static/img/og-card-2.png"
+    assert _meta(body, "name", "twitter:image") == "http://testserver/static/img/og-card-2.png"
 
 
 def test_canonical_url_keeps_the_pages_own_filters_and_drops_anything_else(
