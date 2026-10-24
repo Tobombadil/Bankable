@@ -40,6 +40,7 @@ from sqlalchemy.orm import (
 from services.api import geo_cache
 from services.api.auth import AuthContext, get_auth_context
 from services.api.common import WEB_HOST
+from services.api.country import COUNTRY_FILTERS, country_clause, country_values
 from services.api.deps import get_db
 from services.api.errors import validation_error
 from services.api.geo import GeoLicence, GeoRow, build_geo_feature_collection
@@ -527,6 +528,10 @@ def _apply_proposal_filters(
         stmt = stmt.where(Proposal.lifecycle_state.in_(csv_param(v)))
     if v := qp.get("jurisdiction"):
         stmt = stmt.where(Proposal.jurisdiction.in_(csv_param(v)))
+    # The country part of the jurisdiction (`services/api/country.py`, owner 2026-10-23: US first);
+    # a view filter, so saved searches refuse it (`COUNTRY_FILTERS`).
+    if (countries := country_values(qp.get("country"), request.url.path)) is not None:
+        stmt = stmt.where(country_clause(Proposal.jurisdiction, countries))
     if v := qp.get("iso"):
         # Every stored spelling of the grid: `iso=ERCOT` also selects EIA-860M rows loaded with the
         # balancing-authority code `ERCO` (services/api/grid_operators.py; stored rows unchanged).
@@ -711,6 +716,9 @@ def _proposal_geo_rows(
             Location.country,
             Location.source_id.label("location_source_id"),
             Licence.allows_raw_publication,
+            # Last, so the positional unpacking above it is unchanged: the cluster and region
+            # features split their MW by it (`services/api/capacity_kinds.py`; docs/30 §11.11 B-4).
+            Proposal.kind,
         )
         .select_from(Proposal)
         .outerjoin(Location, Location.id == Proposal.location_id)
@@ -774,7 +782,7 @@ def _proposal_geo_features(db: Session, request: Request, entitlement: str = "pu
         # the rows twice, so they are held on this path.
         rows = held = result.all()
         gated = set()
-        for pid, _ls, _t, _c, totals_gate, printed_gate, drawable, geom, *_loc, loc_source, _raw in held:
+        for pid, _ls, _t, _c, totals_gate, printed_gate, drawable, geom, *_loc, loc_source, _raw, _k in held:
             if totals_gate or (
                 printed_gate and drawable and geom is not None and loc_source not in hidden_sources
             ):
@@ -805,6 +813,7 @@ def _proposal_geo_features(db: Session, request: Request, entitlement: str = "pu
             country,
             loc_source,
             allows_raw,
+            kind,
         ) = row
         if totals_gate and (view := views.get(pid)) is not None:
             # Counted as served (GatedRecord), never as stored; such a row is never a `GeoRow`.
@@ -842,6 +851,7 @@ def _proposal_geo_features(db: Session, request: Request, entitlement: str = "pu
                 state_code,
                 country,
                 licence,
+                kind,
             )
         )
     return _GeoFeatures(
@@ -873,7 +883,9 @@ def list_proposals(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, LIST_COMMON | PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS)
+    check_allowed(
+        request, LIST_COMMON | PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | COUNTRY_FILTERS
+    )
     if wants_csv(request):
         return _csv_list_response(request, db, ctx, "proposal")
     limit = page_limit(request)
@@ -1034,7 +1046,10 @@ def get_proposals_geo(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, {"bbox", "zoom"} | PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | {"q"})
+    check_allowed(
+        request,
+        {"bbox", "zoom"} | PROPOSAL_FILTERS | PROPOSAL_VIEW_FILTERS | SYNC_FILTERS | COUNTRY_FILTERS | {"q"},
+    )
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
     if not bbox_param or zoom_param is None:
@@ -1243,6 +1258,8 @@ def _opportunity_query_with_filters(
         stmt = stmt.where(_opportunity_technologies_filter(db, csv_param(v)))
     if v := qp.get("jurisdiction"):
         stmt = stmt.where(Opportunity.jurisdiction.in_(csv_param(v)))
+    if (countries := country_values(qp.get("country"), request.url.path)) is not None:
+        stmt = stmt.where(country_clause(Opportunity.jurisdiction, countries))
     if v := qp.get("source_id"):
         # A subquery, not a join, for the same reason as the proposal arm: no duplicate rows.
         linked = select(OpportunitySource.opportunity_id).where(
@@ -1314,7 +1331,13 @@ def list_opportunities(
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
     check_allowed(
-        request, LIST_COMMON | OPPORTUNITY_FILTERS | OPPORTUNITY_VIEW_FILTERS | SYNC_FILTERS | VALUE_FILTERS
+        request,
+        LIST_COMMON
+        | OPPORTUNITY_FILTERS
+        | OPPORTUNITY_VIEW_FILTERS
+        | SYNC_FILTERS
+        | VALUE_FILTERS
+        | COUNTRY_FILTERS,
     )
     # Before the CSV branch, so `Accept: text/csv` refuses a cross-currency budget sort with the
     # same 400 instead of a failed export.
@@ -1376,7 +1399,7 @@ def get_opportunities_geo(
     db: Session = Depends(get_db),
     ctx: AuthContext = Depends(get_auth_context),
 ) -> Any:
-    check_allowed(request, {"bbox", "zoom"} | OPPORTUNITY_FILTERS | SYNC_FILTERS | {"q"})
+    check_allowed(request, {"bbox", "zoom"} | OPPORTUNITY_FILTERS | SYNC_FILTERS | COUNTRY_FILTERS | {"q"})
     bbox_param = request.query_params.get("bbox")
     zoom_param = request.query_params.get("zoom")
     if not bbox_param or zoom_param is None:

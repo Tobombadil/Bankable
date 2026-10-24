@@ -354,6 +354,7 @@ paths:
         - $ref: '#/components/parameters/Technology'
         - $ref: '#/components/parameters/LifecycleState'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/Iso'
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
@@ -439,6 +440,7 @@ paths:
         - $ref: '#/components/parameters/Technology'
         - $ref: '#/components/parameters/LifecycleState'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/Iso'
         - $ref: '#/components/parameters/StateCode'
         - $ref: '#/components/parameters/CountyFips'
@@ -662,6 +664,7 @@ paths:
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
@@ -724,6 +727,7 @@ paths:
         - $ref: '#/components/parameters/OpportunityStatus'
         - $ref: '#/components/parameters/Technologies'
         - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
         - $ref: '#/components/parameters/SourceIdFilter'
         - $ref: '#/components/parameters/DueAtFrom'
         - $ref: '#/components/parameters/DueAtTo'
@@ -1207,7 +1211,8 @@ paths:
         `changed_keys`) and `observed_at[from]`/`observed_at[to]` (inclusive). There is no `q`: an event has no
         text of its own to search, and `q` is a `400 unknown_parameter` here (search the subject lists and filter
         by `subject_id`). Saved searches and webhooks with `entity=event` take exactly these filters and match
-        exactly what this list returns. Public tier: `public_at <= now()`;
+        exactly what this list returns. Four view filters since 2026-10-23 narrow the list for a front-page figure that names it
+        (`country`, `genuine`, `to_state`, `relevance`); a saved search or webhook may not carry them. Public tier: `public_at <= now()`;
         no event whose `licence_id` resolves to a restricted or unknown licence, at any tier (docs/21 §8 item 2).
         An event is visible only when its subject is: the subject proposal or opportunity must itself pass the
         record-level visibility predicate for the caller's tier (`publish_state = public`, publishable
@@ -1235,6 +1240,10 @@ paths:
         - $ref: '#/components/parameters/ChangedKey'
         - $ref: '#/components/parameters/ObservedAtFrom'
         - $ref: '#/components/parameters/ObservedAtTo'
+        - $ref: '#/components/parameters/RecordCountry'
+        - $ref: '#/components/parameters/Genuine'
+        - $ref: '#/components/parameters/ToState'
+        - $ref: '#/components/parameters/EventRelevance'
       responses:
         '200':
           description: A page of events.
@@ -1532,6 +1541,146 @@ paths:
                 $ref: '#/components/schemas/LicenceDetailResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  /v1/stats/capacity:
+    get:
+      operationId: getCapacityStats
+      tags: [Proposals, Map]
+      summary: Counts and MW of any proposal view, by technology and lifecycle state
+      description: >-
+        For any filter set `GET /v1/proposals` takes (`country`, `jurisdiction`, `iso`, `kind`, `technology`,
+        `lifecycle_state`, `listed`, ...): counts and summed MW by technology, by lifecycle state, by both and by kind,
+        with the records that state no MW (since 2026-10-23, for the front page's figures).
+
+
+        **Each figure is the total of a list.** Every bucket carries `list_queries`, each `{path, query}`: the records
+        counted are the ones `GET <path>?<query>&include=count` counts, summed over its lists, selected by the list's own
+        filters and visibility predicate, so nothing a list would not show is counted (a restricted or unknown-terms
+        source, a register not cleared for the caller's tier such as PJM, a record not yet public). `list_query` is the
+        one list when one suffices. A bucket with no stated technology has no list (no filter selects a null). A
+        visible record whose stored value for a counted field came from a source the tier may not read is counted as
+        served, never as stored, as the map's totals are; `served_not_stored` says how many, the only records that can
+        make a figure differ from its list (none on the normal store).
+
+
+        **Records no register lists any more are never counted in an active state** (`announced` to
+        `under_construction`), as the site never lists them in a view of those states. Whenever no `listed` is given
+        (`hides_not_listed: true`), whatever the lifecycle states asked for: a figure counts the listed records of its
+        active states, whose list carries `listed=true`, and every record of its other states (built, withdrawn,
+        cancelled, unknown), whose list carries no `listed`; the dropped ones are tallied in `not_listed` under
+        `listed=false`. A figure for one state, or for a selection of only active or only other states, is one list. A
+        figure that spans both (the total, a technology or a kind when every state or a mix is asked for) is the sum
+        of two lists, `list_query` null, because no one list selects that set. So "US filed" is the same figure from
+        `country=US` and from `country=US&lifecycle_state=filed`. With `listed` given, nothing is hidden and each figure
+        is one list carrying it. `selection` is the caller's filters as a list: `total.records + not_listed.records`.
+
+
+        **MW.** `capacity_mw` sums generating and storage capacity (every kind but those below); `demand_mw` sums the
+        demand of `load` records (data centres and other large loads), never added to capacity; `transmission`,
+        `pipeline`, `lng`, `ccs` and `hydrogen` MW is never summed (`not_summed_records`). `mw_missing` counts records of a
+        summed kind that state no MW; `records = capacity_records + demand_records + mw_missing + not_summed_records`. A
+        sum over nothing stated is `null`, never `0`. `storage_mwh` where stated. `meta.capacity_gw`, `meta.demand_gw`
+        and `meta.storage_gwh` give the totals in GW and GWh. The tally is the daily metrics recorder's own
+        (docs/24-trends.md §4), so these figures and the recorded series agree.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-101, US-104]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/ProposalKind'
+        - $ref: '#/components/parameters/Technology'
+        - $ref: '#/components/parameters/LifecycleState'
+        - $ref: '#/components/parameters/Jurisdiction'
+        - $ref: '#/components/parameters/RecordCountry'
+        - $ref: '#/components/parameters/Iso'
+        - $ref: '#/components/parameters/StateCode'
+        - $ref: '#/components/parameters/CountyFips'
+        - $ref: '#/components/parameters/Placement'
+        - $ref: '#/components/parameters/Slipped'
+        - $ref: '#/components/parameters/SlipBucket'
+        - $ref: '#/components/parameters/SponsorId'
+        - $ref: '#/components/parameters/SponsorScope'
+        - $ref: '#/components/parameters/Listed'
+        - $ref: '#/components/parameters/InterconnectionPointId'
+        - $ref: '#/components/parameters/SourceIdFilter'
+        - $ref: '#/components/parameters/CapacityMwGte'
+        - $ref: '#/components/parameters/CapacityMwLte'
+        - $ref: '#/components/parameters/StorageMwhGte'
+        - $ref: '#/components/parameters/FirstSeenFrom'
+        - $ref: '#/components/parameters/FirstSeenTo'
+        - $ref: '#/components/parameters/LastChangedFrom'
+        - $ref: '#/components/parameters/LastChangedTo'
+        - $ref: '#/components/parameters/UpdatedSince'
+        - $ref: '#/components/parameters/SlugFilter'
+      responses:
+        '200':
+          description: The figures inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityStatsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  /v1/pulse:
+    get:
+      operationId: getPulse
+      tags: [Events]
+      summary: What genuinely changed in the last days, with the lists that show it
+      description: >-
+        The change events of the last `days` (7 by default, at most 90) that the genuine-change rule counts
+        (`genuine=true` on `GET /v1/events`; the daily metrics recorder's `genuine-change-v2`, docs/24-trends.md §6):
+        new proposals a source newly listed (`new_proposal`), moves to each lifecycle state (`status_change` with
+        `to_state`: permitted, contracted, under construction, built, withdrawn, cancelled, ...; a withdrawal that
+        names no state is one to `withdrawn`; a move to `unknown`, a register that stopped stating a status, is not
+        reported, though `to_state=unknown` lists it), departures from a register that announces them (`delisted`,
+        reason not stated, never a withdrawal) and newly open, energy-relevant notices (`new_open_opportunity`: first
+        listed open, or moved to open, and kept by `relevance=energy`). A source's first load, a run released from a
+        data-quality hold and anything no source run wrote are never counted. Since 2026-10-23, for the front page.
+
+
+        **Each figure is the total of a list.** Every `changes[]` entry and every `by_country` entry within it carries
+        `list_query`: `GET /v1/events?<query>&include=count` answers it. `total` and the top-level `by_country` are sums
+        of several lists, each named in `list_queries`. Countries are read from each record's stored jurisdiction, as
+        the `country` filter reads it; `country: null` is a jurisdiction no code selects (`global`) and has no list.
+        An item's `record` is served, so its `country` differs from the one its event was counted under only for a
+        record whose stored jurisdiction came from a source the tier may not read; `served_not_stored` counts those
+        events (none on the normal store).
+        `subjects` counts the distinct records the events changed (a project that changed twice is two events, one
+        subject).
+
+
+        **Limits.** The date is the fetch that saw the change, not the register's own action date, so a weekly
+        register shows its week on its poll day and a register that was down shows the gap on the day it recovers. A
+        connector change that widens a source by less than the 30 % row-drift hold reads as new rows. A run released
+        from a hold is left out whole, genuine changes in it too. A load committed later with an earlier fetch time
+        adds to a past window, so a list query re-run later can count more. `items` pages the counted events, newest
+        first (`limit`, `cursor`), each with its record (served fields and link), its source and its date.
+      x-tier: public
+      x-status: live
+      x-sprint: 3
+      x-prd-stories: [US-703, US-202]
+      security: *sec_public
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PulseDays'
+        - $ref: '#/components/parameters/RecordCountry'
+      responses:
+        '200':
+          description: The pulse inside the attribution envelope, with a page of the counted events.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PulseResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         <<: *common_errors
 
   /v1/meta/vocabularies:
@@ -9644,6 +9793,75 @@ components:
       schema:
         type: string
         format: date-time
+    RecordCountry:
+      name: country
+      in: query
+      description: >-
+        ISO 3166-1 alpha-2 country codes, comma-separated for OR, any case (since 2026-10-23). A record's country is the
+        part of its `jurisdiction` before the first `-`, when it is two letters: `US` selects `US` and every `US-XX`
+        (the states, `US-OCS`), `GB` selects `GB`, `DE` a TED notice whose buyer is German, `EU` a TED notice that names
+        no buyer country. A jurisdiction with no such part (`global`, a World Bank notice with no project country) is
+        selected by no code. On `GET /v1/events` it reads the event's subject's jurisdiction. Anything but two
+        letters is a `400 validation_error`. A list view filter: a saved search or webhook may not carry it
+        (`400 unknown_parameter`), because the alert matcher does not evaluate it; exports and the `Accept: text/csv`
+        twins take it.
+      style: form
+      explode: false
+      example: US
+      schema:
+        type: array
+        items:
+          type: string
+          pattern: '^[A-Za-z]{2}$'
+    Genuine:
+      name: genuine
+      in: query
+      description: >-
+        `true`: only the change events the genuine-change rule counts (`genuine-change-v2`, the daily metrics
+        recorder's rule, docs/24-trends.md §6): written by a source run that is not the source's first run here (a seed
+        or first fetch, whose rows are all new to the store) and was not released from a data-quality hold. Events no
+        source run wrote (matches, merges, edits) are left out. A run's trigger label changes nothing. `false`: exactly
+        the events the rule leaves out. The date is the fetch that saw the change (`observed_at`), not the register's
+        own action date. A list view filter (saved searches and webhooks refuse it). Since 2026-10-23.
+      schema:
+        type: boolean
+    ToState:
+      name: to_state
+      in: query
+      description: >-
+        The state an event moved its subject to, `after.lifecycle_state` (a lifecycle state for a proposal, a status
+        for an opportunity: the diff writes both under that key), comma-separated for OR. `created`, `status_change`
+        and `withdrawn` events carry it. A proposal's `withdrawn` event that names no state (a row that left a register
+        whose departures mean withdrawal) moved it to `withdrawn`. Any other event without it (a capacity change, a
+        `delisted` departure) is selected by no value. An unknown value is a `400 validation_error`. A list view
+        filter. Since 2026-10-23.
+      style: form
+      explode: false
+      schema:
+        type: array
+        items:
+          type: string
+          enum: [unknown, announced, filed, studied, permitted, contracted, under_construction, built, withdrawn,
+                 cancelled, open, frozen, reinstated, closed, awarded]
+    EventRelevance:
+      name: relevance
+      in: query
+      description: >-
+        `energy`: only events whose subject is a notice `relevance=energy` keeps on `GET /v1/opportunities` (the
+        matcher's energy verdict over the notice's stored fields), so a proposal's event never passes. `all`, or
+        absent: every event. A list view filter. Since 2026-10-23.
+      schema:
+        type: string
+        enum: [energy, all]
+    PulseDays:
+      name: days
+      in: query
+      description: The window, in days back from now. Default 7; outside 1..90 is a `400 validation_error`.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 90
+        default: 7
     # Map (US-104)
     Bbox:
       name: bbox
@@ -12161,6 +12379,15 @@ components:
               type: string
               enum: [current, stale, missing]
           additionalProperties: false
+        capacity_gw:
+          type: [number, 'null']
+          description: '`GET /v1/stats/capacity` only: `data.total.capacity_mw` in GW, to three places.'
+        demand_gw:
+          type: [number, 'null']
+          description: '`GET /v1/stats/capacity` only: `data.total.demand_mw` in GW.'
+        storage_gwh:
+          type: [number, 'null']
+          description: '`GET /v1/stats/capacity` only: `data.total.storage_mwh` in GWh.'
         site_finder:
           $ref: '#/components/schemas/SiteFinderMeta'
       additionalProperties: false
@@ -14186,6 +14413,24 @@ components:
         capacity_mw_sum:
           type: number
           minimum: 0
+        capacity_mw_by_lifecycle_state:
+          type: object
+          description: >-
+            Generating and storage MW of the members by lifecycle state (since 2026-10-23, docs/30 §11.11 B-4): every
+            member of a summed kind that states MW, so the parts add up exactly (to the column's 0.001 MW). Demand
+            (`load`) is in `demand_mw_sum`; transmission, pipeline, LNG, CCS and hydrogen MW is in neither.
+            `capacity_mw_sum` is unchanged: every stated MW of every member.
+          additionalProperties:
+            type: number
+        capacity_mw_by_technology:
+          type: object
+          description: The same MW by technology; a member with no technology is in the lifecycle split only.
+          additionalProperties:
+            type: number
+        demand_mw_sum:
+          type: number
+          minimum: 0
+          description: The demand MW of the members of kind `load` (data centres and other large loads).
         dominant_lifecycle_state:
           $ref: '#/components/schemas/LifecycleState'
         dominant_technology:
@@ -14328,6 +14573,24 @@ components:
             type: integer
         capacity_mw_sum:
           type: number
+        capacity_mw_by_lifecycle_state:
+          type: object
+          description: >-
+            Generating and storage MW of the members by lifecycle state (since 2026-10-23, docs/30 §11.11 B-4): every
+            member of a summed kind that states MW, so the parts add up exactly (to the column's 0.001 MW). Demand
+            (`load`) is in `demand_mw_sum`; transmission, pipeline, LNG, CCS and hydrogen MW is in neither.
+            `capacity_mw_sum` is unchanged: every stated MW of every member.
+          additionalProperties:
+            type: number
+        capacity_mw_by_technology:
+          type: object
+          description: The same MW by technology; a member with no technology is in the lifecycle split only.
+          additionalProperties:
+            type: number
+        demand_mw_sum:
+          type: number
+          minimum: 0
+          description: The demand MW of the members of kind `load` (data centres and other large loads).
     GeoFeature:
       type: object
       required: [type, geometry, properties]
@@ -14398,6 +14661,393 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/GeoFeatureCollection'
+
+    # ---------- Front page figures (lane front-api, 2026-10-23) ----------
+    ListQueryRef:
+      type: object
+      description: The list a figure is the total of; `GET <path>?<query>&include=count` answers it.
+      required: [path, query]
+      properties:
+        path:
+          type: string
+          enum: [/v1/proposals, /v1/events]
+        query:
+          type: object
+          additionalProperties:
+            type: string
+      additionalProperties: false
+    CapacityTally:
+      type: object
+      description: >-
+        One bucket of proposals (the daily metrics recorder's tally, docs/24-trends.md §4). `records` is always
+        `capacity_records + demand_records + mw_missing + not_summed_records`; a sum over nothing stated is `null`.
+      required: [records, capacity_mw, capacity_records, demand_mw, demand_records, mw_missing, not_summed_records,
+                 storage_mwh, storage_mwh_records]
+      properties:
+        records:
+          type: integer
+          minimum: 0
+        capacity_mw:
+          type: [number, 'null']
+          description: Generating and storage MW of the records of a summed kind that state one.
+        capacity_records:
+          type: integer
+          minimum: 0
+        demand_mw:
+          type: [number, 'null']
+          description: Demand MW of the `load` records that state one, never added to `capacity_mw`.
+        demand_records:
+          type: integer
+          minimum: 0
+        mw_missing:
+          type: integer
+          minimum: 0
+          description: Records of a summed kind (or `load`) that state no MW.
+        not_summed_records:
+          type: integer
+          minimum: 0
+          description: Records whose MW is never summed (`transmission`, `pipeline`, `lng`, `ccs`, `hydrogen`).
+        storage_mwh:
+          type: [number, 'null']
+        storage_mwh_records:
+          type: integer
+          minimum: 0
+    CapacityBucket:
+      allOf:
+        - $ref: '#/components/schemas/CapacityTally'
+        - type: object
+          required: [list_query, list_queries]
+          properties:
+            list_queries:
+              type: array
+              maxItems: 2
+              description: >-
+                The lists whose `include=count` totals add up to `records` (and whose served rows' tallies add up to
+                the bucket): one, or two for a figure that spans active and other lifecycle states (the active ones
+                with `listed=true`, the others with no `listed`); none for a bucket no filter selects (no stated
+                technology or kind).
+              items:
+                $ref: '#/components/schemas/ListQueryRef'
+            list_query:
+              oneOf:
+                - $ref: '#/components/schemas/ListQueryRef'
+                - type: 'null'
+              description: The one list when `list_queries` holds one; null when it holds two or none.
+    CapacityStats:
+      type: object
+      required: [selection, hides_not_listed, rule, total, not_listed, by_technology, by_lifecycle_state,
+                 by_technology_and_lifecycle_state, by_kind, served_not_stored]
+      properties:
+        selection:
+          $ref: '#/components/schemas/ListQueryRef'
+          description: >-
+            The caller's filters as a list: every record read, so its `include=count` total is `total.records` plus
+            `not_listed.records`. Not a figure's list; each figure carries its own.
+        hides_not_listed:
+          type: boolean
+          description: >-
+            True when the caller named no `listed`: records no register lists any more are then never counted in an
+            active state and are tallied apart in `not_listed` (the operation's description).
+        rule:
+          type: object
+          required: [capacity, demand_kinds, not_summed_kinds, capacity_not_summed_kinds, listed_only_states]
+          properties:
+            capacity:
+              type: string
+            demand_kinds:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProposalKind'
+            not_summed_kinds:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProposalKind'
+            capacity_not_summed_kinds:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProposalKind'
+            listed_only_states:
+              type: array
+              description: The states whose figures count listed records only (empty when the caller named `listed`).
+              items:
+                $ref: '#/components/schemas/LifecycleState'
+        total:
+          $ref: '#/components/schemas/CapacityBucket'
+        not_listed:
+          oneOf:
+            - $ref: '#/components/schemas/CapacityBucket'
+            - type: 'null'
+          description: >-
+            Present when `hides_not_listed`: the selection's records in an active state that no register lists any
+            more, with their `listed=false` list (none when the selection has no active state).
+        by_technology:
+          type: array
+          description: Largest generating and storage MW first, then demand MW, then records; no stated technology last.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [technology]
+                properties:
+                  technology:
+                    type: [string, 'null']
+        by_lifecycle_state:
+          type: array
+          description: Active states in lifecycle order, then the rest, `unknown` last; states with no record are left out.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [lifecycle_state]
+                properties:
+                  lifecycle_state:
+                    $ref: '#/components/schemas/LifecycleState'
+        by_technology_and_lifecycle_state:
+          type: array
+          description: The cross of the two, in `by_technology` order, then lifecycle order.
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [technology, lifecycle_state]
+                properties:
+                  technology:
+                    type: [string, 'null']
+                  lifecycle_state:
+                    $ref: '#/components/schemas/LifecycleState'
+        by_kind:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CapacityBucket'
+              - type: object
+                required: [kind]
+                properties:
+                  kind:
+                    type: [string, 'null']
+        served_not_stored:
+          type: object
+          description: Counted records whose served value for a counted field differs from the stored one the list filters on, in all and by field.
+          required: [records, by_field]
+          properties:
+            records:
+              type: integer
+              minimum: 0
+            by_field:
+              type: object
+              additionalProperties:
+                type: integer
+    CapacityStatsResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/CapacityStats'
+    PulseCount:
+      type: object
+      required: [events, subjects]
+      properties:
+        events:
+          type: integer
+          minimum: 0
+          description: Change events; the `include=count` total of the figure's list.
+        subjects:
+          type: integer
+          minimum: 0
+          description: Distinct records those events changed.
+    PulseCountryEntry:
+      allOf:
+        - $ref: '#/components/schemas/PulseCount'
+        - type: object
+          required: [country, list_query]
+          properties:
+            country:
+              type: [string, 'null']
+              description: ISO 3166-1 alpha-2, or null for a jurisdiction no code selects.
+            list_query:
+              oneOf:
+                - $ref: '#/components/schemas/ListQueryRef'
+                - type: 'null'
+    PulseChange:
+      allOf:
+        - $ref: '#/components/schemas/PulseCount'
+        - type: object
+          required: [type, to_state, list_query, by_country]
+          properties:
+            type:
+              type: string
+              enum: [new_proposal, status_change, delisted, new_open_opportunity]
+            to_state:
+              type: [string, 'null']
+              description: The lifecycle state moved to (`status_change`), `open` for `new_open_opportunity`, else null.
+            list_query:
+              $ref: '#/components/schemas/ListQueryRef'
+            by_country:
+              type: array
+              items:
+                $ref: '#/components/schemas/PulseCountryEntry'
+    PulseItem:
+      type: object
+      description: One counted change event, with its record, its source and its date.
+      required: [type, to_state, from_state, observed_at, event_id, headline, record, provenance]
+      properties:
+        type:
+          type: string
+          enum: [new_proposal, status_change, delisted, new_open_opportunity]
+        to_state:
+          type: [string, 'null']
+        from_state:
+          type: [string, 'null']
+        observed_at:
+          type: string
+          format: date-time
+          description: The fetch that saw the change.
+        event_id:
+          type: string
+        headline:
+          type: string
+        reason:
+          type: [string, 'null']
+        record:
+          type: [object, 'null']
+          description: The record as the caller's tier is served it, with its page.
+          required: [subject_type, public_id, name, url]
+          properties:
+            subject_type:
+              type: string
+              enum: [proposal, opportunity]
+            public_id:
+              type: string
+            name:
+              type: string
+            url:
+              type: string
+              format: uri
+            kind:
+              type: [string, 'null']
+            jurisdiction:
+              type: [string, 'null']
+            country:
+              type: [string, 'null']
+            technology:
+              type: [string, 'null']
+            lifecycle_state:
+              type: [string, 'null']
+            capacity_mw:
+              type: [number, 'null']
+            storage_mwh:
+              type: [number, 'null']
+            status:
+              type: [string, 'null']
+            due_at:
+              type: [string, 'null']
+              format: date-time
+            capacity_sought_mw:
+              type: [number, 'null']
+        provenance:
+          type: object
+          description: The source, its page for the record, when it was retrieved and under which licence.
+          required: [source_id, source_name, source_url, retrieved_at, licence_id, reuse_class]
+          properties:
+            source_id:
+              $ref: '#/components/schemas/SourceIdValue'
+            source_name:
+              type: string
+            source_url:
+              type: string
+            retrieved_at:
+              type: string
+              format: date-time
+            licence_id:
+              $ref: '#/components/schemas/LicenceIdValue'
+            reuse_class:
+              $ref: '#/components/schemas/ReuseClass'
+            attribution_text:
+              type: [string, 'null']
+    Pulse:
+      type: object
+      required: [window, country, rule, total, changes, by_country, served_not_stored, items]
+      properties:
+        served_not_stored:
+          allOf:
+            - $ref: '#/components/schemas/PulseCount'
+          description: >-
+            Counted events whose record is served a jurisdiction of another country than the stored one they were
+            counted under (the operation's description).
+        window:
+          type: object
+          required: [from, to, days]
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+            days:
+              type: integer
+              minimum: 1
+              maximum: 90
+        country:
+          type: [array, 'null']
+          items:
+            type: string
+        rule:
+          type: object
+          required: [name, parameter, statement]
+          properties:
+            name:
+              type: string
+              const: genuine-change-v2
+            parameter:
+              type: string
+            statement:
+              type: string
+        total:
+          allOf:
+            - $ref: '#/components/schemas/PulseCount'
+            - type: object
+              required: [list_queries]
+              properties:
+                list_queries:
+                  type: array
+                  description: The lists whose totals add up to `events` (the change types with any).
+                  items:
+                    $ref: '#/components/schemas/ListQueryRef'
+        changes:
+          type: array
+          description: Every change type, zero counts included, in a fixed order; status changes one per lifecycle state but `unknown`.
+          items:
+            $ref: '#/components/schemas/PulseChange'
+        by_country:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/PulseCount'
+              - type: object
+                required: [country, list_queries]
+                properties:
+                  country:
+                    type: [string, 'null']
+                  list_queries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ListQueryRef'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PulseItem'
+    PulseResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [page]
+          properties:
+            data:
+              $ref: '#/components/schemas/Pulse'
+            page:
+              $ref: '#/components/schemas/Page'
 
     # ---------- Assets (docs/21 §3.22-§3.23, ADR 0008 — generalises the 2026-09-14 context layer) ----------
     AssetGeoProperties:
@@ -18716,7 +19366,7 @@ components:
                   $ref: '#/components/schemas/Account'
     SavedSearchQuery:
       type: object
-      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results. Keys are the filters of the `entity`'s list endpoint, except the proposal list's `sponsor_scope` and `listed`, which the alert matcher does not evaluate yet; any other key is a `400 unknown_parameter` on create and update.
+      description: Filter definition in the `x-filter-grammar` shape, keyed by parameter name; array values are OR within the facet. Never results. Keys are the filters of the `entity`'s list endpoint, except the list view filters the alert matcher does not evaluate yet, `country` on every entity (since 2026-10-23), the proposal list's `sponsor_scope` and `listed`, the opportunity list's `relevance`, and the events list's `genuine`, `to_state` and `relevance` (since 2026-10-23); any other key is a `400 unknown_parameter` on create and update.
       additionalProperties: true
       examples:
         - kind: [storage]

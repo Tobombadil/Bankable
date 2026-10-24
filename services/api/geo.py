@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, NamedTuple
 
+from services.api.capacity_kinds import CAPACITY_NOT_SUMMED_KINDS, DEMAND_KINDS
 from services.api.common import iso
 from services.db.models import Location, Proposal
 from services.ingest.geocode import geocode
@@ -82,6 +83,9 @@ class GeoRow(NamedTuple):
     state_code: str | None
     country: str | None
     licence: GeoLicence
+    #: What the row's MW is (`services/api/capacity_kinds.py`): the cluster and region features sum
+    #: generating and storage capacity apart from demand (docs/30 §11.11 B-4).
+    kind: str | None
 
     @property
     def location(self) -> GeoRow:
@@ -328,21 +332,69 @@ def precision_note(precision: str, reason: str | None) -> str | None:
     return f"location shown at {level} level (source licence)"
 
 
+#: `services/api/capacity_kinds.py` as sets, for `_CapacitySplit.add` (`summed_as` is the same rule).
+_NOT_SUMMED_AS_CAPACITY = frozenset(CAPACITY_NOT_SUMMED_KINDS)
+_DEMAND = frozenset(DEMAND_KINDS)
+
+
+class _CapacitySplit:
+    """The MW of a cluster's or region's members by lifecycle state and by technology, generating
+    and storage capacity only, with demand (a data centre's MW) summed apart and transfer or
+    throughput MW never summed (`services/api/capacity_kinds.py`; docs/30 §11.11 B-4, docs/31
+    §5.19). `capacity_mw_sum` beside it is unchanged: every stated MW of every member, demand and
+    transfer capability included.
+
+    A national view adds once per placed record inside the feature loops, so `add` does one dict
+    update keyed by `(kind, state, technology)`; the few groups are folded by the rule in
+    `properties`. Every stated MW is a whole number of thousandths (`Numeric(12, 3)`), so each part
+    is rounded to three places, which is its exact decimal sum."""
+
+    __slots__ = ("groups",)
+
+    def __init__(self) -> None:
+        self.groups: dict[tuple[str | None, str, str | None], float] = defaultdict(float)
+
+    def add(self, kind: str | None, state: str, technology: str | None, mw: float) -> None:
+        self.groups[(kind, state, technology)] += mw
+
+    def properties(self) -> dict[str, Any]:
+        by_state: dict[str, float] = defaultdict(float)
+        by_technology: dict[str, float] = defaultdict(float)
+        demand = 0.0
+        for (kind, state, technology), mw in self.groups.items():
+            if kind in _NOT_SUMMED_AS_CAPACITY:
+                if kind in _DEMAND:
+                    demand += mw
+                continue
+            by_state[state] += mw
+            if technology:
+                by_technology[technology] += mw
+        return {
+            "capacity_mw_by_lifecycle_state": {k: round(v, 3) for k, v in sorted(by_state.items())},
+            "capacity_mw_by_technology": {k: round(v, 3) for k, v in sorted(by_technology.items())},
+            "demand_mw_sum": round(demand, 3),
+        }
+
+
 def _cluster_feature(members: list[_Member]) -> dict[str, Any]:
     lons: list[float] = []
     lats: list[float] = []
     lifecycle_counts: dict[str, int] = defaultdict(int)
     technology_counts: dict[str, int] = defaultdict(int)
     capacity_sum = 0.0
+    split = _CapacitySplit()
     precisions: set[str] = set()
     for p, _loc, (lon, lat), placement in members:
         lons.append(lon)
         lats.append(lat)
-        lifecycle_counts[p.lifecycle_state] += 1
-        if p.technology:
-            technology_counts[p.technology] += 1
-        if p.capacity_mw:
-            capacity_sum += float(p.capacity_mw)
+        state, technology, mw = p.lifecycle_state, p.technology, p.capacity_mw
+        lifecycle_counts[state] += 1
+        if technology:
+            technology_counts[technology] += 1
+        if mw is not None:
+            value = float(mw)
+            capacity_sum += value
+            split.add(p.kind, state, technology, value)
         precisions.add(placement.precision)
 
     centroid_lon = sum(lons) / len(lons)
@@ -362,6 +414,7 @@ def _cluster_feature(members: list[_Member]) -> dict[str, Any]:
             "lifecycle_state_counts": dict(lifecycle_counts),
             "technology_counts": dict(technology_counts),
             "capacity_mw_sum": capacity_sum,
+            **split.properties(),
             "dominant_lifecycle_state": dominant_lifecycle,
             "dominant_technology": dominant_technology,
             "bbox": [min(lons), min(lats), max(lons), max(lats)],
@@ -378,13 +431,17 @@ def _region_feature(level: str, region_id: str, members: list[_Member]) -> dict[
     lifecycle_counts: dict[str, int] = defaultdict(int)
     technology_counts: dict[str, int] = defaultdict(int)
     capacity_sum = 0.0
+    split = _CapacitySplit()
     name: str | None = None
     for p, loc, _, _ in members:
-        lifecycle_counts[p.lifecycle_state] += 1
-        if p.technology:
-            technology_counts[p.technology] += 1
-        if p.capacity_mw:
-            capacity_sum += float(p.capacity_mw)
+        state, technology, mw = p.lifecycle_state, p.technology, p.capacity_mw
+        lifecycle_counts[state] += 1
+        if technology:
+            technology_counts[technology] += 1
+        if mw is not None:
+            value = float(mw)
+            capacity_sum += value
+            split.add(p.kind, state, technology, value)
         if name is None:
             if level == "county":
                 name = loc.county_name
@@ -406,5 +463,6 @@ def _region_feature(level: str, region_id: str, members: list[_Member]) -> dict[
             "lifecycle_state_counts": dict(lifecycle_counts),
             "technology_counts": dict(technology_counts),
             "capacity_mw_sum": capacity_sum,
+            **split.properties(),
         },
     }

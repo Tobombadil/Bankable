@@ -3674,3 +3674,225 @@ python -m services.match.run --all --database-url <url>     # re-runs the store 
   it. The labeller must also be independent of the rule set's author (§21's caveat). The 82 independent
   pairs fail the first condition for v2 on three notices (box at the head of §25). They also fail AC3's
   size on their own.
+
+## 26. The front page's figures as lists: `country`, capacity and the change pulse (lane front-api, 2026-10-23)
+
+Owner, 2026-10-23 (decision rows "front page of the energy revolution" and "the United States is the primary
+focus"): every figure lists exactly what its link shows, a source's first load is never news, and a US count and
+its US list agree. This section is the API half; the page that shows the figures is lane V2's
+(`docs/30` §11.11). Code: `services/api/country.py`, `change_rule.py`, `capacity_kinds.py`, `front.py`, the filter
+stack in `records.py` and `resource_queries.py`, the features in `geo.py`; spec in `api/openapi.yaml`
+(`RecordCountry`, `Genuine`, `ToState`, `EventRelevance`, `PulseDays`; `getCapacityStats`, `getPulse`). No
+migration: everything is derived from columns the store already holds. The records' parameter is `RecordCountry`,
+not `Country`: `Country` is the organisations' exact, upper-case filter, and a second key of that name silently
+replaced it under PyYAML (`services/api/test_openapi_unique_keys.py` now reads the spec as strict loaders do).
+
+### 26.1 `country=`: a record's country is its jurisdiction's
+
+A record stores one `jurisdiction` (docs/21 §3.1, §3.3). How it is written, read from the code that writes it:
+a US proposal is `US-<state>` when its row names a state (`services/ingest/loader.py::_jurisdiction`), else its
+source's own (`US`, `US-OCS`); a Great Britain record is `GB` (NESO, Find a Tender); a TED notice is its
+buyer's ISO 3166-1 alpha-2 country (`DE`, `FR`) or `EU` when TED names none; a World Bank notice is its project
+country or `global` (`pipeline/connectors/eu_ted_api`, `mdb_worldbank_procnotices`). So a record's country is
+the part before the first `-`, upper-cased, when it is two ASCII letters; `global` and a compound such as
+`US+CA` have none, and no `country=` value selects them. `EU` is kept as a code (ISO 3166-1 reserves it) so
+TED's own fallback stays reachable.
+
+`country=US,GB` (any case; anything but two letters is a `400 validation_error`) is applied, through one
+clause, by `GET /v1/proposals` and `/v1/opportunities` with their `include=count`, the map's
+`GET /v1/proposals/geo` (whose `totals` count every placement grade) and `/v1/opportunities/geo`, the lifecycle
+counts the map's notice makes (they are `limit=1&include=count` list reads, `web/app.py::lifecycle_counts`),
+`GET /v1/events` (by the subject's jurisdiction), exports and the CSV twins. A saved search or webhook refuses it
+(`400 unknown_parameter`): the alert matcher does not evaluate it. The Python twin `country_of` buckets rows for
+the pulse; the two are held to the same answer on every stored spelling and twenty awkward ones (`us-tx`, `USA`,
+`ÜS`, `uı`, `-US`, `" US"`, the empty string). `services/api/test_country_filter.py` pins, for every combination
+of `country` (ten values) with thirteen proposal filter sets, seven opportunity sets and six event sets, that the
+`include=count` total is the number of rows paging returns, and that those rows are exactly the country's rows of
+the same list without `country`; and that the map's totals and the notice's four counts agree with the list.
+
+Not applied (no reader asks yet): the feeds, the organisation-scoped lists, the bulk streams and the asset routes
+(an asset has a `country` column of its own, not a jurisdiction). The site does not pass `country` through yet:
+`web/page.py`'s passthrough lists are pinned to the API's filter sets by `web/test_list_filter_passthrough.py`,
+so `country` lives in its own set (`country.COUNTRY_FILTERS`) until the web lane adds it to both.
+
+### 26.2 `GET /v1/stats/capacity`
+
+For any filter set the list takes, counts and MW by technology, by lifecycle state, by both and by kind, each
+bucket the daily metrics recorder's own tally (`services/trends/snapshot.py::Tally`, imported): `capacity_mw`
+(generating and storage), `demand_mw` (a `load` record's, never added to capacity), `not_summed_records`
+(transmission, pipeline, LNG, CCS, hydrogen), `mw_missing` (a summed kind that states no MW), `storage_mwh`.
+`meta.capacity_gw`, `demand_gw` and `storage_gwh` give the totals in GW. Every bucket carries `list_queries`
+(each `{"path": "/v1/proposals", "query": {...}}`, the shape `organization_stats` serves), whose `include=count`
+totals add up to it, and `list_query`, the one list when one suffices; a null technology or kind has none. A
+record is counted as served (`GatedRecord`), so MW a withheld register supplied is never summed;
+`served_not_stored` counts the records whose served value differs from the stored one the list filters on, the
+only ones that can make a figure differ from its list (none on the normal store).
+
+**Records no register lists any more are never counted in an active state** (fix round, 2026-10-23). The site
+hides them from every view made only of active states (`web/unlisted.py`, "The rule"), so a figure whose link is
+such a view must not count them. The first round applied the rule only when the caller asked for active states
+alone, so the same figure moved with how it was asked for: two Texas `filed` batteries of 101 and 102 MW, the
+second dropped by its register, read 2 records and 203 MW from `country=US` (its link, on the site, listed one)
+and 1 and 101 MW from `country=US&lifecycle_state=filed`. Now, whenever the caller names no `listed`, every figure
+counts the listed records of its active states (list with `listed=true`) and every record of its other states
+(built, withdrawn, cancelled, unknown; list with no `listed`, as the site's view of them hides nothing), and
+`not_listed` tallies the dropped ones under `listed=false`, as `org_pipeline` keeps them apart. A figure for one
+state, or for a selection of only active or only other states, is one list; one that spans both (the total, a
+technology or a kind under every state or a mix) is the sum of two, `list_query` null, because no single list
+selects that set. Naming `listed` hides nothing and makes every figure one list again. `selection` is the
+caller's own filters as a list (`total` plus `not_listed`). `services/api/test_front.py` checks, for thirteen
+queries and every bucket (more than a hundred, more than ten of them two-list figures), that the lists'
+`include=count` totals add up to the bucket's `records`, that the recorder's tally over their served rows is the
+bucket's tally, MW included, and that the site's rule would narrow none of those lists; and the review's probe
+gives 1 record and 101 MW both ways.
+
+### 26.3 The map's features split their MW (`docs/30` §11.11 B-4)
+
+Every cluster and region feature of `GET /v1/proposals/geo` carries `capacity_mw_by_lifecycle_state` and
+`capacity_mw_by_technology` (generating and storage MW only, each part rounded to the column's 0.001 MW, its exact sum)
+and `demand_mw_sum`; `capacity_mw_sum` keeps its meaning (every stated MW, demand and transfer capability
+included). The rule is `services/api/capacity_kinds.py`, which `org_pipeline` re-exports and the recorder's
+constants are pinned to. A test places a whole view in one region and finds the region's split equal to the
+endpoint's figures for the same filters; another clusters 501 rows and checks the split to the thousandth.
+
+### 26.4 `GET /v1/pulse` and the events list's view filters
+
+What genuinely changed in the last `days` (7 by default, 1 to 90): `new_proposal` (a `created` event: a source
+newly listed the record), `status_change` per lifecycle state moved to (`status_change` and `withdrawn` events by
+`after.lifecycle_state`: permitted, contracted, under construction, built, withdrawn, cancelled and the rest; not
+`unknown`, a register that stopped stating a status, which `to_state=unknown` still lists; and a proposal's
+`withdrawn` event that names no state, the loader's shape for a row that left a register declaring
+`removal_meaning = "withdrawn"`, is a move to `withdrawn`, in the pulse and in `to_state` alike),
+`delisted` (left a register that announces departures, reason not stated, never called a withdrawal) and
+`new_open_opportunity` (a notice first listed open or moved to open, kept by `relevance=energy`). Counts by type
+and by country, each with the `GET /v1/events` query whose `include=count` it is; `total` and the countries'
+totals name the several lists they sum. A page of the counted events, newest first, each with its record (served
+fields and link), its source (`source_id`, `source_url`, `retrieved_at`, licence) and its date.
+
+The lists are expressible because `GET /v1/events` gained four view filters: `country`; `genuine=true|false`;
+`to_state` (`after.lifecycle_state`, which the diff writes for a proposal's state and an opportunity's status
+alike, `pipeline/connectors/runner.py::_DIFF_ALIASES`); `relevance=energy` (the subject is a notice the
+opportunity list's own verdict keeps). The alert matcher evaluates none of them, so stored queries refuse them.
+
+**The rule is the recorder's.** `genuine=true` is `genuine-change-v2` (docs/24-trends.md §6) as one SQL
+predicate (`change_rule.genuine_change_clause`): a source run wrote the event, the run was not released from a
+data-quality hold, and it started after the source's first run that promoted output, said as "an ok run of the
+same source started earlier", which is the same set. Since the fix round it is an `EXISTS` correlated on the
+event's run (a primary-key lookup, then one probe of `ix_source_run_source_started`), so its cost follows the
+events a list reads, not the size of `source_run`, which the 15-minute price sources grow by about 100,000 runs a
+year; the first round's `IN` over every counted run read the whole table on every call (§26.5). It is not imported from
+`services.trends` because the recorder imports `services.api` and the events filter layer imports this module,
+so the import would cycle. Instead `services/api/test_change_rule.py` holds it to the recorder itself: for each
+of seven UTC days of a store with one of every case (a first run, a backfill-labelled first run, a later
+scheduled run, a backfill-labelled later run, a released hold, an event no run wrote, a non-public removal), the
+events `genuine=true` lists are the events `snapshot.window_events` counts and `genuine=false` the ones it leaves
+out, and the rule's name must equal `snapshot.ACTIVITY_RULE`. The pulse imports the recorder's tally for its
+figures and nothing else. The recorder could call the clause instead of its own query (it already imports
+`services.api`), leaving one statement of the rule; that file is the trends lane's.
+
+**Limits** (also in the operation's description; docs/24-trends.md §6's apply unchanged):
+
+1. The date is the fetch that saw the change (`observed_at`), not the register's own action date: a weekly
+   register shows its week on its poll day, a register that was down shows the gap the day it recovers.
+2. A connector change that widens a source's scope by less than the 30 % row-drift hold reads as new rows.
+3. A run released from a hold is left out whole, genuine changes in it too.
+4. A backfill-labelled run that is not the source's first counts: the label changes nothing fetched
+   (`genuine-change-v2`, decision row of 2026-10-23).
+5. A `created` event means new to that source, not new to the world: a project already known from EIA-860M that
+   a queue lists for the first time is a new filing at that queue.
+6. Countries are read from the stored jurisdiction, as `country=` reads it. An item's `record` is served, so its
+   `country` differs from the one its event was counted under only for a record whose stored jurisdiction came
+   from a source the tier may not read; `served_not_stored` counts those events (none on the normal store). A
+   list query re-run after a later load that commits events with earlier fetch times can count more than the
+   figure did.
+7. `subjects` counts distinct records within the response's window only.
+8. `relevance=energy` is judged in Python over each notice's stored fields; the ids of the energy notices are
+   bound as parameters only up to 2,000 and written into the statement as UUID literals beyond that
+   (`opportunity_relevance.ids_in`, used by the opportunity list too), so neither list can pass SQLite's or
+   psycopg's bind-parameter limit as notices accumulate.
+
+### 26.5 Measured
+
+Measured 2026-10-23 in process (FastAPI `TestClient`, SQLite) on copies of the stores, 30 calls per row
+after one warm-up, p50 / p95 in ms. The machine (4 cores) was shared with five other lanes; load average 1 to 11
+during the runs, so treat differences under 15 ms as noise unless the A/B rows say otherwise.
+
+| Store | Call | p50 | p95 |
+|---|---|---|---|
+| `web/.data/dev.db` (775 proposals, no notices, one event, no runs) | `GET /v1/proposals?country=US&<active>&listed=true&limit=1&include=count` | 23.4 | 29.0 |
+| | `GET /v1/proposals/geo` national z4, `country=US`, cold | 30.4 | 40.4 |
+| | `GET /v1/opportunities?status=open&relevance=energy&country=US&limit=1&include=count` | 9.1 | 12.0 |
+| | `GET /v1/events?country=US&genuine=true&include=count` | 10.8 | 13.5 |
+| | `GET /v1/stats/capacity?country=US` | 26.8 | 35.5 |
+| | `GET /v1/stats/capacity?country=US&lifecycle_state=<active>` (the unlisted rule) | 24.6 | 31.1 |
+| | `GET /v1/stats/capacity` | 24.9 | 34.3 |
+| | `GET /v1/pulse` / `?country=US` / `?days=90` | 10.3 / 10.6 / 10.6 | 11.8 / 12.1 / 15.1 |
+| the same plus 5,000 events from 91 daily runs over 90 days and 1,500 open notices with a `created` event each (synthetic) | `GET /v1/pulse` / `?country=US` / `?days=90` | 54.9 / 57.9 / 182.6 | 68.6 / 67.4 / 212.3 |
+| | `GET /v1/events?country=US&genuine=true&include=count` | 55.8 | 68.1 |
+| `web/.data/e2e-test.db` (9,563 proposals) plus the same synthetic events and notices | `GET /v1/stats/capacity?country=US` / `&lifecycle_state=<active>` / no filter | 202.4 / 103.2 / 196.1 | 258.7 / 144.4 / 216.5 |
+| | `GET /v1/pulse` / `?country=US` / `?days=90` | 55.1 / 73.5 / 203.4 | 62.5 / 85.0 / 217.3 |
+| | `GET /v1/proposals/geo` national z4, `country=US`, cold | 136.7 | 170.4 |
+
+**The map's cost of the split (B-4), base against this lane**, alternating processes on one copy of the
+9,563-proposal store, 40 calls each (cold: the whole-set cache cleared, a filter change; warm: a pan):
+
+| View | Cold, base → lane | Warm, base → lane |
+|---|---|---|
+| national z4, active and listed | 125.6 / 150.8 → 136.4 / 157.0 | 28.5 / 35.0 → 38.6 / 58.0 |
+| national z3, every state | 215.1 / 262.4 → 231.2 / 284.3 | 41.6 / 57.6 → 54.1 / 77.2 |
+| Texas z6 | 107.3 / 142.3 → 108.0 / 133.8 | 16.7 / 20.8 → 18.9 / 26.3 |
+
+The cost is the payload: that store places every record at county grade, so its national answer is 922 region
+features, and the three new properties take it from 298,078 to 436,616 bytes (36,025 to 53,543 gzipped). Every
+row stays inside D-13 (400 ms p95, 300 KB gzipped). The split itself is one dict update per placed record, folded
+per group at the end (an earlier per-record version cost the same within noise, so the bytes dominate).
+`tests/test_api_geo_performance_full_store.py`'s regression ratios pass run serially, as CI's perf job runs them
+(three runs); run under `pytest -n 3` beside the other lanes, two of its ratio checks failed on contention (5.2x
+and 8.0x against limits of 5.0x and 6.1x); they are latency tests, deselected from the parallel run in CI.
+
+The pulse's 90-day window is mostly the events list's own predicate (the subject's visibility, per event):
+`GET /v1/events?include=count` over the same 6,500 events, with none of this lane's filters, took 116 to 123 ms p50. No cache is
+added: the figures move with every load, and the front page asks for the 7-day window.
+
+**Fix round (2026-10-24): the genuine rule no longer reads the whole run table.** The review measured the first
+round's rule growing with `source_run`. Both stores below were grown to the review's shape: 72,000 ok runs (25
+sources, hourly, 120 days) and 8,000 events (6,500 proposal changes, 1,500 open notices with a `created` event
+each). The first round's code and this one alternated in fresh processes on one copy of each store, with the
+median over the rounds of each round's p50 / p95, in ms. Load average was 4 to 12 on 4 cores (other lanes), so
+treat differences under about 15 % as noise. SQLite's plan for the new form is a primary-key search on the
+event's run, then `SEARCH genuine_earlier USING INDEX ix_source_run_source_started (source_id=? AND started_at<?)`.
+
+| Store | Call | First round | Fix round |
+|---|---|---|---|
+| `dev.db` + runs and events (3 rounds x 20) | `GET /v1/events?genuine=true&include=count` | 444.7 / 545.2 | 102.1 / 145.5 |
+| | `GET /v1/events?genuine=true&country=US&include=count` | 482.4 / 636.9 | 103.9 / 122.6 |
+| | `GET /v1/events?genuine=false&include=count` | 543.6 / 789.2 | 158.8 / 205.8 |
+| | `GET /v1/pulse` / `?country=US` / `?days=90` | 267.7 / 342.5, 263.8 / 389.9, 451.0 / 606.4 | 62.0 / 94.4, 58.9 / 86.6, 232.3 / 298.5 |
+| | `GET /v1/events?include=count` (unchanged path, for scale) | 61.9 / 89.4 | 64.1 / 81.7 |
+| | `GET /v1/stats/capacity?country=US` / `&lifecycle_state=<active>` / no filter | 35.3 / 69.1, 31.3 / 68.7, 42.1 / 54.6 | 41.5 / 74.7, 30.9 / 50.9, 34.4 / 60.3 |
+| | `GET /v1/proposals/geo` national z4 `country=US`, cold / warm | 36.4 / 64.7, 11.8 / 19.7 | 35.2 / 55.8, 12.6 / 20.8 |
+| `e2e-test.db` (9,563 proposals) + the same (2 rounds x 15) | `GET /v1/events?genuine=true&include=count` | 691.7 / 730.9 | 248.9 / 376.4 |
+| | `GET /v1/pulse` / `?country=US` / `?days=90` | 282.8 / 392.5, 386.0 / 493.6, 602.1 / 720.4 | 65.9 / 105.3, 82.4 / 120.3, 272.0 / 350.2 |
+| | `GET /v1/events?relevance=energy&include=count` | 93.4 / 126.0 | 77.8 / 110.3 |
+| | `GET /v1/proposals/geo` national z4 `country=US`, cold / warm | 168.6 / 285.1, 46.6 / 137.4 | 191.6 / 325.0, 45.2 / 73.5 |
+| the same, capacity only (5 rounds x 15) | `GET /v1/stats/capacity?country=US` / `&lifecycle_state=<active>` / no filter | 212.6 / 247.0, 100.3 / 118.1, 213.5 / 235.5 | 222.4 / 287.9, 105.7 / 127.3, 224.1 / 251.1 |
+
+The capacity fix (records no register lists, §26.2) reads the same rows as before and costs nothing measurable:
+the five-round capacity rows differ by about 5 %. The 90-day pulse's remaining cost is the events list's own
+visibility predicate over the window's 6,000 events, as before. On the plain `web/.data/dev.db` (775 proposals, no
+notices, one event, no runs: it exercises the rule on nothing), 30 calls each: capacity 28.3 / 34.1 (`country=US`),
+21.6 / 34.5 (active), 25.8 / 30.4 (no filter); pulse 10.9 / 16.1, 10.3 / 12.5 (US), 10.5 / 14.4 (90 days);
+`genuine=true` count 9.3 / 12.3; geo national z4 `country=US` 28.3 / 40.8 cold, 12.2 / 20.7 warm.
+
+### 26.6 Assumptions and open items
+
+- **A-22-35:** a jurisdiction whose part before the first `-` is two ASCII letters names an ISO 3166-1 alpha-2
+  country (or `EU`); every connector writes jurisdictions that way today (§26.1).
+- **A-22-36:** an event a non-first source run wrote as `created` is a record the source newly listed, unless
+  limit 2 applies.
+- **A-22-37:** a notice is newly open when an event moved it to `open` or first listed it open; its energy verdict
+  is read at request time on its stored fields, as the opportunity list reads it.
+- Open, outside this lane's files: the web passthrough and its pin take `country` (web lane); `docs/23` §3.1 gains
+  rows for the two operations; `services/trends/snapshot.py::BUCKET_FILTERS["by_country"]` can name `country` for
+  its `US` and `GB` buckets (`other` stays unfiltered); `infra/importlinter.ini`'s `private-projects-isolated`
+  can list `services.api.front`, `country` and `change_rule` among the public read paths.

@@ -10,8 +10,11 @@ The verdict is a pure function of text and codes, not a SQL expression, so it is
 clause over ids: the notices that pass every other filter are read (five columns each), judged,
 and the statement is narrowed to the relevant ids. Paging and `include=count` then work as for any
 other filter. Verdicts are cached on the fields they read, so a repeat request judges nothing anew.
-At 1,349 notices (the 2026-10-20 store) the read is a few milliseconds; the id list is bound as
-one expanding parameter, inside SQLite's and psycopg's limits up to tens of thousands of notices.
+At 1,349 notices (the 2026-10-20 store) the read is a few milliseconds. Up to `BOUND_IDS_MAX` ids
+are bound as one expanding parameter; beyond that they are written into the statement as UUID
+literals (`ids_in`), so no number of notices can pass a driver's bind-parameter limit (SQLite's
+compiled one, 32,766 by default; psycopg's 65,535) (review of lane front-api, 2026-10-23; the events
+list's `relevance=energy` uses the same helper).
 
 A view filter like `services/api/records.py::PROPOSAL_VIEW_FILTERS`: the alert matcher does not
 evaluate it, so a saved search may not carry it (`OPPORTUNITY_FILTERS` does not list it).
@@ -20,6 +23,8 @@ evaluate it, so a saved search may not carry it (`OPPORTUNITY_FILTERS` does not 
 from __future__ import annotations
 
 import functools
+import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import sqlalchemy as sa
@@ -66,6 +71,23 @@ def is_relevant_row(title: str | None, summary: str | None, technologies: Any, i
     return _relevant(title, summary, techs, codes)
 
 
+#: The most ids `ids_in` binds as parameters (module docstring).
+BOUND_IDS_MAX = 2_000
+
+
+def ids_in(column: Any, ids: Sequence[Any]) -> ColumnElement[bool]:
+    """`column IN (ids)` for a `GUID` column. Up to `BOUND_IDS_MAX` ids are one expanding parameter;
+    more are written as literals, each parsed as a UUID first, so a literal can only ever be a
+    hyphenated UUID: the text `GUID` stores on SQLite and a value Postgres casts to `uuid`. (SQLAlchemy's
+    own literal rendering writes a `GUID` value without hyphens on SQLite, which matches nothing.)"""
+    if len(ids) <= BOUND_IDS_MAX:
+        clause: ColumnElement[bool] = column.in_(list(ids))
+        return clause
+    literals: list[ColumnElement[Any]] = [sa.literal_column(f"'{uuid.UUID(str(value))}'") for value in ids]
+    clause = column.in_(literals)
+    return clause
+
+
 def energy_relevant_clause(db: Session, stmt: sa.Select[Any]) -> ColumnElement[bool]:
     """`Opportunity.id IN (...)` over the notices `stmt` selects that are energy-relevant."""
     candidates = stmt.with_only_columns(
@@ -80,14 +102,16 @@ def energy_relevant_clause(db: Session, stmt: sa.Select[Any]) -> ColumnElement[b
         for row in db.execute(candidates).all()
         if is_relevant_row(row.title, row.summary, row.technologies, row.identifiers)
     ]
-    return Opportunity.id.in_(ids)
+    return ids_in(Opportunity.id, ids)
 
 
 __all__ = [
+    "BOUND_IDS_MAX",
     "OPPORTUNITY_VIEW_FILTERS",
     "RELEVANCE_PARAM",
     "RELEVANCE_VALUES",
     "energy_relevant_clause",
+    "ids_in",
     "is_relevant_row",
     "relevance_param",
 ]

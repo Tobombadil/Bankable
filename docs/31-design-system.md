@@ -821,7 +821,11 @@ feature of the API's geo answer carries one capacity sum and counts by state and
 capacity cannot be split exactly (at the finest grid 612 of the dev store's 2,229 sited projects still share
 a cell with another technology; hybrid sites list a record per technology at one point). Splitting it needs
 `capacity_mw_by_lifecycle_state` and `capacity_mw_by_technology` on those features (`services/api/geo.py`,
-a backend change); the overview can then show both with no request of its own.
+a backend change); the overview can then show both with no request of its own. **API side built 2026-10-23
+(lane front-api, docs/30 §11.11 B-4; docs/22 §26.3):** every cluster and region feature carries both, generating
+and storage MW only (a data centre's MW is `demand_mw_sum`, apart; a line's is in neither), each part to the
+column's 0.001 MW; `capacity_mw_sum` keeps its meaning (every stated MW). A whole view's figures, with the list
+each one is the total of, are `GET /v1/stats/capacity`. Showing them in the panel is V2's.
 **In view: the list.** The side list's own code, kept: projects first (one row per project, not per
 generator unit), then regions, existing assets and retired plants as labelled groups, 25 rows per group then
 "Show N more"; each row's status chip (or kind) and Details on its first line, the name under them, the
@@ -882,7 +886,8 @@ by the skip link, which opens the panel's "In view" tab), SC 1.4.3 (measured as 
 - The busiest-areas list reserves five 32px rows, so nothing moves when it arrives.
 - The panel's title is an `h2`, so headings keep their order (axe heading-order clean at 1440 and 390).
 - GW per status and per technology needs `capacity_mw_by_lifecycle_state` and `capacity_mw_by_technology` on the
-  geo features; until then the overview gives counts for those and GW only for the whole view and each area.
+  geo features; until then the overview gives counts for those and GW only for the whole view and each area. The
+  API serves both since 2026-10-23 (§5.19 above); the overview's use of them is V2's.
 
 ## 6. Empty, loading and error states — cross-component rule
 

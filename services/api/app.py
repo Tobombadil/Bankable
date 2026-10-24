@@ -323,6 +323,12 @@ app.include_router(exports_router)
 app.include_router(bulk_router)
 app.include_router(documents_router)
 
+# The front page's figures (lane front-api, 2026-10-23): capacity by technology and lifecycle state,
+# and the pulse of genuine changes, each figure with the list query it is the total of.
+from services.api.front import router as front_router  # noqa: E402
+
+app.include_router(front_router)
+
 # "My pipeline" (docs/19 §6.1; ADR 0009): the private projects under `/v1/my/`, session only, every
 # read and write through `services.projects.authz`. The only router that may import the private
 # package (`infra/importlinter.ini`, `private-projects-*`).
