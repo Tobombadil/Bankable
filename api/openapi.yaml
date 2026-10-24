@@ -93,6 +93,10 @@ tags:
     description: Clustered GeoJSON for the map-first surface (docs/04 §2.2). Same filters and tier rules as the lists.
   - name: Prices
     description: Energy prices (docs/29) — hub and zone statistics, the latest price where the source's terms allow raw rows, and EIA's state retail averages. Context data with no lifecycle; every value carries its provenance and credit.
+  - name: Global
+    description: Global electricity figures (docs/26-global-figures.md) — Ember's operating capacity, generation and shares for World, regions and countries. Operating figures, never a pipeline; context data with no lifecycle; Ember credited in every response.
+  - name: Trends
+    description: Activity over time (docs/24-trends.md) — monthly series from EIA-860M's and ERCOT's official archives and the daily record of the platform's public figures. One source per series; changes only like for like.
   - name: Interconnection points
     description: Where proposals connect to the grid, as each register names it (docs/21 §3.24), with the queue behind each point. Totals are computed per request over the proposals the caller's tier may see.
   - name: Sites
@@ -2655,6 +2659,157 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RetailPriceListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        <<: *common_errors
+
+  # ───────────────────────── Global electricity figures (docs/26-global-figures.md; owner, 2026-10-23) ─────────────────────────
+  /v1/global/electricity:
+    get:
+      operationId: getGlobalElectricity
+      tags: [Global]
+      summary: Operating capacity and generation by source for World, a region or a country (Ember)
+      description: |
+        Ember's electricity data (CC BY 4.0) for one area: the latest year's **operating** capacity (GW) and
+        generation (TWh) by source, each with its change on the year before; the clean share (solar, wind, hydro,
+        nuclear, bioenergy and other renewables, as a share of generation) and its change; the yearly series since
+        2000 or the window `years` names; the latest month of Ember's monthly data where it has one; and the ten
+        countries that added the most solar plus wind capacity in the latest complete capacity year.
+
+        **These are operating figures, not a pipeline.** Field names say so (`operating_capacity_gw`,
+        `generation_twh`, `measure: operating`). For `area=US`, `us_pipeline` links by URL to Inframation's own
+        count of active proposed US projects (`GET /v1/stats/capacity` with `lifecycle_state` announced through
+        under construction and `listed=true`), labelled `measure: pipeline`: a different measure, never to be
+        added to or set beside these as one.
+
+        **Coverage.** Ember's latest yearly data covers fewer countries than earlier years until national
+        statistics report, and Ember estimates World and regional figures for that year. `latest_complete_year` is
+        the newest year whose countries are at least 90% of the year before's; `latest_year_estimated` is true for
+        World or a region whose latest year is newer than that, and every block and series row of such a year
+        carries `estimated: true`. `coverage` lists countries per year.
+
+        **Changes.** A total's or a share's change compares two years only when both carry the same generation
+        types; otherwise it is null and `sources_differ` names the types present in one year only. Capacity
+        added (`added_gw`, `change_gw`) is a net change: retirements subtract. Solar capacity is AC or DC as each
+        country reports it.
+
+        Gated by the visibility predicate: before the first load, or when the source is not on the caller's surface,
+        `data.loaded` is `false` and no figure is served. Ember is credited in every response (`notes.credits`, in
+        Ember's own citation form, with the licence URL and the statement of changes). An unknown area is `404`.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-104, US-105]
+      security: *sec_public
+      parameters:
+        - name: area
+          in: query
+          description: >-
+            `World` (default), an ISO 3166-1 alpha-2 country code (alpha-3 is read too), or a region's name or slug
+            as Ember names it (`Europe`, `EU`, `G20`, `latin-america-and-caribbean`); any case.
+          schema:
+            type: string
+            examples: [World, US, DE, Europe]
+        - name: years
+          in: query
+          description: >-
+            The series window, both ends included (`YYYY`, `YYYY-YYYY`, `YYYY-` or `-YYYY`). The headline figures
+            always read the latest year.
+          schema:
+            type: string
+            pattern: '^(\d{4})?-?(\d{4})?$'
+            examples: ['2015-', '2010-2025']
+      responses:
+        '200':
+          description: The area's figures inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlobalElectricityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        <<: *common_errors
+
+  # ───────────────────────── Activity over time (owner, 2026-10-23; docs/24-trends.md §10) ─────────────────────────
+  /v1/trends:
+    get:
+      operationId: getTrends
+      tags: [Trends]
+      summary: Named series over time — official monthly archives and the daily record of the public figures
+      description: |
+        Without `metric`: the catalogue, every series the caller may read, each with its source, licence, method,
+        frequency (`monthly` or `daily`) and first and last dates. With `metric`: that series, one line (`key:
+        total`), or one line per key of a breakdown (`by`), bounded by `from` and `to` (inclusive; `YYYY-MM` or
+        `YYYY-MM-DD`, read at the series' grain).
+
+        Monthly series come from the official archives: EIA-860M's monthly generator inventory since July 2015
+        (`us_operating_capacity_mw`, `us_planned_capacity_mw`, `us_retired_capacity_mw`, ...; net summer MW, the
+        50 states and DC) and ERCOT's monthly GIS reports since December 2018 (`ercot_queue_mw`,
+        `ercot_queue_projects`). Daily series are the platform's own record of its public figures, from
+        2026-10-23 (`inframation_active_projects`, `inframation_changes`, ...). Series from different sources are
+        never joined into one line; a chart sets them side by side.
+
+        Like for like: every point carries its `basis` (what was counted and how; for a daily series also which
+        sources contributed and how many were withheld, so a register going live is a break, not growth). `mom`
+        and `yoy` compare a point with the point one month and twelve months before (a daily series: the same
+        day of the month), only when both exist, both have a value, both have the same basis and, for a monthly
+        series, one parser read both months; otherwise `null`. A line by a year a stock waits for (expected
+        year, planned retirement year, projected COD year) computes no change from the start of that year. A
+        change of basis or parser between consecutive points is listed under the line's `breaks`. A month or
+        day with no document has no point. A month held by its data-quality checks is left out and listed
+        under `withheld`; a served month's newer reading that its checks hold is listed under `held_readings`.
+
+        Attribution: the licence summary lists every source a response read, one row per month or day it
+        contributed to (`record_count`), each with its own credit; a daily series lists every source behind
+        the counts of the days served.
+
+        A monthly series is served only while its source is on the caller's surface and its licence publishable
+        under the platform posture; under the `commercial` posture, daily documents computed under
+        `noncommercial` are not read.
+      x-tier: public
+      x-status: live
+      x-sprint: 4
+      x-prd-stories: [US-703, US-105]
+      security: *sec_public
+      parameters:
+        - name: metric
+          in: query
+          description: A series name from the catalogue. Omit for the catalogue.
+          schema:
+            type: string
+            pattern: '^[a-z][a-z0-9_]*$'
+            examples: [us_planned_capacity_mw, ercot_queue_mw]
+        - name: by
+          in: query
+          description: >-
+            One of the series' `dimensions` (`technology`, `state`, `status`, `expected_year`, `zone`, ...). Needs
+            `metric`.
+          schema:
+            type: string
+            pattern: '^[a-z_]+$'
+        - name: from
+          in: query
+          description: First period, inclusive (`YYYY-MM` or `YYYY-MM-DD`). Needs `metric`.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}(-\d{2})?$'
+        - name: to
+          in: query
+          description: Last period, inclusive (`YYYY-MM` or `YYYY-MM-DD`). Needs `metric`.
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}(-\d{2})?$'
+      responses:
+        '200':
+          description: The catalogue, or one series, inside the attribution envelope.
+          headers: *std_headers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         <<: *common_errors
@@ -17050,6 +17205,549 @@ components:
                 released:
                   type: [string, 'null']
                 note:
+                  type: string
+    GlobalElectricityResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [data, notes]
+          properties:
+            data:
+              $ref: '#/components/schemas/GlobalElectricity'
+            notes:
+              $ref: '#/components/schemas/GlobalElectricityNotes'
+    GlobalElectricity:
+      type: object
+      description: >-
+        One area's operating figures from Ember. `loaded: false` (before the first load, or with the source off the
+        caller's surface) carries `reason` and no figure.
+      required: [loaded, measure, measure_note]
+      additionalProperties: false
+      properties:
+        loaded: {type: boolean}
+        reason: {type: string}
+        measure:
+          type: string
+          enum: [operating]
+          description: What every figure here is. Never `pipeline`.
+        measure_note: {type: string}
+        area:
+          $ref: '#/components/schemas/GlobalArea'
+        latest_year: {type: [integer, 'null'], description: The area's newest year with a generation value.}
+        latest_complete_year:
+          type: [integer, 'null']
+          description: The newest year whose countries with a generation value are at least 90% of the year before's.
+        latest_year_estimated:
+          type: boolean
+          description: World or a region whose latest year is newer than the latest complete year (Ember estimates it).
+        coverage:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalCoverage'
+            - type: 'null'
+        generation:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalGeneration'
+            - type: 'null'
+        clean_share:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalCleanShare'
+            - type: 'null'
+        operating_capacity:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalOperatingCapacity'
+            - type: 'null'
+        operating_capacity_withheld_reason: {type: [string, 'null']}
+        latest_month:
+          type: [object, 'null']
+          properties:
+            generation:
+              type: object
+              required: [month, unit, by_source, provenance]
+              properties:
+                month: {type: string, pattern: '^\d{4}-\d{2}$'}
+                unit: {type: string, enum: [TWh]}
+                total_twh: {type: [number, 'null']}
+                by_source:
+                  type: array
+                  items:
+                    type: object
+                    required: [source, label, generation_twh, same_month_last_year_twh, change_pct]
+                    properties:
+                      source: {$ref: '#/components/schemas/GlobalElectricitySource'}
+                      label: {type: string}
+                      generation_twh: {type: [number, 'null']}
+                      same_month_last_year_twh: {type: [number, 'null']}
+                      change_pct: {type: [number, 'null']}
+                clean_share_pct: {type: [number, 'null']}
+                clean_share_change_pp: {type: [number, 'null']}
+                sources_differ:
+                  type: array
+                  description: Generation types present in only one of the two months; the clean share's change is null when any is.
+                  items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+                provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+            wind_solar_capacity:
+              type: object
+              required: [month, unit, by_source, provenance]
+              properties:
+                month: {type: string, pattern: '^\d{4}-\d{2}$'}
+                unit: {type: string, enum: [GW]}
+                by_source:
+                  type: array
+                  items:
+                    type: object
+                    required: [source, label, operating_capacity_gw, same_month_last_year_gw, added_gw]
+                    properties:
+                      source: {type: string, enum: [solar, wind]}
+                      label: {type: string}
+                      operating_capacity_gw: {type: [number, 'null']}
+                      same_month_last_year_gw: {type: [number, 'null']}
+                      added_gw:
+                        type: [number, 'null']
+                        description: Net change on the same month a year earlier (retirements subtract). Solar is AC or DC as the country reports it.
+                note: {type: string}
+                provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+        series:
+          type: array
+          items:
+            type: object
+            required: [year, estimated, generation_twh, total_generation_twh, clean_share_pct, operating_capacity_gw, total_operating_capacity_gw]
+            properties:
+              year: {type: integer}
+              estimated:
+                type: boolean
+                description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+              generation_twh: {type: [object, 'null'], additionalProperties: {type: [number, 'null']}}
+              total_generation_twh: {type: [number, 'null']}
+              clean_share_pct: {type: [number, 'null']}
+              operating_capacity_gw: {type: [object, 'null'], additionalProperties: {type: [number, 'null']}}
+              total_operating_capacity_gw: {type: [number, 'null']}
+        series_window:
+          type: object
+          properties:
+            first_year: {type: [integer, 'null']}
+            last_year: {type: [integer, 'null']}
+        top_wind_solar_additions:
+          oneOf:
+            - $ref: '#/components/schemas/GlobalWindSolarAdditions'
+            - type: 'null'
+        us_pipeline:
+          description: >-
+            For `area=US` only. A link to Inframation's own US pipeline figure, a different measure: the active
+            pipeline (lifecycle states announced through under construction, records a register still lists), so
+            no built or withdrawn record is inside it.
+          oneOf:
+            - type: object
+              required: [measure, path, url, list_query, note]
+              properties:
+                measure: {type: string, enum: [pipeline]}
+                path: {type: string}
+                url: {type: string, format: uri}
+                list_query:
+                  type: object
+                  required: [path, query]
+                  properties:
+                    path: {type: string}
+                    query:
+                      type: object
+                      additionalProperties: {type: string}
+                note: {type: string}
+            - type: 'null'
+    GlobalArea:
+      type: object
+      required: [id, name, kind, iso3]
+      properties:
+        id: {type: string, description: '`world`, a region slug, or an ISO 3166-1 alpha-2 code.'}
+        name: {type: string}
+        kind: {type: string, enum: [world, region, country]}
+        iso3: {type: [string, 'null']}
+    GlobalElectricitySource:
+      type: string
+      description: Ember's nine generation types (its global data has no storage series).
+      enum: [solar, wind, hydro, nuclear, gas, coal, other_renewables, bioenergy, other_fossil]
+    GlobalProvenance:
+      type: object
+      description: Where one block's values came from. `route` is `api` (Ember's API) or `file` (a person's download of Ember's CSV).
+      required: [dataset, route, source_id, source_url, retrieved_at, licence_id, citation, dataset_url]
+      properties:
+        dataset: {type: string, enum: [yearly, monthly, monthly_capacity]}
+        route: {type: string, enum: [api, file]}
+        source_id: {$ref: '#/components/schemas/SourceIdValue'}
+        source_url: {type: string}
+        retrieved_at: {type: string, format: date-time}
+        licence_id: {$ref: '#/components/schemas/LicenceIdValue'}
+        citation: {type: string, description: "Ember's citation form for the dataset."}
+        dataset_url: {type: string, format: uri}
+    GlobalCoverage:
+      type: object
+      required: [latest_year, latest_complete_year, countries_latest_year, countries_by_year, rule, note]
+      properties:
+        latest_year: {type: integer}
+        latest_complete_year: {type: [integer, 'null']}
+        countries_latest_year: {type: integer}
+        countries_latest_complete_year: {type: [integer, 'null']}
+        countries_by_year:
+          type: array
+          items:
+            type: object
+            required: [year, countries]
+            properties:
+              year: {type: integer}
+              countries: {type: integer}
+        rule: {type: string}
+        note: {type: string}
+    GlobalGeneration:
+      type: object
+      required: [year, previous_year, estimated, unit, total_twh, sources_differ, by_source, provenance]
+      properties:
+        year: {type: integer}
+        previous_year: {type: [integer, 'null']}
+        estimated:
+          type: boolean
+          description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+        unit: {type: string, enum: [TWh]}
+        total_twh: {type: [number, 'null']}
+        total_change_twh: {type: [number, 'null'], description: Null when `sources_differ` is not empty.}
+        total_change_pct: {type: [number, 'null']}
+        sources_differ:
+          type: array
+          description: Generation types present in only one of the two years; the total's and the shares' changes are null when any is.
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        by_source:
+          type: array
+          items:
+            type: object
+            required: [source, label, generation_twh, previous_twh, change_twh, change_pct, share_pct, share_change_pp]
+            additionalProperties: false
+            properties:
+              source: {$ref: '#/components/schemas/GlobalElectricitySource'}
+              label: {type: string}
+              generation_twh: {type: [number, 'null']}
+              previous_twh: {type: [number, 'null']}
+              change_twh: {type: [number, 'null']}
+              change_pct: {type: [number, 'null']}
+              share_pct: {type: [number, 'null']}
+              share_change_pp: {type: [number, 'null']}
+        provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+    GlobalCleanShare:
+      type: object
+      required: [year, estimated, pct, previous_year, previous_pct, change_pp, sources_differ, definition, basis]
+      properties:
+        year: {type: integer}
+        estimated:
+          type: boolean
+          description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+        pct: {type: [number, 'null']}
+        previous_year: {type: [integer, 'null']}
+        previous_pct: {type: [number, 'null']}
+        change_pp: {type: [number, 'null'], description: Change in percentage points; null when `sources_differ` is not empty.}
+        sources_differ:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        definition:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        basis: {type: string}
+    GlobalOperatingCapacity:
+      type: object
+      required: [year, previous_year, estimated, unit, total_gw, sources_differ, by_source, provenance]
+      properties:
+        year: {type: integer}
+        previous_year: {type: [integer, 'null']}
+        estimated:
+          type: boolean
+          description: World or a region in a year after `latest_complete_year`, which Ember estimates.
+        unit: {type: string, enum: [GW]}
+        total_gw: {type: [number, 'null']}
+        total_change_gw: {type: [number, 'null'], description: 'Net change (retirements subtract); null when `sources_differ` is not empty.'}
+        total_change_pct: {type: [number, 'null']}
+        sources_differ:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        by_source:
+          type: array
+          items:
+            type: object
+            required: [source, label, operating_capacity_gw, previous_gw, change_gw, change_pct]
+            additionalProperties: false
+            properties:
+              source: {$ref: '#/components/schemas/GlobalElectricitySource'}
+              label: {type: string}
+              operating_capacity_gw: {type: [number, 'null']}
+              previous_gw: {type: [number, 'null']}
+              change_gw: {type: [number, 'null'], description: Net change on the year before (retirements subtract).}
+              change_pct: {type: [number, 'null']}
+        provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+    GlobalWindSolarAdditions:
+      type: object
+      required: [year, latest_capacity_year, basis, unit, countries, countries_compared, note, provenance]
+      properties:
+        year: {type: integer, description: The ranking year (the latest complete capacity year).}
+        latest_capacity_year: {type: integer}
+        basis:
+          type: string
+          enum: [yearly, monthly_december]
+          description: '`yearly` from Ember''s yearly capacity; `monthly_december` from its monthly wind and solar capacity, December against December, which covers fewer countries.'
+        unit: {type: string, enum: [GW]}
+        countries:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [rank, area, added_gw, solar_added_gw, wind_added_gw, operating_wind_solar_gw]
+            properties:
+              rank: {type: integer, minimum: 1}
+              area: {$ref: '#/components/schemas/GlobalArea'}
+              added_gw:
+                type: [number, 'null']
+                description: >-
+                  Net solar plus wind capacity added in the year (end of year against end of the year before, so
+                  retirements subtract). Solar is AC or DC as each country reports it, so two countries' solar
+                  figures need not share a basis.
+              solar_added_gw: {type: [number, 'null'], description: Net; AC or DC as the country reports it.}
+              wind_added_gw: {type: [number, 'null'], description: Net.}
+              operating_wind_solar_gw: {type: [number, 'null']}
+        countries_compared: {type: integer}
+        countries_incomplete: {type: integer}
+        countries_with_capacity_latest_year: {type: integer}
+        countries_with_capacity_previous_year: {type: [integer, 'null']}
+        note: {type: string}
+        provenance: {$ref: '#/components/schemas/GlobalProvenance'}
+    GlobalElectricityNotes:
+      type: object
+      required: [credit, credits]
+      properties:
+        credit: {type: [string, 'null'], description: The manifest credit line with the statement of changes.}
+        credits:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [text, dataset, dataset_url, licence, licence_url, changes, source_id]
+            properties:
+              text: {type: string, description: "Ember's citation form, e.g. 'Yearly electricity data, Ember'."}
+              dataset: {type: string}
+              dataset_url: {type: string, format: uri}
+              licence: {type: string}
+              licence_url: {type: string, format: uri}
+              changes: {type: string}
+              source_id: {$ref: '#/components/schemas/SourceIdValue'}
+        about: {type: string, format: uri}
+        clean_sources:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        sources:
+          type: array
+          items: {$ref: '#/components/schemas/GlobalElectricitySource'}
+        storage: {type: string}
+    TrendSource:
+      type: object
+      description: The one source a series is read from, its licence and the credit to show with it.
+      required: [source_id, name, licence, credit]
+      properties:
+        source_id:
+          type: string
+        name:
+          type: [string, 'null']
+        operator:
+          type: [string, 'null']
+        url:
+          type: [string, 'null']
+        licence:
+          type: [object, 'null']
+        credit:
+          type: [string, 'null']
+    TrendSeriesSummary:
+      type: object
+      required: [metric, label, unit, frequency, source, method, dimensions, first, last, points]
+      properties:
+        metric:
+          type: string
+        label:
+          type: string
+        unit:
+          type: string
+        frequency:
+          type: string
+          enum: [monthly, daily]
+        source:
+          $ref: '#/components/schemas/TrendSource'
+        method:
+          type: string
+        dimensions:
+          type: array
+          items:
+            type: string
+        first:
+          type: [string, 'null']
+        last:
+          type: [string, 'null']
+        points:
+          type: integer
+          minimum: 0
+    TrendChange:
+      type: [object, 'null']
+      description: A like-for-like change against the point `from`; null when that point is absent, has no value or another basis.
+      required: [from, value, change, pct]
+      properties:
+        from:
+          type: string
+        value:
+          type: number
+        change:
+          type: number
+        pct:
+          type: [number, 'null']
+    TrendPoint:
+      type: object
+      required: [period, value, basis, mom, yoy]
+      properties:
+        period:
+          type: string
+          pattern: '^\d{4}-\d{2}(-\d{2})?$'
+        value:
+          type: [number, 'null']
+        basis:
+          type: string
+          description: What was counted and how; changes are computed only between points with the same basis.
+        mom:
+          $ref: '#/components/schemas/TrendChange'
+        yoy:
+          $ref: '#/components/schemas/TrendChange'
+        dq_warnings:
+          type: array
+          description: >-
+            Monthly series, present only when the month's data-quality checks warned on this figure's block
+            or on the whole month (`cumulative_shrank`, `cumulative_restated`, `code_vocabulary`, ...): the
+            month is served, and its change may reflect the publisher's restatement rather than the world.
+          items:
+            type: string
+        source_url:
+          type: [string, 'null']
+          description: Monthly series — the publisher's own file for that month.
+        retrieved_at:
+          type: [string, 'null']
+        document:
+          type: [string, 'null']
+          description: Daily series — the day's document (`as_of`).
+        query:
+          type: [string, 'null']
+          description: Daily series — the public list query whose total the figure was that day.
+    TrendLine:
+      type: object
+      required: [key, breaks, points]
+      properties:
+        key:
+          type: string
+          description: '`total`, or a key of the breakdown (`solar`, `US-TX`, `2027`, ...; `_unstated` where the source leaves it blank).'
+        breaks:
+          type: array
+          description: >-
+            Every change of what is compared between consecutive points: the basis; for a monthly series
+            the parser that read the month (`parser_before`, `parser_after`, where they differ); for a daily
+            series the sources that contributed and how many were withheld.
+          items:
+            type: object
+            required: [period, basis_before, basis_after]
+            properties:
+              period:
+                type: string
+              basis_before:
+                type: string
+              basis_after:
+                type: string
+              parser_before:
+                type: [string, 'null']
+              parser_after:
+                type: [string, 'null']
+              sources_added:
+                type: array
+                items:
+                  type: string
+              sources_removed:
+                type: array
+                items:
+                  type: string
+              withheld_before:
+                type: [integer, 'null']
+              withheld_after:
+                type: [integer, 'null']
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendPoint'
+    TrendSeries:
+      allOf:
+        - $ref: '#/components/schemas/TrendSeriesSummary'
+        - type: object
+          required: [by, from, to, changes_rule, lines, withheld, held_readings]
+          properties:
+            by:
+              type: [string, 'null']
+            from:
+              type: [string, 'null']
+            to:
+              type: [string, 'null']
+            changes_rule:
+              type: string
+            lines:
+              type: array
+              items:
+                $ref: '#/components/schemas/TrendLine'
+            withheld:
+              type: array
+              description: Months left out because their data-quality checks held them (no earlier document to serve).
+              items:
+                type: object
+                required: [period, reason]
+                properties:
+                  period:
+                    type: string
+                  reason:
+                    type: string
+                  checks:
+                    type: array
+                    items:
+                      type: string
+            held_readings:
+              type: array
+              description: >-
+                Served months whose newer reading (a re-issue, a correction, a restatement, a file posted under
+                another month's name) its checks hold beside them; the month's earlier document is served until
+                an operator releases the newer one.
+              items:
+                type: object
+                required: [period, reason, checks]
+                properties:
+                  period:
+                    type: string
+                  reason:
+                    type: string
+                  checks:
+                    type: array
+                    items:
+                      type: string
+                  file_id:
+                    type: [string, 'null']
+                  parser_version:
+                    type: [string, 'null']
+    TrendResponse:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [notes]
+          properties:
+            data:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/TrendSeriesSummary'
+                - $ref: '#/components/schemas/TrendSeries'
+            notes:
+              type: object
+              properties:
+                posture:
+                  type: string
+                like_for_like:
                   type: string
     SiteFinderProvenance:
       type: object

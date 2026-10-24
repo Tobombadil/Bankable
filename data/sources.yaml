@@ -4,7 +4,9 @@
 # Field guide
 #   category : generation_queue | load_queue | permit | regulatory_docket | funding | procurement |
 #              registry | planning | news | aggregator | social_channel | market_price (wholesale,
-#              retail and contract prices; context data, never proposals; docs/29, 2026-10-22)
+#              retail and contract prices; context data, never proposals; docs/29, 2026-10-22) |
+#              statistics (national and global operating figures: capacity, generation, shares; context
+#              data, never proposals; docs/26-global-figures.md, 2026-10-23)
 #   access   : api | bulk_file | html | js_app | pdf | rss | email | wsdl
 #   reuse    : open (public domain / open licence) | attribution (open with credit) |
 #              noncommercial (reuse granted for noncommercial purposes only — CC BY-NC, a state site's
@@ -122,6 +124,37 @@ sources:
     Most permissive ISO terms; raw-ok. Clause 6 bars use that degrades ERCOT systems (rate-limit). Clause 8
     bars using the ERCOT list server for marketing. ERCOT Public API (api.ercot.com) needs free registration
     (clickwrap); not required for the GIS report. See docs/13-legal-data-rights.md section 1.1.
+
+- id: us.iso.ercot.gen_queue.history
+  name: ERCOT GIS Report (Generator Interconnection Status) — monthly report archive (December 2018 on), as monthly series
+  jurisdiction: US-TX
+  category: generation_queue
+  operator: ERCOT
+  url: https://www.ercot.com/mp/data-products/data-product-details?id=PG7-200-ER
+  access: api
+  auth: none (public MIS document listing → xlsx download)
+  format: xlsx
+  cadence: monthly
+  poll: weekly
+  license: 'ERCOT Website User Agreement clause 5, retrieved 2026-09-12 — "raw data provided in public portions of this website may be used, reproduced, and redistributed in compilations, charts, and analyses without maintaining such notices"'
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: ERCOT"
+  licence_url: "https://www.ercot.com/help/terms"
+  # Built 2026-10-23 (lane trends-history, docs/24-trends.md section 9). Run by pipeline/connectors/history;
+  # scheduled by infra/scheduler/history.py.
+  runner: history
+  connector: pipeline.connectors.history.ercot_gis.connector (reads us.iso.ercot.gen_queue's stored reports by DocID)
+  tier: 1
+  effort: M
+  probe: {method: GET, url: "https://www.ercot.com/misapp/servlets/IceDocListJsonWS?reportTypeId=15933"}
+  verified: {date: 2026-10-24, result: ok, rows: 94, note: 'Fix round 2026-10-24 (technology read from the fuel first; held readings kept beside a served month; a disputed report name or a duplicate file holds): restatement runs 8ae894bf and 419bdf18 into a hardlinked copy of the 2026-10-23 data root, 1 request each (the MIS listing), 94 months replaced from snapshots in 29 to 31 s; 82 pass, 12 warn (fuel or technology codes ERCOT''s Acronyms sheet does not list: COAL, BAT, MWH, BL, BO, SO), none held, no period mismatch or duplicate file in the archive; every document now carries the listing''s name and PublishDate; coal in 12 months, biomass in 21, oil in 22 (2020-03: coal 493 MW, gas_steam 553 -> 60 MW); 2026-09 still 1,758 projects and 438,496 MW. Earlier, lane trends-history, from this sandbox into a scratch data root: backfill run bb2fa849 2026-10-23T22:04:53Z to 22:08:10Z, 95 requests (the MIS listing, then 94 GIS reports at 0.5 rps, robots override as us.iso.ercot.gen_queue), 49,119,704 bytes, 94 months written, 2018-12 to 2026-09 (the listing keeps every GIS report since December 2018; five months re-issued as _revised/_Correction/_CORRECTION2/_Corrected, the latest published taken). Restatements 648f5a60 and d0cd1162 (parser changes): 1 request each, 94 months replaced from snapshots in 33 s, DQ pass on every month; rerun ab0bb74c unchanged, 1 request. Bases: one Project Details sheet from 2018-12, the excludes-Inactive note from 2019-08, Large Gen and Small Gen sheets from 2022-02 (no change computed across either break). 367 projects and 70,634 MW in 2018-12; 1,758 and 438,496 MW in 2026-09, +10.6 % on the year. Rechecked 23:52Z after the runner fix round (an older copy of a month never replaces a later one; the index is never parked): run b5ec9438 auto (monthly) unchanged, 1 request.'}
+  notes: >-
+    Same report, listing and terms as us.iso.ercot.gen_queue (Website User Agreement clause 5; clause 6 bars use
+    that degrades ERCOT systems, so 0.5 rps); a separate id because its output is a monthly series: one document per
+    report month tallying projects and MW by technology, status (the register's milestone rule), study phase, zone
+    and projected COD year, for GET /v1/trends. The MIS listing keeps every GIS report since December 2018; a
+    corrected re-issue of a month replaces that month.
 
 - id: us.iso.ercot.large_load_queue
   name: ERCOT Large Load Interconnection Status Report
@@ -613,6 +646,58 @@ sources:
     retirement date, or moving to the Retired sheet, is an event on its power_plant asset
     (services/ingest/retirements.py). Kind `document`, so the generic proposal loader refuses it; the
     loader table in services/ingest/loader.py routes it to the retirement loader. See docs/27 section R1.
+
+- id: us.eia.860m.history
+  name: EIA-860M Preliminary Monthly Electric Generator Inventory — monthly archive (July 2015 on), as monthly series
+  jurisdiction: US
+  category: registry
+  operator: US Energy Information Administration
+  url: https://www.eia.gov/electricity/data/eia860m/
+  access: bulk_file
+  auth: none
+  format: xlsx (one workbook a month; sheets Operating, Planned, Retired, Canceled or Postponed, and *_PR from 2018)
+  cadence: monthly
+  poll: weekly
+  license: >-
+    US federal work — public domain (17 U.S.C. §105). EIA, Copyrights and Reuse
+    (https://www.eia.gov/about/copyrights_reuse.php, quoted in docs/13-legal-data-rights.md section 2.11): "You may use
+    and/or distribute any of our data, files, databases, reports, graphs, charts, and other information products that are
+    on our website ... if you use or reproduce any of our information products, you should use an acknowledgment, which
+    includes the publication date, such as: "Source: U.S. Energy Information Administration (Oct 2008).""
+  reuse: open
+  publication: raw_ok
+  attribution: "Source: U.S. Energy Information Administration"
+  # Built 2026-10-23 (lane trends-history, docs/24-trends.md section 9). Run by pipeline/connectors/history (not
+  # the record runner); scheduled by infra/scheduler/history.py.
+  runner: history
+  connector: pipeline.connectors.history.eia860m.connector (direct xlsx parse; reads us.eia.860m's stored snapshots)
+  rate_limit_rps: 1
+  # The archive years: eia.gov's robots.txt disallows /*archive/ (read 2026-10-23), so no request goes there. A
+  # backfill reads the same EIA files from Catalyst Cooperative's public archive on Zenodo (yearly zips of EIA's
+  # monthly workbooks, 2015-07 to 2026-08 in version 50.0.0, licence "U.S. Government Works"), or from files a
+  # person downloads into <data root>/inbox/us.eia.860m.history/. Zenodo Terms of Use v1.3 (about.zenodo.org/terms,
+  # read 2026-10-23): "Access to Zenodo's content is open to all, for non-military purposes only." and "Users of
+  # content ("Users") shall respect applicable license conditions."; its robots.txt allows /records/<id>/files/
+  # and asks Crawl-delay 10. Switched off until the decision to read it is recorded in docs/00-PLAN.md (lane
+  # trends-history fix round, 2026-10-24): with it off, a backfill reads us.eia.860m's stored months, a person's
+  # downloads and EIA's current month. `enabled: true` is the one switch; the next weekly tick then backfills
+  # from the record (runner.effective_mode), about 1.16 GB at 0.1 rps (docs/24-trends.md section 9.6).
+  mirror:
+    enabled: false
+    name: Catalyst Cooperative, PUDL Raw EIA Form 860M (Zenodo)
+    doi: 10.5281/zenodo.22995197
+    datapackage_url: https://zenodo.org/records/22995197/files/datapackage.json
+    rate_limit_rps: 0.1
+  tier: 1
+  effort: M
+  probe: {method: GET}
+  verified: {date: 2026-10-24, result: ok, rows: 135, note: 'Fix round 2026-10-24 (mirror switched off pending its decision; generators without a Plant ID counted under excluded; blank technology and cumulative Retired-list checks; a 304 keeps the validators it does not repeat): restatement runs 22820532 and b3978b45 into a hardlinked copy of the 2026-10-23 data root, 135 months replaced from snapshots each, 5 requests each (the index, its placeholder months, September''s workbook: 200 and 14,013,970 bytes in the first, because the 23:52 run''s 304 had recorded the ETag alone, then a 304); 116 pass, 19 warn, none held; the Retired list restated in 2024-11, 2024-12, 2026-08 and 2026-09 and shrank in 2024-01, 2024-08, 2024-11 and 2026-09 (warned); 12 generators without a Plant ID in 2026-08 only (11 in the 50 states and DC, 1 in Puerto Rico); rows with no technology in 76 months, 100 MW or more in 2016-12, 2023-05, 2023-12 and 2026-09 (warned). No request to Zenodo or to any eia.gov /archive/ path. Earlier, lane trends-history, from this sandbox into a scratch data root: backfill run bf3b0a1b 2026-10-23T22:09:58Z to 22:47:11Z, 19 requests (www.eia.gov index page and its not-yet-published month links, September 2026 workbook from EIA itself, 200, 14,013,970 bytes, sha256 bcef74e1...da17; Zenodo record 22995197 datapackage.json and 12 yearly zips at 0.1 rps, md5 checked), 1,162,721,641 bytes, 135 months written, 2015-07 to 2026-09; no request to any eia.gov /archive/ path (robots.txt Disallow: /*archive/). That run held every month (a check bug, fixed); restatement ae4917ef 22:53:10Z to 23:11:31Z, 7 requests (a 304 for the current workbook), 135 months replaced from snapshots: 125 pass, 10 warn (status codes OP, OT, OA outside the vocabulary in 2015-11, 2016-04 to 2016-07, 2017-03, 2018-11, 2026-06; planned-retirement rows moved 21 to 29 % in 2016-04, 2019-01, 2026-02), none held. Bases: nameplate MW from 2016-04, the Retired sheet lists every retirement since 2002 from 2017-03, Puerto Rico from 2018-03 (left out of national figures). Planned 1,150 generators and 95,655 MW net summer in 2015-07, 2,358 and 282,834 MW in 2026-09 (+9.2 % on the year); operating 1,063,722 and 1,324,125 MW (50 states and DC). Rechecked 23:52Z after the runner fix round: run 06318b01 auto (monthly) unchanged, 5 requests (the index, its placeholder months, a 304 for September), the origin validators recorded on the unchanged run.'}
+  notes: >-
+    Same workbooks and terms as us.eia.860m; a separate id because its output is a monthly series, not records: one
+    document per month (normalized/trends/monthly/us.eia.860m.history/YYYY-MM.json) tallying generators and net summer
+    MW by technology, state, status, expected year and retirement year, for GET /v1/trends. Nothing here is a change
+    event. Like for like: the Retired sheet lists every retirement since 2002 only from March 2017, Puerto Rico
+    joins in March 2018 and is left out of every national figure, and only net summer MW is stated in every month.
 
 - id: us.eia.api
   name: EIA Open Data API v2
@@ -5507,6 +5592,69 @@ sources:
   notes: >-
     Planned constraint layer (slope in percent, summarised to 90 m). Built only in GitHub Actions; served only once
     its terms are quoted here.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# N. GLOBAL ELECTRICITY STATISTICS (operating capacity and generation; context figures, never proposals)
+# Owner, 2026-10-23: "If we have numbers that are credible for Global numbers then let's lead with those as
+# the top level global statistics you can drill into. But otherwise let's stick to the US." These are
+# operating figures, not pipelines (docs/26-global-figures.md §4); `runner: global` keeps the generic
+# bucket ticks off the row, and infra/scheduler/global_figures.py runs it twice a month.
+# ─────────────────────────────────────────────────────────────────────────────
+- id: global.ember.electricity
+  name: Ember electricity data — yearly and monthly generation, capacity and shares by source for World, regions and 200+ countries
+  jurisdiction: global
+  category: statistics
+  operator: Ember (Ember Energy Research CIC)
+  url: https://api.ember-energy.org/v1/electricity-generation/yearly
+  access: api
+  auth: >-
+    free API key (`EMBER_API_KEY`), requested with an email address at https://ember-energy.org/data/api/ (the
+    owner's step; an agent never signs up); the yearly CSV, the only file with yearly capacity by source, is a
+    person's download into <data root>/inbox/global.ember.electricity/ with a sidecar recording when it was
+    downloaded (docs/26-global-figures.md §2). Sign-up terms, the API page's "Personal data disclaimer" (read
+    2026-10-24 at about 01:50 UTC): "By requesting an API key, you agree to the following terms: Email verification
+    is used to ensure that API keys are secure and can only be overwritten by the owner of the email address. All
+    email addresses are hashed before being stored in our database. The email domain name (e.g. gmail.com,
+    ember-energy.org) will be used internally to help measure the impact of our data, but no processing will occur
+    on any personal data. No data will be shared with partner organisations or any third parties. You can request
+    to be deleted from our database at any time by contacting [an address the page obfuscates], but doing so will
+    revoke access for your API key." They govern Ember's handling of the requester's email address and restrict no
+    reuse of the data; deleting the address revokes the key.
+  format: JSON (API v1, OpenAPI 1.2.3); CSV (a person's download, July 2026 layout)
+  cadence: twice monthly (Ember updates in the first and third weeks of each month)
+  runner: global
+  connector: pipeline.connectors.global_ember_electricity
+  rate_limit_rps: 0.5
+  license: >-
+    Ember Data API documentation, https://api.ember-energy.org/v1/openapi.json (info.description, "License and
+    Attribution", read 2026-10-23 at about 20:28 UTC): "Our data is published using the CC-BY-4.0 license. Anyone is
+    able to use our data for any purpose (personal, commercial, etc.). The only requirements by this license are
+    that: 1. Ember is cited as the data source. E.g. 'Monthly electricity generation data, Ember' 2. You may not add
+    any additional legal/technological restrictions to the data." Creative Commons page,
+    https://ember-energy.org/creative-commons/ (read 2026-10-23 at about 20:26 UTC): "Ember content is released under
+    a Creative Commons Attribution Licence (CC-BY-4.0)"; "This means you're free to share and adapt our work – as
+    long as you credit us."; "If you would like to use our logo, we ask that you request permission." Site footer on
+    every data page: "All content is released under a Creative Commons Attribution Licence (CC-BY-4.0)."
+  reuse: attribution
+  publication: raw_ok
+  attribution: "Yearly and monthly electricity data, Ember, licensed under CC BY 4.0"
+  changes_statement: "Modified by Inframation: areas keyed to ISO 3166 codes, source names normalised, and year-on-year changes, clean shares and rankings computed by Inframation; not endorsed by Ember."
+  licence_url: "https://creativecommons.org/licenses/by/4.0/"
+  tier: 2
+  effort: M
+  probe: {url: 'https://api.ember-energy.org/v1/docs', method: GET}
+  verified: {date: 2026-10-24, result: needs_key, rows: 0, note: 'Lane global-ember, 2026-10-23. API: GET /v1/options/electricity-generation/yearly/date without a key answered 403 {"detail":"No API key set"}; /v1/docs and /v1/openapi.json answered 200 (55,352 bytes; API version 1.2.3); api.ember-energy.org/robots.txt answers 404 (no rules). Endpoints: electricity-generation yearly and monthly (generation_twh, share_of_generation_pct), installed-capacity monthly (wind and solar only: "covering 25 countries", the dataset page), demand, emissions, carbon intensity; "At present, there are no rate limiting restrictions for the API". Yearly capacity by source is in the yearly CSV only: https://files.ember-energy.org/public-downloads/generation/outputs/release_generation_yearly_global.csv (Last-Modified Mon, 19 Oct 2026 20:26:55 GMT, 1,925,490 bytes gzipped). files.ember-energy.org/robots.txt (read 2026-10-23): "User-agent: * / Disallow: / / Allow: /*.pdf$", so no connector or probe fetches the CSVs; two HEAD requests to the yearly and monthly CSV links were sent in the same command that first read that robots.txt, before its answer was read, and nothing was downloaded. The methodology PDF (allowed) was read: annual data "generally available until 2025"; regional and world figures for the latest year are estimated where countries have not reported. No row has been fetched from the API: the connector waits on the owner''s key or a person''s download. Fix round, 2026-10-24 at about 01:50 to 01:58 UTC (one request each, the platform User-Agent): ember-energy.org/robots.txt allows /data/ (it disallows only /wp/wp-admin/, /wp-json/ and /?rest_route=); https://ember-energy.org/data/api/ answered 200: its sign-up terms are a personal-data disclaimer only (quoted under auth) and restrict no reuse, and it lists Yearly, Monthly and Monthly Wind and Solar Capacity data, each "Last Updated: 20/03/2026"; the yearly and monthly data pages answered 200 and both describe the July 2026 download in the same words, "One row per area, month and electricity source", the yearly page offering "Yearly electricity data – Global (CSV)" (release_generation_yearly_global.csv) and "Yearly electricity data – Europe only (CSV)" (release_generation_yearly_lower.csv); /v1/docs answered 200 and /v1/options/electricity-generation/yearly/date without a key 403 {"detail":"No API key set"}. The first person''s download of each dataset is held for a person''s check before it is served (docs/26 §7).'}
+  notes: >-
+    Operating figures (installed capacity, electricity generated, share of generation), never proposals: no record,
+    event or change on the public feed comes from this row, and a revised value is a statistical revision counted on
+    the run, not news. Routes: the API with EMBER_API_KEY (yearly generation since 2000 for every area, monthly
+    generation for a rolling 36 months for 88 areas, monthly wind and solar capacity since 2016), and a person's
+    download of the yearly Global CSV (not the Europe-only one) dropped in the inbox with its sidecar (capacity by
+    source, every area). Ember's global data has no
+    storage series. The latest yearly data covers fewer countries than earlier years until national sources report;
+    the API reports the latest complete year beside the latest year. Ember's logo is never used (permission
+    required). The CSV host's robots.txt forbids robots: if a person's download is not enough, the owner asks Ember
+    (data@ember-energy.org) whether yearly capacity can be added to the API or the CSV fetched automatically.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # J. SOCIAL DISTRIBUTION CHANNELS (outbound, not data sources — recorded for cost/feasibility)

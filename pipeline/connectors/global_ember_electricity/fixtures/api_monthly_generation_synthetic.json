@@ -1,0 +1,820 @@
+{
+ "_fixture": "SYNTHETIC test fixture: Ember's published answer shape (OpenAPI 1.2.3, read 2026-10-23) with invented values. Not Ember data. Replace with a trimmed real answer (python -m pipeline.connectors.global_ember_electricity fixture ...) once the owner's API key exists.",
+ "stats": {
+  "timestamp": "2026-10-23T09:49:00Z",
+  "response_time_in_seconds": 1.2,
+  "rate_limit": "None",
+  "number_of_records": 80,
+  "query_parameters_used": {
+   "start_date": "2025-01"
+  },
+  "available_metrics": [
+   "generation_twh",
+   "share_of_generation_pct"
+  ],
+  "query_value_range": {},
+  "query_all_dates_value_range": "Not calculated"
+ },
+ "data": [
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 247.5,
+   "share_of_generation_pct": 8.65
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 256.667,
+   "share_of_generation_pct": 8.97
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 403.333,
+   "share_of_generation_pct": 14.1
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 252.083,
+   "share_of_generation_pct": 8.81
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 614.167,
+   "share_of_generation_pct": 21.47
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 953.333,
+   "share_of_generation_pct": 33.33
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 9.167,
+   "share_of_generation_pct": 0.32
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 64.167,
+   "share_of_generation_pct": 2.24
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 59.583,
+   "share_of_generation_pct": 2.08
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-07-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 2860.0,
+   "share_of_generation_pct": 100.0
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 225.0,
+   "share_of_generation_pct": 8.65
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 233.333,
+   "share_of_generation_pct": 8.97
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 366.667,
+   "share_of_generation_pct": 14.1
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 229.167,
+   "share_of_generation_pct": 8.81
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 558.333,
+   "share_of_generation_pct": 21.47
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 866.667,
+   "share_of_generation_pct": 33.33
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 8.333,
+   "share_of_generation_pct": 0.32
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 58.333,
+   "share_of_generation_pct": 2.24
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 54.167,
+   "share_of_generation_pct": 2.08
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2025-08-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 2600.0,
+   "share_of_generation_pct": 100.0
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 321.75,
+   "share_of_generation_pct": 10.85
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 282.333,
+   "share_of_generation_pct": 9.52
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 411.4,
+   "share_of_generation_pct": 13.87
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 254.604,
+   "share_of_generation_pct": 8.59
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 620.308,
+   "share_of_generation_pct": 20.92
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 943.8,
+   "share_of_generation_pct": 31.83
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 9.167,
+   "share_of_generation_pct": 0.31
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 64.167,
+   "share_of_generation_pct": 2.16
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 57.796,
+   "share_of_generation_pct": 1.95
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-07-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 2965.325,
+   "share_of_generation_pct": 100.0
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 292.5,
+   "share_of_generation_pct": 10.85
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 256.667,
+   "share_of_generation_pct": 9.52
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 374.0,
+   "share_of_generation_pct": 13.87
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 231.458,
+   "share_of_generation_pct": 8.59
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 563.917,
+   "share_of_generation_pct": 20.92
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 858.0,
+   "share_of_generation_pct": 31.83
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 8.333,
+   "share_of_generation_pct": 0.31
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 58.333,
+   "share_of_generation_pct": 2.16
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 52.542,
+   "share_of_generation_pct": 1.95
+  },
+  {
+   "entity": "World",
+   "entity_code": null,
+   "is_aggregate_entity": true,
+   "date": "2026-08-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 2695.75,
+   "share_of_generation_pct": 100.0
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 27.5,
+   "share_of_generation_pct": 6.95
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 42.167,
+   "share_of_generation_pct": 10.66
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 22.0,
+   "share_of_generation_pct": 5.56
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 71.5,
+   "share_of_generation_pct": 18.07
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 165.0,
+   "share_of_generation_pct": 41.7
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 59.583,
+   "share_of_generation_pct": 15.06
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 1.558,
+   "share_of_generation_pct": 0.39
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 4.125,
+   "share_of_generation_pct": 1.04
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 2.292,
+   "share_of_generation_pct": 0.58
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-07-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 395.725,
+   "share_of_generation_pct": 100.0
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 25.0,
+   "share_of_generation_pct": 6.95
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 38.333,
+   "share_of_generation_pct": 10.66
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 20.0,
+   "share_of_generation_pct": 5.56
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 65.0,
+   "share_of_generation_pct": 18.07
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 150.0,
+   "share_of_generation_pct": 41.7
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 54.167,
+   "share_of_generation_pct": 15.06
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 1.417,
+   "share_of_generation_pct": 0.39
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 3.75,
+   "share_of_generation_pct": 1.04
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 2.083,
+   "share_of_generation_pct": 0.58
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 359.75,
+   "share_of_generation_pct": 100.0
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 35.75,
+   "share_of_generation_pct": 8.71
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 46.383,
+   "share_of_generation_pct": 11.3
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 22.44,
+   "share_of_generation_pct": 5.47
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 72.215,
+   "share_of_generation_pct": 17.6
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 166.65,
+   "share_of_generation_pct": 40.61
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 58.988,
+   "share_of_generation_pct": 14.38
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 1.558,
+   "share_of_generation_pct": 0.38
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 4.125,
+   "share_of_generation_pct": 1.01
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 2.223,
+   "share_of_generation_pct": 0.54
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-07-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 410.332,
+   "share_of_generation_pct": 100.0
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "generation_twh": 32.5,
+   "share_of_generation_pct": 8.71
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "generation_twh": 42.167,
+   "share_of_generation_pct": 11.3
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Hydro",
+   "is_aggregate_series": false,
+   "generation_twh": 20.4,
+   "share_of_generation_pct": 5.47
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Nuclear",
+   "is_aggregate_series": false,
+   "generation_twh": 65.65,
+   "share_of_generation_pct": 17.6
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Gas",
+   "is_aggregate_series": false,
+   "generation_twh": 151.5,
+   "share_of_generation_pct": 40.61
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Coal",
+   "is_aggregate_series": false,
+   "generation_twh": 53.625,
+   "share_of_generation_pct": 14.38
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Other Renewables",
+   "is_aggregate_series": false,
+   "generation_twh": 1.417,
+   "share_of_generation_pct": 0.38
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Bioenergy",
+   "is_aggregate_series": false,
+   "generation_twh": 3.75,
+   "share_of_generation_pct": 1.01
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Other Fossil",
+   "is_aggregate_series": false,
+   "generation_twh": 2.021,
+   "share_of_generation_pct": 0.54
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Total Generation",
+   "is_aggregate_series": true,
+   "generation_twh": 373.03,
+   "share_of_generation_pct": 100.0
+  }
+ ]
+}

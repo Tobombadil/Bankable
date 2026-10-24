@@ -1,0 +1,340 @@
+{
+ "_fixture": "SYNTHETIC test fixture: Ember's published answer shape (OpenAPI 1.2.3, read 2026-10-23) with invented values. Not Ember data. Replace with a trimmed real answer (python -m pipeline.connectors.global_ember_electricity fixture ...) once the owner's API key exists.",
+ "stats": {
+  "timestamp": "2026-10-23T09:49:00Z",
+  "response_time_in_seconds": 1.2,
+  "rate_limit": "None",
+  "number_of_records": 32,
+  "query_parameters_used": {
+   "start_date": "2016-01"
+  },
+  "available_metrics": [
+   "capacity_gw",
+   "capacity_w_per_capita"
+  ],
+  "query_value_range": {},
+  "query_all_dates_value_range": "Not calculated"
+ },
+ "data": [
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 176.92,
+   "capacity_w_per_capita": 530.8
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 142.86,
+   "capacity_w_per_capita": 428.6
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 207.09,
+   "capacity_w_per_capita": 621.3
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 152.91,
+   "capacity_w_per_capita": 458.7
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 230.0,
+   "capacity_w_per_capita": 690.0
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 160.0,
+   "capacity_w_per_capita": 480.0
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 269.21,
+   "capacity_w_per_capita": 807.6
+  },
+  {
+   "entity": "United States",
+   "entity_code": "USA",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 171.26,
+   "capacity_w_per_capita": 513.8
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 807.69,
+   "capacity_w_per_capita": 2423.1
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 517.86,
+   "capacity_w_per_capita": 1553.6
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 945.39,
+   "capacity_w_per_capita": 2836.2
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 554.29,
+   "capacity_w_per_capita": 1662.9
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 1050.0,
+   "capacity_w_per_capita": 3150.0
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 580.0,
+   "capacity_w_per_capita": 1740.0
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 1229.01,
+   "capacity_w_per_capita": 3687.0
+  },
+  {
+   "entity": "China",
+   "entity_code": "CHN",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 620.81,
+   "capacity_w_per_capita": 1862.4
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 84.62,
+   "capacity_w_per_capita": 253.9
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 66.96,
+   "capacity_w_per_capita": 200.9
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 99.04,
+   "capacity_w_per_capita": 297.1
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 71.68,
+   "capacity_w_per_capita": 215.0
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 110.0,
+   "capacity_w_per_capita": 330.0
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 75.0,
+   "capacity_w_per_capita": 225.0
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 128.75,
+   "capacity_w_per_capita": 386.2
+  },
+  {
+   "entity": "Germany",
+   "entity_code": "DEU",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 80.28,
+   "capacity_w_per_capita": 240.8
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 92.31,
+   "capacity_w_per_capita": 276.9
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2024-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 46.43,
+   "capacity_w_per_capita": 139.3
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 108.04,
+   "capacity_w_per_capita": 324.1
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2025-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 49.7,
+   "capacity_w_per_capita": 149.1
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 120.0,
+   "capacity_w_per_capita": 360.0
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2025-12-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 52.0,
+   "capacity_w_per_capita": 156.0
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Solar",
+   "is_aggregate_series": false,
+   "capacity_gw": 140.46,
+   "capacity_w_per_capita": 421.4
+  },
+  {
+   "entity": "India",
+   "entity_code": "IND",
+   "is_aggregate_entity": false,
+   "date": "2026-08-01",
+   "series": "Wind",
+   "is_aggregate_series": false,
+   "capacity_gw": 55.66,
+   "capacity_w_per_capita": 167.0
+  }
+ ]
+}

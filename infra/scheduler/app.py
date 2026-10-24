@@ -39,6 +39,8 @@ The loop (docs/20 §3, closed 2026-09-18 — audit §3.1 "the always-on loop is 
                                                       and USD equivalent restated (no last_changed)
     tick_retention (daily) -> retention_tick          DA-10: old sessions, alert addresses, raw snapshots
     tick_trends (hourly :58) -> trends_tick          the daily metrics snapshot (05:58; later, if missing)
+    tick_global_electricity (8th, 22nd) -> global_electricity_refresh   Ember's figures: fetch, then load
+    tick_history_* (weekly) -> history_fetch          monthly series from official archives (history.py)
     tick_stalled_jobs (10 min) -> retry_stalled_jobs  jobs a dead worker left `doing` (queue_maintenance.py)
     tick_prune_jobs (daily) -> remove_old_jobs        finished jobs past their keep period
     admin release         ->  release_held_run        a DQ-held run an operator released (2026-09-27):
@@ -79,7 +81,7 @@ import procrastinate
 import sqlalchemy.exc
 import yaml
 
-from infra.scheduler import jobs, prices, queue_maintenance
+from infra.scheduler import global_figures, history, jobs, prices, queue_maintenance
 from infra.scheduler.cadence import (
     CRON_BY_BUCKET,
     execution_lock_for,
@@ -340,6 +342,10 @@ def due_sources(bucket: str, timestamp: int) -> list[dict[str, Any]]:
     for source in _load_sources():
         if prices.is_price_source(source):
             continue  # the price ticks below run these (infra/scheduler/prices.py)
+        if global_figures.is_global_source(source):
+            continue  # `tick_global_electricity` runs it (infra/scheduler/global_figures.py)
+        if history.is_history_source(source):
+            continue  # the history ticks below run these (infra/scheduler/history.py)
         try:
             if is_due(source, bucket, month):
                 due.append(source)
@@ -925,6 +931,45 @@ for _price_tick in prices.PRICE_TICKS:
     _register_price_tick(_price_tick)
 
 
+# Activity over time (lane trends-history, 2026-10-23; docs/24-trends.md section 9): each history
+# source's weekly tick, backfill first, then the month's update (schedule and body in history.py).
+@app.task(name="history_fetch", queue="fetch", retry=FETCH_RETRY, pass_context=True)
+def history_fetch(context: procrastinate.JobContext, source_id: str) -> None:
+    """One history run through its CLI. Retried like `run_connector`: a transient failure only."""
+    attempts = int(getattr(context.job, "attempts", 0) or 0)
+    final_attempt = FETCH_RETRY.max_attempts is not None and attempts >= FETCH_RETRY.max_attempts
+    trigger = jobs.RETRY_TRIGGER if attempts > 0 else jobs.SCHEDULED_TRIGGER
+    outcome = history.history_fetch_job(
+        source_id, trigger=trigger, attempt=attempts + 1, final_attempt=final_attempt
+    )
+    status = outcome["status"]
+    if status in ("ok", "unchanged", "partial", "refused"):
+        return
+    if outcome.get("transient"):
+        raise TransientConnectorFailure(f"history run failed for {source_id} ({status}); will retry")
+    raise ConnectorRunFailed(f"history run for {source_id} ended {status}; not retried")
+
+
+def _register_history_tick(tick: history.HistoryTick) -> None:
+    @app.periodic(cron=tick.cron, periodic_id=tick.periodic_id)
+    @app.task(name=f"tick_history_{safe_id(tick.source_id)}", queue=SCHEDULER_ONLY_QUEUE)
+    def _tick(timestamp: int, _tick: history.HistoryTick = tick) -> None:
+        try:
+            history_fetch.configure(
+                lock=execution_lock_for(_tick.reads_from),
+                queueing_lock=f"history:{safe_id(_tick.source_id)}",
+            ).defer(source_id=_tick.source_id)
+        except procrastinate.exceptions.AlreadyEnqueued:
+            logger.info(
+                "skipped: previous history fetch still queued or running",
+                extra={"source_id": _tick.source_id},
+            )
+
+
+for _history_tick in history.HISTORY_TICKS:
+    _register_history_tick(_history_tick)
+
+
 @app.periodic(cron=prices.PRICE_STATS_CRON, periodic_id="tick:price_stats")
 @app.task(name="tick_price_stats", queue=SCHEDULER_ONLY_QUEUE)
 def _tick_price_stats(timestamp: int) -> None:
@@ -941,6 +986,37 @@ def _tick_resolve(timestamp: int) -> None:
         resolve_tick.defer()
     except procrastinate.exceptions.AlreadyEnqueued:
         logger.info("skipped: previous resolve_tick still queued or running")
+
+
+# Global electricity figures (owner, 2026-10-23; docs/26-global-figures.md): Ember's data twice a month, the
+# fetch and then the load (schedule and body in global_figures.py). Retried like `run_connector`: a transient
+# failure only, with the same backoff and dead letter; a missing or refused key is `blocked`, recorded on the
+# source's health and not retried. The figures already loaded stay served whatever happens.
+@app.task(name="global_electricity_refresh", queue="fetch", retry=FETCH_RETRY, pass_context=True)
+def global_electricity_refresh(context: procrastinate.JobContext) -> None:
+    attempts = int(getattr(context.job, "attempts", 0) or 0)
+    final_attempt = FETCH_RETRY.max_attempts is not None and attempts >= FETCH_RETRY.max_attempts
+    trigger = jobs.RETRY_TRIGGER if attempts > 0 else jobs.SCHEDULED_TRIGGER
+    outcome = global_figures.global_electricity_job(
+        trigger=trigger, attempt=attempts + 1, final_attempt=final_attempt
+    )
+    status = outcome["status"]
+    if status in ("ok", "unchanged", "partial", "refused"):
+        return
+    if outcome.get("transient"):
+        raise TransientConnectorFailure(f"global electricity run failed ({status}); will retry with backoff")
+    raise ConnectorRunFailed(f"global electricity run ended {status}; not retried")
+
+
+@app.periodic(cron=global_figures.GLOBAL_ELECTRICITY_CRON, periodic_id=global_figures.PERIODIC_ID)
+@app.task(name="tick_global_electricity", queue=SCHEDULER_ONLY_QUEUE)
+def _tick_global_electricity(timestamp: int) -> None:
+    try:
+        global_electricity_refresh.configure(
+            lock=execution_lock_for(global_figures.SOURCE_ID), queueing_lock="global_electricity"
+        ).defer()
+    except procrastinate.exceptions.AlreadyEnqueued:
+        logger.info("skipped: previous global_electricity_refresh still queued or running")
 
 
 def main() -> None:
