@@ -494,9 +494,11 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      # Third-party actions pinned by commit SHA, as in release.yml: on pushes to main this job writes
+      # the BuildKit cache (type=gha) that release.yml's pushed images are built from (docs/44 GHA-001).
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: build api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: infra/docker/Dockerfile
@@ -507,7 +509,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: build web
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: infra/docker/Dockerfile
@@ -517,7 +519,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: build worker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: infra/docker/Dockerfile
@@ -527,7 +529,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: build browser-worker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: infra/docker/Dockerfile.browser-worker
