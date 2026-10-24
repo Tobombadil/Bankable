@@ -59,6 +59,9 @@ URL, sending data out or committing.
 - CRM system of record is Attio; billing is Stripe; both sit behind the ports in `docs/20` §9 (owner, 2026-09-13).
 - Record any decision in the decisions log in `docs/00-PLAN.md`. Record any assumption in the doc that depends on it.
 - Preferred tone in docs: direct, evidence first, calibrated confidence, no filler.
+- Asking the owner for anything: make each ask self-contained (owner, 2026-10-24: "don't send it without context ...
+  let's not assume I read everything you send"). Say what it is, why it matters, how long it takes and exactly what to
+  send back, with the links, every time; never point at an earlier message or a doc as the only explanation.
 - Design: every page and screen follows the taste skill (`.claude/skills/taste-skill`, vendored, MIT; owner,
   2026-10-23). Screens people work in (the map, lists, record pages, My pipeline, admin) follow its
   `references/app-screens.md`; pages people read (About, Methodology, a landing section) follow its run. Gate UI work
